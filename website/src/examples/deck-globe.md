@@ -5,11 +5,11 @@ description: Tangram basemaps projected through deck.gl GlobeView.
 hide_title: true
 ---
 
-<!--
+{/*
 tangram-layers
 SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
--->
+ */}
 
 import DeckExample from '@site/src/components/DeckExample';
 

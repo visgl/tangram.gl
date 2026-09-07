@@ -2,11 +2,11 @@
 title: Experimental WebXR presentation
 ---
 
-<!--
+{/*
 tangram-layers
 SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
--->
+ */}
 
 # Experimental WebXR presentation
 

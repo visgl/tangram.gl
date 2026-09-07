@@ -5,11 +5,11 @@ description: A Tangram basemap driven by deck.gl's FirstPersonView.
 hide_title: true
 ---
 
-<!--
+{/*
 tangram-layers
 SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
--->
+ */}
 
 import DeckExample from '@site/src/components/DeckExample';
 
