@@ -246,6 +246,9 @@ function getCommentStyle(filePath) {
   }
 
   const extension = extname(filePath);
+  if (extension === '.md' && (filePath.startsWith('docs/') || filePath.startsWith('website/src/'))) {
+    return 'mdx';
+  }
   if (LINE_COMMENT_EXTENSIONS.has(extension)) {
     return 'line';
   }
@@ -290,6 +293,8 @@ export function getHeader(filePath, commentStyle) {
       return `/*\n${lines.map(line => ` * ${line}`).join('\n')}\n */\n\n`;
     case 'html':
       return `<!--\n${lines.join('\n')}\n-->\n\n`;
+    case 'mdx':
+      return `{/*\n${lines.join('\n')}\n */}\n\n`;
     default:
       throw new Error(`Unsupported comment style: ${commentStyle}`);
   }
@@ -322,8 +327,8 @@ export function getHeaderInsertionIndex(filePath, source) {
 }
 
 function getExistingHeaderEnd(commentStyle, sourceAtHeader) {
-  if (commentStyle === 'block' || commentStyle === 'html') {
-    const marker = commentStyle === 'block' ? '*/' : '-->';
+  if (commentStyle === 'block' || commentStyle === 'html' || commentStyle === 'mdx') {
+    const marker = commentStyle === 'block' ? '*/' : commentStyle === 'mdx' ? '*/}' : '-->';
     const markerIndex = sourceAtHeader.indexOf(marker);
     return markerIndex >= 0 ? markerIndex + marker.length : 0;
   }
@@ -362,7 +367,7 @@ export function updateLicenseHeader(filePath, source) {
   const startsWithComment = headerPreamble.startsWith('//') ||
     headerPreamble.startsWith('#') ||
     headerPreamble.startsWith('/*') ||
-    headerPreamble.startsWith('<!--');
+    headerPreamble.startsWith('<!--') || headerPreamble.startsWith('{/*');
   if (startsWithComment && headerPreamble.includes(SPDX_LINE)) {
     const existingHeaderEnd = getExistingHeaderEnd(commentStyle, sourceAtHeader);
     if (existingHeaderEnd > 0) {
