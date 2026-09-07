@@ -63,12 +63,22 @@ describe('small renderer utilities', () => {
   test('resolves and classifies URLs', () => {
     expect(addBaseURL('../style.yaml', 'https://example.com/scenes/main.yaml'))
       .toBe('https://example.com/scenes/../style.yaml');
+    expect(addBaseURL('/style.yaml', 'https://example.com/scenes/main.yaml'))
+      .toBe('https://example.com/style.yaml');
+    expect(addBaseURL('https://example.com/style.yaml', 'https://example.com/scenes/main.yaml'))
+      .toBe('https://example.com/style.yaml');
+    expect(addBaseURL('', 'https://example.com/scenes/main.yaml')).toBe('');
     expect(pathForURL('https://example.com/scenes/main.yaml?version=1#map')).toBe('https://example.com/scenes/');
+    expect(pathForURL(null as unknown as string)).toBe('');
     expect(extensionForURL('https://example.com/scenes/main.yaml?version=1')).toBe('yaml?version=1');
+    expect(extensionForURL('https://example.com/scenes/README')).toBeUndefined();
     expect(flattenRelativeURL('scenes/styles/../main.yaml')).toBe('scenes/main.yaml');
     expect(isRelativeURL('./main.yaml')).toBe(true);
     expect(isRelativeURL('https://example.com/main.yaml')).toBe(false);
+    expect(isRelativeURL(null)).toBe(false);
+    expect(isRelativeURL('data:text/plain,style')).toBe(false);
     expect(isLocalURL('blob:https://example.com/id')).toBe(true);
+    expect(isLocalURL(null)).toBe(false);
   });
 
   test('adds URL parameters without duplicating existing values', () => {

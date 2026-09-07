@@ -103,7 +103,7 @@ jobs:
       - name: Build packages
         run: yarn build
       - name: Install Chromium
-        run: yarn dlx playwright install --with-deps chromium
+        run: yarn playwright install --with-deps chromium
       - name: Run dev-tools headless browser tests
         run: yarn test-headless
 
@@ -127,7 +127,7 @@ jobs:
       - name: Build packages
         run: yarn build
       - name: Install Chromium
-        run: yarn dlx playwright install --with-deps chromium
+        run: yarn playwright install --with-deps chromium
       - name: Collect Node coverage blob
         run: |
           mkdir -p .vitest-reports

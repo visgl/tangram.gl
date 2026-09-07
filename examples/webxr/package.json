@@ -5,16 +5,16 @@
   "description": "Experimental stereoscopic Tangram globe rendered through luma.gl WebXR",
   "type": "module",
   "dependencies": {
-    "@deck.gl/core": "9.4.0-alpha.2",
-    "@luma.gl/core": "9.4.0-beta.3",
-    "@luma.gl/engine": "9.4.0-beta.3",
-    "@luma.gl/experimental": "9.4.0-beta.3",
-    "@luma.gl/shadertools": "9.4.0-beta.3",
-    "@luma.gl/webgl": "9.4.0-beta.3",
-    "@luma.gl/webgpu": "9.4.0-beta.3",
+    "@deck.gl/core": "9.4.0",
+    "@luma.gl/core": "9.4.0",
+    "@luma.gl/engine": "9.4.0",
+    "@luma.gl/experimental": "9.4.0",
+    "@luma.gl/shadertools": "9.4.0",
+    "@luma.gl/webgl": "9.4.0",
+    "@luma.gl/webgpu": "9.4.0",
     "@math.gl/core": "^4.1.0",
     "@vis.gl/tangram-layers": "workspace:^",
     "@vis.gl/tangram-renderer": "workspace:^",
-    "mjolnir.js": "^3.1.0"
+    "mjolnir.js": "^3.1.1"
   }
 }
