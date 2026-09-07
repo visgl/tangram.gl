@@ -1,8 +1,8 @@
-<!--
+{/*
 tangram-layers
 SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
--->
+ */}
 
 # TangramLayer
 
@@ -226,7 +226,7 @@ properties. The properties below are specific to `TangramLayer`.
 
 ### Scene
 
-#### `scene` (string | object, required) {#scene}
+#### `scene` (string | object, required) {/* #scene */}
 
 The Tangram scene to load. It may be:
 
@@ -239,7 +239,7 @@ Changing the `scene` reference destroys the current Tangram renderer and creates
 Keep an object-valued scene stable between React renders (for example, define it outside the
 component or memoize it).
 
-#### `sceneBasePath` (string, optional) {#scenebasepath}
+#### `sceneBasePath` (string, optional) {/* #scenebasepath */}
 
 * Default: `null`
 
@@ -249,7 +249,7 @@ different directory.
 
 Changing `sceneBasePath` reloads the scene in a new renderer.
 
-#### `apiKey` (string, optional) {#apikey}
+#### `apiKey` (string, optional) {/* #apikey */}
 
 * Default: `null`
 
@@ -261,7 +261,7 @@ should omit this property.
 
 ### Callbacks
 
-#### `onSceneLoad` (function, optional) {#onsceneload}
+#### `onSceneLoad` (function, optional) {/* #onsceneload */}
 
 * Default: `() => {}`
 
@@ -274,7 +274,7 @@ Called once after the Tangram scene finishes loading:
 The callback receives the renderer-owned Tangram [`Scene`](./scene.md). At this point
 `layer.isLoaded` is `true`.
 
-#### `onSceneError` (function, optional) {#onsceneerror}
+#### `onSceneError` (function, optional) {/* #onsceneerror */}
 
 * Default: `() => {}`
 
@@ -298,7 +298,7 @@ The following inherited deck.gl properties are particularly relevant:
 
 ## Members
 
-### `isLoaded` (boolean, read-only) {#isloaded}
+### `isLoaded` (boolean, read-only) {/* #isloaded */}
 
 `true` after the current scene has loaded successfully and before the layer is finalized. deck.gl
 uses this getter when determining whether all layers are ready.

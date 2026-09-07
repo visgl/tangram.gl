@@ -4,11 +4,11 @@ title: Examples
 description: Runnable Tangram renderer and deck.gl integration examples.
 ---
 
-<!--
+{/*
 tangram-layers
 SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
--->
+ */}
 
 
 Explore the runnable Tangram integrations. Each example is a first-class Docusaurus

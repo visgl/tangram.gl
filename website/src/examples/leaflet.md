@@ -5,11 +5,11 @@ description: Run the packaged Tangram renderer as a Leaflet layer.
 hide_title: true
 ---
 
-<!--
+{/*
 tangram-layers
 SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
--->
+ */}
 
 import ClassicPlayground from '@site/src/components/ClassicPlayground';
 

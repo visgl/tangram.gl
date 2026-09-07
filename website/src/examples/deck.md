@@ -5,11 +5,11 @@ description: A perspective deck.gl MapView powered by Tangram.
 hide_title: true
 ---
 
-<!--
+{/*
 tangram-layers
 SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
--->
+ */}
 
 import DeckExample from '@site/src/components/DeckExample';
 

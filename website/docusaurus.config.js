@@ -31,6 +31,10 @@ const config = {
     }
   },
   trailingSlash: false,
+  future: {
+    v4: true,
+    faster: true
+  },
 
   presets: [
     [
