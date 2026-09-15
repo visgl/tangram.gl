@@ -13,6 +13,54 @@ import {
 } from '../examples/webxr/webxr-views';
 
 describe('WebXR deck.gl views', () => {
+  it.each(['mono', 'stereo-preview'])(
+    'routes DOM mouse dragging and double-click through gesture recognition in %s', async (mode) => {
+      const element = document.createElement('canvas');
+      element.style.cssText = 'position:fixed;left:0;top:0;width:800px;height:300px';
+      document.body.appendChild(element);
+      const manager = new WebXRViewManager({
+        view: new WebXRMapView({id: 'map', controller: {inertia: false}}),
+        mode,
+        viewState: {longitude: -74, latitude: 40.7, zoom: 14, bearing: 0, pitch: 45}
+      });
+      const timeline = new Timeline();
+      manager.attachController({element, timeline});
+      manager.updateController({width: 800, height: 300});
+      const initialState = {...manager.getViewState()};
+      const pointer = (type, x) => element.dispatchEvent(new PointerEvent(type, {
+        bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0,
+        buttons: type === 'pointerup' ? 0 : 1, clientX: x, clientY: 150
+      }));
+      try {
+        for (const offset of mode === 'stereo-preview' ? [0, 400] : [0]) {
+          manager.setViewState(initialState);
+          pointer('pointerdown', 150 + offset);
+          pointer('pointermove', 155 + offset);
+          pointer('pointermove', 195 + offset);
+          pointer('pointerup', 195 + offset);
+          expect(manager.getViewState().longitude).not.toBe(initialState.longitude);
+          const eyes = manager.makeStereoRenderViews({width: 400, height: 300});
+          expect(eyes[0].deckViewport.longitude).toBe(eyes[1].deckViewport.longitude);
+
+          pointer('pointerdown', 150 + offset);
+          pointer('pointerup', 150 + offset);
+          pointer('pointerdown', 150 + offset);
+          pointer('pointerup', 150 + offset);
+          // Tap recognition waits for competing double-click-drag gestures to fail.
+          await new Promise((resolve) => setTimeout(resolve, 350));
+          // Complete the standard controller's double-click zoom transition.
+          manager.updateTransitions();
+          timeline.setTime(timeline.getTime() + 1000);
+          manager.updateTransitions();
+          expect(manager.getViewState().zoom).toBeGreaterThan(initialState.zoom);
+        }
+      } finally {
+        manager.finalize();
+        element.remove();
+      }
+    }
+  );
+
   it('routes deck.gl controller updates into the shared stereo view state', () => {
     const element = document.createElement('canvas');
     const manager = new WebXRViewManager({

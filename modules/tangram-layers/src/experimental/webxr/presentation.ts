@@ -5,7 +5,7 @@
 // @ts-nocheck
 
 import {Matrix4} from '@math.gl/core';
-import {EventManager} from 'mjolnir.js';
+import {DoubleClickDrag, EventManager, Pan, Pinch, Tap} from 'mjolnir.js';
 import {createXRPlacementMatrix, getXRGlobeVisibleBounds} from './projection.ts';
 
 /** Default human interpupillary distance used by desktop stereo preview, in meters. */
@@ -52,7 +52,22 @@ export class WebXRPresentation {
   attachController({element, timeline, onViewStateChange = () => {}, onStateChange = () => {}}) {
     const controllerOptions = this.view.controller;
     if (!controllerOptions) return null;
-    this.eventManager = new EventManager(element);
+    // Match deck.gl's gesture setup: mjolnir does not register recognizers by default.
+    // Order matters because gesture dependencies refer to previously registered names.
+    this.eventManager = new EventManager(element, {
+      touchAction: 'none',
+      recognizers: [
+        {recognizer: new Pan({event: 'multipan', threshold: 10, pointers: 2, trackpad: true})},
+        {recognizer: new Pinch({event: 'pinch', trackpad: true}), requireFailure: ['multipan']},
+        {recognizer: new Pan({event: 'pan', threshold: 1}),
+          recognizeWith: ['pinch'], requireFailure: ['multipan']},
+        {recognizer: new Tap({event: 'dblclick', taps: 2, enable: false})},
+        {recognizer: new DoubleClickDrag({event: 'dblclickdrag', enable: false}),
+          recognizeWith: ['dblclick']},
+        {recognizer: new Tap({event: 'click'}), recognizeWith: ['dblclickdrag'],
+          requireFailure: ['dblclick', 'dblclickdrag']}
+      ]
+    });
     this.controllerCallbacks = {timeline, onViewStateChange, onStateChange};
     this.controller = this.createController();
     this.updateController(this.controllerSize);
@@ -113,6 +128,12 @@ export class WebXRPresentation {
       width: viewport.width,
       height: viewport.height
     });
+  }
+
+  /** Advance desktop zoom and inertia transitions once per animation frame. */
+  updateTransitions() {
+    this.controller?.updateTransition();
+    this.rightController?.updateTransition();
   }
 
   finalize() {

@@ -31,6 +31,10 @@ touch, keyboard, and gesture input update one shared view state.
 Desktop stereo uses parallel cameras with off-axis projections and a default 64 mm eye
 separation. The geographic anchor is the convergence point. Map and globe placements determine
 the physical scale of the eye separation; FirstPersonView uses one geographic meter per XR meter.
+Call `updateTransitions()` once per animation frame to advance controller zoom and inertia.
+`attachController` registers deck.gl-compatible mouse and touch gesture recognizers, so drag
+and double-click input work in both Mono and Stereo Preview.
+
 Pass CSS pixel dimensions to `createFrame` and `updateController`. Scale the returned viewport
 rectangles to drawing-buffer pixels when setting GPU render-pass viewports and scissors.
 

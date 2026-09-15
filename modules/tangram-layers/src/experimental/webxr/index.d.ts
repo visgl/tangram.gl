@@ -100,6 +100,8 @@ export class WebXRPresentation {
     onStateChange?: (parameters: Record<string, unknown>) => void;
   }): XRDeckController | null;
   updateController(size: {width: number; height: number}): void;
+  /** Advance desktop zoom and inertia transitions once per animation frame. */
+  updateTransitions(): void;
   finalize(): void;
   createFrame(options: {
     width: number;

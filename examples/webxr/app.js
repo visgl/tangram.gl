@@ -510,6 +510,7 @@ async function initialize() {
     device,
     autoResizeViewport: false,
     onRender: ({animationFrame, time}) => {
+      viewManager.updateTransitions();
       if (xrSession && animationFrame) {
         renderXRFrame(time, animationFrame);
       } else if (stereoPreview) {
