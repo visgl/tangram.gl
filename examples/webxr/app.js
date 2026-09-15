@@ -9,6 +9,7 @@ import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {ClassicWebGLRenderer} from '@vis.gl/tangram-renderer';
 import {createStereoControls} from './stereo-controls.js';
+import {submitEyeRenderPass} from './submit-eye.js';
 import {
   WebXRFirstPersonView,
   WebXRGlobeView,
@@ -326,7 +327,7 @@ function renderStereoPreview() {
     ];
     renderPass.setParameters({viewport: eyeViewport, scissorRect: eyeViewport});
     renderTangram({frame: hostFrame, renderPass, renderViewId: renderView.id});
-    renderPass.end();
+    submitEyeRenderPass(device, renderPass);
   }
 }
 
@@ -380,7 +381,7 @@ function renderXRFrame(time, xrFrame) {
       renderPass,
       renderViewId: renderView.id
     });
-    renderPass.end();
+    submitEyeRenderPass(device, renderPass);
   }
 }
 

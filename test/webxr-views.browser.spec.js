@@ -230,4 +230,24 @@ describe('WebXR deck.gl views', () => {
     expect(manager.controller).not.toBe(rightController);
     manager.finalize();
   });
+
+  it('moves the eyes oppositely without rotating either camera when separation increases', () => {
+    const manager = new WebXRViewManager({
+      view: new WebXRMapView({id: 'map'}),
+      viewState: {longitude: -74, latitude: 40.7, zoom: 14.5, bearing: -20, pitch: 45}
+    });
+    const centered = manager.makeStereoRenderViews({width: 400, height: 500,
+      interpupillaryDistance: 0});
+    const separated = manager.makeStereoRenderViews({width: 400, height: 500,
+      interpupillaryDistance: 0.1});
+    const translations = separated.map((eye, index) => {
+      expect(Array.from(eye.camera.view).slice(0, 12))
+        .toEqual(Array.from(centered[index].camera.view).slice(0, 12));
+      return eye.camera.view[12] - centered[index].camera.view[12];
+    });
+    expect(translations[0]).toBeGreaterThan(0);
+    expect(translations[1]).toBeLessThan(0);
+    expect(translations[0]).toBeCloseTo(-translations[1], 9);
+    manager.finalize();
+  });
 });
