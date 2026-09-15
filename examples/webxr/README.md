@@ -24,6 +24,16 @@ requires a browser that exposes `XRGPUBinding`.
 Each preview eye renders directly into its half of the GPU canvas, sharing one
 depth/color target and scene. The second pass preserves the first eye's output.
 Parallel off-axis cameras provide stereo depth at the placement's physical scale.
+
+Open **Stereo settings** to adjust eye separation (default 64 mm), map scale
+(geographic meters per room meter), or globe radius. **Viewing distance** is the
+optical-axis distance to the geographic anchor in room meters; it changes deck.gl
+zoom so rendering, controllers, picking and tile selection use the same camera.
+Zooming with the mouse updates that distance readout. Reset restores the original
+scale, eye separation and zoom. First-person remains 1:1 and exposes only eye
+separation. Native VR always uses the headset's eye poses; the scale control also
+applies to immersive map/globe placement, but preview eye separation and distance
+do not override headset tracking.
 Drag on either half to update the shared camera. Controls and VR setup instructions
 are available in a collapsible panel below the main viewing area.
 

@@ -143,6 +143,9 @@ export default function WebXRExample({viewMode = 'globe'}) {
               </button>
             ) : null}
           </div>
+          <details id="webxr-stereo-settings" className="webxr-help">
+            <summary>Stereo settings</summary>
+          </details>
           <details className="webxr-help">
             <summary>Controls and VR setup</summary>
             <p className="webxr-hint">

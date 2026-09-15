@@ -8,6 +8,7 @@ import {WebXRAnimationFrameProvider, WebXRManager} from '@luma.gl/experimental';
 import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {ClassicWebGLRenderer} from '@vis.gl/tangram-renderer';
+import {createStereoControls} from './stereo-controls.js';
 import {
   WebXRFirstPersonView,
   WebXRGlobeView,
@@ -18,7 +19,6 @@ import {
   setWebXRSessionWithFallback
 } from './webxr-views.js';
 
-const PREVIEW_RADIUS_METERS = 0.72;
 const NEW_YORK_LONGITUDE = -74.009764;
 const NEW_YORK_LATITUDE = 40.705319;
 const FULL_GLOBE_BOUNDS = [-180, -85, 180, 85];
@@ -134,6 +134,15 @@ let xrReferenceSpaceType = 'local-floor';
 let destroyed = false;
 let thorController = null;
 let lastXRFrameTime = null;
+const stereoControls = createStereoControls({
+  element: document.getElementById('webxr-stereo-settings'),
+  presentation: viewManager,
+  getSize: () => ({
+    width: Math.max(1, canvas.clientWidth / (stereoPreview ? 2 : 1)),
+    height: Math.max(1, canvas.clientHeight)
+  }),
+  onChange: () => animationLoop?.setNeedsRedraw('Stereo settings changed')
+});
 
 const scene = createTronScene({portable: requestedDeviceType === 'webgpu'});
 
@@ -194,7 +203,7 @@ function createPlacementMatrix({immersive, time}) {
         type: 'globe',
         anchor: [viewState.longitude, viewState.latitude, 0],
         pose: {position: immersive ? [0, 1.35, -2.35] : [0.5, 0, -2.6]},
-        radius: PREVIEW_RADIUS_METERS * 2 ** clamp(viewState.zoom, -1, 1.5),
+        radius: viewManager.placement.radius,
         rotation: (-time * 0.00004 * 180) / Math.PI
       },
       viewState
@@ -211,7 +220,7 @@ function createPlacementMatrix({immersive, time}) {
           position: immersive ? [0, 0.72, -1.8] : [0.25, -0.48, -2.4],
           orientation: [Math.sin(extraAngle / 2), 0, 0, Math.cos(extraAngle / 2)]
         },
-        metersPerXRUnit: 2500,
+        metersPerXRUnit: viewManager.placement.metersPerXRUnit,
         surface: {type: 'unbounded'}
       },
       viewState
@@ -294,7 +303,8 @@ function renderStereoPreview() {
   const bufferEyeWidth = Math.floor(bufferWidth / 2);
   const renderViews = viewManager.makeStereoRenderViews({
     width: eyeWidth,
-    height
+    height,
+    interpupillaryDistance: stereoControls.getInterpupillaryDistance()
   });
   const hostFrame = createHostFrame({
     viewport: {x: 0, y: 0, width, height},
@@ -511,6 +521,7 @@ async function initialize() {
     autoResizeViewport: false,
     onRender: ({animationFrame, time}) => {
       viewManager.updateTransitions();
+      stereoControls.refresh();
       if (xrSession && animationFrame) {
         renderXRFrame(time, animationFrame);
       } else if (stereoPreview) {
@@ -585,6 +596,7 @@ async function enableThorGestures() {
 }
 
 function destroy() {
+  stereoControls.destroy();
   if (destroyed) {
     return;
   }
