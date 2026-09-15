@@ -15,7 +15,6 @@ Copyright (c) vis.gl contributors
   <body class="tangram-webxr-standalone">
     <main id="webxr-container">
       <canvas id="webxr-canvas" tabindex="0" aria-label="Interactive Tangram WebXR view"></canvas>
-      <canvas id="webxr-stereo-canvas" aria-label="Side-by-side stereoscopic preview"></canvas>
       <div class="webxr-device-tabs" role="tablist" aria-label="Rendering device">
         <button type="button" data-webxr-device="webgl" role="tab">WebGL 2</button>
         <button type="button" data-webxr-device="webgpu" role="tab">WebGPU</button>
@@ -30,12 +29,15 @@ Copyright (c) vis.gl contributors
           <button id="webxr-exit" type="button" hidden>Exit VR</button>
           <button id="webxr-thor-enable" type="button" hidden>Enable webcam gestures</button>
         </div>
-        <p class="webxr-hint">
-          This experimental example renders one Tangram scene into the per-eye framebuffers and
-          camera matrices supplied by luma.gl. Stereo Preview is always available without an
-          immersive runtime. Drag and scroll to explore; FirstPersonView also supports
-          the deck.gl controller's arrow-key navigation.
-        </p>
+        <details class="webxr-help">
+          <summary>Controls and VR setup</summary>
+          <p class="webxr-hint">
+            This experimental example renders one Tangram scene into the per-eye framebuffers and
+            camera matrices supplied by luma.gl. Stereo Preview is always available without an
+            immersive runtime. Drag and scroll to explore; FirstPersonView also supports
+            the deck.gl controller's arrow-key navigation.
+          </p>
+        </details>
       </aside>
       <p class="webxr-attribution">
         &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>

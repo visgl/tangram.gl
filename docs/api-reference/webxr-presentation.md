@@ -25,7 +25,14 @@ import {
 
 `WebXRPresentation` owns one logical deck.gl view and view state. It can expand that view into
 `mono`, `stereo-preview`, `immersive-vr`, or `auto` render views. Both stereo eyes share the same
-deck.gl controller, so mouse, touch, keyboard, and gesture input update one view state.
+logical camera. Each stereo half has a deck.gl controller sized to that half, so mouse,
+touch, keyboard, and gesture input update one shared view state.
+
+Desktop stereo uses parallel cameras with off-axis projections and a default 64 mm eye
+separation. The geographic anchor is the convergence point. Map and globe placements determine
+the physical scale of the eye separation; FirstPersonView uses one geographic meter per XR meter.
+Pass CSS pixel dimensions to `createFrame` and `updateController`. Scale the returned viewport
+rectangles to drawing-buffer pixels when setting GPU render-pass viewports and scissors.
 
 The presentation returns a matching Tangram `HostFrame` for each frame. Immersive cameras compose
 the XR eye matrices and the geospatial placement as:
@@ -42,6 +49,10 @@ The renderer stays independent from deck.gl and WebXR. It only consumes the resu
   expressed as geographic meters per physical XR meter.
 - `XRGlobePlacement` places a globe with an explicit physical radius and geographic orientation.
 - `XRFirstPersonPlacement` maps one XR meter to one geographic meter in a local east-north-up frame.
+
+Planar placements compensate for Web Mercator's latitude-dependent scale, while altitude remains
+in physical meters. Globe placements face their geographic anchor toward the room's positive Z
+axis, with north toward positive Y.
 
 `createXRPlacementMatrix`, `intersectXRMap`, and `intersectXRGlobe` are exported for applications
 that need custom placement or spatial picking.

@@ -26,7 +26,9 @@ const VIEW_MODES = {
   globe: {
     id: 'globe',
     label: 'GlobeView',
-    zoom: 2,
+    // A room-size globe still needs regional tiles: world-level polygons use
+    // long planar triangles that become visible chords when projected to a sphere.
+    zoom: 5,
     projection: {type: 'globe', visibleBounds: FULL_GLOBE_BOUNDS},
     tileBuffer: 0
   },
@@ -53,8 +55,6 @@ const VIEW_MODES = {
   }
 };
 const canvas = document.getElementById('webxr-canvas');
-const stereoCanvas = document.getElementById('webxr-stereo-canvas');
-const stereoContext = stereoCanvas.getContext('2d');
 const container = document.getElementById('webxr-container');
 const enterButton = document.getElementById('webxr-enter');
 const exitButton = document.getElementById('webxr-exit');
@@ -94,7 +94,7 @@ function createWebXRViewManager(mode) {
       viewState: {
         longitude: NEW_YORK_LONGITUDE,
         latitude: NEW_YORK_LATITUDE,
-        zoom: 15,
+        zoom: 14.5,
         bearing: -20,
         pitch: 45
       }
@@ -104,10 +104,11 @@ function createWebXRViewManager(mode) {
     return new WebXRViewManager({
       view: new WebXRFirstPersonView({id: 'first-person', controller: true, far: 20000}),
       viewState: {
-        longitude: NEW_YORK_LONGITUDE,
-        latitude: NEW_YORK_LATITUDE,
-        position: [0, 0, 200],
-        bearing: 0,
+        // Start above Battery Park, outside the newly extruded skyscrapers.
+        longitude: -74.0165,
+        latitude: 40.703,
+        position: [0, 0, 150],
+        bearing: 35,
         pitch: 45
       }
     });
@@ -117,7 +118,7 @@ function createWebXRViewManager(mode) {
     viewState: {
       longitude: NEW_YORK_LONGITUDE,
       latitude: NEW_YORK_LATITUDE,
-      zoom: 2
+      zoom: 0.8
     }
   });
 }
@@ -175,7 +176,14 @@ function resizePreviewCanvas() {
   if (width !== drawingBufferWidth || height !== drawingBufferHeight) {
     canvasContext.setDrawingBufferSize(width, height);
   }
-  return {width, height};
+  // deck.gl cameras and controllers use CSS pixels; only the GPU pass uses
+  // drawing-buffer pixels. Mixing them changes zoom and gesture speed on Retina.
+  return {
+    width: canvas.clientWidth,
+    height: canvas.clientHeight,
+    bufferWidth: width,
+    bufferHeight: height
+  };
 }
 
 function createPlacementMatrix({immersive, time}) {
@@ -186,7 +194,7 @@ function createPlacementMatrix({immersive, time}) {
         type: 'globe',
         anchor: [viewState.longitude, viewState.latitude, 0],
         pose: {position: immersive ? [0, 1.35, -2.35] : [0.5, 0, -2.6]},
-        radius: PREVIEW_RADIUS_METERS * 2 ** clamp(viewState.zoom - 2, -1, 1.5),
+        radius: PREVIEW_RADIUS_METERS * 2 ** clamp(viewState.zoom, -1, 1.5),
         rotation: (-time * 0.00004 * 180) / Math.PI
       },
       viewState
@@ -230,15 +238,16 @@ function createPlacementMatrix({immersive, time}) {
 function createHostFrame({viewport, renderViews, activeRenderViewId}) {
   const viewState = viewManager.getViewState();
   const hostFrame = renderViews.find((renderView) => renderView.hostFrame)?.hostFrame;
+  const geographicAnchor = hostFrame?.view || {
+    longitude: viewState.longitude,
+    latitude: viewState.latitude,
+    zoom: viewMode.zoom
+  };
   return {
     viewport,
-    geographicAnchor:
-      hostFrame?.view ||
-      {
-        longitude: viewState.longitude,
-        latitude: viewState.latitude,
-        zoom: viewMode.zoom
-      },
+    geographicAnchor: viewMode.id === 'globe'
+      ? {...geographicAnchor, zoom: Math.max(viewMode.zoom, geographicAnchor.zoom)}
+      : geographicAnchor,
     projection: hostFrame?.projection || viewMode.projection,
     renderViews,
     activeRenderViewId,
@@ -256,7 +265,7 @@ function renderTangram({frame, renderPass, renderViewId}) {
 }
 
 function renderPreview() {
-  const {width, height} = resizePreviewCanvas();
+  const {width, height, bufferWidth, bufferHeight} = resizePreviewCanvas();
   viewManager.updateController({width, height});
   const viewport = {x: 0, y: 0, width, height};
   const renderView = viewManager.makeRenderView({id: 'preview', width, height});
@@ -265,7 +274,7 @@ function renderPreview() {
     clearDepth: 1,
     clearStencil: 0
   });
-  renderPass.setParameters({viewport: [0, 0, width, height]});
+  renderPass.setParameters({viewport: [0, 0, bufferWidth, bufferHeight]});
   renderTangram({
     frame: createHostFrame({
       viewport,
@@ -279,17 +288,10 @@ function renderPreview() {
 }
 
 function renderStereoPreview() {
-  const {width, height} = resizePreviewCanvas();
+  const {width, height, bufferWidth, bufferHeight} = resizePreviewCanvas();
   viewManager.updateController({width, height});
-  const eyeWidth = Math.floor(width / 2);
-  if (stereoCanvas.width !== width || stereoCanvas.height !== height) {
-    stereoCanvas.width = width;
-    stereoCanvas.height = height;
-  }
-  const eyes = [
-    {id: 'left-eye', x: 0},
-    {id: 'right-eye', x: eyeWidth}
-  ];
+  const eyeWidth = width / 2;
+  const bufferEyeWidth = Math.floor(bufferWidth / 2);
   const renderViews = viewManager.makeStereoRenderViews({
     width: eyeWidth,
     height
@@ -302,24 +304,19 @@ function renderStereoPreview() {
   for (let index = 0; index < renderViews.length; index++) {
     const renderView = renderViews[index];
     const renderPass = device.beginRenderPass({
-      clearColor: [0.006, 0.014, 0.04, 1],
-      clearDepth: 1,
-      clearStencil: 0
+      clearColor: index === 0 ? [0.006, 0.014, 0.04, 1] : false,
+      clearDepth: index === 0 ? 1 : false,
+      clearStencil: index === 0 ? 0 : false
     });
-    renderPass.setParameters({viewport: [0, 0, width, height]});
+    const eyeViewport = [
+      index * bufferEyeWidth,
+      0,
+      index === 0 ? bufferEyeWidth : bufferWidth - bufferEyeWidth,
+      bufferHeight
+    ];
+    renderPass.setParameters({viewport: eyeViewport, scissorRect: eyeViewport});
     renderTangram({frame: hostFrame, renderPass, renderViewId: renderView.id});
     renderPass.end();
-    stereoContext.drawImage(
-      canvas,
-      0,
-      0,
-      width,
-      height,
-      eyes[index].x,
-      0,
-      index === eyes.length - 1 ? width - eyes[index].x : eyeWidth,
-      height
-    );
   }
 }
 
@@ -382,7 +379,7 @@ async function setXRSession(session) {
 }
 
 async function enterVR() {
-  if (xrSession || stereoPreview) {
+  if (xrSession) {
     return;
   }
   if (
@@ -411,6 +408,9 @@ async function enterVR() {
   }
   try {
     await setXRSession(session);
+    stereoPreview = false;
+    viewManager.setMode('immersive-vr');
+    container.classList.remove('is-stereo');
     xrSession = session;
     lastXRFrameTime = null;
     session.addEventListener('end', clearXRSession, {once: true});
@@ -429,14 +429,8 @@ async function enterVR() {
 }
 
 function enterStereoPreview() {
-  if (device.type !== 'webgl') {
-    const url = new URL(window.location.href);
-    url.searchParams.set('device', 'webgl');
-    url.searchParams.set('stereo', '1');
-    window.location.assign(url);
-    return;
-  }
   stereoPreview = true;
+  viewManager.setMode('stereo-preview');
   container.classList.add('is-stereo');
   enterButton.disabled = false;
   updatePresentationButtons('stereo-preview');
@@ -457,6 +451,7 @@ function clearXRSession() {
   xrSession = null;
   lastXRFrameTime = null;
   stereoPreview = false;
+  viewManager.setMode('mono');
   xrReferenceSpaceType = 'local-floor';
   container.classList.remove('is-stereo');
   webXRManager?.clearSession();
@@ -613,6 +608,7 @@ monoButton.addEventListener('click', () => {
     void exitVR();
   } else {
     stereoPreview = false;
+    viewManager.setMode('mono');
     container.classList.remove('is-stereo');
     updatePresentationButtons('mono');
     setStatus(`Interactive mono ${viewMode.label} preview.`, 'success');
@@ -627,7 +623,7 @@ stereoButton.addEventListener('click', () => {
 });
 thorButton?.addEventListener('click', () => void enableThorGestures());
 exitButton.addEventListener('click', () => void exitVR());
-canvas.addEventListener('pointerdown', () => canvas.focus());
+canvas.addEventListener('pointerdown', () => canvas.focus({preventScroll: true}));
 canvas.addEventListener('contextmenu', (event) => event.preventDefault());
 window.tangramWebXRExampleDestroy = destroy;
 window.addEventListener('pagehide', destroy, {once: true});
@@ -656,7 +652,12 @@ function createTronScene({portable}) {
     lights: {
       ambient: {
         type: 'ambient',
-        ambient: 1
+        ambient: 0.55
+      },
+      sunlight: {
+        type: 'directional',
+        direction: [0.5, -0.8, -0.6],
+        diffuse: 0.8
       }
     },
     sources: {
@@ -670,33 +671,40 @@ function createTronScene({portable}) {
       }
     },
     layers: {
-      landcover: {
+      // Imported Tilezen rules must not merge into the CARTO rules below.
+      landuse: {data: {source: 'mapzen', layer: '__disabled__'}},
+      water: {data: {source: 'mapzen', layer: '__disabled__'}},
+      roads: {data: {source: 'mapzen', layer: '__disabled__'}},
+      buildings: {data: {source: 'mapzen', layer: '__disabled__'}},
+      transit: {data: {source: 'mapzen', layer: '__disabled__'}},
+      'xr-landcover': {
         data: {source: 'mapzen', layer: 'landcover'},
-        draw: {polygons: {order: 1, color: '#377fc4'}}
+        draw: {polygons: {order: 1, color: '#101d31'}}
       },
-      landuse: {
+      'xr-landuse': {
         data: {source: 'mapzen', layer: 'landuse'},
-        draw: {polygons: {order: 2, color: '#4b91cf'}}
+        draw: {polygons: {order: 2, color: '#1b2946'}}
       },
-      water: {
+      'xr-water': {
         data: {source: 'mapzen', layer: 'water'},
-        draw: {polygons: {order: 3, color: '#071329'}}
+        draw: {polygons: {order: 3, color: '#102b4c'}}
       },
-      buildings: {
+      'xr-buildings': {
         data: {source: 'mapzen', layer: 'building'},
         filter: {$zoom: {min: 14}},
         draw: {
-          polygons: {order: 4, color: '#142b4b', extrude: true},
-          lines: {order: 5, color: '#267f9e', width: '0.5px', extrude: true}
+          polygons: {order: 4, color: '#142b4b', extrude: buildingExtrusion},
+          lines: {order: 5, color: '#267f9e', width: '0.5px', extrude: buildingExtrusion}
         }
       },
-      roads: {
+      'xr-roads': {
         data: {source: 'mapzen', layer: 'transportation'},
         draw: {
           lines: {
             order: 5,
-            color: '#16c8ff',
-            width: [[4, '0.4px'], [9, '1px'], [14, '3px']]
+            color: '#10223d',
+            outline: {color: '#169fbd', width: '0.4px'},
+            width: [[4, '0.25px'], [9, '0.5px'], [14, '1px'], [18, '3px']]
           }
         },
         major: {
@@ -704,8 +712,9 @@ function createTronScene({portable}) {
           draw: {
             lines: {
               order: 6,
-              color: '#8d50ff',
-              width: [[4, '0.75px'], [9, '2px'], [14, '5px']]
+              color: '#15142f',
+              outline: {color: '#8d50ff', width: '0.5px'},
+              width: [[4, '0.5px'], [9, '1px'], [14, '2px'], [18, '5px']]
             }
           }
         },
@@ -736,4 +745,13 @@ function createTronScene({portable}) {
       }
     }
   };
+}
+
+// Tangram serializes style functions into workers, where `feature` is supplied
+// by the scene evaluator. CARTO/OpenMapTiles names its heights differently.
+function buildingExtrusion() {
+  return [
+    feature.render_min_height || feature.min_height || 0,
+    feature.render_height || feature.height || 10
+  ];
 }
