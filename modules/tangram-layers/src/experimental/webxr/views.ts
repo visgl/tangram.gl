@@ -4,8 +4,61 @@
 
 // @ts-nocheck
 
-import {FirstPersonView, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
+import {
+  _GlobeController as GlobeController,
+  FirstPersonView,
+  FirstPersonController,
+  MapController,
+  MapView,
+  _GlobeView as GlobeView
+} from '@deck.gl/core';
 import {getExternalCameraFrame, getFirstPersonViewFrame, getGlobeViewFrame} from '../../index.ts';
+
+/**
+ * Map controller that keeps touch pinch rotation enabled while treating a
+ * two-finger trackpad gesture as a map pan.
+ *
+ * deck.gl uses the same `multiTouchDrag` option for both gesture families.
+ * The temporary mode below lets the normal controller state handle each
+ * gesture without duplicating deck.gl's pan and rotate calculations.
+ */
+export class WebXRMapController extends MapController {
+  _onMultiPanStart(event) {
+    const multiTouchDrag = this.multiTouchDrag;
+    if (event.pointerType === 'trackpad') {
+      this.multiTouchDrag = 'pan';
+    }
+    const handled = super._onMultiPanStart(event);
+    this.multiTouchDrag = multiTouchDrag;
+    return handled;
+  }
+}
+
+/** First-person controller with separate trackpad pan and touch pinch modes. */
+export class WebXRFirstPersonController extends FirstPersonController {
+  _onMultiPanStart(event) {
+    const multiTouchDrag = this.multiTouchDrag;
+    if (event.pointerType === 'trackpad') {
+      this.multiTouchDrag = 'pan';
+    }
+    const handled = super._onMultiPanStart(event);
+    this.multiTouchDrag = multiTouchDrag;
+    return handled;
+  }
+}
+
+/** Globe controller with separate trackpad pan and touch pinch modes. */
+export class WebXRGlobeController extends GlobeController {
+  _onMultiPanStart(event) {
+    const multiTouchDrag = this.multiTouchDrag;
+    if (event.pointerType === 'trackpad') {
+      this.multiTouchDrag = 'pan';
+    }
+    const handled = super._onMultiPanStart(event);
+    this.multiTouchDrag = multiTouchDrag;
+    return handled;
+  }
+}
 
 /** MapView that can derive Tangram host-frame fields and per-eye viewports. */
 export class WebXRMapView extends MapView {

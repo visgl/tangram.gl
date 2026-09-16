@@ -12,7 +12,10 @@ import {createStereoControls} from './stereo-controls.js';
 import {submitEyeRenderPass} from './submit-eye.js';
 import {
   WebXRFirstPersonView,
+  WebXRFirstPersonController,
   WebXRGlobeView,
+  WebXRGlobeController,
+  WebXRMapController,
   WebXRMapView,
   WebXRInputAdapter,
   WebXRViewManager,
@@ -88,6 +91,12 @@ function createWebXRViewManager(mode) {
           scrollZoom: true,
           touchZoom: true,
           touchRotate: true,
+          // mjolnir recognizes two-finger trackpad movement as multipan. Keep
+          // it as map panning; pinch/ctrl-wheel remains zoom and touch pinch
+          // continues to support rotation.
+          type: WebXRMapController,
+          trackpadGesture: true,
+          multiTouchDrag: 'rotate',
           keyboard: true,
           maxPitch: 60
         }
@@ -103,7 +112,20 @@ function createWebXRViewManager(mode) {
   }
   if (mode === 'firstPerson') {
     return new WebXRViewManager({
-      view: new WebXRFirstPersonView({id: 'first-person', controller: true, far: 20000}),
+      view: new WebXRFirstPersonView({
+        id: 'first-person',
+        controller: {
+          type: WebXRFirstPersonController,
+          dragPan: true,
+          dragRotate: true,
+          scrollZoom: true,
+          touchZoom: true,
+          trackpadGesture: true,
+          multiTouchDrag: 'rotate',
+          keyboard: true
+        },
+        far: 20000
+      }),
       viewState: {
         // Start above Battery Park, outside the newly extruded skyscrapers.
         longitude: -74.0165,
@@ -115,7 +137,19 @@ function createWebXRViewManager(mode) {
     });
   }
   return new WebXRViewManager({
-    view: new WebXRGlobeView({id: 'globe', controller: true}),
+    view: new WebXRGlobeView({
+      id: 'globe',
+      controller: {
+        type: WebXRGlobeController,
+        dragPan: true,
+        dragRotate: true,
+        scrollZoom: true,
+        touchZoom: true,
+        trackpadGesture: true,
+        multiTouchDrag: 'rotate',
+        keyboard: true
+      }
+    }),
     viewState: {
       longitude: NEW_YORK_LONGITUDE,
       latitude: NEW_YORK_LATITUDE,

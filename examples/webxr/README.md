@@ -24,7 +24,8 @@ requires a browser that exposes `XRGPUBinding`.
 Each preview eye renders directly into its half of the GPU canvas, sharing one
 depth/color target and scene. The second pass preserves the first eye's output.
 Parallel off-axis cameras provide stereo depth at the placement's physical scale.
-WebGPU submits each eye's render pass before preparing the next eye: Tangram reuses
+Two-finger trackpad movement pans the map; touch pinch zooms and rotates it
+(ctrl-wheel remains zoom). WebGPU submits each eye's render pass before preparing the next eye: Tangram reuses
 camera and per-mesh uniform buffers, so deferring both eyes to one final submission
 would let the second eye's buffer writes overwrite the first eye's matrices.
 This orders GPU work without waiting for completion; WebGL keeps its immediate path.

@@ -5,7 +5,10 @@
 export {
   DEFAULT_INTERPUPILLARY_DISTANCE,
   WebXRFirstPersonView,
+  WebXRFirstPersonController,
   WebXRGlobeView,
+  WebXRGlobeController,
+  WebXRMapController,
   WebXRMapView,
   WebXRPresentation,
   WebXRInputAdapter,

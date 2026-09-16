@@ -8,6 +8,7 @@ import {Matrix4} from '@math.gl/core';
 import {
   WebXRFirstPersonView,
   WebXRGlobeView,
+  WebXRMapController,
   WebXRMapView,
   WebXRViewManager
 } from '../examples/webxr/webxr-views';
@@ -91,6 +92,70 @@ describe('WebXR deck.gl views', () => {
     expect(renderViews[0].deckViewport.longitude).toBeCloseTo(
       renderViews[1].deckViewport.longitude
     );
+    manager.finalize();
+  });
+
+  it('enables trackpad multipan independently from wheel zoom', () => {
+    const manager = new WebXRViewManager({
+      view: new WebXRMapView({
+        id: 'map',
+        controller: {
+          type: WebXRMapController,
+          trackpadGesture: true,
+          multiTouchDrag: 'rotate',
+          scrollZoom: true
+        }
+      }),
+      viewState: {longitude: -74, latitude: 40.7, zoom: 14, bearing: 0, pitch: 45}
+    });
+    manager.attachController({element: document.createElement('canvas'), timeline: new Timeline()});
+    manager.updateController({width: 800, height: 400});
+    expect(manager.controller.trackpadGesture).toBe(true);
+    expect(manager.controller.multiTouchDrag).toBe('rotate');
+    expect(manager.controller.scrollZoom).toBe(true);
+
+    const event = (type, deltaX = 0, deltaY = 0) => ({
+      type,
+      pointerType: 'trackpad',
+      offsetCenter: {x: 400 + deltaX, y: 200 + deltaY},
+      deltaX,
+      deltaY,
+      velocity: 0,
+      velocityX: 0,
+      velocityY: 0,
+      srcEvent: {},
+      stopPropagation() {}
+    });
+    const initialLongitude = manager.getViewState().longitude;
+    manager.controller.handleEvent(event('multipanstart'));
+    manager.controller.handleEvent(event('multipanmove', 80, 0));
+    manager.controller.handleEvent(event('multipanend', 80, 0));
+    expect(manager.getViewState().longitude).not.toBe(initialLongitude);
+    manager.finalize();
+  });
+
+  it('combines touch pinch zoom and rotation', () => {
+    const manager = new WebXRViewManager({
+      view: new WebXRMapView({
+        id: 'map',
+        controller: {
+          touchZoom: true,
+          touchRotate: true,
+          multiTouchDrag: 'rotate'
+        }
+      }),
+      viewState: {longitude: -74, latitude: 40.7, zoom: 14, bearing: 0, pitch: 45}
+    });
+    manager.attachController({element: document.createElement('canvas'), timeline: new Timeline()});
+    manager.updateController({width: 800, height: 400});
+    const controller = manager.controller;
+    const event = {pointerType: 'touch', offsetCenter: {x: 400, y: 200}, rotation: 0,
+      scale: 1, handled: false, stopPropagation() {}};
+    controller.handleEvent({...event, type: 'pinchstart'});
+    controller.handleEvent({...event, type: 'pinchmove', rotation: 30, scale: 1.4});
+    controller.handleEvent({...event, type: 'pinchend', rotation: 30, scale: 1.4});
+    expect(manager.getViewState().zoom).toBeGreaterThan(14);
+    expect(Math.abs(manager.getViewState().bearing)).toBeGreaterThan(0);
     manager.finalize();
   });
 

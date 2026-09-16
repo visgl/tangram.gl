@@ -30,7 +30,10 @@ export {
 } from './projection';
 export {
   WebXRMapView,
+  WebXRMapController,
+  WebXRFirstPersonController,
   WebXRFirstPersonView,
+  WebXRGlobeController,
   WebXRGlobeView
 } from './views';
 export type {
