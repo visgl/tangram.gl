@@ -23,6 +23,7 @@ export class WebXRPresentation {
     this.viewState = {...viewState};
     this.placement = placement || createDefaultPlacement(view, viewState);
     this.mode = mode;
+    this.controllerMode = mode;
     this.controller = null;
     this.rightController = null;
     this.eventManager = null;
@@ -84,7 +85,7 @@ export class WebXRPresentation {
       eventManager: this.eventManager,
       makeViewport: (viewState) => this.view.makeViewport({
         ...this.controllerSize,
-        width: this.mode === 'stereo-preview'
+        width: this.controllerMode === 'stereo-preview'
           ? this.controllerSize.width / 2 : this.controllerSize.width,
         viewState
       }),
@@ -97,10 +98,11 @@ export class WebXRPresentation {
     });
   }
 
-  updateController({width, height}) {
+  updateController({width, height}, mode = this.mode) {
     this.controllerSize = {width, height};
+    this.controllerMode = mode;
     if (!this.controller) return;
-    if (this.mode === 'stereo-preview') {
+    if (mode === 'stereo-preview') {
       this.rightController ||= this.createController();
       width /= 2;
     } else if (this.rightController) {
@@ -122,6 +124,9 @@ export class WebXRPresentation {
     this.rightController?.setProps({
       ...this.viewState,
       ...controllerOptions,
+      // Keyboard input is global to the shared EventManager. Only the left
+      // controller handles it, otherwise FirstPersonView moves twice per key.
+      keyboard: false,
       id: `${this.view.id}-right`,
       x: width,
       y: viewport.y,
@@ -227,6 +232,9 @@ export class WebXRPresentation {
 
   createFrame({width, height, frameState, mode = this.mode, interpupillaryDistance}) {
     const resolvedMode = resolveMode(mode, frameState);
+    // A caller may select a presentation mode per frame without calling setMode.
+    // Keep controller hit regions and gesture viewport dimensions in lockstep.
+    this.updateController({width, height}, resolvedMode);
     const logicalViewport = this.view.makeViewport({width, height, viewState: this.viewState});
     if (!logicalViewport) throw new Error('The logical deck.gl view produced an empty viewport');
     let renderViews;

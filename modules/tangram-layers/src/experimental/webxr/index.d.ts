@@ -99,7 +99,7 @@ export class WebXRPresentation {
     onViewStateChange?: (parameters: Record<string, unknown>) => void;
     onStateChange?: (parameters: Record<string, unknown>) => void;
   }): XRDeckController | null;
-  updateController(size: {width: number; height: number}): void;
+  updateController(size: {width: number; height: number}, mode?: XRPresentationMode): void;
   /** Advance desktop zoom and inertia transitions once per animation frame. */
   updateTransitions(): void;
   finalize(): void;

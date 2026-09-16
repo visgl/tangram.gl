@@ -231,6 +231,25 @@ describe('WebXR deck.gl views', () => {
     manager.finalize();
   });
 
+  it('keeps keyboard handling on one controller and honors per-frame presentation mode', () => {
+    const manager = new WebXRViewManager({
+      view: new WebXRMapView({id: 'map', controller: {keyboard: true}}),
+      mode: 'mono',
+      viewState: {longitude: -74, latitude: 40.7, zoom: 14, bearing: 0, pitch: 45}
+    });
+    manager.attachController({element: document.createElement('canvas'), timeline: new Timeline()});
+    manager.createFrame({width: 800, height: 400, mode: 'stereo-preview'});
+    expect(manager.controllerMode).toBe('stereo-preview');
+    expect(manager.controller.props.width).toBe(400);
+    expect(manager.rightController.props.width).toBe(400);
+    expect(manager.rightController.keyboard).toBe(false);
+    manager.createFrame({width: 800, height: 400, mode: 'mono'});
+    expect(manager.rightController).toBeNull();
+    expect(manager.controllerMode).toBe('mono');
+    expect(manager.controller.props.width).toBe(800);
+    manager.finalize();
+  });
+
   it('moves the eyes oppositely without rotating either camera when separation increases', () => {
     const manager = new WebXRViewManager({
       view: new WebXRMapView({id: 'map'}),
