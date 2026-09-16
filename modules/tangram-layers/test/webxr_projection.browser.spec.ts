@@ -58,6 +58,29 @@ describe('experimental WebXR geospatial presentation', () => {
     );
     expect(result).not.toBeNull();
     expect(result?.every(Number.isFinite)).toBe(true);
+    expect(result?.[0]).toBeCloseTo(0, 8);
+    expect(result?.[1]).toBeCloseTo(0, 8);
+  });
+
+  it.each([[0, 0], [-74, 40.7], [150, -60]])('faces a globe anchor toward the viewer at %s, %s', (longitude, latitude) => {
+    const result = intersectXRGlobe(
+      {origin: [0, 0, 2], direction: [0, 0, -1]},
+      {type: 'globe', anchor: [longitude, latitude], radius: 0.72}
+    );
+    expect(result?.[0]).toBeCloseTo(longitude, 8);
+    expect(result?.[1]).toBeCloseTo(latitude, 8);
+  });
+
+  it.each([0, 40.7, 75])('preserves physical meter scale at latitude %s', (latitude) => {
+    const anchor = longitudeLatitudeToMeters(-74, latitude);
+    const mercatorScale = 1 / Math.cos(latitude * Math.PI / 180);
+    const matrix = createXRPlacementMatrix({type: 'first-person', origin: [-74, latitude], position: [2, 3, 0]});
+    const roomPosition = matrix.transformAsPoint([anchor[0] + 3 * mercatorScale,
+      anchor[1] + 4 * mercatorScale, 1]);
+    // Locomotion removes 2m east and 3m north; ENU maps to XR right/up/back.
+    expect(roomPosition[0]).toBeCloseTo(1, 7);
+    expect(roomPosition[1]).toBeCloseTo(1, 7);
+    expect(roomPosition[2]).toBeCloseTo(-1, 7);
   });
 
   it('unions eye bounds around an antimeridian anchor', () => {

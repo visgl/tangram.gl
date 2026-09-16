@@ -1,6 +1,7 @@
 ---
 title: Thor gestures
 sidebar_label: Thor gestures
+hide_title: true
 ---
 
 {/*

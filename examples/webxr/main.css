@@ -4,9 +4,8 @@
  * Copyright (c) vis.gl contributors
  */
 
-html,
-body,
-#webxr-container {
+html:has(body.tangram-webxr-standalone),
+body.tangram-webxr-standalone {
   width: 100%;
   height: 100%;
   margin: 0;
@@ -26,47 +25,11 @@ body,
   pointer-events: none;
 }
 
-#webxr-container.is-stereo .webxr-panel {
-  top: auto;
-  bottom: 1rem;
-  left: 50%;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  width: min(46rem, calc(100% - 2rem));
-  padding: 0.65rem 0.8rem;
-  transform: translateX(-50%);
-}
-
-#webxr-container.is-stereo .webxr-panel h1,
-#webxr-container.is-stereo .webxr-panel p,
-#webxr-container.is-stereo .webxr-actions {
-  margin: 0;
-}
-
-#webxr-container.is-stereo .webxr-panel h1 {
-  padding-right: 0.8rem;
-  font-size: 0.95rem;
-}
-
-#webxr-container.is-stereo .webxr-panel #webxr-status {
-  overflow: hidden;
-  padding: 0 0.8rem;
-  color: #cdeeff;
-  font-size: 0.78rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#webxr-container.is-stereo .webxr-hint,
-#webxr-container.is-stereo .webxr-device-tabs,
-#webxr-container.is-stereo .webxr-attribution {
-  display: none;
-}
-
 #webxr-container {
   position: relative;
-  min-height: 560px;
+  width: 100%;
+  height: clamp(520px, 78vh, 900px);
+  overflow: hidden;
   background: #030817;
   color: #e9f8ff;
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
@@ -84,28 +47,16 @@ body,
   outline-offset: -2px;
 }
 
-#webxr-stereo-canvas {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  display: none;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-#webxr-container.is-stereo #webxr-stereo-canvas {
-  display: block;
-}
-
 .webxr-panel {
   position: absolute;
   z-index: 2;
-  top: 1rem;
+  bottom: 2rem;
   left: 1rem;
   box-sizing: border-box;
-  width: min(25rem, calc(100% - 2rem));
-  padding: 1rem 1.15rem;
+  width: calc(100% - 2rem);
+  max-height: 50%;
+  overflow: auto;
+  padding: 0.7rem 1rem;
   border: 1px solid rgb(73 219 255 / 42%);
   border-radius: 0.75rem;
   background: rgb(3 10 29 / 88%);
@@ -143,7 +94,7 @@ body,
 
 .webxr-panel h1 {
   margin: 0 0 0.5rem;
-  font-size: 1.25rem;
+  font-size: 1rem;
 }
 
 .webxr-panel p {
@@ -152,6 +103,7 @@ body,
 
 .webxr-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin: 0.85rem 0;
 }
@@ -196,20 +148,82 @@ body,
 }
 
 .tangram-webxr-embedded #webxr-container {
-  min-height: 620px;
   border-radius: 0.65rem;
+}
+
+.webxr-help summary {
+  cursor: pointer;
+  color: #a8c0d4;
+  font-size: 0.8rem;
+}
+
+.webxr-stereo-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.6rem 1rem;
+  margin: 0.6rem 0;
+  font-size: 0.8rem;
+}
+
+.webxr-panel:has(#webxr-stereo-settings[open]) {
+  max-height: 75%;
+}
+
+.webxr-stereo-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.webxr-stereo-controls [hidden] {
+  display: none;
+}
+
+.webxr-stereo-controls input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  accent-color: #17a9c7;
+}
+
+.webxr-stereo-controls input[type='number'] {
+  padding: 0.3rem;
+  border: 1px solid #4adfff;
+  border-radius: 0.25rem;
+  background: #030a1d;
+  color: #e9f8ff;
+}
+
+.webxr-stereo-controls p {
+  grid-column: 1 / -1;
+}
+
+.webxr-stereo-controls button {
+  justify-self: start;
+  padding: 0.35rem 0.6rem;
+  color: #e9f8ff;
+  background: #0b5ea8;
+  border: 1px solid #4adfff;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+#webxr-status {
+  color: #a8c0d4;
+  font-size: 0.8rem;
+}
+
+#webxr-status[data-type='error'] {
+  color: #ff9e9e;
+}
+
+.tangram-webxr-standalone #webxr-container {
+  height: 100vh;
 }
 
 @media (max-width: 640px) {
   .webxr-panel {
-    top: 0.6rem;
     left: 0.6rem;
     width: calc(100% - 1.2rem);
-  }
-
-  .webxr-device-tabs {
-    top: auto;
-    right: 0.6rem;
-    bottom: 2rem;
   }
 }

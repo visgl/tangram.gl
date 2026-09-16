@@ -5,7 +5,7 @@
 // @ts-nocheck
 
 import {Matrix4} from '@math.gl/core';
-import {EventManager} from 'mjolnir.js';
+import {DoubleClickDrag, EventManager, Pan, Pinch, Tap} from 'mjolnir.js';
 import {createXRPlacementMatrix, getXRGlobeVisibleBounds} from './projection.ts';
 
 /** Default human interpupillary distance used by desktop stereo preview, in meters. */
@@ -15,7 +15,7 @@ export const DEFAULT_INTERPUPILLARY_DISTANCE = 0.064;
  * Expands one logical deck.gl view into mono, stereo-preview, or immersive render views.
  *
  * Placement is independent from the logical geographic camera. Input from either
- * eye is routed through one controller and therefore updates one shared view state.
+ * eye is routed through a controller for that screen region and updates one shared view state.
  */
 export class WebXRPresentation {
   constructor({view, viewState, placement, mode = 'auto'}) {
@@ -23,7 +23,9 @@ export class WebXRPresentation {
     this.viewState = {...viewState};
     this.placement = placement || createDefaultPlacement(view, viewState);
     this.mode = mode;
+    this.controllerMode = mode;
     this.controller = null;
+    this.rightController = null;
     this.eventManager = null;
     this.controllerSize = {width: 1, height: 1};
   }
@@ -45,17 +47,48 @@ export class WebXRPresentation {
 
   setMode(mode) {
     this.mode = mode;
+    this.updateController(this.controllerSize);
   }
 
   attachController({element, timeline, onViewStateChange = () => {}, onStateChange = () => {}}) {
     const controllerOptions = this.view.controller;
     if (!controllerOptions) return null;
-    this.eventManager = new EventManager(element);
+    // Match deck.gl's gesture setup: mjolnir does not register recognizers by default.
+    // Order matters because gesture dependencies refer to previously registered names.
+    this.eventManager = new EventManager(element, {
+      touchAction: 'none',
+      recognizers: [
+        {recognizer: new Pan({event: 'multipan', threshold: 10, pointers: 2, trackpad: true})},
+        {recognizer: new Pinch({event: 'pinch', trackpad: true}), requireFailure: ['multipan']},
+        {recognizer: new Pan({event: 'pan', threshold: 1}),
+          recognizeWith: ['pinch'], requireFailure: ['multipan']},
+        {recognizer: new Tap({event: 'dblclick', taps: 2, enable: false})},
+        {recognizer: new DoubleClickDrag({event: 'dblclickdrag', enable: false}),
+          recognizeWith: ['dblclick']},
+        {recognizer: new Tap({event: 'click'}), recognizeWith: ['dblclickdrag'],
+          requireFailure: ['dblclick', 'dblclickdrag']}
+      ]
+    });
+    this.controllerCallbacks = {timeline, onViewStateChange, onStateChange};
+    this.controller = this.createController();
+    this.updateController(this.controllerSize);
+    return this.controller;
+  }
+
+  /** Create a controller for one screen region backed by the shared view state. */
+  createController() {
+    const controllerOptions = this.view.controller;
+    const {timeline, onViewStateChange, onStateChange} = this.controllerCallbacks;
     const Controller = controllerOptions.type;
-    this.controller = new Controller({
+    return new Controller({
       timeline,
       eventManager: this.eventManager,
-      makeViewport: (viewState) => this.view.makeViewport({...this.controllerSize, viewState}),
+      makeViewport: (viewState) => this.view.makeViewport({
+        ...this.controllerSize,
+        width: this.controllerMode === 'stereo-preview'
+          ? this.controllerSize.width / 2 : this.controllerSize.width,
+        viewState
+      }),
       onViewStateChange: (parameters) => {
         this.viewState = {...parameters.viewState};
         this.updateController(this.controllerSize);
@@ -63,13 +96,19 @@ export class WebXRPresentation {
       },
       onStateChange
     });
-    this.updateController(this.controllerSize);
-    return this.controller;
   }
 
-  updateController({width, height}) {
+  updateController({width, height}, mode = this.mode) {
     this.controllerSize = {width, height};
+    this.controllerMode = mode;
     if (!this.controller) return;
+    if (mode === 'stereo-preview') {
+      this.rightController ||= this.createController();
+      width /= 2;
+    } else if (this.rightController) {
+      this.rightController.finalize();
+      this.rightController = null;
+    }
     const viewport = this.view.makeViewport({width, height, viewState: this.viewState});
     const controllerOptions = this.view.controller;
     if (!viewport || !controllerOptions) return;
@@ -82,12 +121,32 @@ export class WebXRPresentation {
       width: viewport.width,
       height: viewport.height
     });
+    this.rightController?.setProps({
+      ...this.viewState,
+      ...controllerOptions,
+      // Keyboard input is global to the shared EventManager. Only the left
+      // controller handles it, otherwise FirstPersonView moves twice per key.
+      keyboard: false,
+      id: `${this.view.id}-right`,
+      x: width,
+      y: viewport.y,
+      width: viewport.width,
+      height: viewport.height
+    });
+  }
+
+  /** Advance desktop zoom and inertia transitions once per animation frame. */
+  updateTransitions() {
+    this.controller?.updateTransition();
+    this.rightController?.updateTransition();
   }
 
   finalize() {
     this.controller?.finalize();
+    this.rightController?.finalize();
     this.eventManager?.destroy();
     this.controller = null;
+    this.rightController = null;
     this.eventManager = null;
   }
 
@@ -112,23 +171,37 @@ export class WebXRPresentation {
   }
 
   makeStereoRenderViews({width, height, interpupillaryDistance = DEFAULT_INTERPUPILLARY_DISTANCE}) {
-    const halfDistance = interpupillaryDistance / 2;
-    return [
-      this.makeRenderView({
-        id: 'left-eye',
-        width,
-        height,
-        eyeOffset: -halfDistance,
-        viewportX: 0
-      }),
-      this.makeRenderView({
-        id: 'right-eye',
-        width,
-        height,
-        eyeOffset: halfDistance,
-        viewportX: 0
-      })
-    ];
+    // Translate along camera-right, not geographic east or globe longitude.
+    // The off-axis projections keep the geographic anchor on the same screen
+    // position in both eyes, while nearer/farther geometry gains stereo depth.
+    return ['left-eye', 'right-eye'].map((id, index) => {
+      const renderView = this.makeRenderView({id, width, height});
+      const viewport = renderView.deckViewport;
+      const viewScale = Math.hypot(
+        viewport.viewMatrix[0], viewport.viewMatrix[4], viewport.viewMatrix[8]
+      );
+      const unitsPerXR = this.placement.type === 'globe'
+        ? viewScale * 256 / this.placement.radius
+        : viewScale * viewport.distanceScales.unitsPerMeter[2] *
+          (this.placement.type === 'map' ? this.placement.metersPerXRUnit : 1);
+      const eyeOffset = (index === 0 ? -0.5 : 0.5) * interpupillaryDistance * unitsPerXR;
+      const anchor = viewport.projectPosition([
+        this.viewState.longitude, this.viewState.latitude, 0
+      ]);
+      const anchorInView = new Matrix4(viewport.viewMatrix).transformAsPoint(anchor);
+      const convergence = Math.max(0.01, -anchorInView[2]);
+      const viewMatrix = new Matrix4().translate([-eyeOffset, 0, 0])
+        .multiplyRight(renderView.camera.view);
+      const projectionMatrix = new Matrix4(viewport.projectionMatrix);
+      projectionMatrix[8] -= projectionMatrix[0] * eyeOffset / convergence;
+      renderView.camera = {
+        ...renderView.camera,
+        view: viewMatrix,
+        projection: this.view.getXRProjectionMatrix({projectionMatrix, viewMatrix})
+      };
+      renderView.hostFrame = {...renderView.hostFrame, camera: renderView.camera};
+      return renderView;
+    });
   }
 
   makeXRRenderViews({frameState, placementMatrix}) {
@@ -159,6 +232,9 @@ export class WebXRPresentation {
 
   createFrame({width, height, frameState, mode = this.mode, interpupillaryDistance}) {
     const resolvedMode = resolveMode(mode, frameState);
+    // A caller may select a presentation mode per frame without calling setMode.
+    // Keep controller hit regions and gesture viewport dimensions in lockstep.
+    this.updateController({width, height}, resolvedMode);
     const logicalViewport = this.view.makeViewport({width, height, viewState: this.viewState});
     if (!logicalViewport) throw new Error('The logical deck.gl view produced an empty viewport');
     let renderViews;

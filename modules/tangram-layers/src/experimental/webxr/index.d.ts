@@ -64,6 +64,15 @@ export const DEFAULT_INTERPUPILLARY_DISTANCE: number;
 /** MapView with WebXR and Tangram host-frame support. */
 export class WebXRMapView extends import('@deck.gl/core').MapView {}
 
+/** Map controller with trackpad pan and touch pinch rotation support. */
+export class WebXRMapController extends import('@deck.gl/core').MapController {}
+
+/** First-person controller with trackpad pan and touch pinch rotation support. */
+export class WebXRFirstPersonController extends import('@deck.gl/core').FirstPersonController {}
+
+/** Globe controller with trackpad pan and touch pinch rotation support. */
+export class WebXRGlobeController extends import('@deck.gl/core')._GlobeController {}
+
 /** FirstPersonView with WebXR and Tangram host-frame support. */
 export class WebXRFirstPersonView extends import('@deck.gl/core').FirstPersonView {}
 
@@ -99,7 +108,9 @@ export class WebXRPresentation {
     onViewStateChange?: (parameters: Record<string, unknown>) => void;
     onStateChange?: (parameters: Record<string, unknown>) => void;
   }): XRDeckController | null;
-  updateController(size: {width: number; height: number}): void;
+  updateController(size: {width: number; height: number}, mode?: XRPresentationMode): void;
+  /** Advance desktop zoom and inertia transitions once per animation frame. */
+  updateTransitions(): void;
   finalize(): void;
   createFrame(options: {
     width: number;

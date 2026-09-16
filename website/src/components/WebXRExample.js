@@ -111,7 +111,6 @@ export default function WebXRExample({viewMode = 'globe'}) {
     <div className="webxr-example-embed">
       <div id="webxr-container">
         <canvas id="webxr-canvas" tabIndex="0" aria-label="Interactive Tangram WebXR view" />
-        <canvas id="webxr-stereo-canvas" aria-label="Side-by-side stereoscopic preview" />
         <div className="webxr-device-tabs" role="tablist" aria-label="Rendering device">
           <button type="button" data-webxr-device="webgl" role="tab">
             WebGL 2
@@ -144,24 +143,30 @@ export default function WebXRExample({viewMode = 'globe'}) {
               </button>
             ) : null}
           </div>
-          <p className="webxr-hint">
-            luma.gl supplies the XR session, per-eye framebuffers and camera matrices. Tangram keeps
-            one shared scene and tile cache. Drag and scroll to explore; FirstPersonView also
-            supports the deck.gl controller&apos;s arrow-key navigation.
-          </p>
-          {viewMode === 'thor' ? (
+          <details id="webxr-stereo-settings" className="webxr-help">
+            <summary>Stereo settings</summary>
+          </details>
+          <details className="webxr-help">
+            <summary>Controls and VR setup</summary>
             <p className="webxr-hint">
-              Thor uses webcam and MediaPipe gestures as desktop controls. It does not represent
-              native headset hand tracking or WebXR controllers.
+              luma.gl supplies the XR session, per-eye framebuffers and camera matrices. Tangram keeps
+              one shared scene and tile cache. Drag and scroll to explore; FirstPersonView also
+              supports the deck.gl controller&apos;s arrow-key navigation.
             </p>
-          ) : null}
-          <p className="webxr-hint">
-            Stereo Preview is always available without platform XR support. Install the{' '}
-            <a href="https://chromewebstore.google.com/detail/immersive-web-emulator/cgffilbpcibhmcfbgggfhfolhkfbhmik">
-              Immersive Web Emulator
-            </a>{' '}
-            to exercise the real WebXR session path in desktop Chrome.
-          </p>
+            {viewMode === 'thor' ? (
+              <p className="webxr-hint">
+                Thor uses webcam and MediaPipe gestures as desktop controls. It does not represent
+                native headset hand tracking or WebXR controllers.
+              </p>
+            ) : null}
+            <p className="webxr-hint">
+              Stereo Preview is always available without platform XR support. Install the{' '}
+              <a href="https://chromewebstore.google.com/detail/immersive-web-emulator/cgffilbpcibhmcfbgggfhfolhkfbhmik">
+                Immersive Web Emulator
+              </a>{' '}
+              to exercise the real WebXR session path in desktop Chrome.
+            </p>
+          </details>
         </aside>
         <p className="webxr-attribution">
           &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>

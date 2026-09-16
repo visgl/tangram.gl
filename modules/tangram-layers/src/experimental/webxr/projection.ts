@@ -66,8 +66,10 @@ export function createXRPlacementMatrix(
     const rotation = placement.rotation || 0;
     const scale = placement.radius / GLOBE_RADIUS;
     return createXRPoseMatrix(placement.pose)
-      .rotateX(-latitude * DEGREES_TO_RADIANS)
-      .rotateY(-(longitude + rotation) * DEGREES_TO_RADIANS)
+      // deck.gl globe coordinates have north on +Z and longitude zero on -Y.
+      // Face the anchor toward +Z in XR room space, with north toward +Y.
+      .rotateX(latitude * DEGREES_TO_RADIANS - Math.PI / 2)
+      .rotateZ(-(longitude + rotation) * DEGREES_TO_RADIANS)
       .scale([scale, scale, scale]);
   }
 
@@ -75,12 +77,16 @@ export function createXRPlacementMatrix(
   const longitude = finiteNumber(viewState.longitude, fallbackAnchor[0]);
   const latitude = finiteNumber(viewState.latitude, fallbackAnchor[1]);
   const [centerX, centerY] = longitudeLatitudeToMeters(longitude, latitude);
+  const metersPerMercatorMeter = Math.cos(
+    Math.max(-MAX_MERCATOR_LATITUDE, Math.min(MAX_MERCATOR_LATITUDE, latitude)) *
+      DEGREES_TO_RADIANS
+  );
 
   if (placement.type === 'map') {
     const scale = 1 / placement.metersPerXRUnit;
     return createXRPoseMatrix(placement.pose)
       .rotateX(-Math.PI / 2)
-      .scale([scale, scale, scale])
+      .scale([scale * metersPerMercatorMeter, scale * metersPerMercatorMeter, scale])
       .translate([-centerX, -centerY, -(placement.anchor[2] || 0)]);
   }
 
@@ -89,7 +95,9 @@ export function createXRPlacementMatrix(
   return createXRPoseMatrix(placement.pose)
     .rotateY(-bearing * DEGREES_TO_RADIANS)
     .rotateX(-Math.PI / 2)
-    .translate([-centerX - offset[0], -centerY - offset[1], -offset[2]]);
+    .translate([-offset[0], -offset[1], -offset[2]])
+    .scale([metersPerMercatorMeter, metersPerMercatorMeter, 1])
+    .translate([-centerX, -centerY, 0]);
 }
 
 /** Transform an XR-space ray back into the content coordinate system. */
@@ -132,8 +140,12 @@ export function intersectXRMap(
     const longitude = finiteNumber(viewState.longitude, placement.anchor[0]);
     const latitude = finiteNumber(viewState.latitude, placement.anchor[1]);
     const [centerX, centerY] = longitudeLatitudeToMeters(longitude, latitude);
-    const halfWidth = (placement.surface.width * placement.metersPerXRUnit) / 2;
-    const halfHeight = (placement.surface.height * placement.metersPerXRUnit) / 2;
+    const latitudeScale = Math.cos(
+      Math.max(-MAX_MERCATOR_LATITUDE, Math.min(MAX_MERCATOR_LATITUDE, latitude)) *
+        DEGREES_TO_RADIANS
+    );
+    const halfWidth = (placement.surface.width * placement.metersPerXRUnit) / (2 * latitudeScale);
+    const halfHeight = (placement.surface.height * placement.metersPerXRUnit) / (2 * latitudeScale);
     if (Math.abs(hit[0] - centerX) > halfWidth || Math.abs(hit[1] - centerY) > halfHeight) {
       return null;
     }

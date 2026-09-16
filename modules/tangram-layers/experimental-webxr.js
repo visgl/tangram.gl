@@ -18,6 +18,9 @@ export {
   getXRGlobeVisibleBounds,
   unionGeographicBounds,
   WebXRMapView,
+  WebXRMapController,
+  WebXRFirstPersonController,
   WebXRFirstPersonView,
+  WebXRGlobeController,
   WebXRGlobeView
 } from './src/experimental/webxr/index.ts';
