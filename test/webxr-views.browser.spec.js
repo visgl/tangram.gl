@@ -7,7 +7,9 @@ import {Timeline} from '@luma.gl/engine';
 import {Matrix4} from '@math.gl/core';
 import {
   WebXRFirstPersonView,
+  WebXRFirstPersonController,
   WebXRGlobeView,
+  WebXRGlobeController,
   WebXRMapController,
   WebXRMapView,
   WebXRViewManager
@@ -156,6 +158,41 @@ describe('WebXR deck.gl views', () => {
     controller.handleEvent({...event, type: 'pinchend', rotation: 30, scale: 1.4});
     expect(manager.getViewState().zoom).toBeGreaterThan(14);
     expect(Math.abs(manager.getViewState().bearing)).toBeGreaterThan(0);
+    manager.finalize();
+  });
+
+  it.each([
+    [WebXRMapView, WebXRMapController, {longitude: -74, latitude: 40.7, zoom: 14}],
+    [WebXRGlobeView, WebXRGlobeController, {longitude: -74, latitude: 40.7, zoom: 2}],
+    [WebXRFirstPersonView, WebXRFirstPersonController, {
+      longitude: -74,
+      latitude: 40.7,
+      position: [0, 0, 100],
+      bearing: 0,
+      pitch: 10
+    }]
+  ])('provides rich shared controllers for %s', (View, Controller, viewState) => {
+    const manager = new WebXRViewManager({
+      view: new View({
+        id: 'interactive',
+        controller: {
+          type: Controller,
+          dragPan: true,
+          dragRotate: true,
+          scrollZoom: true,
+          touchZoom: true,
+          trackpadGesture: true,
+          multiTouchDrag: 'rotate',
+          keyboard: true
+        }
+      }),
+      viewState
+    });
+    manager.attachController({element: document.createElement('canvas'), timeline: new Timeline()});
+    manager.updateController({width: 800, height: 400});
+    expect(manager.controller).toBeInstanceOf(Controller);
+    expect(manager.controller.trackpadGesture).toBe(true);
+    expect(manager.controller.multiTouchDrag).toBe('rotate');
     manager.finalize();
   });
 
