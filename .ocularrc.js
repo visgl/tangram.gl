@@ -7,7 +7,7 @@ const config = {
   // Tangram's renderer retains a purpose-built Rollup pipeline for its worker
   // and browser bundles. Ocular owns repository-wide orchestration around it.
   lint: {
-    paths: ['dev-modules', 'modules', 'examples', 'website']
+    paths: ['dev-modules', 'modules', 'examples', 'website', 'test/rendering', 'vitest.rendering.config.ts']
   },
   babel: false,
   // Shared defaults for packages that can use ocular-bundle. The renderer's

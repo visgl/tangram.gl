@@ -48,6 +48,9 @@ export {
   unionGeographicBounds
 } from './projection.js';
 
+import {MapView, MapController, FirstPersonView, FirstPersonController,
+  _GlobeView as GlobeView, _GlobeController as GlobeController} from '@deck.gl/core';
+
 import type {
   XRDeckController,
   XRDeckView,
@@ -62,22 +65,22 @@ import type {
 export const DEFAULT_INTERPUPILLARY_DISTANCE: number;
 
 /** MapView with WebXR and Tangram host-frame support. */
-export class WebXRMapView extends import('@deck.gl/core').MapView {}
+export class WebXRMapView extends MapView {}
 
 /** Map controller with trackpad pan and touch pinch rotation support. */
-export class WebXRMapController extends import('@deck.gl/core').MapController {}
+export class WebXRMapController extends MapController {}
 
 /** First-person controller with trackpad pan and touch pinch rotation support. */
-export class WebXRFirstPersonController extends import('@deck.gl/core').FirstPersonController {}
+export class WebXRFirstPersonController extends FirstPersonController {}
 
 /** Globe controller with trackpad pan and touch pinch rotation support. */
-export class WebXRGlobeController extends import('@deck.gl/core')._GlobeController {}
+export class WebXRGlobeController extends GlobeController {}
 
 /** FirstPersonView with WebXR and Tangram host-frame support. */
-export class WebXRFirstPersonView extends import('@deck.gl/core').FirstPersonView {}
+export class WebXRFirstPersonView extends FirstPersonView {}
 
 /** GlobeView with WebXR and Tangram host-frame support. */
-export class WebXRGlobeView extends import('@deck.gl/core')._GlobeView {}
+export class WebXRGlobeView extends GlobeView {}
 
 /** Options for creating one reusable WebXR presentation. */
 export type WebXRPresentationOptions = {

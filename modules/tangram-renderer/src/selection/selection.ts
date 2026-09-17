@@ -1,18 +1,21 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // @ts-nocheck
 
 import log from '../utils/log';
 import Texture from '../gl/texture';
 import WorkerBroker from '../utils/worker_broker';
+import type {Device} from '@luma.gl/core';
 
 export default class FeatureSelection {
 
-    constructor(gl, workers, lock_fn) {
+    constructor(gl, workers, lock_fn, device: Device | null = null) {
         this.gl = gl;
         this.workers = workers; // pool of workers to request feature look-ups from, keyed by id
+        this.device = device;
         this._lock_fn = (typeof lock_fn === 'function') && lock_fn; // indicates if safe to read/write selection buffer this frame
         this.init();
     }
@@ -25,11 +28,25 @@ export default class FeatureSelection {
         this.read_delay_timer = null; // current timer (setTimeout) for delayed selection reads
         this.pixels = null; // allocated lazily on request
 
+        this.fbo_size = { width: 256, height: 256 }; // TODO: make configurable / adaptive based on canvas size
+        if (this.device) {
+            // Device-backed textures cannot be attached using the legacy raw
+            // WebGL path. Let luma own the attachments and selection render pass.
+            this.framebuffer = this.device.createFramebuffer({
+                id: 'tangram-selection',
+                width: this.fbo_size.width,
+                height: this.fbo_size.height,
+                colorAttachments: ['rgba8unorm'],
+                depthStencilAttachment: 'depth16unorm'
+            });
+            this.fbo = this.framebuffer.handle; // legacy WebGL readPixels path
+            return;
+        }
+
         // Frame buffer for selection
         // TODO: initiate lazily in case we don't need to do any selection
         this.fbo = this.gl.createFramebuffer();
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fbo);
-        this.fbo_size = { width: 256, height: 256 }; // TODO: make configurable / adaptive based on canvas size
 
         // Texture for the FBO color attachment
         var fbo_texture = Texture.create( this.gl, '__selection_fbo', { filtering: 'nearest' });
@@ -46,6 +63,12 @@ export default class FeatureSelection {
     }
 
     destroy() {
+        if (this.framebuffer) {
+            this.framebuffer.destroy();
+            this.framebuffer = null;
+            this.fbo = null;
+            return;
+        }
         if (this.gl && this.fbo) {
             this.gl.deleteFramebuffer(this.fbo);
             this.fbo = null;

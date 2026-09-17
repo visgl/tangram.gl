@@ -64,6 +64,8 @@ jobs:
         run: corepack enable
       - name: Install workspace dependencies
         run: yarn install --immutable
+      - name: Build packages for TypeScript resolution
+        run: yarn build:modules
       - name: Run lint
         run: yarn lint
       - name: Check TypeScript
@@ -164,6 +166,43 @@ jobs:
           name: renderer-coverage
           path: coverage/
           if-no-files-found: error
+
+  test-rendering:
+    name: Rendering (${{ matrix.device }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [webgl, webgpu]
+    env:
+      TANGRAM_TEST_DEVICE: ${{ matrix.device }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install workspace dependencies
+        run: yarn install --immutable
+      - name: Build packages and inline renderer worker
+        run: yarn build:modules
+      - name: Install Chromium
+        run: yarn playwright install --with-deps chromium
+      - name: Run hermetic GPU and interaction regressions
+        run: >-
+          xvfb-run -a yarn test-rendering:run --reporter=default --reporter=junit
+          --outputFile.junit=screenshots/rendering/results.xml
+      - name: Upload screenshots and test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendering-${{ matrix.device }}
+          path: screenshots/rendering/
+          if-no-files-found: warn
 
   test-website:
     runs-on: ubuntu-22.04

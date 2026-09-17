@@ -10,6 +10,8 @@
       "modules/**/*.js",
       "modules/**/*.jsx",
       "modules/**/*.ts",
+      "test/rendering/**/*.ts",
+      "vitest.rendering.config.ts",
       "modules/**/*.tsx",
       "scripts/**/*.mjs",
       "website/**/*.js",
