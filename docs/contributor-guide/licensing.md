@@ -38,7 +38,7 @@ comments. Run `yarn lint:licenses:fix` to add missing headers or repair
 incorrect attribution using the repository's provenance rules. The normal
 `yarn lint` and `yarn lint:fix` commands include these checks.
 
-Generated JavaScript bundles receive the same headers from their Rollup or
+Generated JavaScript bundles receive the same headers from their esbuild or
 generation configuration so a rebuild does not discard attribution. JSON,
 source maps, lockfiles, binary assets, and data fixtures cannot safely carry
 comments and are covered by the repository or package license metadata.

@@ -4,14 +4,13 @@
 
 /** @type {import('@vis.gl/dev-tools').OcularConfig} */
 const config = {
-  // Tangram's renderer retains a purpose-built Rollup pipeline for its worker
-  // and browser bundles. Ocular owns repository-wide orchestration around it.
+  // Ocular owns repository-wide build, lint, and test orchestration.
   lint: {
     paths: ['dev-modules', 'modules', 'examples', 'website']
   },
   babel: false,
-  // Shared defaults for packages that can use ocular-bundle. The renderer's
-  // worker/GLSL bundle remains on its dedicated Rollup pipeline for now.
+  // Shared defaults for packages that can use ocular-bundle. The renderer
+  // uses the same esbuild toolchain through a package-specific worker plugin.
   bundle: {
     target: ['chrome110', 'firefox110', 'safari15'],
     format: 'esm'
