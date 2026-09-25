@@ -46,7 +46,7 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(107);
+    expect(sourceFiles).toHaveLength(111);
     expect(sourceFiles.some(filePath => filePath.endsWith('index.d.ts'))).toBe(false);
   });
 });

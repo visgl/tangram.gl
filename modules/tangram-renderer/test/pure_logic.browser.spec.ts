@@ -6,7 +6,7 @@ import {describe, expect, test} from 'vitest';
 import {buildQuadForPoint} from '../src/builders/points';
 import {isCoordOutsideTile, outsideTile} from '../src/builders/common';
 import {buildFilter} from '../src/styles/filter';
-import {TangramStyleSheetSchema} from '../src/styles/style-schema';
+import {TangramSourceSchema, TangramStyleSheetSchema} from '../src/styles/style-schema';
 import PointAnchor from '../src/labels/point_anchor';
 import {boxIntersectsBox, boxIntersectsList} from '../src/labels/intersect';
 import {isTextNeutral, isTextRTL, splitLabelText} from '../src/styles/text/text_segments';
@@ -142,11 +142,21 @@ describe('renderer pure logic', () => {
   test('validates style-sheet structure while preserving extensions', () => {
     const result = TangramStyleSheetSchema.safeParse({
       scene: {animated: true},
-      sources: {map: {type: 'MVT', url: 'https://example.com/{z}/{x}/{y}.pbf'}},
+      sources: {
+        map: {
+          type: 'MVT',
+          url: 'https://example.com/{z}/{x}/{y}.pmtiles',
+          decoder: 'loaders-mlt',
+          tile_provider: 'loaders-pmtiles',
+          parse_json: ['metadata']
+        }
+      },
       styles: {roads: {base: 'lines', draw: {color: '#fff'}}},
       custom_extension: {enabled: true}
     });
     expect(result.success).toBe(true);
+    expect(TangramSourceSchema.shape.decoder).toBeDefined();
+    expect(TangramSourceSchema.shape.tile_provider).toBeDefined();
     expect((result.data as any).custom_extension).toEqual({enabled: true});
     expect(TangramStyleSheetSchema.safeParse({sources: {map: {tile_size: -1}}}).success).toBe(false);
     expect(TangramStyleSheetSchema.safeParse({

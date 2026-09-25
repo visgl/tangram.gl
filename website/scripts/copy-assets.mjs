@@ -78,6 +78,10 @@ await cp(
   resolve(staticDirectory, 'modules/tangram-renderer/dist/tangram.debug.mjs')
 );
 await cp(
+  resolve(repositoryDirectory, 'modules/tangram-renderer/dist/loaders-gl-worker.js'),
+  resolve(staticDirectory, 'modules/tangram-renderer/dist/loaders-gl-worker.js')
+);
+await cp(
   resolve(repositoryDirectory, 'modules/tangram-renderer/dist/tangram-style.schema.json'),
   resolve(staticDirectory, 'modules/tangram-renderer/dist/tangram-style.schema.json')
 );

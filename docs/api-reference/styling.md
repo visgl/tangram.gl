@@ -23,9 +23,6 @@ import TabItem from '@theme/TabItem';
   <TabItem value="yaml" label="YAML" default>
 
 ```yaml
-scene:
-  scripts:
-    - https://example.test/loaders-mvt-decoder.js
 sources:
   map:
     type: MVT
@@ -106,6 +103,31 @@ tile coordinates and preserve `parse_json` and source-transform behavior.
 an error in the scene worker. The loaders.gl MVT implementation remains a
 development-only comparison candidate until its GeoJSON entry avoids pulling
 Arrow and binary-conversion dependencies into the renderer bundle.
+
+### PMTiles archives with MLT tiles
+
+An optional worker add-on registers loaders.gl's PMTiles tile source and MLT
+decoder. The renderer build emits it as a separate sidecar; to build only this
+worker, run `yarn workspace @vis.gl/tangram-renderer build:loaders-gl-worker`.
+Serve `dist/loaders-gl-worker.js` alongside the renderer package. It is a
+separate worker script and is not included in the standard Tangram bundle.
+
+```yaml
+scene:
+  scripts:
+    - https://example.test/tangram/dist/loaders-gl-worker.js
+sources:
+  map:
+    type: MVT
+    url: https://tiles.example.test/basemap.pmtiles
+    tile_provider: loaders-pmtiles
+    decoder: loaders-mlt
+```
+
+The PMTiles provider retrieves the `{z,x,y}` tile bytes from the archive; the
+MLT decoder groups features by layer and converts normalized local coordinates
+to Tangram's tile coordinate scale. Standard builds do not include the optional
+loaders.gl dependencies or add them to the renderer's main bundle.
 
 ## Validation and editor tooling
 

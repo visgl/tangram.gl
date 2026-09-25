@@ -16,6 +16,7 @@ import Tile from '../tile/tile';
 import Geo from '../utils/geo';
 import DataSource from '../sources/data_source';
 import {registerMvtDecoder} from '../procedures/mvt-parser';
+import {registerMvtTileProvider} from '../procedures/mvt-tile-provider';
 import '../sources/sources';
 import FeatureSelection from '../selection/selection';
 import StyleParser from '../styles/style_parser';
@@ -30,6 +31,7 @@ const SceneWorker = Object.assign(self, {
 
     FeatureSelection,
     registerMvtDecoder,
+    registerMvtTileProvider,
 
     sources: {},
     styles: {},
