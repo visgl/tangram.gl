@@ -34,40 +34,21 @@
     "access": "public"
   },
   "scripts": {
-    "build": "yarn build:nomodule && yarn build:nomodule:minify && yarn build:module && yarn build:module:minify && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:size",
+    "build": "node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:size",
     "build:entry": "node scripts/write-package-entry.mjs",
-    "build:module": "ESM=true rollup -c",
-    "build:nomodule": "ESM=false rollup -c",
-    "build:module:minify": "ESM=true MINIFY=true rollup -c",
-    "build:nomodule:minify": "ESM=false MINIFY=true rollup -c",
     "build:style-schema": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/styles/style-schema.ts --env=dev --format=esm --output=modules/tangram-renderer/dist/style-schema.js --externals=zod --sourcemap=true --sourcesContent=false",
     "generate-style-schema": "node scripts/generate-style-schema.mjs",
     "build:size": "gzip dist/tangram.min.mjs -c | wc -c | awk '{kb=$1/1024; print kb}' OFMT='Module:\\t\\t%.0fk (min/gzip)' && gzip dist/tangram.min.js -c | wc -c | awk '{kb=$1/1024; print kb}' OFMT='No module:\\t%.0fk (min/gzip)'",
     "prepack": "yarn build",
-    "watch": "ESM=\"${ESM:=true}\" SERVE=true rollup -cw",
-    "test-build-worker": "ESM=false rollup -c test/rollup.config.worker.js"
+    "watch": "node scripts/build.mjs --watch",
+    "test-build-worker": "node scripts/build.mjs --test-worker"
   },
   "devDependencies": {
-    "@babel/core": "^7.26.0",
-    "@babel/plugin-transform-runtime": "^7.25.9",
-    "@babel/preset-env": "^7.26.0",
     "@loaders.gl/config": "5.0.0-alpha.4",
     "@loaders.gl/core": "5.0.0-alpha.4",
     "@loaders.gl/mvt": "5.0.0-alpha.4",
     "@math.gl/web-mercator": "4.1.0",
-    "@rollup/plugin-babel": "^6.0.4",
-    "@rollup/plugin-commonjs": "^28.0.1",
-    "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-node-resolve": "^15.3.0",
-    "@rollup/plugin-replace": "^6.0.1",
-    "@rollup/plugin-terser": "^0.4.4",
-    "rollup": "4.59.0",
-    "rollup-plugin-livereload": "^2.0.5",
-    "rollup-plugin-node-builtins": "^2.1.2",
-    "rollup-plugin-node-globals": "^1.4.0",
-    "rollup-plugin-serve": "^1.1.1",
-    "rollup-plugin-sourcemaps2": "^0.4.2",
-    "rollup-plugin-string-import": "^1.2.5"
+    "esbuild": "^0.28.1"
   },
   "dependencies": {
     "@luma.gl/core": "^9.4.0",

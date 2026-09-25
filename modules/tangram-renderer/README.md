@@ -25,12 +25,14 @@ Tangram library, written in C++.
 
 ## Getting Started
 
-Tangram is published in two build flavors: one for current browsers (bundled as an ES module, using modern JS and web platform features), and one for older browsers (specifically IE11, with modern JS transpiled to older ES5 syntax). You can use this snippet to automatically load the best one for your browser, using the [`module`/`nomodule` pattern](https://developers.google.com/web/fundamentals/primers/modules#browser):
+Tangram is published as an ES module and a classic-script bundle. Both builds
+target current browsers and use modern JavaScript and web platform features.
 
 ```html
-<!-- modern browsers load the optimized .mjs file, older browsers (IE11) load the transpiled .js file -->
+<!-- Load the ES module build from a module-aware application. -->
 <script type="module" src="https://unpkg.com/tangram/dist/tangram.min.mjs"></script>
-<script nomodule src="https://unpkg.com/tangram/dist/tangram.min.js"></script>
+<!-- Load the classic-script build from a classic application instead. -->
+<script src="https://unpkg.com/tangram/dist/tangram.min.js"></script>
 ```
 
 **Note:** Because scripts with the `module` type automatically load in ["deferred" mode](https://flaviocopes.com/javascript-async-defer/), you must make sure to **include the `defer` keyword** for any scripts you load that depend on Tangram (so that they won't run until Tangram is finished loading). For example, if your app code is in `index.js`, load it like this (anywhere after the Tangram `<script>` tag):
@@ -91,7 +93,7 @@ You can also find us in the Tangram-chat gitter room: https://gitter.im/tangrams
 Tangram JS is officially supported and tested on the last two versions of these browsers:
 
 - Mac OS: Chrome, Firefox, and Safari
-- Windows: Chrome, Firefox, IE11, and Edge
+- Windows: Chrome, Firefox, and Edge
 - iOS: Safari
 - Android: Chrome
 

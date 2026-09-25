@@ -68,13 +68,16 @@ for (const exportName of [
 
 for (const bundlePath of ['dist/tangram.debug.js', 'dist/tangram.debug.mjs']) {
   const bundle = readFileSync(resolve(rendererDirectory, bundlePath), 'utf8');
-  if (!/Tangram\.workerURL\s*=\s*window\.URL\.createObjectURL/.test(bundle)) {
+  if (!/workerURL\s*=\s*(?:window\.)?URL\.createObjectURL/.test(bundle)) {
     throw new Error(`${bundlePath} does not assemble a worker URL`);
   }
   for (const contractMarker of ['workerURL', 'HostFrame', 'LumaDeviceRenderer']) {
     if (!bundle.includes(contractMarker)) {
       throw new Error(`${bundlePath} is missing contract marker: ${contractMarker}`);
     }
+  }
+  if (!/globalThis\.Tangram\s*=/.test(bundle)) {
+    throw new Error(`${bundlePath} does not expose the Tangram global`);
   }
 }
 

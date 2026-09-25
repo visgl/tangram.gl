@@ -48,15 +48,10 @@
     "publish:prod": "ocular-publish version-only-prod"
   },
   "devDependencies": {
-    "@babel/core": "^7.26.0",
-    "@babel/plugin-transform-runtime": "^7.25.9",
-    "@babel/preset-env": "^7.26.0",
-    "@babel/preset-typescript": "^7.29.0",
     "@deck.gl/core": "^9.4.0",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "@vitest/coverage-v8": "^4.0.18",
     "chai": "^4.5.0",
-    "fast-async": "6.3.8",
     "playwright": "^1.58.0",
     "sinon": "^19.0.2",
     "typescript": "^6.0.3",

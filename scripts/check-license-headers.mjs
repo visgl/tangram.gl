@@ -143,7 +143,6 @@ const TANGRAM_RENDERER_FILES = new Set([
   'modules/tangram-renderer/test/layer.browser.spec.js',
   'modules/tangram-renderer/test/merge.browser.spec.ts',
   'modules/tangram-renderer/test/obb.browser.spec.ts',
-  'modules/tangram-renderer/test/rollup.config.worker.js',
   'modules/tangram-renderer/test/scene.browser.spec.js',
   'modules/tangram-renderer/test/style.browser.spec.js',
   'modules/tangram-renderer/test/subscribe.browser.spec.js',
@@ -204,12 +203,8 @@ const TANGRAM_ROOT_FILES = new Set([
   'CONTRIBUTING.md',
   'ISSUE_TEMPLATE.md',
   'README.md',
-  'babel.config.js',
   'circle.yml',
   'modules/tangram-renderer/README.md',
-  'modules/tangram-renderer/build/bundle.mjs',
-  'modules/tangram-renderer/build/intro.js',
-  'modules/tangram-renderer/rollup.config.mjs'
 ]);
 
 const TANGRAM_CLASSIC_FILES = new Set([
