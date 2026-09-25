@@ -23,6 +23,9 @@ import TabItem from '@theme/TabItem';
   <TabItem value="yaml" label="YAML" default>
 
 ```yaml
+scene:
+  scripts:
+    - https://example.test/loaders-mvt-decoder.js
 sources:
   map:
     type: MVT
@@ -78,6 +81,31 @@ layers:
   `order`.
 - `scene` contains global settings such as background color, camera behavior,
   and texture declarations.
+
+## Vector tile decoders
+
+`MVT` sources use Tangram's original decoder by default. Renderer integrations
+can register another decoder in the worker and select it by name:
+
+```yaml
+sources:
+  map:
+    type: MVT
+    url: https://tiles.example.test/{z}/{x}/{y}.mvt
+    decoder: loaders-mvt
+```
+
+The script registers a synchronous function with
+`self.registerMvtDecoder('loaders-mvt', decodeTile)`. `decodeTile` receives the
+tile bytes and Tangram's `parse_json` option, and returns a record of named
+GeoJSON feature collections.
+
+The registered decoder must return named feature collections in Tangram-local
+tile coordinates and preserve `parse_json` and source-transform behavior.
+`decoder: tangram` selects the built-in parser. An unregistered name produces
+an error in the scene worker. The loaders.gl MVT implementation remains a
+development-only comparison candidate until its GeoJSON entry avoids pulling
+Arrow and binary-conversion dependencies into the renderer bundle.
 
 ## Validation and editor tooling
 

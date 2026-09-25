@@ -11,6 +11,7 @@ import {
     parseMvtWithLegacy,
     type MvtTile
 } from '../procedures/mvt-legacy';
+import {parseMvt, registerMvtDecoder} from '../procedures/mvt-parser';
 import {parseMvtJsonProperties} from '../procedures/mvt-properties';
 
 const PARSE_JSON_TYPE = {
@@ -20,6 +21,7 @@ const PARSE_JSON_TYPE = {
 };
 
 type MvtSourceConfig = {
+    decoder?: string;
     parse_json?: boolean | readonly string[];
     name?: string;
     [key: string]: unknown;
@@ -41,12 +43,14 @@ type SourceData = {
 */
 export class MVTSource extends NetworkTileSource {
 
+    decoder!: string;
     parse_json_type!: number;
     parse_json_prop_list?: readonly string[];
 
     constructor (source: MvtSourceConfig, sources?: Record<string, unknown>) {
         super(source, sources);
         this.response_type = 'arraybuffer'; // binary data
+        this.decoder = source.decoder || 'tangram';
 
         // Optionally parse some or all properties from JSON strings
         if (source.parse_json === true) {
@@ -74,7 +78,7 @@ export class MVTSource extends NetworkTileSource {
         if (!tile || !source || !response) {
             throw new Error('MVT source parsing requires a tile, source data and response');
         }
-        source.layers = parseMvtWithLegacy(response, {parseJson: this.parseJsonOption()}) as Record<string, unknown>;
+        source.layers = parseMvt(this.decoder, response, {parseJson: this.parseJsonOption()});
 
         // Apply optional data transform
         if (typeof this.transform === 'function') {
@@ -113,3 +117,5 @@ export class MVTSource extends NetworkTileSource {
 export {decodeMultiPolygon};
 
 DataSource.register('MVT', () => MVTSource);
+
+registerMvtDecoder('tangram', parseMvtWithLegacy);

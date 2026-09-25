@@ -4,6 +4,7 @@
 
 import {describe, expect, test} from 'vitest';
 import {MVTSource} from '../src/sources/mvt';
+import {registerMvtDecoder} from '../src/procedures/mvt-parser';
 
 describe('MVTSource', () => {
     test('normalizes parse_json options for all properties', () => {
@@ -37,5 +38,42 @@ describe('MVTSource', () => {
     test('defaults to no property parsing', () => {
         const source = new MVTSource({url: 'tiles/{z}/{x}/{y}.mvt'});
         expect(source.parseJsonOption()).toBeUndefined();
+    });
+
+    test('uses the Tangram decoder by default and accepts a registered decoder', () => {
+        const legacySource = new MVTSource({url: 'tiles/{z}/{x}/{y}.mvt'});
+        const legacyData: {layers?: Record<string, unknown>} = {};
+        legacySource.parseSourceData({min: {}, max: {}, coords: {}}, legacyData, new Uint8Array());
+
+        const unregister = registerMvtDecoder('test', () => ({
+            roads: {type: 'FeatureCollection', features: []}
+        }));
+        const pluginSource = new MVTSource({
+            url: 'tiles/{z}/{x}/{y}.mvt',
+            decoder: 'test'
+        });
+        const sourceData: {layers?: Record<string, unknown>} = {};
+        pluginSource.parseSourceData({min: {}, max: {}, coords: {}}, sourceData, new Uint8Array([1]));
+        unregister();
+
+        expect(legacySource.decoder).toBe('tangram');
+        expect(legacyData.layers).toEqual({});
+        expect(pluginSource.decoder).toBe('test');
+        expect(sourceData.layers).toEqual({
+            roads: {type: 'FeatureCollection', features: []}
+        });
+    });
+
+    test('reports an unknown decoder when parsing a tile', () => {
+        const source = new MVTSource({
+            url: 'tiles/{z}/{x}/{y}.mvt',
+            decoder: 'unknown'
+        });
+
+        expect(() => source.parseSourceData(
+            {min: {}, max: {}, coords: {}},
+            {},
+            new Uint8Array([1])
+        )).toThrow("MVT decoder 'unknown' is not registered in this worker");
     });
 });
