@@ -15,6 +15,7 @@ import WorkerBroker from '../utils/worker_broker'; // jshint ignore:line
 import Tile from '../tile/tile';
 import Geo from '../utils/geo';
 import DataSource from '../sources/data_source';
+import {registerMvtDecoder} from '../procedures/mvt-parser';
 import '../sources/sources';
 import FeatureSelection from '../selection/selection';
 import StyleParser from '../styles/style_parser';
@@ -28,6 +29,7 @@ import Label from '../labels/label';
 const SceneWorker = Object.assign(self, {
 
     FeatureSelection,
+    registerMvtDecoder,
 
     sources: {},
     styles: {},
