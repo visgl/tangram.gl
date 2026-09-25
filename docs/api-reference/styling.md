@@ -23,8 +23,9 @@ import TabItem from '@theme/TabItem';
   <TabItem value="yaml" label="YAML" default>
 
 ```yaml
-scripts:
-  - https://example.test/loaders-mvt-decoder.js
+scene:
+  scripts:
+    - https://example.test/loaders-mvt-decoder.js
 sources:
   map:
     type: MVT
