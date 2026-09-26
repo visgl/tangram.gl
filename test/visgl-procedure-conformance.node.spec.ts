@@ -130,7 +130,13 @@ describe('vis.gl procedure conformance', () => {
       [0, 0],
       [-74.009764, 40.705327],
       [179.9, 10],
-      [-122.4194, 85]
+      [-122.4194, 85],
+      [-180, 0],
+      [180, 0],
+      [0, -85.051129],
+      [0, 85.051129],
+      [45, -89.9],
+      [-45, 89.9]
     ];
 
     it.each(locations)('math.gl matches Tangram at [%d, %d]', (longitude, latitude) => {
@@ -151,12 +157,34 @@ describe('vis.gl procedure conformance', () => {
       expect(projectLngLatToMetersWithMath([0, -40])[1]).toBeLessThan(0);
     });
 
-    it('keeps the legacy production API in-place and identity-preserving', () => {
+    it('uses math.gl in the production API while preserving in-place identity', () => {
       const coordinates = [-74.009764, 40.705327];
       const projected = Geo.latLngToMeters(coordinates);
       expect(projected).toBe(coordinates);
-      expect(projected).toEqual(projectLngLatToMetersLegacy([-74.009764, 40.705327]));
+      expect(projected[0]).toBeCloseTo(projectLngLatToMetersLegacy([-74.009764, 40.705327])[0], 7);
+      expect(projected[1]).toBeCloseTo(projectLngLatToMetersLegacy([-74.009764, 40.705327])[1], 7);
       expect(Geo.metersToLatLng(projected)).toBe(coordinates);
+    });
+
+    it.each([0, 8, 16, 22])('preserves tile selection at zoom %d', zoom => {
+      for (const coordinates of locations) {
+        const legacyMeters = projectLngLatToMetersLegacy(coordinates);
+        const productionCoordinates: number[] = [...coordinates];
+        Geo.latLngToMeters(productionCoordinates);
+        expect(Geo.tileForMeters(productionCoordinates, zoom)).toEqual(Geo.tileForMeters(legacyMeters, zoom));
+      }
+    });
+
+    it.each([
+      [-135, 0, 3],
+      [-90, 0, 2],
+      [0, 66.51326044311186, 2],
+      [0, 79.17133464081945, 3]
+    ])('preserves legacy tile selection at boundary [%d, %d] zoom %d', (longitude, latitude, zoom) => {
+      const legacyMeters = projectLngLatToMetersLegacy([longitude, latitude]);
+      const productionCoordinates: number[] = [longitude, latitude];
+      Geo.latLngToMeters(productionCoordinates);
+      expect(Geo.tileForMeters(productionCoordinates, zoom)).toEqual(Geo.tileForMeters(legacyMeters, zoom));
     });
   });
 });

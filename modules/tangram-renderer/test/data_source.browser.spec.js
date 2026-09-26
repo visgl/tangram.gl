@@ -24,7 +24,7 @@ import {MVTSource} from '../src/sources/mvt';
 import Utils from '../src/utils/utils';
 
 function getMockTile() {
-    return Object.assign({}, sampleTile);
+    return JSON.parse(JSON.stringify(sampleTile));
 }
 
 function getMockJSONResponse() {
@@ -100,7 +100,7 @@ describe('DataSource', () => {
         beforeEach(() => {
             sinon.spy(Geo, 'transformGeometry');
             sinon.spy(Geo, 'latLngToMeters');
-            subject = DataSource.projectData(sampleTile);
+            subject = DataSource.projectData(getMockTile());
         });
 
         afterEach(() => {
