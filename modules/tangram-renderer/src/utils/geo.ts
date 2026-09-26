@@ -6,9 +6,9 @@
 // Miscellaneous geo functions
 
 import {
-    projectLngLatToMetersLegacy,
-    unprojectMetersToLngLatLegacy
-} from '../procedures/web-mercator-legacy';
+    projectLngLatToMetersWithMath,
+    unprojectMetersToLngLatWithMath
+} from '../procedures/web-mercator-math';
 
 export type Coordinate = number[];
 export type Meters = {x: number; y: number};
@@ -122,7 +122,7 @@ Geo.wrapTile = function({ x, y, z }: Tile, mask = { x: true, y: false }): Tile {
    Convert mercator meters to lat-lng, in-place
 */
 Geo.metersToLatLng = function (c: Coordinate): Coordinate {
-    const converted = unprojectMetersToLngLatLegacy([c[0], c[1]]);
+    const converted = unprojectMetersToLngLatWithMath([c[0], c[1]]);
     c[0] = converted[0];
     c[1] = converted[1];
     return c;
@@ -132,7 +132,7 @@ Geo.metersToLatLng = function (c: Coordinate): Coordinate {
   Convert lat-lng to mercator meters, in-place
 */
 Geo.latLngToMeters = function (c: Coordinate): Coordinate {
-    const converted = projectLngLatToMetersLegacy([c[0], c[1]]);
+    const converted = projectLngLatToMetersWithMath([c[0], c[1]]);
     c[0] = converted[0];
     c[1] = converted[1];
     return c;
