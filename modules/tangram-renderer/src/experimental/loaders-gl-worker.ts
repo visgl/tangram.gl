@@ -4,6 +4,7 @@
 
 import {getPMTilesTile} from '../procedures/pmtiles-loader';
 import {parseMltWithLoaders} from '../procedures/mlt-loaders';
+import {parseMvtWithLoaders} from '../procedures/mvt-loaders';
 import type {MvtDecoder} from '../procedures/mvt-parser';
 import type {MvtTileProvider} from '../procedures/mvt-tile-provider';
 
@@ -13,5 +14,6 @@ type TangramWorker = typeof self & {
 };
 
 const tangramWorker = self as TangramWorker;
+tangramWorker.registerMvtDecoder('loaders-mvt', parseMvtWithLoaders);
 tangramWorker.registerMvtDecoder('loaders-mlt', parseMltWithLoaders);
 tangramWorker.registerMvtTileProvider('loaders-pmtiles', getPMTilesTile);

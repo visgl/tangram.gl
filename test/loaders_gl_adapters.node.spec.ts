@@ -18,7 +18,12 @@ vi.mock('@loaders.gl/mlt/bundled', () => ({
   MLTLoader: {parseSync}
 }));
 
+vi.mock('@loaders.gl/mvt/bundled', () => ({
+  MVTLoader: {parseSync}
+}));
+
 import {parseMltWithLoaders} from '../modules/tangram-renderer/src/procedures/mlt-loaders';
+import {parseMvtWithLoaders} from '../modules/tangram-renderer/src/procedures/mvt-loaders';
 import {getPMTilesTile} from '../modules/tangram-renderer/src/procedures/pmtiles-loader';
 
 describe('loaders.gl tile adapters', () => {
@@ -64,6 +69,38 @@ describe('loaders.gl tile adapters', () => {
     expect(parseMltWithLoaders(new ArrayBuffer(0))).toEqual({});
   });
 
+  test('normalizes loaders.gl MVT features and preserves Tangram parse_json behavior', () => {
+    parseSync.mockReturnValue({
+      features: [{
+        type: 'Feature',
+        id: 12,
+        geometry: {type: 'Point', coordinates: [0.25, 0.5]},
+        properties: {
+          __tangram_layer: 'places',
+          metadata: '{"rank":3}',
+          label: 'Town'
+        }
+      }]
+    });
+
+    const layers = parseMvtWithLoaders(new Uint8Array([8, 9]), {parseJson: ['metadata']});
+
+    expect(parseSync).toHaveBeenCalledWith(expect.any(ArrayBuffer), {
+      mvt: {shape: 'geojson-table', coordinates: 'local', layerProperty: '__tangram_layer'}
+    });
+    expect(layers).toEqual({
+      places: {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          id: 12,
+          geometry: {type: 'Point', coordinates: [1024, 2048]},
+          properties: {metadata: {rank: 3}, label: 'Town'}
+        }]
+      }
+    });
+  });
+
   test('reuses a PMTiles source and requests the supplied tile index', async () => {
     const tileBytes = new Uint8Array([1, 2, 3]).buffer;
     getTile.mockResolvedValue(tileBytes);
@@ -103,6 +140,7 @@ describe('loaders.gl tile adapters', () => {
       }
     }
 
+    expect(workerScope.registerMvtDecoder).toHaveBeenCalledWith('loaders-mvt', expect.any(Function));
     expect(workerScope.registerMvtDecoder).toHaveBeenCalledWith('loaders-mlt', expect.any(Function));
     expect(workerScope.registerMvtTileProvider).toHaveBeenCalledWith('loaders-pmtiles', expect.any(Function));
   });
