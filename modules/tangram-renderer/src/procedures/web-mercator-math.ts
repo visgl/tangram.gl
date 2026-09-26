@@ -11,15 +11,12 @@ const CIRCUMFERENCE_METERS = HALF_CIRCUMFERENCE_METERS * 2;
 
 /** Return whether a normalized world coordinate lies on a slippy-map tile edge. */
 function isTileBoundary(worldCoordinate: number): boolean {
-  for (let zoom = 0; zoom <= 30; zoom++) {
-    const tileCoordinate = worldCoordinate * 2 ** zoom;
-    const nearestBoundary = Math.round(tileCoordinate);
-    const floatingPointTolerance = Number.EPSILON * Math.max(1, Math.abs(tileCoordinate)) * 4;
-    if (Math.abs(tileCoordinate - nearestBoundary) <= floatingPointTolerance) {
-      return true;
-    }
-  }
-  return false;
+  // Every boundary through zoom 30 is an integer at zoom 30, so one check
+  // avoids a zoom loop on the per-coordinate projection hot path.
+  const tileCoordinate = worldCoordinate * 2 ** 30;
+  const nearestBoundary = Math.round(tileCoordinate);
+  const floatingPointTolerance = Number.EPSILON * Math.max(1, Math.abs(tileCoordinate)) * 4;
+  return Math.abs(tileCoordinate - nearestBoundary) <= floatingPointTolerance;
 }
 
 /** Project longitude/latitude degrees to Tangram Web Mercator meters using math.gl. */
