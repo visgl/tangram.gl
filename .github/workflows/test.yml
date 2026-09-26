@@ -45,8 +45,10 @@ jobs:
         run: |
           test -f modules/tangram-renderer/dist/index.js
           test -f modules/tangram-renderer/dist/tangram.min.mjs
+          test -f modules/tangram-renderer/dist/loaders-gl-worker.js
           test -f modules/tangram-renderer/dist/tangram-style.schema.json
           test -f website/build/modules/tangram-renderer/dist/index.js
+          test -f website/build/modules/tangram-renderer/dist/loaders-gl-worker.js
           test -f website/build/examples/deck/index.html
           test -f website/build/examples/classic/index.html
           test -f /tmp/tangram-renderer.tgz

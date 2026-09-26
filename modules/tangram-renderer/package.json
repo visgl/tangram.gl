@@ -34,9 +34,10 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:size",
+    "build": "node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:size",
     "build:entry": "node scripts/write-package-entry.mjs",
     "build:style-schema": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/styles/style-schema.ts --env=dev --format=esm --output=modules/tangram-renderer/dist/style-schema.js --externals=zod --sourcemap=true --sourcesContent=false",
+    "build:loaders-gl-worker": "node scripts/build-loaders-gl-worker.mjs",
     "generate-style-schema": "node scripts/generate-style-schema.mjs",
     "build:size": "gzip dist/tangram.min.mjs -c | wc -c | awk '{kb=$1/1024; print kb}' OFMT='Module:\\t\\t%.0fk (min/gzip)' && gzip dist/tangram.min.js -c | wc -c | awk '{kb=$1/1024; print kb}' OFMT='No module:\\t%.0fk (min/gzip)'",
     "prepack": "yarn build",
@@ -46,7 +47,9 @@
   "devDependencies": {
     "@loaders.gl/config": "5.0.0-alpha.4",
     "@loaders.gl/core": "5.0.0-alpha.4",
+    "@loaders.gl/mlt": "5.0.0-alpha.6",
     "@loaders.gl/mvt": "5.0.0-alpha.4",
+    "@loaders.gl/pmtiles": "5.0.0-alpha.6",
     "@math.gl/web-mercator": "4.1.0",
     "esbuild": "^0.28.1"
   },

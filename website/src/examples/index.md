@@ -178,3 +178,27 @@ page, so the examples sidebar stays visible while you move between demos.
     <span>The packaged classic integration preserves Tangram’s historical Leaflet lifecycle.</span>
   </a>
 </div>
+
+## Tile loading formats
+
+Compare a regular MVT tile service with MVT tiles stored in a PMTiles archive
+and MapLibre Tile (MLT) tiles. The latter two load the optional loaders.gl
+worker add-on; all three use public demo data sources.
+
+<div className="example-tile-grid example-tile-grid--compact">
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/loaders-mvt.yaml">
+    <span className="example-tile__eyebrow">MVT · TileJSON</span>
+    <strong>OpenFreeMap vector tiles</strong>
+    <span>A direct MVT baseline from the keyless OpenFreeMap planet tiles.</span>
+  </a>
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/loaders-pmtiles.yaml">
+    <span className="example-tile__eyebrow">MVT · PMTiles archive</span>
+    <strong>Protomaps PMTiles</strong>
+    <span>Load raw MVT tile bytes by Z/X/Y from one cloud-hosted archive.</span>
+  </a>
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/loaders-mlt.yaml">
+    <span className="example-tile__eyebrow">MLT · Tile service</span>
+    <strong>MapLibre Tile demo</strong>
+    <span>Decode MapLibre's public MLT demo tiles with the optional worker.</span>
+  </a>
+</div>

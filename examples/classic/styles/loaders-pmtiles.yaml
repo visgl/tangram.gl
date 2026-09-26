@@ -1,0 +1,38 @@
+# tangram-layers
+# SPDX-License-Identifier: MIT
+# Copyright (c) vis.gl contributors
+
+scene:
+  background:
+    color: '#d9e7ee'
+  scripts:
+    - https://visgl.github.io/tangram.gl/modules/tangram-renderer/dist/loaders-gl-worker.js
+
+sources:
+  map:
+    type: MVT
+    url: https://demo-bucket.protomaps.com/v4.pmtiles
+    tile_provider: loaders-pmtiles
+    decoder: tangram
+    tile_size: 256
+    max_zoom: 15
+    attribution: >
+      <a href="https://protomaps.com">Protomaps</a> and
+      <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
+
+layers:
+  map:
+    data: {source: map, all_layers: true}
+    draw:
+      polygons:
+        order: 0
+        color: '#e8e4d8'
+        extrude: true
+      lines:
+        order: 1
+        color: '#527b91'
+        width: 2px
+      points:
+        order: 2
+        color: '#d45443'
+        size: 4px

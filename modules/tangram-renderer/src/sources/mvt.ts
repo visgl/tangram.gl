@@ -4,6 +4,7 @@
 // Copyright (c) 2026 vis.gl contributors
 
 import DataSource, {NetworkTileSource} from './data_source';
+import Geo from '../utils/geo';
 import log from '../utils/log';
 import {
     convertMvtTileWithLegacy,
@@ -12,6 +13,7 @@ import {
     type MvtTile
 } from '../procedures/mvt-legacy';
 import {parseMvt, registerMvtDecoder} from '../procedures/mvt-parser';
+import {getMvtTileProvider} from '../procedures/mvt-tile-provider';
 import {parseMvtJsonProperties} from '../procedures/mvt-properties';
 
 const PARSE_JSON_TYPE = {
@@ -22,6 +24,7 @@ const PARSE_JSON_TYPE = {
 
 type MvtSourceConfig = {
     decoder?: string;
+    tile_provider?: string;
     parse_json?: boolean | readonly string[];
     name?: string;
     [key: string]: unknown;
@@ -30,11 +33,15 @@ type MvtSourceConfig = {
 type TileData = {
     min: Record<string, unknown>;
     max: Record<string, unknown>;
-    coords: Record<string, unknown>;
+    coords: Record<string, unknown> & {x: number; y: number; z: number};
+    source_data?: SourceData;
+    debug?: Record<string, any>;
 };
 
 type SourceData = {
     layers?: Record<string, unknown>;
+    url?: string;
+    error?: string | null;
 };
 
 /**
@@ -44,6 +51,7 @@ type SourceData = {
 export class MVTSource extends NetworkTileSource {
 
     decoder!: string;
+    tile_provider?: string;
     parse_json_type!: number;
     parse_json_prop_list?: readonly string[];
 
@@ -51,6 +59,7 @@ export class MVTSource extends NetworkTileSource {
         super(source, sources);
         this.response_type = 'arraybuffer'; // binary data
         this.decoder = source.decoder || 'tangram';
+        this.tile_provider = source.tile_provider;
 
         // Optionally parse some or all properties from JSON strings
         if (source.parse_json === true) {
@@ -72,6 +81,51 @@ export class MVTSource extends NetworkTileSource {
             // skip parsing entirely (default behavior)
             this.parse_json_type = PARSE_JSON_TYPE.NONE;
         }
+    }
+
+    loadURL (dest: TileData, url_template: string): Promise<any> {
+        if (!this.tile_provider) {
+            return super.loadURL(dest, url_template);
+        }
+
+        const tileProvider = getMvtTileProvider(this.tile_provider);
+        if (!tileProvider) {
+            return Promise.reject(new Error(`MVT tile provider '${this.tile_provider}' is not registered in this worker`));
+        }
+
+        const url = this.formatURL(url_template, dest);
+        const sourceData = dest.source_data as SourceData;
+        dest.debug = dest.debug || {};
+        const debug = dest.debug;
+        debug.network = +new Date();
+        sourceData.url = url;
+        sourceData.error = null;
+
+        const providerTileIndex = Geo.wrapTile(dest.coords, {x: true, y: false});
+        if (this.tms) {
+            providerTileIndex.y = Math.pow(2, providerTileIndex.z) - 1 - providerTileIndex.y;
+        }
+
+        return Promise.resolve().then(() => tileProvider(url, providerTileIndex)).then(response => {
+            debug.network = +new Date() - debug.network;
+            debug.parsing = +new Date();
+            const preprocessedResponse = response != null && typeof this.preprocess === 'function'
+                ? this.preprocess(response)
+                : response;
+            return Promise.resolve(preprocessedResponse).then(processedResponse => {
+                if (processedResponse != null) {
+                    this.parseSourceData(dest, sourceData, processedResponse);
+                }
+                else {
+                    sourceData.layers = {};
+                }
+                debug.parsing = +new Date() - debug.parsing;
+                return dest;
+            });
+        }).catch(error => {
+            sourceData.error = error instanceof Error ? error.stack || error.message : String(error);
+            return dest;
+        });
     }
 
     parseSourceData (tile?: TileData, source?: SourceData, response?: ArrayBuffer | Uint8Array): void {
