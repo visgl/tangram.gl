@@ -148,6 +148,46 @@ loaders.gl dependencies or add them to the renderer's main bundle. The direct
 MLT service example uses MapLibre's public `plain` demo tiles at
 `https://demotiles.maplibre.org/tiles-mlt/plain/{z}/{x}/{y}.mlt`.
 
+### Tile format examples
+
+The examples gallery includes a baseline MVT source, an MVT tileset stored in a
+PMTiles archive, and a direct MLT tile service. The source URLs are public demos
+documented by OpenFreeMap, Protomaps, and MapLibre; they may require network
+access and can be subject to those services' availability and usage policies.
+
+For PMTiles, the loaders.gl source's `getTile({x, y, z})` returns the encoded
+tile `ArrayBuffer`. The example selects Tangram's existing MVT decoder, so this
+demonstrates the archive container without changing the encoded tile format.
+The source is created without a `shape` option because that option applies to
+the higher-level `getVectorTile()` method, not the raw `getTile()` method.
+
+### PMTiles archives with MLT tiles
+
+An optional worker add-on registers loaders.gl's PMTiles tile source and MLT
+decoder. The renderer build emits it as a separate sidecar; to build only this
+worker, run `yarn workspace @vis.gl/tangram-renderer build:loaders-gl-worker`.
+Serve `dist/loaders-gl-worker.js` alongside the renderer package. It is a
+separate worker script and is not included in the standard Tangram bundle.
+
+```yaml
+scene:
+  scripts:
+    - https://example.test/tangram/dist/loaders-gl-worker.js
+sources:
+  map:
+    type: MVT
+    url: https://demo-bucket.protomaps.com/v4.pmtiles
+    tile_provider: loaders-pmtiles
+    decoder: loaders-mlt
+```
+
+The PMTiles provider retrieves raw `{z,x,y}` tile bytes from the archive; the
+MLT decoder groups features by layer and converts normalized local coordinates
+to Tangram's tile coordinate scale. Standard builds do not include the optional
+loaders.gl dependencies or add them to the renderer's main bundle. The direct
+MLT service example uses MapLibre's public `plain` demo tiles at
+`https://demotiles.maplibre.org/tiles-mlt/plain/{z}/{x}/{y}.mlt`.
+
 ## Validation and editor tooling
 
 The renderer publishes a Zod schema for runtime validation and a generated

@@ -79,14 +79,63 @@ The pull-request workflow collects separate Node and Chromium coverage blobs,
 merges them, and enforces these global renderer thresholds before uploading the
 report as a workflow artifact:
 
-- 30% statements;
-- 25% branches;
-- 35% functions; and
-- 30% lines.
+- 78% statements;
+- 69% branches;
+- 82% functions; and
+- 78% lines.
 
 Coverage is intentionally scoped to source rather than generated bundles,
 fixtures, or dependencies. The report shows untested files and keeps the
 threshold ratchet visible as the renderer is converted to TypeScript.
+
+## Rendering and interaction regressions
+
+`test/rendering/*.render.spec.ts` is a separate, hermetic Vitest lane configured
+through `@vis.gl/dev-tools`. It uses real Chromium GPU devices, packaged module
+entries, and the generated scene worker. It does not mock the renderer or fetch
+public tiles. Run both backends before changing camera transforms, shader
+generation, GPU resource handling, or WebXR preview controls:
+
+```sh
+yarn test-rendering
+TANGRAM_TEST_DEVICE=webgpu yarn test-rendering:run
+```
+
+The first command builds the modules and runs WebGL 2. After a build, use
+`yarn test-rendering:run` for faster iteration. Selecting an unavailable device
+fails the lane; it does not silently fall back or skip. Both local runs and CI
+use Chromium's software adapter for consistency. Hardware GPU and headset
+testing remain necessary before a release.
+
+The fixtures are small authored GeoJSON roads/buildings and an in-memory raster
+checkerboard. They exercise real worker loading, triangulation, extrusion,
+shader compilation, texture uploads, and drawing. Public network requests and
+browser/GPU errors fail the tests.
+
+| Contract | Coverage |
+| --- | --- |
+| MapView flat/perspective, GlobeView, FirstPersonView | Real pixels through both TangramLayer/deck.gl and the WebXR presentation |
+| Mono and stereo preview | Visible geometry in the canvas and in each eye |
+| Eye separation | Matching eye images at zero IPD; distinct images at 64 mm |
+| Zoom, resize, style changes | Geometry remains visible, image dimensions update, colors change |
+| Animation | Frozen clock advances produce different road pixels |
+| Mouse input | Trusted Chromium drag events in either eye update shared state and pixels for all three view families |
+| Trackpad input | Fractional wheel events pass through DOM recognition and pan without zooming |
+| Touch input | Chromium two-touch pinch changes zoom and rotation |
+| Picking | WebGL selection round-trip through the GPU and worker; WebGPU's unsupported result is explicit |
+
+These tests compare pixel properties and image differences, not platform-specific
+golden images. Black, white, or missing canvas output cannot satisfy the colored
+geometry checks. They protect rendering contracts, not every detail of a style's
+appearance. The synthetic trackpad stream models browser wheel events; it is
+not a claim of physical trackpad or native headset validation.
+
+CI runs separate **Rendering (webgl)** and **Rendering (webgpu)** checks and
+uploads full-resolution PNGs, browser error diagnostics, and JUnit results in
+`rendering-webgl` / `rendering-webgpu` artifacts. Local artifacts are under
+`screenshots/rendering/` and must not be committed. The ordinary unit-test and
+source-coverage lanes remain separate: rendering a generated bundle does not
+inflate source coverage.
 
 ## Website and examples
 

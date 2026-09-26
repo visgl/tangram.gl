@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // @ts-nocheck
 
@@ -664,10 +665,28 @@ export default class Scene {
             // Only re-render if selection buffer is out of date (relative to main render buffer)
             // and not locked (e.g. no tiles are actively building)
             if (!this.selection.locked && this.last_selection_render < this.last_main_render) {
-                this.selection.bind();          // switch to FBO
-                this.renderPass(
-                    'selection_program',        // render w/alternate program
-                    { allow_blend: false });
+                if (this.selection.framebuffer) {
+                    const selection_pass = this.device.beginRenderPass({
+                        framebuffer: this.selection.framebuffer,
+                        clearColor: FeatureSelection.defaultColor,
+                        clearDepth: 1
+                    });
+                    try {
+                        this.renderPass('selection_program', {
+                            allow_blend: false,
+                            renderPass: selection_pass
+                        });
+                    }
+                    finally {
+                        selection_pass.end();
+                    }
+                }
+                else {
+                    this.selection.bind();          // switch to FBO
+                    this.renderPass(
+                        'selection_program',        // render w/alternate program
+                        { allow_blend: false });
+                }
 
                 // Reset to screen buffer
                 gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -1556,7 +1575,7 @@ export default class Scene {
         if (this.portable_rendering) {
             return;
         }
-        this.selection = new FeatureSelection(this.gl, this.workers, () => this.building);
+        this.selection = new FeatureSelection(this.gl, this.workers, () => this.building, this.device);
         this.last_render_count = 0; // force re-evaluation of selection map
     }
 

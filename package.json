@@ -38,6 +38,8 @@
     "test-node": "ocular-test node",
     "test-browser": "yarn build:modules && ocular-test browser",
     "test-headless": "yarn build:modules && yarn test-build-worker && ocular-test headless",
+    "test-rendering": "yarn build:modules && yarn test-rendering:run",
+    "test-rendering:run": "vitest run --config vitest.rendering.config.ts",
     "test-coverage": "yarn build:modules && yarn test-build-worker && ocular-test headless --coverage",
     "typecheck": "tsc --noEmit",
     "typescript:scope": "node scripts/check-typescript-migration.mjs",

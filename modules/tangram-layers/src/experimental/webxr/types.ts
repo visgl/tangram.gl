@@ -86,7 +86,7 @@ export type XRFrameState = {
 /** Deck view contract required by {@link WebXRPresentation}. */
 export type XRDeckView = {
   id: string;
-  constructor: {displayName?: string};
+  constructor: {name: string; displayName?: string};
   controller: ({type: new (properties: Record<string, unknown>) => XRDeckController} &
     Record<string, unknown>) | null;
   makeViewport(options: {
@@ -127,7 +127,6 @@ export type XRDeckViewport = {
     metersPerUnit?: readonly number[];
   };
   getBounds?(options?: {z?: number}): [number, number, number, number];
-  [property: string]: unknown;
 };
 
 /** Deck controller methods used by the shared logical view. */
