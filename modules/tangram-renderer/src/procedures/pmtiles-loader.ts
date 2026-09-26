@@ -13,7 +13,9 @@ const pmtilesSources = new Map<string, PMTilesTileSource>();
 export function getPMTilesTile(url: string, tileIndex: MvtTileIndex): Promise<ArrayBuffer | null> {
     let source = pmtilesSources.get(url);
     if (!source) {
-        source = PMTilesSourceLoader.createDataSource(url, {pmtiles: {shape: 'geojson-table'}});
+        // getTile() returns the encoded tile bytes; getVectorTile() is the
+        // convenience API that decodes them before Tangram's decoder runs.
+        source = PMTilesSourceLoader.createDataSource(url, {});
         pmtilesSources.set(url, source);
     }
     return source.getTile(tileIndex);

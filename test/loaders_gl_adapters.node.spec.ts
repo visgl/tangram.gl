@@ -74,9 +74,7 @@ describe('loaders.gl tile adapters', () => {
     const firstTile = await getPMTilesTile(archiveUrl, tileIndex);
     const secondTile = await getPMTilesTile(archiveUrl, tileIndex);
 
-    expect(createDataSource).toHaveBeenCalledExactlyOnceWith(archiveUrl, {
-      pmtiles: {shape: 'geojson-table'}
-    });
+    expect(createDataSource).toHaveBeenCalledExactlyOnceWith(archiveUrl, {});
     expect(getTile).toHaveBeenNthCalledWith(1, tileIndex);
     expect(getTile).toHaveBeenNthCalledWith(2, tileIndex);
     expect(firstTile).toBe(tileBytes);

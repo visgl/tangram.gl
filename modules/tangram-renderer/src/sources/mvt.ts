@@ -4,6 +4,7 @@
 // Copyright (c) 2026 vis.gl contributors
 
 import DataSource, {NetworkTileSource} from './data_source';
+import Geo from '../utils/geo';
 import log from '../utils/log';
 import {
     convertMvtTileWithLegacy,
@@ -100,17 +101,27 @@ export class MVTSource extends NetworkTileSource {
         sourceData.url = url;
         sourceData.error = null;
 
-        return Promise.resolve().then(() => tileProvider(url, dest.coords as {x: number; y: number; z: number})).then(response => {
+        const providerTileIndex = Geo.wrapTile(dest.coords, {x: true, y: false});
+        if (this.tms) {
+            providerTileIndex.y = Math.pow(2, providerTileIndex.z) - 1 - providerTileIndex.y;
+        }
+
+        return Promise.resolve().then(() => tileProvider(url, providerTileIndex)).then(response => {
             debug.network = +new Date() - debug.network;
             debug.parsing = +new Date();
-            if (response != null) {
-                this.parseSourceData(dest, sourceData, response);
-            }
-            else {
-                sourceData.layers = {};
-            }
-            debug.parsing = +new Date() - debug.parsing;
-            return dest;
+            const preprocessedResponse = response != null && typeof this.preprocess === 'function'
+                ? this.preprocess(response)
+                : response;
+            return Promise.resolve(preprocessedResponse).then(processedResponse => {
+                if (processedResponse != null) {
+                    this.parseSourceData(dest, sourceData, processedResponse);
+                }
+                else {
+                    sourceData.layers = {};
+                }
+                debug.parsing = +new Date() - debug.parsing;
+                return dest;
+            });
         }).catch(error => {
             sourceData.error = error instanceof Error ? error.stack || error.message : String(error);
             return dest;

@@ -1,0 +1,32 @@
+# tangram-layers
+# SPDX-License-Identifier: MIT
+# Copyright (c) vis.gl contributors
+
+scene:
+  background:
+    color: '#d9e7ee'
+  scripts:
+    - https://visgl.github.io/tangram.gl/modules/tangram-renderer/dist/loaders-gl-worker.js
+
+sources:
+  map:
+    type: MVT
+    url: https://demotiles.maplibre.org/tiles-mlt/plain/{z}/{x}/{y}.mlt
+    decoder: loaders-mlt
+    tile_size: 512
+    max_zoom: 14
+    attribution: >
+      <a href="https://maplibre.org">MapLibre</a> demo tiles and
+      <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
+
+layers:
+  countries:
+    data: {source: map, layer: countries}
+    draw:
+      polygons:
+        order: 0
+        color: '#e8e4d8'
+      lines:
+        order: 1
+        color: '#527b91'
+        width: 2px

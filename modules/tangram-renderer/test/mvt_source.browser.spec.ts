@@ -120,6 +120,90 @@ describe('MVTSource', () => {
         expect(destination.source_data.error).toBeNull();
     });
 
+    test('wraps provider tile coordinates to match the formatted request URL', async () => {
+        const requestedCoordinates: Array<{x: number; y: number; z: number}> = [];
+        const unregisterProvider = registerMvtTileProvider('wrapped-provider', (_url, coords) => {
+            requestedCoordinates.push(coords);
+            return null;
+        });
+        const source = new MVTSource({url: 'archive.pmtiles', tile_provider: 'wrapped-provider'});
+        const destination = {
+            min: {},
+            max: {},
+            coords: {x: -1, y: 3, z: 4},
+            source_data: {} as {layers?: Record<string, unknown>; error?: string | null; url?: string}
+        };
+
+        try {
+            await source.loadURL(destination, 'archive.pmtiles');
+        } finally {
+            unregisterProvider();
+        }
+
+        expect(requestedCoordinates).toEqual([{x: 15, y: 3, z: 4}]);
+        expect(destination.source_data.layers).toEqual({});
+    });
+
+    test('honors TMS y coordinates for registered providers', async () => {
+        const requestedCoordinates: Array<{x: number; y: number; z: number}> = [];
+        const unregisterProvider = registerMvtTileProvider('tms-provider', (_url, coords) => {
+            requestedCoordinates.push(coords);
+            return null;
+        });
+        const source = new MVTSource({url: 'archive.pmtiles', tile_provider: 'tms-provider', tms: true});
+        const destination = {
+            min: {},
+            max: {},
+            coords: {x: 2, y: 3, z: 4},
+            source_data: {} as {layers?: Record<string, unknown>; error?: string | null; url?: string}
+        };
+
+        try {
+            await source.loadURL(destination, 'archive.pmtiles');
+        } finally {
+            unregisterProvider();
+        }
+
+        expect(requestedCoordinates).toEqual([{x: 2, y: 12, z: 4}]);
+    });
+
+    test('applies synchronous and asynchronous source preprocess hooks to provider bytes', async () => {
+        const unregisterProvider = registerMvtTileProvider('preprocess-provider', () => new Uint8Array([3]));
+        const decodedValues: number[] = [];
+        const unregisterDecoder = registerMvtDecoder('preprocess-decoder', response => {
+            decodedValues.push(response instanceof Uint8Array ? response[0] : new Uint8Array(response)[0]);
+            return {};
+        });
+        const syncSource = new MVTSource({
+            url: 'archive.pmtiles',
+            tile_provider: 'preprocess-provider',
+            decoder: 'preprocess-decoder',
+            preprocess: (bytes: Uint8Array) => new Uint8Array([bytes[0] + 1])
+        });
+        const asyncSource = new MVTSource({
+            url: 'archive.pmtiles',
+            tile_provider: 'preprocess-provider',
+            decoder: 'preprocess-decoder',
+            preprocess: async (bytes: Uint8Array) => new Uint8Array([bytes[0] + 2])
+        });
+        const createDestination = () => ({
+            min: {},
+            max: {},
+            coords: {x: 0, y: 0, z: 0},
+            source_data: {} as {layers?: Record<string, unknown>; error?: string | null; url?: string}
+        });
+
+        try {
+            await syncSource.loadURL(createDestination(), 'archive.pmtiles');
+            await asyncSource.loadURL(createDestination(), 'archive.pmtiles');
+        } finally {
+            unregisterProvider();
+            unregisterDecoder();
+        }
+
+        expect(decodedValues).toEqual([4, 5]);
+    });
+
     test('resolves provider failures into source tile errors', async () => {
         const unregisterProvider = registerMvtTileProvider('failing-provider', () => {
             throw new Error('archive read failed');

@@ -182,6 +182,10 @@
   margin: 1.5rem 0 2rem;
 }
 
+.example-tile-grid--compact .example-tile {
+  min-height: 180px;
+}
+
 .example-tile {
   display: flex;
   min-height: 300px;
