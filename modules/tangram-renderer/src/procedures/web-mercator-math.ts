@@ -3,20 +3,40 @@
 // Copyright (c) vis.gl contributors
 
 import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';
+import {projectLngLatToMetersLegacy} from './web-mercator-legacy';
 
 const WORLD_SIZE = 512;
 const HALF_CIRCUMFERENCE_METERS = 20037508.342789244;
 const CIRCUMFERENCE_METERS = HALF_CIRCUMFERENCE_METERS * 2;
+
+/** Return whether a normalized world coordinate lies on a slippy-map tile edge. */
+function isTileBoundary(worldCoordinate: number): boolean {
+  for (let zoom = 0; zoom <= 30; zoom++) {
+    const tileCoordinate = worldCoordinate * 2 ** zoom;
+    const nearestBoundary = Math.round(tileCoordinate);
+    const floatingPointTolerance = Number.EPSILON * Math.max(1, Math.abs(tileCoordinate)) * 4;
+    if (Math.abs(tileCoordinate - nearestBoundary) <= floatingPointTolerance) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Project longitude/latitude degrees to Tangram Web Mercator meters using math.gl. */
 export function projectLngLatToMetersWithMath(
   coordinates: readonly [number, number]
 ): [number, number] {
   const [worldX, worldY] = lngLatToWorld([coordinates[0], coordinates[1]]);
+  const normalizedWorldX = worldX / WORLD_SIZE;
+  const normalizedWorldY = worldY / WORLD_SIZE;
+  const legacyMeters =
+    isTileBoundary(normalizedWorldX) || isTileBoundary(normalizedWorldY)
+      ? projectLngLatToMetersLegacy(coordinates)
+      : undefined;
   return [
-    (worldX / WORLD_SIZE) * CIRCUMFERENCE_METERS - HALF_CIRCUMFERENCE_METERS,
+    legacyMeters?.[0] ?? normalizedWorldX * CIRCUMFERENCE_METERS - HALF_CIRCUMFERENCE_METERS,
     // math.gl 4.x world Y is north-positive: latitude +40 maps above WORLD_SIZE / 2.
-    (worldY / WORLD_SIZE) * CIRCUMFERENCE_METERS - HALF_CIRCUMFERENCE_METERS
+    legacyMeters?.[1] ?? normalizedWorldY * CIRCUMFERENCE_METERS - HALF_CIRCUMFERENCE_METERS
   ];
 }
 

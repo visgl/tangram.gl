@@ -174,5 +174,17 @@ describe('vis.gl procedure conformance', () => {
         expect(Geo.tileForMeters(productionCoordinates, zoom)).toEqual(Geo.tileForMeters(legacyMeters, zoom));
       }
     });
+
+    it.each([
+      [-135, 0, 3],
+      [-90, 0, 2],
+      [0, 66.51326044311186, 2],
+      [0, 79.17133464081945, 3]
+    ])('preserves legacy tile selection at boundary [%d, %d] zoom %d', (longitude, latitude, zoom) => {
+      const legacyMeters = projectLngLatToMetersLegacy([longitude, latitude]);
+      const productionCoordinates: number[] = [longitude, latitude];
+      Geo.latLngToMeters(productionCoordinates);
+      expect(Geo.tileForMeters(productionCoordinates, zoom)).toEqual(Geo.tileForMeters(legacyMeters, zoom));
+    });
   });
 });

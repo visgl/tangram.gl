@@ -29,7 +29,9 @@ The projection adapter converts math.gl's 512-unit world coordinates to
 EPSG:3857 meters using Tangram's circumference constant. Tangram's projected Y
 is north-positive; tile-row Y remains south-positive and is handled by the
 existing tile conversion functions. The public `Geo` methods still mutate and
-return their input coordinate arrays.
+return their input coordinate arrays. At floating-point tile boundaries, the
+adapter falls back to Tangram's previous arithmetic so tile selection retains
+the same `Math.floor` behavior as before.
 
 ## Why YAML and MVT candidates remain development dependencies
 
@@ -63,9 +65,9 @@ and deck-layer combination:
 
 | Production artifact | `master` raw / gzip | This PR raw / gzip | Difference |
 | --- | ---: | ---: | ---: |
-| Renderer minified ESM | 929.6 / 276.1 KB | 930.4 / 276.5 KB | +0.8 / +0.4 KB |
-| Renderer debug ESM | 1,785.9 / 393.2 KB | 1,788.6 / 394.1 KB | +2.7 / +0.9 KB |
-| TangramLayer + renderer minified ESM (additive upper bound) | 948.0 / 280.7 KB | 948.8 / 281.1 KB | +0.8 / +0.4 KB |
+| Renderer minified ESM | 929.6 / 276.1 KB | 931.0 / 276.8 KB | +1.4 / +0.7 KB |
+| Renderer debug ESM | 1,785.9 / 393.2 KB | 1,790.8 / 394.7 KB | +4.9 / +1.5 KB |
+| TangramLayer + renderer minified ESM (additive upper bound) | 948.0 / 280.7 KB | 949.5 / 281.4 KB | +1.5 / +0.7 KB |
 
 The loaders.gl MVT probe previously measured 339,709 raw / 88,905 gzip bytes,
 which motivated the upstream GeoJSON-only parser entry. MVT remains opt-in until
