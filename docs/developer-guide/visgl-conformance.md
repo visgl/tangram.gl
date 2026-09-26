@@ -6,10 +6,11 @@ Copyright (c) vis.gl contributors
 
 # vis.gl conformance harness
 
-Tangram's parser and projection implementations are reached through small,
-renderer-owned procedure boundaries. The renderer now uses the math.gl Web
-Mercator helpers through a Tangram convention adapter; the previous Tangram
-formulas remain as test oracles. YAML and MVT loaders.gl implementations remain
+Tangram's parser, projection, and matrix implementations are reached through
+small renderer-owned procedure boundaries. The renderer uses math.gl for Web
+Mercator projection and matrix operations through Tangram compatibility
+adapters; the previous projection formulas and `gl-mat3`/`gl-mat4` packages
+remain as test oracles. YAML and MVT loaders.gl implementations remain
 comparative candidates until their compatibility and release criteria are met.
 
 This structure lets us measure compatibility before changing runtime behavior:
@@ -19,6 +20,7 @@ This structure lets us measure compatibility before changing runtime behavior:
 | Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/config` | 21 of 23 classic scenes match exactly |
 | Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/mvt` | Generated point, line, and polygon fixtures match exactly |
 | Web Mercator | `@math.gl/web-mercator` plus Tangram meter adapter | Tangram projection formulas | Edge-domain round trips and tile selection match within numeric tolerance |
+| Matrix operations | `@math.gl/core` compatibility adapter | `gl-mat3` and `gl-mat4` | Identity, transforms, projection, look-at, inversion, and singular-matrix behavior match in conformance tests |
 
 The loaders.gl YAML parser currently cannot parse YAML anchors and aliases. It
 also rejects an unquoted `rgba(...)` expression accepted by the legacy parser.
@@ -33,13 +35,15 @@ return their input coordinate arrays. At floating-point tile boundaries, the
 adapter falls back to Tangram's previous arithmetic so tile selection retains
 the same `Math.floor` behavior as before.
 
-## Why YAML and MVT candidates remain development dependencies
+## Candidate dependency policy
 
-The loaders.gl candidate modules are not imported by package entrypoints or the
-production renderer graph. Keeping them in `devDependencies` prevents this
-evaluation from changing application bundle size or requiring applications to
-install both implementations. The math.gl adapter is now part of the renderer's
-production graph because its projection API passed conformance and bundle checks.
+The YAML and MVT candidates are not imported by package entrypoints or the
+production renderer graph. Keeping them in `devDependencies` prevents those
+evaluations from changing application bundle size or requiring applications to
+install both implementations. The exact loaders.gl alpha is pinned while its
+new config loader is evaluated. The math.gl projection and matrix adapters are
+runtime dependencies; `gl-mat3` and `gl-mat4` remain development dependencies
+used only as matrix conformance oracles.
 
 ## Replacement criteria
 
@@ -53,23 +57,31 @@ A candidate can replace a legacy implementation only after:
 5. the candidate dependency moves from development-only evaluation into the
    appropriate published package dependency set.
 
-The legacy projection formula remains in the test suite as a conformance oracle.
-The loaders.gl candidates remain a migration safety net, not runtime feature
-flags.
+Until then, the conformance suite is a migration safety net, not a runtime
+feature flag. The matrix adapter preserves Tangram's existing helper surface so
+call sites and renderer behavior can migrate independently from the underlying
+matrix implementation. The legacy projection formula and matrix packages
+remain in tests as conformance oracles.
 
 ## Bundle-size baseline
 
-The following compares current `master` against this PR using
-`yarn bundle-size`. The math.gl package adds less than 1 KB gzip to the renderer
-and deck-layer combination:
+The following compares current `master` against this tranche using
+`yarn bundle-size`. These figures include the full renderer dependency graph;
+they are not an isolated measurement of `@math.gl/core`:
 
-| Production artifact | `master` raw / gzip | This PR raw / gzip | Difference |
+| Production artifact | `master` raw / gzip | Matrix adapter raw / gzip | Difference |
 | --- | ---: | ---: | ---: |
-| Renderer minified ESM | 929.6 / 276.1 KB | 931.0 / 276.8 KB | +1.4 / +0.7 KB |
-| Renderer debug ESM | 1,785.9 / 393.2 KB | 1,790.8 / 394.7 KB | +4.9 / +1.5 KB |
-| TangramLayer + renderer minified ESM (additive upper bound) | 948.0 / 280.7 KB | 949.5 / 281.4 KB | +1.5 / +0.7 KB |
+| Renderer minified ESM | 931.0 / 276.8 KB | 963.7 / 286.2 KB | +32.7 / +9.4 KB |
+| Renderer debug ESM | 1,796.4 / 394.9 KB | 1,871.9 / 410.1 KB | +75.5 / +15.2 KB |
+| TangramLayer + renderer minified ESM (additive upper bound) | 949.4 / 281.4 KB | 982.1 / 290.9 KB | +32.7 / +9.5 KB |
 
-The loaders.gl MVT probe previously measured 339,709 raw / 88,905 gzip bytes,
-which motivated the upstream GeoJSON-only parser entry. MVT remains opt-in until
-the lightweight parser is published and Tangram's worker integration is
-validated against it.
+Standalone minified candidate probes provide an early upper-bound for a future
+switch: loaders.gl YAML is approximately 54,880 raw / 17,811 gzip bytes,
+loaders.gl MVT is 339,709 / 88,905 bytes, and the math.gl Web Mercator helpers
+are 476 / 337 bytes. The MVT result identifies an upstream optimization target:
+a GeoJSON-only parser entry should not pull in Arrow and binary-geometry
+conversion support. MVT remains opt-in until the lightweight parser is
+published and Tangram's worker integration is validated against it. The matrix
+adapter raises the measured renderer bundle by about 9.4 KB gzip; this full
+dependency-graph change should be reviewed against the compatibility and
+maintenance benefits before removing the legacy test oracle.

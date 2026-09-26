@@ -43,7 +43,7 @@ export default getVitestConfig({
   projects: {
     node: {
       test: {
-        include: ['test/**/*.node.spec.{js,ts}']
+        include: ['test/**/*.node.spec.{js,ts}', 'modules/**/test/**/*.node.spec.{js,ts}']
       }
     },
     browser: {
