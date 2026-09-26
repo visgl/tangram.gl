@@ -81,10 +81,14 @@ layers:
 
 ## Vector tile decoders
 
-`MVT` sources use Tangram's original decoder by default. Renderer integrations
-can register another decoder in the worker and select it by name:
+`MVT` sources use Tangram's original decoder by default. The optional loaders.gl
+worker registers an additional decoder; load the sidecar in the scene and
+select it by name:
 
 ```yaml
+scene:
+  scripts:
+    - https://visgl.github.io/tangram.gl/modules/tangram-renderer/dist/loaders-gl-worker.js
 sources:
   map:
     type: MVT
@@ -92,17 +96,57 @@ sources:
     decoder: loaders-mvt
 ```
 
-The script registers a synchronous function with
-`self.registerMvtDecoder('loaders-mvt', decodeTile)`. `decodeTile` receives the
-tile bytes and Tangram's `parse_json` option, and returns a record of named
-GeoJSON feature collections.
+The sidecar registers `loaders-mvt` and `loaders-mlt` decoders plus the
+`loaders-pmtiles` tile provider. The MVT decoder returns Tangram-local,
+layer-indexed GeoJSON feature collections and honors Tangram's `parse_json`
+option. The standard renderer bundle still defaults to Tangram's decoder and
+does not include the optional worker or its loaders.gl packages.
 
-The registered decoder must return named feature collections in Tangram-local
-tile coordinates and preserve `parse_json` and source-transform behavior.
-`decoder: tangram` selects the built-in parser. An unregistered name produces
-an error in the scene worker. The loaders.gl MVT implementation remains a
-development-only comparison candidate until its GeoJSON entry avoids pulling
-Arrow and binary-conversion dependencies into the renderer bundle.
+Custom registered decoders must return named feature collections in
+Tangram-local tile coordinates and preserve `parse_json` and source-transform
+behavior. `decoder: tangram` selects the built-in parser. An unregistered name
+produces an error in the scene worker.
+
+### Tile format examples
+
+The examples gallery includes a direct MVT service, an MVT tileset stored in a
+PMTiles archive, and a direct MLT tile service. All three load the optional
+worker; it provides the loaders.gl MVT and MLT decoders, while PMTiles uses its
+tile provider. The examples use public demo sources and may require network
+access; they are subject to the services' availability and usage policies.
+
+For PMTiles, the loaders.gl source's `getTile({x, y, z})` returns the encoded
+tile `ArrayBuffer`. The example selects the loaders.gl MVT decoder, exercising
+both the PMTiles provider and MVT decoder without changing the tile format.
+The source is created without a `shape` option because that option applies to
+the higher-level `getVectorTile()` method, not the raw `getTile()` method.
+
+### PMTiles archives with MLT tiles
+
+An optional worker add-on registers loaders.gl's PMTiles tile source and MLT
+decoder. The renderer build emits it as a separate sidecar; to build only this
+worker, run `yarn workspace @vis.gl/tangram-renderer build:loaders-gl-worker`.
+Serve `dist/loaders-gl-worker.js` alongside the renderer package. It is a
+separate worker script and is not included in the standard Tangram bundle.
+
+```yaml
+scene:
+  scripts:
+    - https://example.test/tangram/dist/loaders-gl-worker.js
+sources:
+  map:
+    type: MVT
+    url: https://demo-bucket.protomaps.com/v4.pmtiles
+    tile_provider: loaders-pmtiles
+    decoder: loaders-mlt
+```
+
+The PMTiles provider retrieves raw `{z,x,y}` tile bytes from the archive; the
+MLT decoder groups features by layer and converts normalized local coordinates
+to Tangram's tile coordinate scale. Standard builds do not include the optional
+loaders.gl dependencies or add them to the renderer's main bundle. The direct
+MLT service example uses MapLibre's public `plain` demo tiles at
+`https://demotiles.maplibre.org/tiles-mlt/plain/{z}/{x}/{y}.mlt`.
 
 ### Tile format examples
 

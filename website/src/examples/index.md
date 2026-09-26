@@ -182,8 +182,8 @@ page, so the examples sidebar stays visible while you move between demos.
 ## Tile loading formats
 
 Compare a regular MVT tile service with MVT tiles stored in a PMTiles archive
-and MapLibre Tile (MLT) tiles. The latter two load the optional loaders.gl
-worker add-on; all three use public demo data sources.
+and MapLibre Tile (MLT) tiles. All three use the optional loaders.gl worker
+add-on and public demo data sources.
 
 <div className="example-tile-grid example-tile-grid--compact">
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/loaders-mvt.yaml">

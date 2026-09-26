@@ -3,6 +3,8 @@
 # Copyright (c) vis.gl contributors
 
 scene:
+  scripts:
+    - https://visgl.github.io/tangram.gl/modules/tangram-renderer/dist/loaders-gl-worker.js
   background:
     color: '#d9e7ee'
 
@@ -12,6 +14,7 @@ sources:
     tilejson: https://tiles.openfreemap.org/planet
     tile_size: 256
     max_zoom: 14
+    decoder: loaders-mvt
     attribution: >
       <a href="https://openfreemap.org">OpenFreeMap</a> and
       <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>

@@ -13,7 +13,7 @@ sources:
     type: MVT
     url: https://demo-bucket.protomaps.com/v4.pmtiles
     tile_provider: loaders-pmtiles
-    decoder: tangram
+    decoder: loaders-mvt
     tile_size: 256
     max_zoom: 15
     attribution: >
