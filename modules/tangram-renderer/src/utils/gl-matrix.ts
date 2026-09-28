@@ -91,7 +91,7 @@ const mat4 = {
 
   /** Scale a 4x4 matrix by a three-component vector. */
   scale(output: NumericMatrix, input: NumericVector, vector: NumericVector): NumericMatrix {
-    const matrix = getMatrix4(output).copy(input).scale(vector);
+    const matrix = getMatrix4(output).copy(input).scale([vector[0], vector[1], vector[2]]);
     return writeMatrix(output, matrix);
   },
 

@@ -27,8 +27,9 @@ describe('math.gl matrix adapter', () => {
     const mathTranslated = mat4.translate(new Float64Array(16), mathIdentity, [12_000_000, -4_000_000, 32]);
     expect(Array.from(mathTranslated)).toEqual(Array.from(legacyTranslated));
 
-    const legacyScaled = legacyMat4Scale(new Float64Array(16), legacyTranslated, [2, 3, 4]);
-    const mathScaled = mat4.scale(new Float64Array(16), mathTranslated, [2, 3, 4]);
+    const scale = vec3.fromValues(2, 3, 4);
+    const legacyScaled = legacyMat4Scale(new Float64Array(16), legacyTranslated, scale);
+    const mathScaled = mat4.scale(new Float64Array(16), mathTranslated, scale);
     expect(Array.from(mathScaled)).toEqual(Array.from(legacyScaled));
 
     const legacyProduct = legacyMat4Multiply(new Float64Array(16), legacyScaled, legacyTranslated);
