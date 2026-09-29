@@ -4,6 +4,8 @@
 
 // @ts-nocheck
 
+import WebMercatorViewAdapter from './web_mercator_view_adapter';
+
 const DECK_TO_TANGRAM_ZOOM_OFFSET = 1;
 const VIEW_EPSILON = 1e-7;
 const DECK_WORLD_SIZE = 512;
@@ -45,37 +47,7 @@ export function injectNextzenApiKey(config, apiKey) {
  * @returns {{view: Float64Array, projection: Float32Array, position: number[]}}
  */
 export function getExternalCameraFrame(viewport) {
-  const distance_scales =
-    typeof viewport.getDistanceScales === 'function'
-      ? viewport.getDistanceScales()
-      : viewport.distanceScales;
-  const units_per_meter = distance_scales && distance_scales.unitsPerMeter;
-  if (
-    !viewport.viewMatrix ||
-    viewport.viewMatrix.length !== 16 ||
-    !viewport.projectionMatrix ||
-    viewport.projectionMatrix.length !== 16 ||
-    !units_per_meter ||
-    !Number.isFinite(units_per_meter[2])
-  ) {
-    throw new Error('deck viewport camera matrices and distance scales are required');
-  }
-
-  const xy_scale = DECK_WORLD_SIZE / (TANGRAM_HALF_WORLD_METERS * 2);
-  const meters_to_common = new Float64Array(16);
-  meters_to_common[0] = xy_scale;
-  meters_to_common[5] = xy_scale;
-  meters_to_common[10] = units_per_meter[2];
-  meters_to_common[12] = DECK_WORLD_SIZE / 2;
-  meters_to_common[13] = DECK_WORLD_SIZE / 2;
-  meters_to_common[15] = 1;
-
-  return {
-    view: multiplyMatrices(viewport.viewMatrix, meters_to_common),
-    projection: new Float32Array(viewport.projectionMatrix),
-    // The view matrix places the camera at the origin in eye coordinates.
-    position: [0, 0, 0]
-  };
+  return WebMercatorViewAdapter.getCameraFrame(viewport);
 }
 
 /**
@@ -572,15 +544,11 @@ function validateViewport(viewport, viewports) {
   // WEB_MERCATOR_AUTO_OFFSET (4) internally. The numeric projection mode is
   // not part of the public viewport contract, so validate the public
   // geospatial capability instead of rejecting high-zoom MapView instances.
-  if (!globe && viewport.isGeospatial === false) {
-    return new Error('a Web Mercator viewport is required');
-  }
-  if (
-    !Number.isFinite(viewport.longitude) ||
-    !Number.isFinite(viewport.latitude) ||
-    !Number.isFinite(viewport.zoom)
-  ) {
-    return new Error('a Web Mercator viewport is required');
+  if (!globe) {
+    const webMercatorError = WebMercatorViewAdapter.validateViewport(viewport);
+    if (webMercatorError) {
+      return webMercatorError;
+    }
   }
   if (
     !Number.isFinite(viewport.bearing || 0) ||
@@ -596,7 +564,7 @@ function validateViewport(viewport, viewports) {
     } else if (isFirstPersonViewport(viewport)) {
       getFirstPersonViewFrame(viewport);
     } else {
-      getExternalCameraFrame(viewport);
+      WebMercatorViewAdapter.getCameraFrame(viewport);
     }
   } catch (error) {
     return error;
@@ -605,18 +573,7 @@ function validateViewport(viewport, viewports) {
 }
 
 function getMapViewFrame(viewport, {width, height}) {
-  const pitch = (Math.abs(viewport.pitch || 0) * Math.PI) / 180;
-  return {
-    viewport: {width, height},
-    view: {
-      longitude: viewport.longitude,
-      latitude: viewport.latitude,
-      zoom: viewport.zoom + DECK_TO_TANGRAM_ZOOM_OFFSET
-    },
-    projection: {type: 'web-mercator'},
-    camera: getExternalCameraFrame(viewport),
-    tileBuffer: Math.min(4, Math.ceil((Math.tan(pitch) * viewport.height) / 256))
-  };
+  return WebMercatorViewAdapter.getFrame(viewport, {width, height});
 }
 
 function isFirstPersonViewport(viewport) {
