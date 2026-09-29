@@ -7,6 +7,7 @@
 import Geo from '../utils/geo';
 import {TileID} from '../tile/tile_id';
 import Camera from './camera';
+import {WebMercatorVisibilityAdapter} from './visibility_adapter';
 import Utils from '../utils/utils';
 import subscribeMixin from '../utils/subscribe';
 import log from '../utils/log';
@@ -19,6 +20,7 @@ export default class View {
         subscribeMixin(this);
 
         this.scene = scene;
+        this.visibility_adapter = options.visibilityAdapter || new WebMercatorVisibilityAdapter();
         this.createMatrices();
 
         this.zoom = null;
@@ -185,7 +187,7 @@ export default class View {
         this.zoom = zoom;
         this.tile_zoom = tile_zoom;
 
-        this.updateBounds();
+        this.updateBounds(last_tile_zoom);
         this.scene.requestRedraw();
     }
 
@@ -217,36 +219,21 @@ export default class View {
     }
 
     // Calculate viewport bounds based on current center and zoom
-    updateBounds () {
+    updateBounds (previousTileZoom = this.tile_zoom) {
         if (!this.ready()) {
             return;
         }
 
-        this.meters_per_pixel = Geo.metersPerPixel(this.zoom);
-
-        // Size of the half-viewport in meters at current zoom
-        this.size.meters = {
-            x: this.size.css.width * this.meters_per_pixel,
-            y: this.size.css.height * this.meters_per_pixel
-        };
-
-        // Center of viewport in meters, and tile
-        const m = Geo.latLngToMeters([this.center.lng, this.center.lat]);
-        this.center.meters = { x: m[0], y: m[1] };
-
-        this.center.tile = Geo.tileForMeters([this.center.meters.x, this.center.meters.y], this.tile_zoom);
-
-        // Bounds in meters
-        this.bounds = {
-            sw: {
-                x: this.center.meters.x - this.size.meters.x / 2,
-                y: this.center.meters.y - this.size.meters.y / 2
-            },
-            ne: {
-                x: this.center.meters.x + this.size.meters.x / 2,
-                y: this.center.meters.y + this.size.meters.y / 2
-            }
-        };
+        const viewBounds = this.visibility_adapter.calculateBounds(this);
+        this.tile_zoom = viewBounds.tileZoom;
+        if (typeof previousTileZoom === 'number' && viewBounds.tileZoom !== previousTileZoom) {
+            this.zoom_direction = viewBounds.tileZoom > previousTileZoom ? 1 : -1;
+        }
+        this.meters_per_pixel = viewBounds.metersPerPixel;
+        this.size.meters = viewBounds.sizeMeters;
+        this.center.meters = viewBounds.centerMeters;
+        this.center.tile = viewBounds.centerTile;
+        this.bounds = viewBounds.bounds;
 
         this.scene.tile_manager.updateTilesForView();
 
@@ -263,27 +250,7 @@ export default class View {
             return this.findVisibleGlobeTileCoordinates();
         }
 
-        let z = this.tile_zoom;
-        let sw = Geo.tileForMeters([this.bounds.sw.x, this.bounds.sw.y], z);
-        let ne = Geo.tileForMeters([this.bounds.ne.x, this.bounds.ne.y], z);
-
-        let range = [
-            sw.x - this.buffer, ne.x + this.buffer, // x
-            ne.y - this.buffer, sw.y + this.buffer  // y
-        ];
-
-        if (this.wrap === false) { // prevent tiles from wrapping across antimeridian
-            let tmax = (1 << z) - 1; // max xy tile number for this zoom
-            range = range.map(v => Math.min(Math.max(0, v), tmax));
-        }
-
-        let coords = [];
-        for (let x = range[0]; x <= range[1]; x++) {
-            for (let y = range[2]; y <= range[3]; y++) {
-                coords.push(TileID.coord({ x, y, z }));
-            }
-        }
-        return coords;
+        return this.visibility_adapter.findVisibleTileCoordinates(this);
     }
 
     findVisibleGlobeTileCoordinates () {

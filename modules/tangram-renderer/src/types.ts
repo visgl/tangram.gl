@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {Device, RenderPass} from '@luma.gl/core';
+import type {VisibilityLODAdapter} from './scene/visibility_adapter.js';
 
 export type Matrix4 = readonly number[] | Float32Array | Float64Array;
 export type Vector3 = readonly [number, number, number];
@@ -62,6 +63,8 @@ export type LegacyHostFrame = {
 
 export type RendererOptions = {
   device?: Device;
+  /** Renderer-owned policy for viewport bounds and tile visibility/LOD. */
+  visibilityAdapter?: VisibilityLODAdapter;
   canvas?: HTMLCanvasElement | OffscreenCanvas;
   requestRedraw?: () => void;
   numWorkers?: number;

@@ -116,6 +116,48 @@ describe('Renderer', function () {
         assert.isTrue(updateBounds.calledOnce);
     });
 
+    it('accepts an injected renderer visibility and LOD policy', function () {
+        const calls = {bounds: 0, tiles: 0};
+        const visibility_adapter = {
+            calculateBounds() {
+                calls.bounds++;
+                return {
+                    tileZoom: 4,
+                    metersPerPixel: 1,
+                    sizeMeters: {x: 800, y: 600},
+                    centerMeters: {x: 0, y: 0},
+                    centerTile: {x: 2, y: 2, z: 4},
+                    bounds: {sw: {x: -400, y: -300}, ne: {x: 400, y: 300}}
+                };
+            },
+            findVisibleTileCoordinates() {
+                calls.tiles++;
+                return [];
+            }
+        };
+        const renderer = Renderer.create({}, {visibilityAdapter: visibility_adapter});
+
+        renderer.setFrame({
+            viewport: {width: 800, height: 600},
+            view: {longitude: -74, latitude: 40.7, zoom: 3},
+            camera: {
+                view: IDENTITY_MATRIX,
+                projection: IDENTITY_MATRIX,
+                position: [0, 0, 0]
+            }
+        });
+
+        assert.isAbove(calls.bounds, 0);
+        assert.strictEqual(renderer.scene.view.tile_zoom, 4);
+        assert.strictEqual(renderer.scene.view.meters_per_pixel, 1);
+        assert.deepEqual(renderer.scene.view.bounds, {
+            sw: {x: -400, y: -300},
+            ne: {x: 400, y: 300}
+        });
+        assert.deepEqual(renderer.scene.view.findVisibleTileCoordinates(), []);
+        assert.isAbove(calls.tiles, 0);
+    });
+
     it('selects multiple render views over shared geographic state', function () {
         const renderer = Renderer.create({});
         const scene = renderer.scene;

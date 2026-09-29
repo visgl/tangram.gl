@@ -33,6 +33,12 @@ import type {
 } from './gpu/tangram_gpu_backend.js';
 
 export type * from './types.js';
+export {WebMercatorVisibilityAdapter} from './scene/visibility_adapter.js';
+export type {
+  CalculatedViewBounds,
+  VisibilityLODAdapter,
+  VisibilityViewState
+} from './scene/visibility_adapter.js';
 
 export declare class HostFrame {
   constructor(options: HostFrameOptions);

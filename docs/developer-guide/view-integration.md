@@ -46,13 +46,17 @@ policies are extracted behind stronger interfaces.
 ### 1. Extract the current Web Mercator behavior
 
 Move `getExternalCameraFrame()` and the Web Mercator checks out of
-`TangramLayer` into a `WebMercatorViewAdapter`. Move the bounds and tile-range
-calculation currently embedded in `View` behind the visibility/LOD interface.
-Keep the existing flat and pitched `MapView` examples as conformance tests.
+`TangramLayer` into a `WebMercatorViewAdapter` (tracked separately in PR #96).
+The renderer now defines an injectable `VisibilityLODAdapter`; its default
+`WebMercatorVisibilityAdapter` owns the existing meter-bounds and buffered
+tile-range calculations. Keep the existing flat and pitched `MapView` examples
+as conformance tests. Globe tile selection remains on `View` until its
+projection-specific visibility policy is extracted.
 
 ### 2. Make scene cameras optional
 
-Inject the camera and visibility policies when `Scene` constructs `View`.
+Complete camera-policy injection when `Scene` constructs `View`; visibility/LOD
+policy injection is now available through renderer options.
 `SceneLoader` must stop synthesizing a default Tangram camera in external mode.
 At this point a real `@vis.gl/tangram-renderer/core` entry can exclude Leaflet,
 interaction handlers, the standalone loop, and classic camera implementations.
