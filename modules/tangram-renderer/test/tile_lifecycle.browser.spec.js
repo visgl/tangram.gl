@@ -9,6 +9,7 @@ import WorkerBroker from '../src/utils/worker_broker';
 import Task from '../src/utils/task';
 import Texture from '../src/gl/texture';
 import Utils from '../src/utils/utils';
+import Geo from '../src/utils/geo';
 
 function createTile(overrides = {}) {
     const workers = [{id: 0}, {id: 1}];
@@ -230,6 +231,11 @@ describe('tile lifecycle', () => {
         const program = {uniform: vi.fn()};
         tile.setupProgram({model, model32}, program);
         expect(program.uniform).toHaveBeenCalledTimes(4);
+        expect(model[0]).toBe(tile.span.x / Geo.tile_scale);
+        expect(model[5]).toBe(tile.span.y / Geo.tile_scale);
+        expect(model[12]).toBe(tile.min.x);
+        expect(model[13]).toBe(tile.min.y);
+        expect(Array.from(model32)).toEqual(Array.from(model, Math.fround));
 
         const uniformBuffer = {setUniforms: vi.fn()};
         tile.setupProgram({model, model32}, program, uniformBuffer);

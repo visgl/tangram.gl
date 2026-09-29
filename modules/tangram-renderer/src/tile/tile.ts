@@ -16,12 +16,13 @@ import WorkerBroker from '../utils/worker_broker';
 import Task from '../utils/task';
 import Texture from '../gl/texture';
 
-import {mat4, vec3} from '../utils/gl-matrix';
+import {Matrix4} from '@math.gl/core';
 
 let id = 0; // unique tile id
 let build_id = 0; // id tracking order in which tiles were build
 
 export default class Tile {
+    matrix4 = new Matrix4();
 
     /**
         Tile
@@ -555,10 +556,10 @@ export default class Tile {
     // Update model matrix and tile uniforms
     setupProgram ({ model, model32 }, program, uniform_buffer) {
         // Model - transform tile space into world space (meters, absolute mercator position)
-        mat4.identity(model);
-        mat4.translate(model, model, vec3.fromValues(this.min.x, this.min.y, 0));
-        mat4.scale(model, model, vec3.fromValues(this.span.x / Geo.tile_scale, this.span.y / Geo.tile_scale, 1)); // scale tile local coords to meters
-        mat4.copy(model32, model);
+        this.matrix4.identity().translate([this.min.x, this.min.y, 0])
+            .scale([this.span.x / Geo.tile_scale, this.span.y / Geo.tile_scale, 1])
+            .toArray(model);
+        model32.set(model);
         const tile_fade_in = this.fade_in && this.proxied_as !== 'child';
 
         if (uniform_buffer) {

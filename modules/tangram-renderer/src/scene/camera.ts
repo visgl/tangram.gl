@@ -5,7 +5,7 @@
 
 import Utils from '../utils/utils';
 import ShaderProgram from '../gl/shader_program';
-import {mat4, mat3, vec3} from '../utils/gl-matrix';
+import {Matrix3, Matrix4} from '@math.gl/core';
 
 type Matrix = Float32Array | Float64Array;
 type Vector = number[] | Float32Array | Float64Array;
@@ -45,6 +45,8 @@ export default class Camera {
     readonly view: CameraView;
     readonly position?: number[];
     readonly zoom?: number;
+    private readonly matrix3 = new Matrix3();
+    protected readonly matrix4 = new Matrix4();
     type?: CameraType;
     view_matrix: Matrix = new Float64Array(16);
     projection_matrix: Matrix = new Float32Array(16);
@@ -97,11 +99,21 @@ export default class Camera {
     // Set model-view and normal matrices
     setupMatrices (matrices: MatrixSet, program: Program, uniform_buffer?: UniformBuffer): void {
         // Model view matrix - transform tile space into view space (meters, relative to camera)
-        mat4.multiply(matrices.model_view32, this.view_matrix, matrices.model);
+        this.matrix4.copy(this.view_matrix).multiplyRight(matrices.model).toArray(matrices.model_view32);
 
         // Normal matrices - transforms surface normals into view space
-        mat3.normalFromMat4(matrices.normal32, matrices.model_view32);
-        mat3.invert(matrices.inverse_normal32, matrices.normal32);
+        const normal_matrix = this.matrix3.set(
+            matrices.model_view32[0], matrices.model_view32[1], matrices.model_view32[2],
+            matrices.model_view32[4], matrices.model_view32[5], matrices.model_view32[6],
+            matrices.model_view32[8], matrices.model_view32[9], matrices.model_view32[10]
+        );
+        if (normal_matrix.determinant() !== 0) {
+            normal_matrix.invert().transpose().toArray(matrices.normal32);
+            normal_matrix.copy(matrices.normal32);
+            if (normal_matrix.determinant() !== 0) {
+                normal_matrix.invert().toArray(matrices.inverse_normal32);
+            }
+        }
         if (uniform_buffer) {
             uniform_buffer.setUniforms({
                 u_modelView: matrices.model_view32,
@@ -134,8 +146,8 @@ export class ExternalCamera extends Camera {
         this.vanishing_point = [0, 0];
         this.view_matrix = new Float64Array(16);
         this.projection_matrix = new Float32Array(16);
-        mat4.identity(this.view_matrix);
-        mat4.identity(this.projection_matrix);
+        this.matrix4.identity().toArray(this.view_matrix);
+        this.matrix4.identity().toArray(this.projection_matrix);
 
         (ShaderProgram as any).replaceBlock('camera', `
             uniform mat4 u_projection;
@@ -315,18 +327,16 @@ export class PerspectiveCamera extends Camera {
         var position = [this.view.center.meters.x, this.view.center.meters.y, height];
         this.position_meters = position;
 
-        // mat4.lookAt(this.view_matrix,
-        //     vec3.fromValues(...position),
-        //     vec3.fromValues(position[0], position[1], height - 1),
-        //     vec3.fromValues(0, 1, 0));
         // Exclude camera height from view matrix
-        mat4.lookAt(this.view_matrix,
-            vec3.fromValues(position[0], position[1], 0),
-            vec3.fromValues(position[0], position[1], -1),
-            vec3.fromValues(0, 1, 0));
+        this.matrix4.identity().lookAt({
+            eye: [position[0], position[1], 0],
+            center: [position[0], position[1], -1],
+            up: [0, 1, 0]
+        }).toArray(this.view_matrix);
 
         // Projection matrix
-        mat4.perspective(this.projection_matrix, fov, this.view.aspect, 1, height * 2);
+        this.matrix4.identity().perspective({fovy: fov, aspect: this.view.aspect, near: 1, far: height * 2})
+            .toArray(this.projection_matrix);
 
         // Convert vanishing point from pixels to viewport space
         this.vanishing_point_skew[0] = this.vanishing_point[0] / this.view.size.css.width;
@@ -339,16 +349,16 @@ export class PerspectiveCamera extends Camera {
         // Translate geometry into the distance so that camera is appropriate height above ground
         // Additionally, adjust xy to compensate for any vanishing point skew, e.g. move geometry so that the displayed g
         // plane of the map matches that expected by a traditional web mercator map at this [lat, lng, zoom].
-        mat4.translate(this.projection_matrix, this.projection_matrix,
-            vec3.fromValues(
+        this.matrix4.copy(this.projection_matrix).translate(
+            [
                 viewport_height/2 * this.view.aspect * (-this.vanishing_point_skew[0] * 2),
                 viewport_height/2 * (-this.vanishing_point_skew[1] * 2),
                 0
-            )
-        );
+            ]
+        ).toArray(this.projection_matrix);
 
         // Include camera height in projection matrix
-        mat4.translate(this.projection_matrix, this.projection_matrix, vec3.fromValues(0, 0, -height));
+        this.matrix4.copy(this.projection_matrix).translate([0, 0, -height]).toArray(this.projection_matrix);
     }
 
     update(): void {
@@ -422,24 +432,23 @@ export class IsometricCamera extends Camera {
         this.position_meters = position;
 
         // View
-        mat4.identity(this.view_matrix);
-        mat4.translate(this.view_matrix, this.view_matrix, vec3.fromValues(-position[0], -position[1], 0));
+        this.matrix4.identity().translate([-position[0], -position[1], 0]).toArray(this.view_matrix);
 
         // Projection
-        mat4.identity(this.projection_matrix);
+        this.matrix4.identity().toArray(this.projection_matrix);
 
         // apply isometric skew
         this.projection_matrix[8] = this.axis.x / this.view.aspect; // z column of x row, e.g. amount z skews x
         this.projection_matrix[9] = this.axis.y;                    // z column of x row, e.g. amount z skews y
 
         // convert meters to viewport
-        mat4.scale(this.projection_matrix, this.projection_matrix,
-            vec3.fromValues(
+        this.matrix4.copy(this.projection_matrix).scale(
+            [
                 2 / this.view.size.meters.x,
                 2 / this.view.size.meters.y,
                 2 / this.view.size.meters.y
-            )
-        );
+            ]
+        ).toArray(this.projection_matrix);
     }
 
     setupProgram(program: Program, uniform_buffer?: UniformBuffer): void {
