@@ -3,7 +3,8 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-import Vector, {type MutableNumericVector, type NumericVector} from './vector';
+import {Vector2} from '@math.gl/core';
+import type {MutableNumericVector, NumericVector} from './vector';
 
 type Quad = [number, number, number, number, number, number, number, number];
 type Extent = [number, number, number, number];
@@ -61,14 +62,14 @@ export default class OBB {
 
   /** Recalculates the normalized box axes. */
   updateAxes(): void {
-    this.axis_0 = Vector.normalize([
+    this.axis_0 = new Vector2([
       this.quad[4] - this.quad[6],
       this.quad[5] - this.quad[7]
-    ]);
-    this.axis_1 = Vector.normalize([
+    ]).normalize().toArray([]);
+    this.axis_1 = new Vector2([
       this.quad[4] - this.quad[2],
       this.quad[5] - this.quad[3]
-    ]);
+    ]).normalize().toArray([]);
   }
 
   /** Recalculates corners and axes from the current center, dimensions, and angle. */
