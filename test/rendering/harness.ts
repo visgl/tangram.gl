@@ -68,8 +68,9 @@ export class RenderingHarness {
   constructor(kind: ViewKind = 'perspective', mode: XRPresentationMode = 'mono') {
     this.presentation = createPresentation(kind, mode);
     this.scale = kind === 'globe' ? 1000 : 1;
-    this.sourceUrl = URL.createObjectURL(new Blob([JSON.stringify(createFixture(this.scale))],
-      {type: 'application/json'}));
+    this.sourceUrl = `data:application/json;charset=utf-8,${encodeURIComponent(
+      JSON.stringify(createFixture(this.scale))
+    )}`;
   }
 
   /** Create a real device and load the fixture through Tangram's scene worker. */
@@ -191,7 +192,6 @@ export class RenderingHarness {
     this.renderer?.destroy();
     this.device?.destroy();
     this.canvas.remove();
-    URL.revokeObjectURL(this.sourceUrl);
   }
 }
 
