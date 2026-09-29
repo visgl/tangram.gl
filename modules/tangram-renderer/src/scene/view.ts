@@ -7,7 +7,10 @@
 import Geo from '../utils/geo';
 import {TileID} from '../tile/tile_id';
 import Camera from './camera';
-import {WebMercatorVisibilityAdapter} from './visibility_adapter';
+import {
+    WebMercatorGlobeVisibilityAdapter,
+    WebMercatorVisibilityAdapter
+} from './visibility_adapter';
 import Utils from '../utils/utils';
 import subscribeMixin from '../utils/subscribe';
 import log from '../utils/log';
@@ -21,6 +24,7 @@ export default class View {
 
         this.scene = scene;
         this.visibility_adapter = options.visibilityAdapter || new WebMercatorVisibilityAdapter();
+        this.globe_visibility_adapter = options.globeVisibilityAdapter || new WebMercatorGlobeVisibilityAdapter();
         this.createMatrices();
 
         this.zoom = null;
@@ -247,39 +251,14 @@ export default class View {
         }
 
         if (this.projection.type === 'globe') {
-            return this.findVisibleGlobeTileCoordinates();
+            return this.globe_visibility_adapter.findVisibleTileCoordinates({
+                tile_zoom: this.tile_zoom,
+                buffer: this.buffer,
+                visibleBounds: this.projection.visibleBounds
+            });
         }
 
         return this.visibility_adapter.findVisibleTileCoordinates(this);
-    }
-
-    findVisibleGlobeTileCoordinates () {
-        const [west, south, east, north] = this.projection.visibleBounds;
-        const z = this.tile_zoom;
-        const tileCount = Math.pow(2, z);
-        const northY = latitudeToTileY(north, z);
-        const southY = latitudeToTileY(south, z);
-        const yStart = Math.max(0, Math.min(northY, southY) - this.buffer);
-        const yEnd = Math.min(tileCount - 1, Math.max(northY, southY) + this.buffer);
-        const longitudeRanges = splitLongitudeRange(west, east);
-        const coordinates = [];
-        const seen = new Set();
-
-        for (const [rangeWest, rangeEast] of longitudeRanges) {
-            const xStart = longitudeToTileX(rangeWest, z) - this.buffer;
-            const xEnd = longitudeToTileX(rangeEast, z) + this.buffer;
-            for (let x = xStart; x <= xEnd; x++) {
-                const wrappedX = ((x % tileCount) + tileCount) % tileCount;
-                for (let y = yStart; y <= yEnd; y++) {
-                    const key = `${wrappedX}/${y}/${z}`;
-                    if (!seen.has(key)) {
-                        seen.add(key);
-                        coordinates.push(TileID.coord({ x: wrappedX, y, z }));
-                    }
-                }
-            }
-        }
-        return coordinates;
     }
 
     // Remove tiles too far outside of view
@@ -419,33 +398,4 @@ function projectionsEqual(previous, next) {
     return Array.isArray(previousBounds) && Array.isArray(nextBounds) &&
         previousBounds.length === nextBounds.length &&
         previousBounds.every((value, index) => value === nextBounds[index]);
-}
-
-function splitLongitudeRange(west, east) {
-    if (east - west >= 360) {
-        return [[-180, 180 - Number.EPSILON]];
-    }
-    const normalizedWest = normalizeLongitude(west);
-    const normalizedEast = normalizeLongitude(east);
-    return normalizedWest <= normalizedEast
-        ? [[normalizedWest, normalizedEast]]
-        : [[normalizedWest, 180 - Number.EPSILON], [-180, normalizedEast]];
-}
-
-function normalizeLongitude(longitude) {
-    return ((longitude + 180) % 360 + 360) % 360 - 180;
-}
-
-function longitudeToTileX(longitude, zoom) {
-    const tileCount = Math.pow(2, zoom);
-    return Math.min(tileCount - 1, Math.max(0,
-        Math.floor(((longitude + 180) / 360) * tileCount)));
-}
-
-function latitudeToTileY(latitude, zoom) {
-    const tileCount = Math.pow(2, zoom);
-    const clampedLatitude = Math.max(-85.05112878, Math.min(85.05112878, latitude));
-    const radians = clampedLatitude * Math.PI / 180;
-    const y = (1 - Math.asinh(Math.tan(radians)) / Math.PI) / 2;
-    return Math.min(tileCount - 1, Math.max(0, Math.floor(y * tileCount)));
 }

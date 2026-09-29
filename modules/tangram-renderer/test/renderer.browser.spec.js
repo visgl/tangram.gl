@@ -88,6 +88,36 @@ describe('Renderer', function () {
         assert.isTrue(coordinates.every(coordinate => coordinate.z === 3));
     });
 
+    it('delegates globe tile selection to the injected globe visibility policy', function () {
+        const coordinates = [{x: 1, y: 2, z: 4}];
+        const globeVisibilityAdapter = {
+            findVisibleTileCoordinates: sinon.stub().returns(coordinates)
+        };
+        const renderer = Renderer.create({}, {globeVisibilityAdapter});
+        const visibleBounds = [-100, 20, -50, 60];
+
+        renderer.setFrame(new HostFrame({
+            viewport: {width: 800, height: 600},
+            geographicAnchor: {longitude: -74, latitude: 40.7, zoom: 4},
+            projection: {type: 'globe', visibleBounds},
+            renderViews: [{
+                id: 'main',
+                camera: {
+                    view: IDENTITY_MATRIX,
+                    projection: IDENTITY_MATRIX,
+                    position: [0, 0, 1]
+                }
+            }]
+        }));
+
+        assert.deepEqual(renderer.scene.view.findVisibleTileCoordinates(), coordinates);
+        assert.isTrue(globeVisibilityAdapter.findVisibleTileCoordinates.calledWith({
+            tile_zoom: 4,
+            buffer: 0,
+            visibleBounds
+        }));
+    });
+
     it('invalidates tile visibility only when host projection metadata changes', function () {
         const renderer = Renderer.create({});
         const scene = renderer.scene;
