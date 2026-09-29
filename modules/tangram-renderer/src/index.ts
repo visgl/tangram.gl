@@ -32,7 +32,10 @@ import Collision from './labels/collision';
 import FeatureSelection from './selection/selection';
 import TextCanvas from './styles/text/text_canvas';
 import debugSettings from './utils/debug_settings';
-import {WebMercatorVisibilityAdapter} from './scene/visibility_adapter';
+import {
+    WebMercatorGlobeVisibilityAdapter,
+    WebMercatorVisibilityAdapter
+} from './scene/visibility_adapter';
 
 import yaml from 'js-yaml';
 
@@ -76,9 +79,11 @@ const Tangram = {
     version
 };
 
-export {WebMercatorVisibilityAdapter};
+export {WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter};
 export type {
     CalculatedViewBounds,
+    GlobeVisibilityLODAdapter,
+    GlobeVisibilityViewState,
     VisibilityLODAdapter,
     VisibilityViewState
 } from './scene/visibility_adapter';

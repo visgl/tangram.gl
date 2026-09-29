@@ -50,8 +50,9 @@ Move `getExternalCameraFrame()` and the Web Mercator checks out of
 The renderer now defines an injectable `VisibilityLODAdapter`; its default
 `WebMercatorVisibilityAdapter` owns the existing meter-bounds and buffered
 tile-range calculations. Keep the existing flat and pitched `MapView` examples
-as conformance tests. Globe tile selection remains on `View` until its
-projection-specific visibility policy is extracted.
+as conformance tests. Globe tile selection is also extracted behind the
+renderer-owned `WebMercatorGlobeVisibilityAdapter`, which handles geographic
+bounds and antimeridian-crossing ranges without importing deck.gl.
 
 ### 2. Make scene cameras optional
 
