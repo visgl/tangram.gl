@@ -11,9 +11,6 @@ describe('renderer runtime support', () => {
   let getExtension;
   let debugSettings;
   let mergeDebugSettings;
-  let mat3;
-  let mat4;
-  let vec3;
   let MediaCapture;
 
   beforeAll(async () => {
@@ -24,7 +21,6 @@ describe('renderer runtime support', () => {
     ({default: debounce} = await import('../modules/tangram-renderer/src/utils/debounce.ts'));
     ({default: getExtension} = await import('../modules/tangram-renderer/src/gl/extensions.ts'));
     ({default: debugSettings, mergeDebugSettings} = await import('../modules/tangram-renderer/src/utils/debug_settings.js'));
-    ({mat3, mat4, vec3} = await import('../modules/tangram-renderer/src/utils/gl-matrix.js'));
     ({default: MediaCapture} = await import('../modules/tangram-renderer/src/utils/media_capture.js'));
   });
 
@@ -118,20 +114,11 @@ describe('renderer runtime support', () => {
     expect(calls).toHaveLength(2);
   });
 
-  it('merges debug flags and performs matrix helper operations', () => {
+  it('merges debug flags', () => {
     const originalWireframe = debugSettings.wireframe;
     mergeDebugSettings({wireframe: !originalWireframe});
     expect(debugSettings.wireframe).toBe(!originalWireframe);
     mergeDebugSettings({wireframe: originalWireframe});
-    const vector = vec3.fromValues(1, 2, 3);
-    expect(vector).toBeInstanceOf(Float64Array);
-    const identity = mat4.identity(new Float32Array(16));
-    expect(identity[0]).toBe(1);
-    const translated = mat4.translate(new Float32Array(16), identity, [2, 3, 4]);
-    expect(translated[12]).toBe(2);
-    const inverseNormal = mat3.normalFromMat4(new Float32Array(9), translated);
-    expect(inverseNormal).toHaveLength(9);
-    expect(mat3.invert(new Float32Array(9), inverseNormal)).toBeTruthy();
   });
 
   it('reports unsupported media capture without browser APIs', async () => {

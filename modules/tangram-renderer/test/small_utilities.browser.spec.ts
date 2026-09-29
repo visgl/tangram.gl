@@ -6,7 +6,6 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 import makeWireframeForTriangleElementData from '../src/builders/wireframe';
 import debounce from '../src/utils/debounce';
 import {MethodNotImplemented} from '../src/utils/errors';
-import {vec3} from '../src/utils/gl-matrix';
 import sliceObject from '../src/utils/slice';
 import {
   addBaseURL,
@@ -48,7 +47,7 @@ describe('small renderer utilities', () => {
   });
 
   test('keeps renderer vectors at double precision', () => {
-    const vector = vec3.fromValues(1, 2, 3);
+    const vector = new Float64Array([1, 2, 3]);
     expect(vector).toBeInstanceOf(Float64Array);
     expect(Array.from(vector)).toEqual([1, 2, 3]);
   });

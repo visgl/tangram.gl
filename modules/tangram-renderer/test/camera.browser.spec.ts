@@ -4,6 +4,7 @@
 // Copyright (c) 2026 vis.gl contributors
 
 import {describe, expect, it, vi} from 'vitest';
+import {Matrix4} from '@math.gl/core';
 
 import Camera, {
     ExternalCamera,
@@ -81,6 +82,31 @@ describe('Camera', () => {
         flat.update();
         expect(flat.axis).toEqual({x: 0, y: 0});
         expect(flat.projection_matrix).toBeInstanceOf(Float32Array);
+    });
+
+    it('uses math.gl transforms for model-view and normal matrices', () => {
+        const view = createView();
+        const camera = new Camera('matrix-test', view);
+        new Matrix4().identity().toArray(camera.view_matrix);
+        const model = new Matrix4().scale([2, 4, 8]).toArray(new Float64Array(16));
+        const matrices = {
+            model,
+            model_view32: new Float64Array(16),
+            normal32: new Float64Array(9),
+            inverse_normal32: new Float64Array(9)
+        };
+
+        camera.setupMatrices(matrices, {uniform: vi.fn()});
+
+        expect(matrices.model_view32[0]).toBe(2);
+        expect(matrices.model_view32[5]).toBe(4);
+        expect(matrices.model_view32[10]).toBe(8);
+        expect(matrices.normal32[0]).toBe(0.5);
+        expect(matrices.normal32[4]).toBe(0.25);
+        expect(matrices.normal32[8]).toBe(0.125);
+        expect(matrices.inverse_normal32[0]).toBe(2);
+        expect(matrices.inverse_normal32[4]).toBe(4);
+        expect(matrices.inverse_normal32[8]).toBe(8);
     });
 
     it('accepts external frames, avoids redundant redraws, and transforms vectors', () => {
