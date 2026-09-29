@@ -11,6 +11,7 @@ import {StyleManager} from '../src/styles/style_manager';
 import Camera from '../src/scene/camera';
 import Light from '../src/lights/light';
 import Tile from '../src/tile/tile';
+import {Matrix4} from '@math.gl/core';
 
 describe('UniformBuffer', function () {
     it('creates a std140-compatible layout and declaration', function () {
@@ -620,6 +621,7 @@ describe('UniformBuffer', function () {
             inverse_normal32: new Float32Array(9)
         };
         const tile = {
+            matrix4: new Matrix4(),
             coords: { z: 14 },
             fade_in: true,
             min: { x: 10, y: 20 },
