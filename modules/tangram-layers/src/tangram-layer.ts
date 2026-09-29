@@ -149,9 +149,10 @@ export function getGlobeViewFrame(viewport) {
     viewport.viewMatrix.length !== 16 ||
     !viewport.projectionMatrix ||
     viewport.projectionMatrix.length !== 16 ||
+    !isFiniteVector3(viewport.cameraPosition) ||
     typeof viewport.getBounds !== 'function'
   ) {
-    throw new Error('deck GlobeViewport matrices, size, and visible bounds are required');
+    throw new Error('deck GlobeViewport matrices, camera position, size, and visible bounds are required');
   }
 
   const visibleBounds = viewport.getBounds({z: 0});
@@ -176,7 +177,7 @@ export function getGlobeViewFrame(viewport) {
       projection: new Float32Array(
         multiplyMatrices(viewport.projectionMatrix, viewport.viewMatrix)
       ),
-      position: [0, 0, 0]
+      position: Array.from(viewport.cameraPosition)
     },
     tileBuffer: 0
   };
@@ -591,6 +592,10 @@ function isFirstPersonViewport(viewport) {
 
 function isFiniteCoordinate(coordinate) {
   return coordinate && Number.isFinite(coordinate[0]) && Number.isFinite(coordinate[1]);
+}
+
+function isFiniteVector3(vector) {
+  return vector && vector.length === 3 && vector.every(Number.isFinite);
 }
 
 function getForwardGroundIntersection(viewport, pixel) {
