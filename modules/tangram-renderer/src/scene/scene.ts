@@ -1238,7 +1238,7 @@ export default class Scene {
 
         const { config, bundle, texture_nodes } = await SceneLoader.loadScene(
             this.config_source,
-            { path: this.base_path, type: file_type });
+            { path: this.base_path, type: file_type, cameraMode: this.view.camera_mode });
 
         this.config = config;
         this.config_bundle = bundle;
