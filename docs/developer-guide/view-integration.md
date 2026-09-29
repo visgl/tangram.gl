@@ -85,8 +85,10 @@ tiles on both WebGL 2 and WebGPU.
 
 The globe visibility adapter now uses the host camera position to conservatively
 reject tiles wholly behind the globe horizon. Remaining production-hardening
-work is to subdivide coarse tile geometry enough to follow the sphere, choose
+work is to subdivide coarse tile geometry enough to follow the sphere, refine
 LOD from screen-space error, orient labels, and align picking with bent geometry.
+The deck adapter also compensates globe tile zoom for the latitude-dependent
+scale used by `GlobeViewport`, capped at the Web Mercator latitude limit.
 
 Tangram custom position shaders should run before the host projection hook.
 Styles that replace geographic position entirely, such as the Albers morph,
