@@ -160,6 +160,9 @@ describe('light variants', () => {
     test('updates and binds directional, point, and spot uniforms', () => {
         const program = {uniform: vi.fn()};
         const directional = Light.create(view, {direction: [1, 0, -1], name: 'sun', type: 'directional'});
+        expect(directional.direction[0]).toBeCloseTo(Math.SQRT1_2);
+        expect(directional.direction[1]).toBe(0);
+        expect(directional.direction[2]).toBeCloseTo(-Math.SQRT1_2);
         directional.setupProgram(program);
         expect(view.camera.transformVector).toHaveBeenCalled();
         const directionCall = program.uniform.mock.calls.find(call => call[1] === 'u_sun.direction');

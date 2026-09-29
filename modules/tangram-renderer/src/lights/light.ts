@@ -1,14 +1,15 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // @ts-nocheck
 
 import ShaderProgram from '../gl/shader_program';
 import GLSL from '../gl/glsl';
 import Geo from '../utils/geo';
-import Vector from '../utils/vector';
 import StyleParser from '../styles/style_parser';
+import {Vector3} from '@math.gl/core';
 
 import ambient_source from './ambient_light.glsl';
 import directional_source from './directional_light.glsl';
@@ -229,7 +230,7 @@ class DirectionalLight extends Light {
     }
 
     set direction (v) {
-        this._direction = Vector.normalize(Vector.copy(v));
+        this._direction = new Vector3(v).normalize().toArray();
     }
 
     // Inject struct and calculate function
@@ -362,7 +363,7 @@ class SpotLight extends PointLight {
     }
 
     set direction (v) {
-        this._direction = Vector.normalize(Vector.copy(v));
+        this._direction = new Vector3(v).normalize().toArray();
     }
 
     // Inject struct and calculate function

@@ -1,11 +1,22 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 import {describe, expect, it} from 'vitest';
 import OBB from '../src/utils/obb.js';
 
 describe('OBB', () => {
+
+    it('computes normalized axes with math.gl vectors', () => {
+        const angle = Math.PI / 4;
+        const obb = new OBB(0, 0, angle, 2, 4);
+
+        expect(obb.axis_0[0]).toBeCloseTo(Math.cos(angle));
+        expect(obb.axis_0[1]).toBeCloseTo(Math.sin(angle));
+        expect(obb.axis_1[0]).toBeCloseTo(-Math.sin(angle));
+        expect(obb.axis_1[1]).toBeCloseTo(Math.cos(angle));
+    });
 
     describe('.intersect(obb) (aligned)', () => {
     	let obb1 = new OBB(1.0, 1.0, 0.0, 2.0, 2.0);
