@@ -39,6 +39,15 @@ describe('WebMercatorViewAdapter', () => {
     ).toBe('a Web Mercator viewport is required');
   });
 
+  it('validates geographic anchors independently of the projection adapter', () => {
+    expect(
+      WebMercatorViewAdapter.validateGeographicAnchor(
+        createViewport({latitude: Number.NaN}),
+        'GlobeViewport'
+      )?.message
+    ).toBe('GlobeViewport requires finite longitude, latitude, and zoom');
+  });
+
   it('converts meter-space camera coordinates to deck common space', () => {
     const camera = WebMercatorViewAdapter.getCameraFrame(createViewport());
 

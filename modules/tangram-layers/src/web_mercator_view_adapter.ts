@@ -53,12 +53,28 @@ export default class WebMercatorViewAdapter {
     if (viewport?.isGeospatial === false) {
       return new Error('a Web Mercator viewport is required');
     }
+    if (WebMercatorViewAdapter.validateGeographicAnchor(viewport, 'Web Mercator viewport')) {
+      return new Error('a Web Mercator viewport is required');
+    }
+    return null;
+  }
+
+  /**
+   * Validates the geographic anchor shared by all deck.gl view adapters.
+   * @param viewport deck.gl viewport.
+   * @param viewportName View name used in the error message.
+   * @returns Validation error, or null when the anchor is finite.
+   */
+  static validateGeographicAnchor(
+    viewport: WebMercatorViewport,
+    viewportName = 'viewport'
+  ): Error | null {
     if (
       !Number.isFinite(viewport?.longitude) ||
       !Number.isFinite(viewport?.latitude) ||
       !Number.isFinite(viewport?.zoom)
     ) {
-      return new Error('a Web Mercator viewport is required');
+      return new Error(`${viewportName} requires finite longitude, latitude, and zoom`);
     }
     return null;
   }

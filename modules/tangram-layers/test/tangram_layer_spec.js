@@ -758,6 +758,19 @@ describe('TangramLayer', function () {
         layer.draw();
         assert.lengthOf(layer.errors, 4);
         assert.match(layer.errors[3].error.message, /camera matrices/);
+
+        class GlobeViewport {}
+        const globeViewport = Object.assign(new GlobeViewport(), layer.context.viewport, {
+            longitude: Number.NaN,
+            viewMatrix: IDENTITY_MATRIX,
+            projectionMatrix: IDENTITY_MATRIX,
+            getBounds: () => [-120, -35, 10, 72]
+        });
+        deck.viewports = [globeViewport];
+        layer.context.viewport = globeViewport;
+        layer.draw();
+        assert.lengthOf(layer.errors, 5);
+        assert.match(layer.errors[4].error.message, /GlobeViewport requires finite longitude/);
     });
 
     it('reports scene load failures and skips shared-context rendering', async function () {

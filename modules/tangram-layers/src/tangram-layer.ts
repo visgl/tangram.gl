@@ -540,6 +540,13 @@ function validateViewport(viewport, viewports) {
     return new Error('only one deck.gl viewport is supported');
   }
   const globe = isGlobeViewport(viewport);
+  const geographicAnchorError = WebMercatorViewAdapter.validateGeographicAnchor(
+    viewport,
+    globe ? 'GlobeViewport' : 'Web Mercator viewport'
+  );
+  if (geographicAnchorError) {
+    return globe ? geographicAnchorError : new Error('a Web Mercator viewport is required');
+  }
   // deck.gl uses both WEB_MERCATOR (1) and its high-zoom
   // WEB_MERCATOR_AUTO_OFFSET (4) internally. The numeric projection mode is
   // not part of the public viewport contract, so validate the public
