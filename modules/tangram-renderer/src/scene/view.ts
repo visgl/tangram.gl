@@ -254,7 +254,8 @@ export default class View {
             return this.globe_visibility_adapter.findVisibleTileCoordinates({
                 tile_zoom: this.tile_zoom,
                 buffer: this.buffer,
-                visibleBounds: this.projection.visibleBounds
+                visibleBounds: this.projection.visibleBounds,
+                cameraPosition: this.camera && this.camera.position_meters
             });
         }
 

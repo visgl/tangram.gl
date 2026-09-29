@@ -69,7 +69,7 @@ describe('Renderer', function () {
                 camera: {
                     view: IDENTITY_MATRIX,
                     projection: IDENTITY_MATRIX,
-                    position: [0, 0, 1]
+                    position: [0, -1000, 0]
                 }
             }]
         });
@@ -105,7 +105,7 @@ describe('Renderer', function () {
                 camera: {
                     view: IDENTITY_MATRIX,
                     projection: IDENTITY_MATRIX,
-                    position: [0, 0, 1]
+                    position: [0, -1000, 0]
                 }
             }]
         }));
@@ -114,7 +114,8 @@ describe('Renderer', function () {
         assert.isTrue(globeVisibilityAdapter.findVisibleTileCoordinates.calledWith({
             tile_zoom: 4,
             buffer: 0,
-            visibleBounds
+            visibleBounds,
+            cameraPosition: [0, -1000, 0]
         }));
     });
 

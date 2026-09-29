@@ -101,6 +101,31 @@ describe('WebMercatorGlobeVisibilityAdapter', () => {
             '1/0/1', '1/1/1'
         ]);
     });
+
+    it('omits tiles wholly behind the globe horizon when the camera is known', () => {
+        const adapter = new WebMercatorGlobeVisibilityAdapter();
+        const coordinates = adapter.findVisibleTileCoordinates({
+            tile_zoom: 4,
+            buffer: 0,
+            visibleBounds: [-180, -85, 180, 85],
+            cameraPosition: [0, -1000, 0]
+        });
+
+        expect(coordinates.length).toBeGreaterThan(0);
+        expect(coordinates.length).toBeLessThan(16 * 16);
+        expect(coordinates.every(({x}) => x !== 0 && x !== 15)).toBe(true);
+    });
+
+    it('keeps geographic-bounds behavior when no globe camera is supplied', () => {
+        const adapter = new WebMercatorGlobeVisibilityAdapter();
+        const coordinates = adapter.findVisibleTileCoordinates({
+            tile_zoom: 2,
+            buffer: 0,
+            visibleBounds: [-180, -85, 180, 85]
+        });
+
+        expect(coordinates).toHaveLength(16);
+    });
 });
 
 function createViewState(
