@@ -55,10 +55,12 @@ projection-specific visibility policy is extracted.
 
 ### 2. Make scene cameras optional
 
-Complete camera-policy injection when `Scene` constructs `View`; visibility/LOD
-policy injection is now available through renderer options.
-`SceneLoader` must stop synthesizing a default Tangram camera in external mode.
-At this point a real `@vis.gl/tangram-renderer/core` entry can exclude Leaflet,
+Scene loading now avoids synthesizing Tangram's default camera in external mode;
+classic scenes retain the existing default-camera behavior. Complete camera
+policy injection when `Scene` constructs `View`; visibility/LOD policy
+injection is available through renderer options. A real
+`@vis.gl/tangram-renderer/core` entry still requires removing the classic camera
+factory from the core dependency graph before it can exclude Leaflet,
 interaction handlers, the standalone loop, and classic camera implementations.
 
 ### 3. FirstPersonView

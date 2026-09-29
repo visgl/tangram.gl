@@ -17,11 +17,11 @@ import { isReserved } from '../styles/layer';
 const SceneLoader = {
 
     // Load scenes definitions from URL & proprocess
-    async loadScene(url, { path, type } = {}) {
+    async loadScene(url, { path, type, cameraMode } = {}) {
         const errors = [];
         const texture_nodes = {};
         const scene = await this.loadSceneRecursive({ url, path, type }, null, texture_nodes, errors);
-        const { config, bundle } = this.finalize(scene);
+        const { config, bundle } = this.finalize(scene, { cameraMode });
         if (!config) {
             // root scene failed to load, reject with first error
             throw errors[0];
@@ -309,7 +309,7 @@ const SceneLoader = {
     },
 
     // Normalize some scene-wide settings that apply to the final, merged scene
-    finalize({ config, bundle }) {
+    finalize({ config, bundle }, { cameraMode } = {}) {
         if (!config) {
             return {};
         }
@@ -322,14 +322,18 @@ const SceneLoader = {
         config.styles = config.styles || {};
         config.layers = config.layers || {};
 
-        // If only one camera specified, set it as default
-        if (config.camera) {
-            config.cameras.default = config.camera;
-        }
+        // Host-driven scenes do not need Tangram camera configuration. Keep
+        // authored cameras intact, but do not synthesize a default camera.
+        if (cameraMode !== 'external') {
+            // If only one camera specified, set it as default
+            if (config.camera) {
+                config.cameras.default = config.camera;
+            }
 
-        // If no cameras specified, create one
-        if (Object.keys(config.cameras).length === 0) {
-            config.cameras.default = {};
+            // If no cameras specified, create one
+            if (Object.keys(config.cameras).length === 0) {
+                config.cameras.default = {};
+            }
         }
 
         // If no lights specified, create default

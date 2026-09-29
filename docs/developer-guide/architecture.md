@@ -43,12 +43,13 @@ entrypoints as the renderer is decomposed. The intended package boundary is:
 - `@vis.gl/tangram-renderer/leaflet`: Leaflet interaction, URL synchronization,
   and standalone render-loop ownership.
 
-The current `Scene` still constructs `View`, and `View` still imports the
-classic camera factory. Therefore adding a `core` export today would only be a
-name, not a camera-free package boundary. The next structural tranche should
-inject view/camera policy into `Scene`, stop `SceneLoader` from synthesizing a
-camera in external mode, and then expose the new subpath once its dependency
-graph no longer reaches Leaflet or the classic cameras.
+Host-driven scene loading no longer synthesizes a default Tangram camera;
+classic scene loading retains that behavior. `Scene` still constructs `View`,
+and `View` still imports the classic camera factory. Therefore adding a `core`
+export today would only be a name, not a camera-free package boundary. The next
+structural tranche should inject view/camera policy into `Scene`, then expose
+the new subpath once its dependency graph no longer reaches Leaflet or the
+classic cameras.
 
 Style animation is separate from camera ownership. Animated styles continue to
 request host frames and may transform geometry using `u_time`, zoom, or custom
