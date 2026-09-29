@@ -1,4 +1,4 @@
-// Tangram
+// tangram-layers
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
@@ -18,6 +18,8 @@ export interface VisibilityViewState {
 
 /** Bounds and LOD state calculated for a Tangram view. */
 export interface CalculatedViewBounds {
+    /** Tile/style zoom selected for the current view. */
+    tileZoom: number;
     metersPerPixel: number;
     sizeMeters: Meters;
     centerMeters: Meters;
@@ -49,6 +51,7 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
      * @returns Bounds, center, and LOD state used by View.
      */
     calculateBounds(view: VisibilityViewState): CalculatedViewBounds {
+        const tileZoom = view.tile_zoom;
         const metersPerPixel = Geo.metersPerPixel(view.zoom);
         const sizeMeters = {
             x: view.size.css.width * metersPerPixel,
@@ -56,7 +59,7 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
         };
         const centerCoordinate = Geo.latLngToMeters([view.center.lng, view.center.lat]);
         const centerMeters = {x: centerCoordinate[0], y: centerCoordinate[1]};
-        const centerTile = Geo.tileForMeters([centerMeters.x, centerMeters.y], view.tile_zoom);
+        const centerTile = Geo.tileForMeters([centerMeters.x, centerMeters.y], tileZoom);
         const bounds = {
             sw: {
                 x: centerMeters.x - sizeMeters.x / 2,
@@ -68,7 +71,7 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
             }
         };
 
-        return {metersPerPixel, sizeMeters, centerMeters, centerTile, bounds};
+        return {tileZoom, metersPerPixel, sizeMeters, centerMeters, centerTile, bounds};
     }
 
     /**

@@ -187,7 +187,7 @@ export default class View {
         this.zoom = zoom;
         this.tile_zoom = tile_zoom;
 
-        this.updateBounds();
+        this.updateBounds(last_tile_zoom);
         this.scene.requestRedraw();
     }
 
@@ -219,12 +219,16 @@ export default class View {
     }
 
     // Calculate viewport bounds based on current center and zoom
-    updateBounds () {
+    updateBounds (previousTileZoom = this.tile_zoom) {
         if (!this.ready()) {
             return;
         }
 
         const viewBounds = this.visibility_adapter.calculateBounds(this);
+        this.tile_zoom = viewBounds.tileZoom;
+        if (typeof previousTileZoom === 'number' && viewBounds.tileZoom !== previousTileZoom) {
+            this.zoom_direction = viewBounds.tileZoom > previousTileZoom ? 1 : -1;
+        }
         this.meters_per_pixel = viewBounds.metersPerPixel;
         this.size.meters = viewBounds.sizeMeters;
         this.center.meters = viewBounds.centerMeters;

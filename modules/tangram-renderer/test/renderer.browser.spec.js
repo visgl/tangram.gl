@@ -122,10 +122,11 @@ describe('Renderer', function () {
             calculateBounds() {
                 calls.bounds++;
                 return {
+                    tileZoom: 4,
                     metersPerPixel: 1,
                     sizeMeters: {x: 800, y: 600},
                     centerMeters: {x: 0, y: 0},
-                    centerTile: {x: 2, y: 2, z: 3},
+                    centerTile: {x: 2, y: 2, z: 4},
                     bounds: {sw: {x: -400, y: -300}, ne: {x: 400, y: 300}}
                 };
             },
@@ -147,6 +148,7 @@ describe('Renderer', function () {
         });
 
         assert.isAbove(calls.bounds, 0);
+        assert.strictEqual(renderer.scene.view.tile_zoom, 4);
         assert.strictEqual(renderer.scene.view.meters_per_pixel, 1);
         assert.deepEqual(renderer.scene.view.bounds, {
             sw: {x: -400, y: -300},
