@@ -9,8 +9,9 @@ Copyright (c) vis.gl contributors
 Tangram's parser, projection, and matrix implementations are reached through
 small renderer-owned procedure boundaries. The renderer uses math.gl for Web
 Mercator projection and native `Matrix3`/`Matrix4` operations in its camera and
-tile paths; the previous projection formulas and `gl-mat3`/`gl-mat4` packages
-remain as test oracles. YAML and MVT loaders.gl implementations remain
+tile paths; the previous projection formulas remain as a test oracle, and
+captured matrix outputs preserve the former `gl-mat3`/`gl-mat4` results.
+YAML and MVT loaders.gl implementations remain
 comparative candidates until their compatibility and release criteria are met.
 
 This structure lets us measure compatibility before changing runtime behavior:
@@ -20,7 +21,7 @@ This structure lets us measure compatibility before changing runtime behavior:
 | Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/config` | 21 of 23 classic scenes match exactly |
 | Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/mvt` | Generated point, line, and polygon fixtures match exactly |
 | Web Mercator | `@math.gl/web-mercator` plus Tangram meter adapter | Tangram projection formulas | Edge-domain round trips and tile selection match within numeric tolerance |
-| Matrix operations | `@math.gl/core` `Matrix3`/`Matrix4` in camera and tile paths | `gl-mat3` and `gl-mat4` | Identity, transforms, projection, look-at, inversion, and singular-matrix behavior match in conformance tests |
+| Matrix operations | `@math.gl/core` `Matrix3`/`Matrix4` in camera and tile paths | Golden outputs captured from `gl-mat3@1.0.0` and `gl-mat4@1.1.4` | Identity, transforms, projection, look-at, inversion, and singular-matrix behavior match in conformance tests |
 
 The loaders.gl YAML parser currently cannot parse YAML anchors and aliases. It
 also rejects an unquoted `rgba(...)` expression accepted by the legacy parser.
@@ -42,8 +43,8 @@ production renderer graph. Keeping them in `devDependencies` prevents those
 evaluations from changing application bundle size or requiring applications to
 install both implementations. The exact loaders.gl alpha is pinned while its
 new config loader is evaluated. The math.gl projection and matrix classes are
-runtime dependencies; `gl-mat3` and `gl-mat4` remain development dependencies
-used only as matrix conformance oracles.
+runtime dependencies. Legacy matrix packages are no longer installed: the
+matrix conformance test keeps their captured numeric outputs as stable fixtures.
 
 ## Replacement criteria
 
@@ -60,8 +61,8 @@ A candidate can replace a legacy implementation only after:
 Until then, the conformance suite is a migration safety net, not a runtime
 feature flag. Camera and tile transforms now call math.gl's native matrix APIs
 directly while preserving Tangram's caller-owned typed-array boundaries. The
-legacy projection formula and matrix packages remain in tests as conformance
-oracles.
+legacy projection formula remains in tests, and captured matrix outputs preserve
+the matrix comparison after the legacy packages are removed.
 
 ## Bundle-size baseline
 
@@ -86,4 +87,6 @@ conversion support. MVT remains opt-in until the lightweight parser is
 published and Tangram's worker integration is validated against it. The matrix
 math.gl matrix migration raises the measured renderer bundle by about 9.0 KB gzip; this full
 dependency-graph change should be reviewed against the compatibility and
-maintenance benefits before removing the legacy test oracle.
+maintenance benefits. The legacy matrix packages have now been removed from
+development dependencies while golden output fixtures retain the conformance
+coverage.

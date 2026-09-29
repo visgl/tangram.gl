@@ -6913,8 +6913,6 @@ __metadata:
     esbuild: "npm:^0.28.1"
     fontfaceobserver: "npm:2.0.7"
     geojson-vt: "npm:3.2.1"
-    gl-mat3: "npm:1.0.0"
-    gl-mat4: "npm:1.1.4"
     gl-shader-errors: "npm:1.0.3"
     js-yaml: "https://github.com/tangrams/js-yaml.git#read-only"
     jszip: "npm:^3.10.1"
@@ -10670,20 +10668,6 @@ __metadata:
   version: 1.5.0
   resolution: "github-slugger@npm:1.5.0"
   checksum: 10c0/116f99732925f939cbfd6f2e57db1aa7e111a460db0d103e3b3f2fce6909d44311663d4542350706cad806345b9892358cc3b153674f88eeae77f43380b3bfca
-  languageName: node
-  linkType: hard
-
-"gl-mat3@npm:1.0.0":
-  version: 1.0.0
-  resolution: "gl-mat3@npm:1.0.0"
-  checksum: 10c0/f022ecfb8b40515ce429af34ca5a9b68627e59825903bfe02e80853734a7272d5b304cd357cadd2ce1c0e284e2e1676ed8ada46267e236995b416bee9ab600bf
-  languageName: node
-  linkType: hard
-
-"gl-mat4@npm:1.1.4":
-  version: 1.1.4
-  resolution: "gl-mat4@npm:1.1.4"
-  checksum: 10c0/59a056c85b2c08598979bf8af706904c7104cfdd2c81e10aa5477c434999a164a7de0dd44d090cc1e668c43d9f4b81fcc2e592d68d795a8b14b37efd889c3200
   languageName: node
   linkType: hard
 
