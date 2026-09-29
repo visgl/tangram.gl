@@ -69,12 +69,14 @@ interaction handlers, the standalone loop, and classic camera implementations.
 First-person rendering continues using planar Web Mercator geometry. The deck
 adapter intersects the viewport corners with the ground plane, selects tiles
 covering that footprint, and derives LOD from projected meters per pixel instead
-of treating deck.gl's internal meter scale as a map zoom. Camera matrices still
-come directly from deck.gl.
+of treating deck.gl's internal meter scale as a map zoom. It unwraps projected
+corner coordinates around the camera center so footprints crossing the
+antimeridian remain local instead of expanding to nearly the whole world.
+Camera matrices still come directly from deck.gl.
 
 The initial supported contract is a fixed-altitude camera whose four viewport
-corners intersect the Web Mercator ground plane. Horizon-level views, terrain
-elevation, and footprints crossing the antimeridian remain follow-up work.
+corners intersect the Web Mercator ground plane. Horizon-level views and terrain
+elevation remain follow-up work.
 
 ### 4. Implement GlobeView
 

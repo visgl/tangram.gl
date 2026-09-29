@@ -92,8 +92,20 @@ export function getFirstPersonViewFrame(viewport, options = {}) {
     throw new Error('FirstPersonViewport ground footprint must use Web Mercator coordinates');
   }
 
-  const xValues = projectedCorners.map((corner) => corner[0]);
-  const yValues = projectedCorners.map((corner) => corner[1]);
+  // Flat deck coordinates wrap at the antimeridian. Keep each corner in the
+  // world copy nearest the camera so a small footprint crossing ±180° does not
+  // turn into a nearly world-sized tile request.
+  const projectedCenter = viewport.projectFlat([viewport.longitude, viewport.latitude]);
+  if (!isFiniteCoordinate(projectedCenter)) {
+    throw new Error('FirstPersonViewport projected center is invalid');
+  }
+  const unwrappedProjectedCorners = projectedCorners.map(([x, y]) => [
+    x + Math.round((projectedCenter[0] - x) / DECK_WORLD_SIZE) * DECK_WORLD_SIZE,
+    y
+  ]);
+
+  const xValues = unwrappedProjectedCorners.map((corner) => corner[0]);
+  const yValues = unwrappedProjectedCorners.map((corner) => corner[1]);
   const west = Math.min(...xValues);
   const east = Math.max(...xValues);
   const north = Math.min(...yValues);
