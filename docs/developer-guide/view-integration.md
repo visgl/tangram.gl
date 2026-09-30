@@ -158,7 +158,7 @@ and the median of five refinements; these are not performance thresholds:
 
 These figures count the globe buffers, not JS temporary allocations, retained
 planar buffers, or textures. Real styles with wider layouts cost more. The
-minified renderer ESM increases by 9.3 KB raw and 3.4 KB gzip, including its
+minified renderer ESM increases by 9.4 KB raw and 3.5 KB gzip, including its
 embedded worker; there are no new package dependencies. Real-device tests cover
 whole-world raster curvature and cache reuse across camera/stereo changes on
 WebGL 2 and WebGPU.
