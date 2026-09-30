@@ -101,6 +101,9 @@ export type XRDeckView = {
     eyeOffset?: number;
   }): XRDeckViewport | null;
   getHostFrame?(viewport: XRDeckViewport): XRHostFrameFields;
+  /** Optional visibility recalculation after actual per-eye camera transforms. */
+  getHostFrameForCamera?(viewport: XRDeckViewport, camera: HostRenderView['camera'],
+    options?: {width?: number; height?: number}): XRHostFrameFields;
   getXRProjectionMatrix?(options: {
     projectionMatrix: readonly number[];
     viewMatrix: readonly number[];

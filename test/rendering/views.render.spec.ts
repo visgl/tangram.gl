@@ -42,6 +42,20 @@ for (const kind of ['flat', 'perspective', 'globe', 'first-person'] as const) {
   }
 }
 
+test.each(['mono', 'stereo-preview'] as const)('%s: first-person horizon rendering survives sky and ground transitions', async mode => {
+  harness = new RenderingHarness('first-person', mode);
+  harness.presentation.setViewState({pitch: 0});
+  await harness.initialize();
+  await harness.settle();
+  expect(coloredPixels(await harness.pixels())).toBeGreaterThan(100);
+  harness.presentation.setViewState({pitch: -80});
+  await harness.settle();
+  expect(coloredPixels(await harness.pixels())).toBe(0);
+  harness.presentation.setViewState({pitch: 30});
+  await harness.settle();
+  expect(coloredPixels(await harness.pixels())).toBeGreaterThan(100);
+});
+
 test('street-level zoom, resize, and style reload retain visible geometry', async () => {
   harness = new RenderingHarness();
   await harness.initialize();

@@ -8,7 +8,8 @@ import WebMercatorViewAdapter from './web_mercator_view_adapter';
 import FirstPersonViewAdapter from './first_person_view_adapter';
 import GlobeViewAdapter from './globe_view_adapter';
 import type {GlobeViewAdapterOptions} from './globe_view_adapter';
-import type {GlobeViewport} from './view_adapter_types';
+import type {FirstPersonViewAdapterOptions} from './first_person_view_adapter';
+import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types';
 
 const VIEW_EPSILON = 1e-7;
 
@@ -49,7 +50,8 @@ export function getExternalCameraFrame(viewport) {
   return WebMercatorViewAdapter.getCameraFrame(viewport);
 }
 
-export function getFirstPersonViewFrame(viewport, options = {}) {
+/** Converts a finite first-person camera into a bounded flat-ground host frame. */
+export function getFirstPersonViewFrame(viewport: FirstPersonViewport, options: FirstPersonViewAdapterOptions = {}) {
   return FirstPersonViewAdapter.getFrame(viewport, options);
 }
 
@@ -300,7 +302,8 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
         maxElevation: this.props.globeMaxElevation ?? undefined,
         visibleBounds: this.props.globeVisibleBounds ?? undefined
       };
-      const viewportError = validateViewport(viewport, viewports, globeOptions);
+      const firstPersonOptions = {maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined};
+      const viewportError = validateViewport(viewport, viewports, globeOptions, firstPersonOptions);
 
       if (viewportError) {
         record.lastViewportError = viewportError.message;
@@ -319,7 +322,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
         isGlobeViewport(viewport)
           ? {...getGlobeViewFrame(viewport, globeOptions), viewport: {width, height}}
           : isFirstPersonViewport(viewport)
-            ? getFirstPersonViewFrame(viewport, {width, height})
+            ? getFirstPersonViewFrame(viewport, {width, height, ...firstPersonOptions})
             : getMapViewFrame(viewport, {width, height})
       );
     }
@@ -409,6 +412,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
     apiKey: null,
     globeMaxElevation: null,
     globeVisibleBounds: null,
+    firstPersonMaxGroundExtent: 20000,
     onSceneLoad: () => {},
     onSceneError: () => {}
   };
@@ -416,7 +420,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
   return TangramLayer;
 }
 
-function validateViewport(viewport, viewports, globeOptions = {}) {
+function validateViewport(viewport, viewports, globeOptions = {}, firstPersonOptions = {}) {
   if (viewports.length !== 1) {
     return new Error('only one deck.gl viewport is supported');
   }
@@ -450,7 +454,7 @@ function validateViewport(viewport, viewports, globeOptions = {}) {
     if (globe) {
       getGlobeViewFrame(viewport, globeOptions);
     } else if (isFirstPersonViewport(viewport)) {
-      getFirstPersonViewFrame(viewport);
+      getFirstPersonViewFrame(viewport, firstPersonOptions);
     } else {
       WebMercatorViewAdapter.getCameraFrame(viewport);
     }

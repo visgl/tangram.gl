@@ -60,6 +60,17 @@ Omit it when unknown; use `0` only for surface-only content. Room radius and eye
 altitude are not this bound. The generated geographic candidate footprints are
 still ground-based: elevated-frustum footprint inference remains future work.
 
+`new WebXRFirstPersonView({far: 20000, firstPersonMaxGroundExtent: 20000})`
+derives a bounded flat-ground footprint from each actual eye camera, after stereo
+offsets or immersive placement have been applied. Extents are local geographic
+meters per east/north axis, converted to EPSG:3857 scale at the logical latitude.
+Finite near/far planes are required. Horizon-crossing eyes retain ground tiles;
+eyes looking entirely into the sky contribute an empty footprint to the union.
+This policy does not yet account for terrain or elevated-only visible content.
+When the first-person ground anchor is not in front of the eye, stereo preview
+uses a convergence plane 100 physical meters forward. Parallel eye cameras stay
+unchanged; this avoids collapsing the off-axis convergence distance at the horizon.
+
 Planar placements compensate for Web Mercator's latitude-dependent scale, while altitude remains
 in physical meters. Globe placements face their geographic anchor toward the room's positive Z
 axis, with north toward positive Y.

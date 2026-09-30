@@ -59,6 +59,7 @@ for (const exportName of [
   'Renderer',
   'HostFrame',
   'LumaDeviceRenderer',
+  'calculatePlanarGroundBounds',
   'debug',
   'version',
   'default'

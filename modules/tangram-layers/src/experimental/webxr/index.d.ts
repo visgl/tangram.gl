@@ -50,11 +50,15 @@ export {
 
 import {MapView, MapController, FirstPersonView, FirstPersonController,
   _GlobeView as GlobeView, _GlobeController as GlobeController} from '@deck.gl/core';
+import type {HostCamera} from '@vis.gl/tangram-renderer/core';
+import type {FirstPersonViewAdapterOptions} from '../../first_person_view_adapter';
+import type {FirstPersonViewport} from '../../view_adapter_types';
 
 import type {
   XRDeckController,
   XRDeckView,
   XRFrameState,
+  XRHostFrameFields,
   XRInteractionIntent,
   XRPlacement,
   XRPresentationFrame,
@@ -77,7 +81,12 @@ export class WebXRFirstPersonController extends FirstPersonController {}
 export class WebXRGlobeController extends GlobeController {}
 
 /** FirstPersonView with WebXR and Tangram host-frame support. */
-export class WebXRFirstPersonView extends FirstPersonView {}
+export class WebXRFirstPersonView extends FirstPersonView {
+  /** Eye-centered ground extent per axis in local geographic meters; defaults to 20 km. */
+  constructor(props?: ConstructorParameters<typeof FirstPersonView>[0] & {firstPersonMaxGroundExtent?: number});
+  /** Recomputes finite flat-ground bounds from the actual per-eye camera. */
+  getHostFrameForCamera(viewport: FirstPersonViewport, camera: HostCamera, options?: FirstPersonViewAdapterOptions): XRHostFrameFields;
+}
 
 /** GlobeView with WebXR and Tangram host-frame support. */
 export class WebXRGlobeView extends GlobeView {

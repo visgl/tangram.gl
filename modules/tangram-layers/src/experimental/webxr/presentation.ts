@@ -188,11 +188,16 @@ export class WebXRPresentation {
       const anchor = viewport.projectPosition([
         this.viewState.longitude, this.viewState.latitude, 0
       ]);
-      const anchorInView = new Matrix4(viewport.viewMatrix).transformAsPoint(anchor);
-      const convergence = Math.max(0.01, -anchorInView[2]);
+      const anchorInView = new Matrix4().copy(viewport.viewMatrix).transformAsPoint(anchor);
+      // At/above the first-person horizon the ground anchor is not in front of
+      // the eye. Keep the convergence plane 100 physical meters forward instead
+      // of collapsing it to 1 cm and shearing both frusta away from ground.
+      const anchorDistance = -anchorInView[2];
+      const convergence = anchorDistance > 0.01 ? anchorDistance
+        : this.placement.type === 'first-person' ? 100 * unitsPerXR : 0.01;
       const viewMatrix = new Matrix4().translate([-eyeOffset, 0, 0])
         .multiplyRight(renderView.camera.view);
-      const projectionMatrix = new Matrix4(viewport.projectionMatrix);
+      const projectionMatrix = new Matrix4().copy(viewport.projectionMatrix);
       projectionMatrix[8] -= projectionMatrix[0] * eyeOffset / convergence;
       renderView.camera = {
         ...renderView.camera,
@@ -203,6 +208,9 @@ export class WebXRPresentation {
           : renderView.camera.position
       };
       renderView.hostFrame = {...renderView.hostFrame, camera: renderView.camera};
+      if (typeof this.view.getHostFrameForCamera === 'function') {
+        renderView.hostFrame = this.view.getHostFrameForCamera(viewport, renderView.camera);
+      }
       return renderView;
     });
   }
@@ -215,9 +223,9 @@ export class WebXRPresentation {
     });
     return frameState.views.map((xrView) => {
       const [x, y, width, height] = xrView.viewport;
-      const viewMatrix = new Matrix4(xrView.viewMatrix).multiplyRight(placementMatrix);
-      const projectionMatrix = new Matrix4(xrView.projectionMatrix);
-      return {
+      const viewMatrix = new Matrix4().copy(xrView.viewMatrix).multiplyRight(placementMatrix);
+      const projectionMatrix = new Matrix4().copy(xrView.projectionMatrix);
+      const renderView = {
         id: xrView.eye || `eye-${xrView.index}`,
         viewport: {x, y, width, height},
         camera: {
@@ -232,6 +240,10 @@ export class WebXRPresentation {
         view: this.view,
         viewState: this.viewState
       };
+      if (typeof this.view.getHostFrameForCamera === 'function') {
+        renderView.hostFrame = this.view.getHostFrameForCamera(logicalViewport, renderView.camera, {width, height});
+      }
+      return renderView;
     });
   }
 
@@ -291,7 +303,8 @@ export class WebXRPresentation {
         ...renderView,
         geographicAnchor: renderView.hostFrame?.view,
         // Immersive globe bounds already describe the union in room space.
-        projection: frameState?.views?.length ? undefined : renderView.hostFrame?.projection
+        projection: frameState?.views?.length && this.placement.type === 'globe'
+          ? undefined : renderView.hostFrame?.projection
       })),
       activeRenderViewId: renderViews[0].id,
       tileBuffer: frameFields.tileBuffer

@@ -13,6 +13,7 @@ import {
   _GlobeView as GlobeView
 } from '@deck.gl/core';
 import {getExternalCameraFrame, getFirstPersonViewFrame, getGlobeViewFrame} from '../../index.ts';
+import {getFirstPersonFrameForCamera} from '../../first_person_view_adapter';
 
 /**
  * Map controller that keeps touch pinch rotation enabled while treating a
@@ -110,13 +111,21 @@ export class WebXRFirstPersonView extends FirstPersonView {
   }
 
   getHostFrame(viewport) {
-    const frame = getFirstPersonViewFrame(viewport);
+    const frame = getFirstPersonViewFrame(viewport, {maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined});
     return {
       view: frame.view,
-      projection: {type: 'web-mercator'},
+      projection: frame.projection,
       camera: frame.camera,
       tileBuffer: frame.tileBuffer
     };
+  }
+
+  /** Recomputes ground visibility after stereo or immersive camera transforms. */
+  getHostFrameForCamera(viewport, camera, options = {}) {
+    return getFirstPersonFrameForCamera(viewport, camera, {
+      ...options,
+      maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined
+    });
   }
 
   getXRProjectionMatrix({projectionMatrix}) {

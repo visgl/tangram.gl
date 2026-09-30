@@ -30,6 +30,7 @@ export default TangramLayer;
 
 export {default as WebMercatorViewAdapter} from './web_mercator_view_adapter';
 export {default as FirstPersonViewAdapter} from './first_person_view_adapter';
+export type {FirstPersonViewAdapterOptions} from './first_person_view_adapter';
 export {default as GlobeViewAdapter} from './globe_view_adapter';
 export type {GlobeViewAdapterOptions} from './globe_view_adapter';
 export type {FirstPersonViewport, GlobeViewport, PlanarCameraViewport} from './view_adapter_types';

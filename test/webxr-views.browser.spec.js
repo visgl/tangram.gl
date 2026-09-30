@@ -238,6 +238,39 @@ describe('WebXR deck.gl views', () => {
     );
   });
 
+  it('derives bounded first-person footprints from actual stereo and XR eye cameras', () => {
+    const view = new WebXRFirstPersonView({id: 'first-person', far: 20000, firstPersonMaxGroundExtent: 1000});
+    const manager = new WebXRViewManager({view,
+      viewState: {longitude: 0, latitude: 0, position: [0, 0, 200], bearing: 0, pitch: 0}});
+    const stereo = manager.createFrame({width: 800, height: 300, mode: 'stereo-preview', interpupillaryDistance: 2});
+    const bounds = stereo.hostFrame.renderViews.map(eye => eye.projection.visibleBounds);
+    expect(bounds[0]).not.toEqual(bounds[1]);
+    expect(bounds.every(bound => bound && bound.every(Number.isFinite))).toBe(true);
+    for (const eye of stereo.renderViews) {
+      const expected = view.getHostFrameForCamera(eye.deckViewport, eye.camera);
+      expect(eye.hostFrame.projection).toEqual(expected.projection);
+    }
+    const identity = new Matrix4();
+    const frameState = {views: ['left', 'right'].map((eye, index) => ({
+      eye, index, viewport: [index * 400, 0, 400, 300],
+      viewMatrix: new Float32Array(new Matrix4().translate([index * 0.1, 0, -2])),
+      projectionMatrix: new Float32Array(identity)
+    }))};
+    // Identity projection crosses the ground after ENU-to-room placement.
+    const immersive = manager.createFrame({width: 800, height: 300, mode: 'immersive-vr', frameState});
+    for (const eye of immersive.renderViews) {
+      const expected = view.getHostFrameForCamera(eye.deckViewport, eye.camera, {width: 400, height: 300});
+      expect(eye.hostFrame.projection).toEqual(expected.projection);
+      expect(eye.hostFrame.projection.visibleBounds).not.toBeNull();
+    }
+    expect(immersive.hostFrame.renderViews.map(eye => eye.projection))
+      .toEqual(immersive.renderViews.map(eye => eye.hostFrame.projection));
+    manager.setViewState({pitch: -80});
+    expect(manager.createFrame({width: 800, height: 300, mode: 'stereo-preview'})
+      .hostFrame.renderViews.every(eye => eye.projection.visibleBounds === null)).toBe(true);
+    manager.finalize();
+  });
+
   it('feeds WebXR eye matrices through the selected view subclass', () => {
     const manager = new WebXRViewManager({
       view: new WebXRMapView({id: 'map'}),

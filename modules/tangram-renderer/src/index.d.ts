@@ -47,6 +47,7 @@ export type {
 
 import HostFrame from './scene/host_frame';
 export {HostFrame};
+export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 
 export declare class Scene {
   static create(config: SceneDefinition, options?: RendererOptions): Scene;
