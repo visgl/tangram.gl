@@ -59,8 +59,23 @@ function getFrame(viewport: FirstPersonViewport, options: {width?: number; heigh
     throw new Error('FirstPersonViewport ground footprint must use Web Mercator coordinates');
   }
 
-  const xValues = projectedCorners.map((corner) => corner[0]);
-  const yValues = projectedCorners.map((corner) => corner[1]);
+  // Use the world copy nearest the camera to keep wrapped ground footprints local.
+  const {longitude, latitude} = viewport;
+  if (typeof longitude !== 'number' || !Number.isFinite(longitude) ||
+      typeof latitude !== 'number' || !Number.isFinite(latitude)) {
+    throw new Error('FirstPersonViewport geographic center is invalid');
+  }
+  const projectedCenter = projectFlat.call(viewport, [longitude, latitude]);
+  if (!isFiniteCoordinate(projectedCenter)) {
+    throw new Error('FirstPersonViewport projected center is invalid');
+  }
+  const unwrappedProjectedCorners = projectedCorners.map(([x, y]) => [
+    x + Math.round((projectedCenter[0] - x) / DECK_WORLD_SIZE) * DECK_WORLD_SIZE,
+    y
+  ]);
+
+  const xValues = unwrappedProjectedCorners.map((corner) => corner[0]);
+  const yValues = unwrappedProjectedCorners.map((corner) => corner[1]);
   const west = Math.min(...xValues);
   const east = Math.max(...xValues);
   const north = Math.min(...yValues);

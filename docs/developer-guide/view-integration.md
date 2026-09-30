@@ -143,7 +143,9 @@ through camera transitions, with measured pixel error and tile/request budgets.
 
 ### 5. Support FirstPersonView near the horizon
 
-Refresh and land the antimeridian fix in #100. Replace the requirement that all
+Land the antimeridian fix in #100: the FirstPersonView adapter unwraps projected
+ground corners around the camera center so a seam-crossing footprint stays
+local instead of requesting nearly the whole world. Replace the requirement that all
 four viewport corners hit the ground with bounded frustum/ground intersection.
 Clip distant or upward-facing rays using explicit far-distance policy, and
 handle camera altitude and source elevation conservatively.
