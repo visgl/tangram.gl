@@ -911,6 +911,7 @@ export default class Scene {
 
                     // Render this mesh variant
                     if (style.render(mesh, {
+                        projection: this.view.projection.type,
                         renderPass,
                         meshRenderer: this.mesh_renderer,
                         renderState: this.mesh_render_state

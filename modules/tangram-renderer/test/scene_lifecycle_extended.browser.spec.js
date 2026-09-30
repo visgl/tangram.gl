@@ -252,6 +252,7 @@ describe('Scene render orchestration', () => {
 
     test('renders mesh variants in order and skips invalid proxy tiles', () => {
         const scene = createScene();
+        scene.view.projection = {type: 'globe'};
         const render = vi.fn(() => true);
         const style = {name: 'roads', render};
         const mesh = order => ({geometry_count: order + 2, variant: {blend_order: 1, mesh_order: order}});
@@ -270,6 +271,7 @@ describe('Scene render orchestration', () => {
         expect(scene.renderStyle('roads', 'program', 1)).toBe(5);
         expect(scene.view.setupTile).toHaveBeenCalledTimes(2);
         expect(render).toHaveBeenCalledTimes(2);
+        expect(render.mock.calls[0][1].projection).toBe('globe');
         expect(scene.requestRedraw).toHaveBeenCalledTimes(2);
     });
 

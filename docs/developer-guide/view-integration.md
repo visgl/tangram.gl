@@ -113,6 +113,60 @@ typing covers the frame boundary, and existing classic examples still work.
 
 ### 3. Make coarse globe geometry follow the sphere
 
+Implemented first slice: globe-only, edge-adaptive subdivision of immutable
+polygon, road, and raster triangle meshes. The renderer keeps the original planar
+GPU buffers and lazily builds one globe variant per coarse tile mesh. Both eyes
+reuse that variant; camera movement does not rebuild it. Switching back to a
+planar view uses the original buffers. Destroying the tile releases both variants.
+
+The default cap is four degrees of **tile-local Mercator edge span**, before
+road-width extrusion and custom shaders. This conservatively bounds the angular
+span of the underlying spherical surface, not screen-space error or displaced
+geometry. Tiles at source zoom 7 and above already meet the cap within a standard
+tile diagonal and do not retain duplicate CPU data. Source tile zoom, rather than
+style zoom, controls refinement. Coarse data is retained until the first globe
+draw, then released. Refinement runs once on the main thread and is independent
+of camera state.
+
+Only long edges are split, so a long road or raster triangle does not multiply
+every small building in the same mesh. Shared indexed edges reuse midpoints;
+matching boundary segments in same-LOD neighboring tiles use identical rounded
+positions. Different source simplification or LOD boundaries still require a
+separate seam policy. UVs, heights, colors, normals and road extrusion attributes
+are interpolated in their packed domains. Feature-selection IDs and layer order
+must remain constant on each split edge. Indices promote to 32 bits when needed.
+
+The per-mesh budget allows at most 262,144 additional vertices and twice that
+many additional triangles. Exhausting it fails explicitly, never returning a
+partially refined mesh. Unknown custom attributes must be constant on split
+edges; varying attributes are rejected until their interpolation is defined.
+Globe styles with a `position` shader block are rejected because that block runs
+after geographic projection. Planar shader behavior and block ordering are
+unchanged. Screen-facing points/text, mutable label buffers, and wireframe debug
+meshes are not refined by this path.
+
+Representative raster quad costs (16-byte position/UV layout, no other
+attributes; original quad is 76 bytes). Local Node measurements use one warm-up
+and the median of five refinements; these are not performance thresholds:
+
+| Source zoom | Vertices | Triangles | Vertex/index data | One-time refinement |
+| --- | ---: | ---: | ---: | ---: |
+| 0 | 16,641 | 32,768 | 462.9 KB | 24.9 ms |
+| 2 | 1,089 | 2,048 | 29.7 KB | 1.0 ms |
+| 4 | 81 | 128 | 2.1 KB | 0.06 ms |
+| 6 | 9 | 8 | 0.2 KB | 0.01 ms |
+
+These figures count the globe buffers, not JS temporary allocations, retained
+planar buffers, or textures. Real styles with wider layouts cost more. The
+minified renderer ESM increases by 9.4 KB raw and 3.5 KB gzip, including its
+embedded worker; there are no new package dependencies. Real-device tests cover
+whole-world raster curvature and cache reuse across camera/stereo changes on
+WebGL 2 and WebGPU.
+
+Still pending: elevation-aware horizon bounds, projected-error LOD, seams across
+different tile detail levels, and projection-aware label/lighting behavior. This
+does not complete the full tranche.
+
 Add projection-aware subdivision for polygon triangles, long line segments, and
 raster tile meshes. Bound angular spans or projected curvature error, preserve
 feature IDs and style attributes, and make neighboring tile edges agree. Avoid
