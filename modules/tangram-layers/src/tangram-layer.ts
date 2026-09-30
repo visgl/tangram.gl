@@ -7,6 +7,7 @@
 import WebMercatorViewAdapter from './web_mercator_view_adapter';
 
 const DECK_TO_TANGRAM_ZOOM_OFFSET = 1;
+const MAX_MERCATOR_LATITUDE = 85.05112878;
 const VIEW_EPSILON = 1e-7;
 const DECK_WORLD_SIZE = 512;
 const TANGRAM_HALF_WORLD_METERS = 20037508.342789244;
@@ -169,7 +170,7 @@ export function getGlobeViewFrame(viewport) {
     view: {
       longitude: viewport.longitude,
       latitude: viewport.latitude,
-      zoom: viewport.zoom + DECK_TO_TANGRAM_ZOOM_OFFSET
+      zoom: getTangramGlobeZoom(viewport.zoom, viewport.latitude)
     },
     projection: {type: 'globe', visibleBounds},
     camera: {
@@ -181,6 +182,25 @@ export function getGlobeViewFrame(viewport) {
     },
     tileBuffer: 0
   };
+}
+
+/**
+ * Converts deck.gl GlobeViewport zoom to Tangram's Mercator tile zoom scale.
+ * GlobeViewport compensates zoom by latitude so its scale converges with
+ * Web Mercator at high zoom; apply the same adjustment before choosing tiles.
+ * @param zoom deck.gl GlobeViewport zoom.
+ * @param latitude Globe center latitude in degrees.
+ * @returns Tangram zoom value with the package's tile-size offset applied.
+ */
+function getTangramGlobeZoom(zoom, latitude) {
+  const scaleLatitude = Math.max(
+    -MAX_MERCATOR_LATITUDE,
+    Math.min(MAX_MERCATOR_LATITUDE, latitude)
+  );
+  const latitudeScaleAdjustment = Math.log2(
+    Math.PI * Math.cos((scaleLatitude * Math.PI) / 180)
+  );
+  return Math.max(0, zoom - latitudeScaleAdjustment + DECK_TO_TANGRAM_ZOOM_OFFSET);
 }
 
 /**
