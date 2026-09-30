@@ -48,7 +48,15 @@ type RuntimeScene = Scene & {
   selection_feature_count: number;
   building: boolean;
   updating: number;
-  tile_manager: {isLoadingVisibleTiles(): boolean; allVisibleTilesLabeled(): boolean};
+  tile_manager: {
+    isLoadingVisibleTiles(): boolean;
+    allVisibleTilesLabeled(): boolean;
+    tiles: Record<string, {meshes: Record<string, {
+      id: number;
+      geometry_count: number;
+      globe_mesh?: {id: number; geometry_count: number; buffer_size: number} | null;
+    }[]>}>;
+  };
   withWebGLContext(callback: () => void): void;
   getFeatureAt(pixel: {x: number; y: number}): Promise<{feature?: {properties?: {name?: string}}; error?: unknown} | undefined>;
 };
@@ -72,6 +80,17 @@ export class RenderingHarness {
     this.sourceUrl = `data:application/json;charset=utf-8,${encodeURIComponent(
       JSON.stringify(createFixture(this.scale))
     )}`;
+  }
+
+  /** Inspect cached globe buffers without accessing backend-specific GPU handles. */
+  getGlobeMeshes() {
+    const scene = this.renderer.scene as RuntimeScene;
+    return Object.values(scene.tile_manager.tiles).flatMap(tile =>
+      Object.values(tile.meshes || {}).flatMap(meshes => meshes.flatMap(mesh =>
+        mesh.globe_mesh ? [{id: mesh.globe_mesh.id, triangles: mesh.globe_mesh.geometry_count,
+          originalTriangles: mesh.geometry_count, bytes: mesh.globe_mesh.buffer_size}] : []
+      ))
+    );
   }
 
   /** Create a real device and load the fixture through Tangram's scene worker. */

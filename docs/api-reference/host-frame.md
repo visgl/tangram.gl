@@ -47,9 +47,14 @@ can describe spherical frames without importing deck.gl classes into the
 renderer package.
 
 The experimental globe path converts Web Mercator tile vertices to deck's
-radius-256 sphere and uses `visibleBounds` for tile selection. Horizon-aware
-culling, adaptive tessellation, label orientation, and picking refinements are
-tracked in [GlobeView support](https://github.com/visgl/tangram.gl/issues/48).
+radius-256 sphere and uses geographic bounds plus per-eye camera visibility for
+tile selection. Coarse polygon, road and raster triangle meshes receive a cached,
+globe-only refinement; planar meshes are unchanged. See the
+[geometry refinement limits and costs](../developer-guide/view-integration.md#3-make-coarse-globe-geometry-follow-the-sphere).
+Styles with post-projection `position` shader blocks or unknown varying vertex
+attributes are not supported by this globe path. Elevation-aware culling, label
+orientation, and picking refinements remain tracked in
+[GlobeView support](https://github.com/visgl/tangram.gl/issues/48).
 
 ### `renderViews`
 

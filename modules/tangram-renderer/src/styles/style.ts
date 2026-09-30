@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Rendering styles
 
@@ -21,6 +22,7 @@ import Thread from '../utils/thread';
 import WorkerBroker from '../utils/worker_broker';
 import makeWireframeForTriangleElementData from '../builders/wireframe';
 import debugSettings from '../utils/debug_settings';
+import Geo from '../utils/geo';
 
 import selection_fragment_source from '../selection/selection_fragment.glsl';
 import rasters_source from './raster/raster_globals.glsl';
@@ -431,13 +433,20 @@ export var Style = {
 
     makeMesh (vertex_data, vertex_elements, options = {}) {
         options = { ...options, bufferFactory: this.mesh_buffer_factory };
+        if (['polygons', 'lines', 'raster'].includes(this.baseStyle()) &&
+            Number.isInteger(options.tileZoom)) {
+            options.globeRefinement = {tileZoom: options.tileZoom, tileScale: Geo.tile_scale};
+            if (this.shaders?.blocks?.position) {
+                options.globeRefinementError = `Globe projection does not support style '${this.name}' with a position shader block`;
+            }
+        }
         let vertex_layout = this.vertexLayoutForMeshVariant(options.variant);
 
         if (debugSettings.wireframe) {
             // In wireframe debug mode, transform mesh into lines
             vertex_elements = makeWireframeForTriangleElementData(vertex_elements);
             return new VBOMesh(this.gl, vertex_data, vertex_elements, vertex_layout,
-                { ...options, draw_mode: gl.LINES });
+                { ...options, globeRefinement: undefined, draw_mode: 0x0001 });
         }
 
         return new VBOMesh(this.gl, vertex_data, vertex_elements, vertex_layout, options);

@@ -287,6 +287,7 @@ describe('VBOMesh render backend', function () {
                 return {};
             },
             view: {
+                projection: {type: 'web-mercator'},
                 setupTile() {}
             },
             requestRedraw() {}
@@ -303,6 +304,7 @@ describe('VBOMesh render backend', function () {
 
         expect(count).toBe(2);
         expect(render_options).toEqual({
+            projection: 'web-mercator',
             renderPass: render_pass,
             meshRenderer: mesh_renderer,
             renderState: scene.mesh_render_state

@@ -311,6 +311,13 @@ uses this getter when determining whether all layers are ready.
 | `GlobeView` | Experimental | Tangram tile geometry is projected onto deck.gl's globe. |
 | `FirstPersonView` | Capability preview | The visible ground footprint drives geographic tile selection. |
 
+Coarse globe polygon, road and raster meshes are refined once per tile, then
+shared by stereo eyes and reused during camera motion. Planar mesh data is
+unchanged. Globe styles cannot use post-projection `position` shader blocks or
+unknown varying custom attributes; elevation-aware horizon culling and LOD seams
+remain experimental. See [view integration](../developer-guide/view-integration.md#3-make-coarse-globe-geometry-follow-the-sphere)
+for limits, memory costs and remaining work.
+
 The layer supports deck.gl's WebGL 2 and WebGPU devices. One deck.gl viewport is supported per
 layer. Multi-view and stereoscopic rendering use the lower-level [`HostFrame`](./host-frame.md)
 and [experimental WebXR presentation API](./webxr-presentation.md) instead of `TangramLayer`.

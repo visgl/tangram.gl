@@ -74,6 +74,29 @@ test('raster tiles render and can switch back to vector geometry', async () => {
   expect(changedPixels(raster, vector)).toBeGreaterThan(1000);
 });
 
+test('low-zoom globe raster follows the sphere and reuses geometry for camera and stereo changes', async () => {
+  harness = new RenderingHarness('globe');
+  harness.presentation.setViewState({zoom: 0});
+  await harness.initialize();
+  await harness.renderer.load(createRasterScene());
+  await harness.settle();
+  const pixels = await harness.pixels();
+  expect(coloredPixels(pixels)).toBeGreaterThan(1000);
+  expect(coloredPixels(pixels)).toBeLessThan(pixels.width * pixels.height * 0.9);
+  const meshes = harness.getGlobeMeshes();
+  expect(meshes.length).toBeGreaterThan(0);
+  expect(meshes.every(mesh => mesh.triangles > mesh.originalTriangles)).toBe(true);
+  harness.presentation.setViewState({longitude: 20, bearing: 15});
+  await harness.settle();
+  expect(harness.getGlobeMeshes()).toEqual(meshes);
+  harness.presentation.setMode('stereo-preview');
+  await harness.settle();
+  expect(harness.getGlobeMeshes()).toEqual(meshes);
+  const stereo = await harness.pixels();
+  expect(coloredPixels(stereo, 0, stereo.width / 2)).toBeGreaterThan(500);
+  expect(coloredPixels(stereo, stereo.width / 2)).toBeGreaterThan(500);
+});
+
 test(DEVICE_TYPE === 'webgl' ? 'WebGL selection returns the rendered building'
   : 'WebGPU selection explicitly reports its current unsupported result', async () => {
   harness = new RenderingHarness('flat');

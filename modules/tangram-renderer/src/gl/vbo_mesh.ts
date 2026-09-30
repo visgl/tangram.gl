@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Manage rendering for primitives
 // @ts-nocheck
@@ -8,9 +9,23 @@
 import ShaderProgram from './shader_program';
 import VertexArrayObject from './vao';
 import Texture from './texture';
+import {refineGlobeMesh, type GlobeMeshOptions} from './globe_mesh';
 
 // A single mesh/VBO, described by a vertex layout, that can be drawn with one or more programs
 export default class VBOMesh  {
+
+    /** Triangle count of the original planar mesh. */
+    geometry_count: number;
+    /** Shared fade origin for planar and globe variants. */
+    created_at: number;
+    /** Lazily allocated globe buffers, owned by this mesh. */
+    globe_mesh?: VBOMesh | null;
+    /** Immutable coarse tile data, released once refinement completes. */
+    globe_source?: {
+        vertices: Uint8Array;
+        indices: Uint16Array | Uint32Array | false;
+        options: {globeRefinement: GlobeMeshOptions; [key: string]: unknown};
+    };
 
     constructor(gl, vertex_data, element_data, vertex_layout, options) {
         options = options || {};
@@ -36,6 +51,12 @@ export default class VBOMesh  {
         this.retain = options.retain || false; // whether to retain mesh data in CPU after uploading to GPU
         this.created_at = +new Date();
         this.fade_in_time = options.fade_in_time || 0; // optional time to fade in mesh
+        this.globe_refinement_error = options.globeRefinementError;
+        // Only coarse, immutable triangle meshes need a second projection-specific buffer.
+        if (options.globeRefinement && options.globeRefinement.tileZoom < 7 &&
+            this.draw_mode === 0x0004 && !this.retain) {
+            this.globe_source = {vertices: vertex_data, indices: element_data, options};
+        }
 
         this.vertex_count = this.vertex_data.byteLength / this.vertex_layout.stride;
         this.element_count = 0;
@@ -89,6 +110,28 @@ export default class VBOMesh  {
     render(options = {}) {
         if (!this.valid) {
             return false;
+        }
+
+        if (options.projection === 'globe') {
+            if (this.globe_refinement_error) {
+                throw new Error(this.globe_refinement_error);
+            }
+            if (this.globe_source && this.globe_mesh === undefined) {
+                const {vertices, indices, options: meshOptions} = this.globe_source;
+                const refined = refineGlobeMesh(vertices, indices, this.vertex_layout, meshOptions.globeRefinement);
+                this.globe_mesh = refined.vertices === vertices ? null : new VBOMesh(
+                    this.gl, refined.vertices, refined.indices, this.vertex_layout,
+                    {...meshOptions, id: undefined, globeRefinement: undefined, textures: undefined}
+                );
+                if (this.globe_mesh) {
+                    this.globe_mesh.created_at = this.created_at;
+                }
+                // A completed refinement no longer needs the duplicate CPU data.
+                delete this.globe_source;
+            }
+            if (this.globe_mesh) {
+                return this.globe_mesh.render(options);
+            }
         }
 
         var program = options.program || ShaderProgram.current;
@@ -187,6 +230,9 @@ export default class VBOMesh  {
             return false;
         }
         this.valid = false;
+        this.globe_mesh?.destroy();
+        this.globe_mesh = null;
+        delete this.globe_source;
 
         for (let v in this.vaos) {
             VertexArrayObject.destroy(this.gl, this.vaos[v]);

@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // @ts-nocheck
 
@@ -413,6 +414,7 @@ export default class Tile {
                         let mesh_options = Object.assign({}, mesh_data[s]);
                         mesh_options.uniforms = Object.assign({}, mesh_options.uniforms, mesh_variant.uniforms);
                         mesh_options.variant = mesh_variant.variant;
+                        mesh_options.tileZoom = this.coords.z;
 
                         // for labels, keep buffer data on CPU so they can be modified later
                         if (mesh_variant.labels) {
