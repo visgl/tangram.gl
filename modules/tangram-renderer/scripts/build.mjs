@@ -56,7 +56,11 @@ function createWorkerPlugin(minified) {
 
 /** Returns the generated renderer entry that assigns its embedded worker URL. */
 function createEntry(format) {
-  const exportAssignment = format === 'esm' ? 'export default Tangram;' : '';
+  const exportAssignment = format === 'esm' ? `
+    export default Tangram;
+    export {WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
+      from ${JSON.stringify(resolve(sourceDirectory, 'index.ts'))};
+  ` : '';
   const isEsm = format === 'esm';
   return `
     import Tangram from ${JSON.stringify(resolve(sourceDirectory, 'index.ts'))};
@@ -162,6 +166,42 @@ async function buildRenderer(format, minified) {
   await esbuild.build(getRendererBuildOptions(format, minified));
 }
 
+/** Returns options shared by one-shot and watch builds of the host-only entry. */
+function getCoreBuildOptions() {
+  const options = getRendererBuildOptions('esm', false);
+  return {
+    ...options,
+    stdin: {
+      ...options.stdin,
+      contents: `
+        import {setWorkerURL} from ${JSON.stringify(resolve(sourceDirectory, 'scene/worker_url.ts'))};
+        import workerSource from 'tangram-worker';
+        setWorkerURL(URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'})));
+        export {Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
+          from ${JSON.stringify(resolve(sourceDirectory, 'core.ts'))};
+      `
+    },
+    outfile: resolve(outputDirectory, 'core.js'),
+    metafile: true
+  };
+}
+
+/** Builds the camera-free host entry and rejects accidental classic/deck dependencies. */
+async function buildCore() {
+  const result = await esbuild.build(getCoreBuildOptions());
+  for (const input of Object.keys(result.metafile.inputs)) {
+    if (/scene\/(camera|classic_scene)\.ts$/.test(input) || /node_modules\/(@deck\.gl|leaflet)\//.test(input)) {
+      throw new Error(`Core entry includes a forbidden dependency: ${input}`);
+    }
+  }
+}
+
+/** Keeps the host-only entry fresh alongside the legacy browser bundles. */
+async function watchCore() {
+  const context = await esbuild.context(getCoreBuildOptions());
+  await context.watch();
+}
+
 /** Creates a watch context for one renderer bundle variant. */
 async function watchRenderer(format, minified) {
   const context = await esbuild.context(getRendererBuildOptions(format, minified));
@@ -203,12 +243,14 @@ if (process.argv.includes('--test-worker')) {
       watchRenderer('iife', false),
       watchRenderer('iife', true),
       watchRenderer('esm', false),
-      watchRenderer('esm', true)
+      watchRenderer('esm', true),
+      watchCore()
     ]);
   } else {
     await buildRenderer('iife', false);
     await buildRenderer('iife', true);
     await buildRenderer('esm', false);
     await buildRenderer('esm', true);
+    await buildCore();
   }
 }

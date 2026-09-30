@@ -37,9 +37,9 @@ describe('getFirstPersonViewFrame', () => {
     expect(equatorFrame.view.zoom - highLatitudeFrame.view.zoom).toBeCloseTo(1, 2);
   });
 
-  test('keeps a footprint crossing the antimeridian local to the camera', () => {
+  test.each([179.99, -179.99])('keeps a footprint crossing the antimeridian local at %s', longitude => {
     const ordinaryFrame = getFirstPersonViewFrame(createViewport({longitude: 0}));
-    const antimeridianFrame = getFirstPersonViewFrame(createViewport({longitude: 179.99}));
+    const antimeridianFrame = getFirstPersonViewFrame(createViewport({longitude}));
 
     expect(antimeridianFrame.view.zoom).toBeCloseTo(ordinaryFrame.view.zoom, 5);
     expect(Math.abs(antimeridianFrame.view.longitude)).toBeGreaterThan(179);

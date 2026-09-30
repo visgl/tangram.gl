@@ -42,6 +42,23 @@ The renderer accepts an externally owned luma.gl device through its renderer
 options. Applications should use the device and render pass supplied by their
 host rather than reading a backend handle.
 
+## Host-only core entrypoint
+
+```ts
+import {Renderer, HostFrame} from '@vis.gl/tangram-renderer/core';
+```
+
+This entry includes scene traversal, tiles, styles, the external camera, and the
+luma.gl backend, but excludes classic perspective/isometric/flat cameras,
+Leaflet, and deck.gl. Its embedded scene worker is initialized without assigning
+`globalThis.Tangram`. The build checks the dependency graph on every build.
+`@vis.gl/tangram-layers` uses this entry.
+
+The root entry remains the standalone compatibility API: its `Scene` injects
+classic camera construction. The core is **host-independent**, not dependency-free;
+it still uses luma.gl, math.gl, and Tangram's parsing and geometry dependencies.
+Schema validation remains a separate optional entry.
+
 ## Style schema entrypoint
 
 Scene documents can be validated with the optional schema entrypoint:

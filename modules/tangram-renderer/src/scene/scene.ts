@@ -33,9 +33,19 @@ import TextCanvas from '../styles/text/text_canvas';
 import FontManager from '../styles/text/font_manager';
 import MediaCapture from '../utils/media_capture';
 import setupSceneDebug from './scene_debug';
+import {getWorkerURL} from './worker_url';
+import type {ViewScene} from './view';
+import type {SceneListeners, SceneDefinition, SceneLoadOptions} from '../types';
+import type {RenderPass} from '@luma.gl/core';
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
+    declare subscribe: (listeners: SceneListeners) => void;
+    declare view: View;
+    declare config: (NonNullable<ViewScene['config']> & {animated?: boolean}) | null;
+    declare dirty: boolean;
+    declare start_time: number;
+    declare host_animation_time: number | null;
 
     constructor(config_source, options) {
         options = options || {};
@@ -49,6 +59,7 @@ export default class Scene {
         this.view = new View(this, options);
         this.tile_manager = new TileManager({ scene: this });
         this.num_workers = options.numWorkers || 2;
+        this.worker_url = options.workerURL;
         if (options.disableVertexArrayObjects === true) {
             VertexArrayObject.disabled = true;
         }
@@ -94,6 +105,8 @@ export default class Scene {
         this.introspection = (options.introspection === true) ? true : false;
         this.times = {}; // internal time logs (mostly for dev/profiling)
         this.resetTime();
+        this.host_animation_time = null;
+        this.animation_time = 0;
 
         this.container = options.container;
         this.canvas = options.canvas || null;
@@ -146,7 +159,7 @@ export default class Scene {
     // Options:
     //   `base_path`: base URL against which scene resources should be resolved (useful for Play) (default nulll)
     //   `blocking`: should rendering block on scene load completion (default true)
-    load (config_source = null, options = {}) {
+    load (config_source: SceneDefinition | null = null, options: SceneLoadOptions = {}) {
         if (this.initializing) {
             return this.initializing;
         }
@@ -449,7 +462,7 @@ export default class Scene {
         let queue = [];
         this.workers = [];
         for (let id=0; id < this.num_workers; id++) {
-            let worker = new Worker(Tangram.workerURL); // eslint-disable-line no-undef
+            let worker = new Worker(this.worker_url || getWorkerURL() || Tangram.workerURL); // eslint-disable-line no-undef
             this.workers[id] = worker;
 
             WorkerBroker.addWorker(worker);
@@ -587,7 +600,9 @@ export default class Scene {
         });
     }
 
-    updateScene({ renderPass = null } = {}) {
+    updateScene({ renderPass = null }: {renderPass?: RenderPass | null} = {}) {
+        // Capture time once per draw; hosts freeze it across all eyes of a logical frame.
+        this.animation_time = this.host_animation_time ?? ((Date.now() - this.start_time) / 1000);
         // Determine which passes (if any) to render
         let main = this.dirty;
         let selection = this.selection ? this.selection.hasPendingRequests() : false;
@@ -602,7 +617,7 @@ export default class Scene {
         this.trigger('pre_update', will_render);
 
         // Update view (needs to update user input timer even if no render will occur)
-        this.view.update();
+        this.view.update(this.host_animation_time === null ? undefined : this.start_time + this.host_animation_time * 1000);
 
         // Bail if no need to render
         if (!will_render) {
@@ -932,7 +947,7 @@ export default class Scene {
         program.use();
         style.setup();
 
-        const time = this.animated ? (((+new Date()) - this.start_time) / 1000) : 0;
+        const time = this.animated ? this.animation_time : 0;
         if (this.uniform_buffers.TangramView) {
             this.uniform_buffers.TangramView.setUniform('u_time', time);
             this.view.setupProgram(program, this.uniform_buffers);

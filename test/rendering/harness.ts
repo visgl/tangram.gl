@@ -6,7 +6,8 @@ import {expect} from 'vitest';
 import {luma, type Device} from '@luma.gl/core';
 import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
-import {ClassicWebGLRenderer, type Scene} from '@vis.gl/tangram-renderer';
+import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
+import type {Scene} from '@vis.gl/tangram-renderer';
 import {Timeline} from '@luma.gl/engine';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
   WebXRMapController, WebXRGlobeController, WebXRFirstPersonController,

@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, describe, expect, test, vi} from 'vitest';
-import Scene from '../src/scene/scene';
+import Scene from '../src/scene/classic_scene';
 import Context from '../src/gl/context';
 import Texture from '../src/gl/texture';
 import ShaderProgram from '../src/gl/shader_program';

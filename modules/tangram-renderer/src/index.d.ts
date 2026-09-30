@@ -32,7 +32,7 @@ import type {
   TangramUniformBufferOptions
 } from './gpu/tangram_gpu_backend.js';
 
-export type * from './types.js';
+export type {Matrix4, Vector3, SceneDefinition, Viewport, GeographicAnchor, HostProjection, HostCamera, HostRenderView, HostFrameOptions, LegacyHostFrame, RendererOptions, SceneLoadOptions, SceneUpdateOptions, SceneDataSource, SceneFeature, SceneQueryOptions, SceneScreenshot, RenderOptions, SceneConfigEvent, SceneErrorEvent, SceneEventMap, SceneListener, SceneListeners, WorkerRequest, WorkerResponse, WorkerBrokerMessage} from './types.js';
 export {
   WebMercatorGlobeVisibilityAdapter,
   WebMercatorVisibilityAdapter
@@ -45,18 +45,8 @@ export type {
   VisibilityViewState
 } from './scene/visibility_adapter.js';
 
-export declare class HostFrame {
-  constructor(options: HostFrameOptions);
-  static from(frame: HostFrame | HostFrameOptions | LegacyHostFrame): HostFrame;
-  static fromLegacy(frame: LegacyHostFrame): HostFrame;
-  readonly viewport: Required<Viewport>;
-  readonly geographicAnchor: Required<HostFrameOptions['geographicAnchor']>;
-  readonly projection: NonNullable<HostFrameOptions['projection']>;
-  readonly renderViews: readonly HostRenderView[];
-  readonly activeRenderViewId: string;
-  readonly tileBuffer: number;
-  getRenderView(renderViewId?: string): HostRenderView;
-}
+import HostFrame from './scene/host_frame';
+export {HostFrame};
 
 export declare class Scene {
   static create(config: SceneDefinition, options?: RendererOptions): Scene;

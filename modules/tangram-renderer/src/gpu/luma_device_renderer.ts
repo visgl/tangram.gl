@@ -5,6 +5,7 @@
 // @ts-nocheck
 
 import { Buffer, Texture } from '@luma.gl/core';
+import type {Device} from '@luma.gl/core';
 
 /**
  * Portable Tangram GPU backend implemented exclusively with the luma.gl Device API.
@@ -15,6 +16,7 @@ import { Buffer, Texture } from '@luma.gl/core';
  * @implements {import('./tangram_gpu_backend').TangramGPUBackend}
  */
 export default class LumaDeviceRenderer {
+    declare readonly device: Device;
 
     constructor(device) {
         validateDevice(device);

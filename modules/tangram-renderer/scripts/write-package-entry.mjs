@@ -12,7 +12,7 @@ const packageEntry = `// tangram-layers
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import Tangram from './tangram.debug.mjs';
+import Tangram, {WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from './tangram.debug.mjs';
 
 const {Scene, ClassicWebGLRenderer, HostFrame, LumaDeviceRenderer, debug, version} =
   Tangram;
@@ -25,7 +25,9 @@ export {
   HostFrame,
   LumaDeviceRenderer,
   debug,
-  version
+  version,
+  WebMercatorGlobeVisibilityAdapter,
+  WebMercatorVisibilityAdapter
 };
 export default Tangram;
 `;

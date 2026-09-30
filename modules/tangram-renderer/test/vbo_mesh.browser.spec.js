@@ -4,7 +4,7 @@
 
 import {describe, expect, it} from 'vitest';
 import VBOMesh from '../src/gl/vbo_mesh';
-import Scene from '../src/scene/scene';
+import Scene from '../src/scene/classic_scene';
 import VertexLayout from '../src/gl/vertex_layout';
 import gl_constants from '../src/gl/constants';
 

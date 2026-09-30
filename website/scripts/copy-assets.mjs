@@ -90,6 +90,10 @@ await cp(
   resolve(staticDirectory, 'modules/tangram-renderer/dist/index.js')
 );
 await cp(
+  resolve(repositoryDirectory, 'modules/tangram-renderer/dist/core.js'),
+  resolve(staticDirectory, 'modules/tangram-renderer/dist/core.js')
+);
+await cp(
   resolve(repositoryDirectory, 'modules/tangram-layers/dist/index.js'),
   resolve(staticDirectory, 'modules/tangram-layers/dist/index.js')
 );

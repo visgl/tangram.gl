@@ -4,9 +4,13 @@
 
 import Geo, {type Bounds, type Meters, type Tile} from '../utils/geo';
 import {TileID, type TileCoordinate} from '../tile/tile_id';
+import type {HostCamera} from '../types';
+import {Matrix4} from '@math.gl/core';
 
 /** State consumed by a renderer-owned visibility and LOD adapter. */
 export interface VisibilityViewState {
+    /** Optional host matrices for policies selecting a precise per-eye footprint. */
+    readonly camera?: HostCamera;
     readonly center: {readonly lng: number; readonly lat: number};
     readonly zoom: number;
     readonly tile_zoom: number;
@@ -48,6 +52,8 @@ export interface GlobeVisibilityViewState {
     readonly buffer: number;
     /** Host-visible geographic bounds in west, south, east, north order. */
     readonly visibleBounds: readonly [number, number, number, number];
+    /** Camera position in the globe's common-space coordinates, when available. */
+    readonly cameraPosition?: readonly [number, number, number];
 }
 
 /** Projection-specific tile visibility policy for globe views. */
@@ -76,7 +82,7 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
         const centerCoordinate = Geo.latLngToMeters([view.center.lng, view.center.lat]);
         const centerMeters = {x: centerCoordinate[0], y: centerCoordinate[1]};
         const centerTile = Geo.tileForMeters([centerMeters.x, centerMeters.y], tileZoom);
-        const bounds = {
+        const bounds = (view.camera && getGroundBounds(view.camera)) || {
             sw: {
                 x: centerMeters.x - sizeMeters.x / 2,
                 y: centerMeters.y - sizeMeters.y / 2
@@ -125,15 +131,44 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
     }
 }
 
+/** Intersects a planar host frustum with EPSG:3857 ground, retaining the legacy fallback near the horizon. */
+function getGroundBounds(camera: HostCamera): Bounds | null {
+    const matrix = new Matrix4(camera.projection).multiplyRight(camera.view);
+    const determinant = matrix.determinant();
+    if (!Number.isFinite(determinant) || determinant === 0) {
+        return null;
+    }
+    matrix.invert();
+    const points: number[][] = [];
+    for (const [horizontal, vertical] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const near = matrix.transformAsPoint([horizontal, vertical, -1]);
+        const far = matrix.transformAsPoint([horizontal, vertical, 1]);
+        const parameter = -near[2] / (far[2] - near[2]);
+        if (!Number.isFinite(parameter) || parameter < 0 || parameter > 1) {
+            return null;
+        }
+        const point = [near[0] + (far[0] - near[0]) * parameter, near[1] + (far[1] - near[1]) * parameter];
+        if (!point.every(Number.isFinite)) {
+            return null;
+        }
+        points.push(point);
+    }
+    return {
+        sw: {x: Math.min(...points.map(point => point[0])), y: Math.min(...points.map(point => point[1]))},
+        ne: {x: Math.max(...points.map(point => point[0])), y: Math.max(...points.map(point => point[1]))}
+    };
+}
+
 /**
  * Selects Web Mercator tiles intersecting geographic bounds on a globe.
  * Antimeridian-crossing bounds are split into two ranges and duplicate tiles
- * are removed while preserving traversal order.
+ * are removed while preserving traversal order. When the host camera position
+ * is available, tiles wholly behind the globe horizon are omitted.
  */
 export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdapter {
     /**
-     * Returns buffered tiles intersecting the host-provided geographic bounds.
-     * @param view Tile zoom, buffer, and west/south/east/north bounds.
+     * Returns buffered tiles intersecting host bounds and the visible globe hemisphere.
+     * @param view Tile zoom, buffer, geographic bounds, and optional camera position.
      * @returns Visible tile coordinates.
      */
     findVisibleTileCoordinates(view: GlobeVisibilityViewState): TileCoordinate[] {
@@ -155,7 +190,7 @@ export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdap
                 const wrappedX = ((x % tileCount) + tileCount) % tileCount;
                 for (let y = yStart; y <= yEnd; y++) {
                     const key = `${wrappedX}/${y}/${zoom}`;
-                    if (!seen.has(key)) {
+                    if (!seen.has(key) && isTileVisibleFromCamera(wrappedX, y, zoom, view.cameraPosition)) {
                         seen.add(key);
                         coordinates.push(TileID.coord({x: wrappedX, y, z: zoom}));
                     }
@@ -164,6 +199,58 @@ export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdap
         }
         return coordinates;
     }
+}
+
+const GLOBE_RADIUS = 256;
+
+function isTileVisibleFromCamera(
+    x: number,
+    y: number,
+    zoom: number,
+    cameraPosition?: readonly [number, number, number]
+): boolean {
+    if (!cameraPosition || cameraPosition.length !== 3 || cameraPosition.some(value => !Number.isFinite(value))) {
+        return true;
+    }
+
+    const cameraDistance = Math.hypot(...cameraPosition);
+    if (cameraDistance <= GLOBE_RADIUS) {
+        return true;
+    }
+
+    const tileCount = Math.pow(2, zoom);
+    const west = x / tileCount * 360 - 180;
+    const east = (x + 1) / tileCount * 360 - 180;
+    const north = tileYToLatitude(y, zoom);
+    const south = tileYToLatitude(y + 1, zoom);
+    const center = geographicUnitVector((west + east) / 2, (north + south) / 2);
+    const cameraDirection = cameraPosition.map(value => value / cameraDistance);
+    const centerDotCamera = center[0] * cameraDirection[0] +
+        center[1] * cameraDirection[1] + center[2] * cameraDirection[2];
+    // A meridian-then-parallel path bounds every point in the tile, including
+    // curved edges and very coarse tiles whose antipode is not a corner.
+    const tileAngularRadius = Math.min(Math.PI,
+        ((north - south) / 2 + (east - west) / 2) * Math.PI / 180
+    );
+    const horizonAngle = Math.acos(GLOBE_RADIUS / cameraDistance);
+    return centerDotCamera >= Math.cos(Math.min(Math.PI, horizonAngle + tileAngularRadius));
+}
+
+function geographicUnitVector(longitude: number, latitude: number): [number, number, number] {
+    const longitudeRadians = longitude * Math.PI / 180;
+    const latitudeRadians = latitude * Math.PI / 180;
+    const latitudeCosine = Math.cos(latitudeRadians);
+    return [
+        Math.sin(longitudeRadians) * latitudeCosine,
+        -Math.cos(longitudeRadians) * latitudeCosine,
+        Math.sin(latitudeRadians)
+    ];
+}
+
+function tileYToLatitude(y: number, zoom: number): number {
+    const tileCount = Math.pow(2, zoom);
+    const mercatorY = Math.PI * (1 - 2 * y / tileCount);
+    return Math.atan(Math.sinh(mercatorY)) * 180 / Math.PI;
 }
 
 function splitLongitudeRange(west: number, east: number): [number, number][] {

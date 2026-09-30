@@ -10,6 +10,8 @@ const rendererDirectory = resolve(repositoryRoot, 'modules/tangram-renderer');
 const rendererPackage = JSON.parse(readFileSync(resolve(rendererDirectory, 'package.json'), 'utf8'));
 const requiredArtifacts = [
   'dist/index.js',
+  'dist/core.js',
+  'dist/core.js.map',
   'dist/style-schema.js',
   'dist/tangram-style.schema.json',
   'dist/tangram.debug.js',
@@ -29,6 +31,7 @@ for (const artifactPath of requiredArtifacts) {
 
 const expectedExports = {
   '.': './dist/index.js',
+  './core': './dist/core.js',
   './style-schema': './dist/style-schema.js',
   './tangram-style.schema.json': './dist/tangram-style.schema.json'
 };

@@ -6,8 +6,8 @@
 import {describe, expect, it, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 
+import ExternalCamera from '../src/scene/external_camera';
 import Camera, {
-    ExternalCamera,
     FlatCamera,
     IsometricCamera,
     PerspectiveCamera

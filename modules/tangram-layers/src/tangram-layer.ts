@@ -5,13 +5,10 @@
 // @ts-nocheck
 
 import WebMercatorViewAdapter from './web_mercator_view_adapter';
+import FirstPersonViewAdapter from './first_person_view_adapter';
+import GlobeViewAdapter from './globe_view_adapter';
 
-const DECK_TO_TANGRAM_ZOOM_OFFSET = 1;
 const VIEW_EPSILON = 1e-7;
-const DECK_WORLD_SIZE = 512;
-const TANGRAM_HALF_WORLD_METERS = 20037508.342789244;
-const TANGRAM_TILE_SIZE = 256;
-const FIRST_PERSON_TILE_BUFFER = 1;
 
 /**
  * Injects an API key into every Nextzen source in a Tangram scene.
@@ -50,148 +47,12 @@ export function getExternalCameraFrame(viewport) {
   return WebMercatorViewAdapter.getCameraFrame(viewport);
 }
 
-/**
- * Converts a deck.gl FirstPersonViewport into Tangram's geographic tile frame.
- *
- * FirstPersonViewport uses planar Web Mercator geometry but does not expose a
- * map-style zoom. Its internal zoom describes meters in common space, not the
- * level of detail needed by the visible ground footprint. This adapter
- * intersects the viewport corners with the ground plane and derives a Tangram
- * zoom from the resulting projected meters per pixel.
- *
- * @param {object} viewport deck.gl FirstPersonViewport.
- * @param {{width?: number, height?: number}} [options] Render-target dimensions.
- * @returns {{viewport: object, view: object, camera: object, tileBuffer: number}}
- */
 export function getFirstPersonViewFrame(viewport, options = {}) {
-  const width = options.width || viewport.width;
-  const height = options.height || viewport.height;
-  if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
-    throw new Error('FirstPersonViewport requires positive width and height');
-  }
-  if (
-    typeof viewport.unproject !== 'function' ||
-    typeof viewport.projectFlat !== 'function' ||
-    typeof viewport.unprojectFlat !== 'function'
-  ) {
-    throw new Error('FirstPersonViewport ground projection methods are required');
-  }
-
-  const groundCorners = [
-    [0, 0],
-    [width, 0],
-    [0, height],
-    [width, height]
-  ].map((pixel) => getForwardGroundIntersection(viewport, pixel));
-  if (groundCorners.some((corner) => !isFiniteCoordinate(corner))) {
-    throw new Error('FirstPersonViewport must intersect the ground plane');
-  }
-
-  const projectedCorners = groundCorners.map((corner) => viewport.projectFlat(corner));
-  if (projectedCorners.some((corner) => !isFiniteCoordinate(corner))) {
-    throw new Error('FirstPersonViewport ground footprint must use Web Mercator coordinates');
-  }
-
-  // Flat deck coordinates wrap at the antimeridian. Keep each corner in the
-  // world copy nearest the camera so a small footprint crossing ±180° does not
-  // turn into a nearly world-sized tile request.
-  const projectedCenter = viewport.projectFlat([viewport.longitude, viewport.latitude]);
-  if (!isFiniteCoordinate(projectedCenter)) {
-    throw new Error('FirstPersonViewport projected center is invalid');
-  }
-  const unwrappedProjectedCorners = projectedCorners.map(([x, y]) => [
-    x + Math.round((projectedCenter[0] - x) / DECK_WORLD_SIZE) * DECK_WORLD_SIZE,
-    y
-  ]);
-
-  const xValues = unwrappedProjectedCorners.map((corner) => corner[0]);
-  const yValues = unwrappedProjectedCorners.map((corner) => corner[1]);
-  const west = Math.min(...xValues);
-  const east = Math.max(...xValues);
-  const north = Math.min(...yValues);
-  const south = Math.max(...yValues);
-  const footprintWidth = east - west;
-  const footprintHeight = south - north;
-  const commonUnitsPerProjectedMeter = DECK_WORLD_SIZE / (TANGRAM_HALF_WORLD_METERS * 2);
-  const metersPerPixel = Math.max(
-    footprintWidth / commonUnitsPerProjectedMeter / width,
-    footprintHeight / commonUnitsPerProjectedMeter / height
-  );
-  if (!Number.isFinite(metersPerPixel) || metersPerPixel <= 0) {
-    throw new Error('FirstPersonViewport ground footprint is empty');
-  }
-
-  const center = viewport.unprojectFlat([(west + east) / 2, (north + south) / 2]);
-  if (!isFiniteCoordinate(center)) {
-    throw new Error('FirstPersonViewport ground footprint center is invalid');
-  }
-  const worldSizeMeters = TANGRAM_HALF_WORLD_METERS * 2;
-  const zoom = Math.log2(worldSizeMeters / (TANGRAM_TILE_SIZE * metersPerPixel));
-
-  return {
-    viewport: {width, height},
-    view: {
-      longitude: center[0],
-      latitude: center[1],
-      altitude:
-        viewport.position && Number.isFinite(viewport.position[2]) ? viewport.position[2] : 0,
-      zoom
-    },
-    camera: getExternalCameraFrame(viewport),
-    tileBuffer: FIRST_PERSON_TILE_BUFFER
-  };
+  return FirstPersonViewAdapter.getFrame(viewport, options);
 }
 
-/**
- * Converts a deck.gl GlobeViewport into Tangram's host-frame contract.
- *
- * Globe matrices consume deck common-space coordinates directly. Tangram's
- * renderer converts its EPSG:3857 tile vertices to deck's radius-256 globe in
- * the vertex shader before applying these matrices.
- *
- * @param {object} viewport deck.gl GlobeViewport.
- * @returns {object} Tangram HostFrame fields for a globe render view.
- */
 export function getGlobeViewFrame(viewport) {
-  if (
-    !viewport ||
-    !Number.isFinite(viewport.width) ||
-    !Number.isFinite(viewport.height) ||
-    !viewport.viewMatrix ||
-    viewport.viewMatrix.length !== 16 ||
-    !viewport.projectionMatrix ||
-    viewport.projectionMatrix.length !== 16 ||
-    typeof viewport.getBounds !== 'function'
-  ) {
-    throw new Error('deck GlobeViewport matrices, size, and visible bounds are required');
-  }
-
-  const visibleBounds = viewport.getBounds({z: 0});
-  if (
-    !Array.isArray(visibleBounds) ||
-    visibleBounds.length !== 4 ||
-    visibleBounds.some((value) => !Number.isFinite(value))
-  ) {
-    throw new Error('deck GlobeViewport must provide finite geographic bounds');
-  }
-
-  return {
-    viewport: {width: viewport.width, height: viewport.height},
-    view: {
-      longitude: viewport.longitude,
-      latitude: viewport.latitude,
-      zoom: viewport.zoom + DECK_TO_TANGRAM_ZOOM_OFFSET
-    },
-    projection: {type: 'globe', visibleBounds},
-    camera: {
-      view: new Float64Array(viewport.viewMatrix),
-      projection: new Float32Array(
-        multiplyMatrices(viewport.projectionMatrix, viewport.viewMatrix)
-      ),
-      position: [0, 0, 0]
-    },
-    tileBuffer: 0
-  };
+  return GlobeViewAdapter.getFrame(viewport);
 }
 
 /**
@@ -601,49 +462,12 @@ function isFirstPersonViewport(viewport) {
   );
 }
 
-function isFiniteCoordinate(coordinate) {
-  return coordinate && Number.isFinite(coordinate[0]) && Number.isFinite(coordinate[1]);
-}
-
-function getForwardGroundIntersection(viewport, pixel) {
-  const near = viewport.unproject([pixel[0], pixel[1], 0]);
-  const far = viewport.unproject([pixel[0], pixel[1], 1]);
-  if (
-    !isFiniteCoordinate(near) ||
-    !Number.isFinite(near[2]) ||
-    !isFiniteCoordinate(far) ||
-    !Number.isFinite(far[2])
-  ) {
-    return null;
-  }
-
-  const rayParameter = -near[2] / (far[2] - near[2]);
-  if (!Number.isFinite(rayParameter) || rayParameter <= 0) {
-    return null;
-  }
-  return viewport.unproject(pixel, {targetZ: 0});
-}
-
 function isGlobeViewport(viewport) {
   return Boolean(
     viewport &&
       (viewport.constructor?.displayName === 'GlobeViewport' ||
         viewport.constructor?.name === 'GlobeViewport')
   );
-}
-
-function multiplyMatrices(left, right) {
-  const result = new Float64Array(16);
-  for (let column = 0; column < 4; column++) {
-    for (let row = 0; row < 4; row++) {
-      let value = 0;
-      for (let index = 0; index < 4; index++) {
-        value += left[index * 4 + row] * right[column * 4 + index];
-      }
-      result[column * 4 + row] = value;
-    }
-  }
-  return result;
 }
 
 function normalizeError(value) {
