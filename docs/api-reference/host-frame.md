@@ -10,7 +10,7 @@ Copyright (c) vis.gl contributors
 camera state. It has no deck.gl dependency.
 
 ```js
-import {HostFrame} from '@vis.gl/tangram-renderer';
+import {HostFrame} from '@vis.gl/tangram-renderer/core';
 ```
 
 ## Constructor
@@ -22,7 +22,8 @@ new HostFrame({
   projection,
   renderViews,
   activeRenderViewId,
-  tileBuffer
+  tileBuffer,
+  animationTime
 });
 ```
 
@@ -66,9 +67,37 @@ A non-empty array of named render views:
 }
 ```
 
-Each matrix must contain 16 values. Render-view IDs must be unique. A missing
+Each matrix must contain 16 finite values and position must contain three finite
+values. Projection values must remain finite after conversion to GPU float32.
+The constructor copies camera arrays. Render-view IDs must be unique. A missing
 first ID becomes `default`; later missing IDs become `view-1`, `view-2`, and so
 on.
+
+An eye can additionally supply `geographicAnchor` (its ground-footprint center
+and zoom) and `projection` (its globe geographic bounds). These affect visibility
+only; scene/style state uses the shared anchor. All eyes must use the same
+projection type.
+
+### Coordinates and matrices
+
+Viewport dimensions and top-left `x/y` origins use CSS pixels. The host owns
+render-target placement and render passes; Tangram derives device-pixel uniforms
+from the device pixel ratio.
+
+Matrices are column-major. For planar rendering, tile positions are absolute
+EPSG:3857 meters (east-positive X, north-positive Y, altitude-positive Z), and
+the camera composes `projection × view × tileModel × tilePosition`. The deck
+adapters convert meters to deck's zoom-zero common coordinates and use its
+latitude-dependent altitude scale. Matrices use OpenGL clip-space Z; the
+WebGPU shader path performs the depth conversion.
+
+The current globe shader first converts the geographic position to a
+radius-256 sphere. Its `camera.projection` is the combined world-to-clip matrix
+(`deckProjection × deckView`), while `camera.view` remains available for normal
+transforms. Globe `camera.position` is the common-space eye used for horizon
+culling. Planar `camera.position` is the shader's eye-space lighting origin,
+not a longitude/latitude tuple. Use the package view adapters rather than
+interchanging those conventions.
 
 ### `activeRenderViewId`
 
@@ -80,6 +109,16 @@ defaults to the first render view.
 A finite non-negative number of additional Web Mercator tiles to retain around
 the current bounds. It defaults to zero. Globe adapters normally provide zero
 because their geographic visibility bounds already cover the host viewport.
+
+### `animationTime`
+
+Optional non-negative elapsed scene time in seconds, shared by every eye.
+Supply it when the host uses an XR or other non-wall-clock timeline. Without it,
+the renderer captures elapsed time when a logical frame starts. Submitting a new
+frame object or submitting an eye again starts the next logical frame;
+switching to another eye does not advance time. Submissions count even when a
+draw is skipped during initialization or because nothing needs rendering.
+Background tasks are processed once per logical frame.
 
 ## Static methods
 
@@ -121,6 +160,14 @@ renderer.render({frame, renderViewId: 'left-eye', renderPass: leftPass});
 renderer.render({renderViewId: 'right-eye', renderPass: rightPass});
 ```
 
-This contract does not yet orchestrate WebXR frames or compute the union of
-arbitrary view frusta. A stereoscopic pair should share its geographic anchor,
-LOD zoom, and visible tile set.
+Frame application is atomic: projection, camera, viewport, anchor, and buffer
+are installed before visibility updates. Camera-only movement invalidates tiles.
+Tile membership is the deduplicated union of all eyes, independent of draw order.
+The default planar policy intersects each camera frustum with the ground plane;
+if a bounded ground footprint cannot be determined it retains the legacy
+buffered rectangle. Horizon clipping remains a separate improvement.
+Globe selection uses each eye's geographic bounds and common-space position.
+Visible tiles belonging to either eye are retained during pruning.
+
+The renderer does not create XR sessions. WebXR placement and eye matrices are
+supplied by the experimental presentation adapter.

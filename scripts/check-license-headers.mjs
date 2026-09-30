@@ -70,6 +70,8 @@ const TANGRAM_RENDERER_FILES = new Set([
   'modules/tangram-renderer/src/lights/point_light.glsl',
   'modules/tangram-renderer/src/lights/spot_light.glsl',
   'modules/tangram-renderer/src/scene/camera.ts',
+  'modules/tangram-renderer/src/scene/camera_base.ts',
+  'modules/tangram-renderer/src/scene/external_camera.ts',
   'modules/tangram-renderer/src/scene/globals.ts',
   'modules/tangram-renderer/src/scene/scene.ts',
   'modules/tangram-renderer/src/scene/scene_bundle.ts',
@@ -155,6 +157,10 @@ const TANGRAM_RENDERER_FILES = new Set([
 // Tangram-derived files that have received substantive vis.gl modifications.
 // Keep the original Tangram notice and append the vis.gl modification notice.
 const VISGL_MODIFIED_TANGRAM_FILES = new Set([
+  'modules/tangram-renderer/src/index.ts',
+  'modules/tangram-renderer/src/scene/view.ts',
+  'modules/tangram-renderer/src/scene/camera_base.ts',
+  'modules/tangram-renderer/src/scene/external_camera.ts',
   'modules/tangram-renderer/src/gl/constants.ts',
   'modules/tangram-renderer/src/gl/extensions.ts',
   'modules/tangram-renderer/src/procedures/mvt-legacy.ts',

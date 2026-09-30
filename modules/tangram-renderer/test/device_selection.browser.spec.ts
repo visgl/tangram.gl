@@ -5,7 +5,7 @@
 import {expect, test, vi} from 'vitest';
 import type {Device} from '@luma.gl/core';
 import FeatureSelection from '../src/selection/selection';
-import Scene from '../src/scene/scene';
+import Scene from '../src/scene/classic_scene';
 
 test('device selection owns and releases its framebuffer without raw texture attachment', () => {
   const framebuffer = {handle: {}, destroy: vi.fn()};

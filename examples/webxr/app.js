@@ -7,7 +7,7 @@ import {AnimationLoop, Timeline} from '@luma.gl/engine';
 import {WebXRAnimationFrameProvider, WebXRManager} from '@luma.gl/experimental';
 import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
-import {ClassicWebGLRenderer} from '@vis.gl/tangram-renderer';
+import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import {createStereoControls} from './stereo-controls.js';
 import {submitEyeRenderPass} from './submit-eye.js';
 import {

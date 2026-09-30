@@ -3,9 +3,9 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, it} from 'vitest';
-import HostFrameClass from '../src/scene/host_frame';
+import HostFrame from '../src/scene/host_frame';
 
-const HostFrame: any = HostFrameClass;
+import type {HostCamera} from '../src/types';
 
 const IDENTITY_MATRIX = [
     1, 0, 0, 0,
@@ -14,7 +14,7 @@ const IDENTITY_MATRIX = [
     0, 0, 0, 1
 ];
 
-function createCamera(offset = 0): any {
+function createCamera(offset = 0): HostCamera {
     const view = IDENTITY_MATRIX.slice();
     view[12] = offset;
     return {
@@ -87,13 +87,13 @@ describe('HostFrame', function () {
     });
 
     it('rejects incomplete and ambiguous frame state', function () {
-        expect(() => new HostFrame()).toThrow(/viewport/);
-        expect(() => new HostFrame({
+        expect(() => HostFrame.from({})).toThrow(/viewport/);
+        expect(() => HostFrame.from({
             viewport: { width: 800, height: 600 },
             geographicAnchor: { longitude: -74, latitude: 40.7, zoom: 16 },
             renderViews: []
         })).toThrow(/at least one render view/);
-        expect(() => new HostFrame({
+        expect(() => HostFrame.from({
             viewport: { width: 800, height: 600 },
             geographicAnchor: { longitude: -74, latitude: 40.7, zoom: 16 },
             renderViews: [
@@ -101,13 +101,13 @@ describe('HostFrame', function () {
                 { id: 'eye', camera: createCamera() }
             ]
         })).toThrow(/duplicated/);
-        expect(() => new HostFrame({
+        expect(() => HostFrame.from({
             viewport: { width: 800, height: 600 },
             geographicAnchor: { longitude: -74, latitude: 40.7, zoom: 3 },
             projection: { type: 'albers' },
             renderViews: [{ camera: createCamera() }]
         })).toThrow(/projection type/);
-        expect(() => new HostFrame({
+        expect(() => HostFrame.from({
             viewport: { width: 800, height: 600 },
             geographicAnchor: { longitude: -74, latitude: 40.7, zoom: 3 },
             projection: { type: 'globe' },

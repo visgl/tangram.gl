@@ -57,7 +57,8 @@ export default function TronHeroBackground() {
         '@deck.gl/layers': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.0?bundle',
         '@vis.gl/tangram-layers': `${tangramLayersUrl}?homepage=1`,
-        '@vis.gl/tangram-renderer': `${tangramRendererUrl}?homepage=1`
+        '@vis.gl/tangram-renderer': `${tangramRendererUrl}?homepage=1`,
+        '@vis.gl/tangram-renderer/core': `${tangramRendererUrl.replace('/index.js', '/core.js')}?homepage=1`
       }
     });
     document.head.appendChild(importMapElement);

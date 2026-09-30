@@ -23,6 +23,8 @@ const re_texture_2d = /\btexture2D\b/g;
 const re_texture_cube = /\btextureCube\b/g;
 
 export default class ShaderProgram {
+    /** Replaces a named Tangram shader block with the supplied source fragments. */
+    static declare replaceBlock: (key: string, ...blocks: string[]) => void;
 
     constructor(gl, vertex_source, fragment_source, options) {
         options = options || {};
