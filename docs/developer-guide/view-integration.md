@@ -163,7 +163,27 @@ embedded worker; there are no new package dependencies. Real-device tests cover
 whole-world raster curvature and cache reuse across camera/stereo changes on
 WebGL 2 and WebGPU.
 
-Still pending: elevation-aware horizon bounds, projected-error LOD, seams across
+Explicit height-aware horizon rejection is also implemented: globe
+`HostFrame.projection.maxElevation` declares the maximum rendered geographic
+height, independent of eye altitude. The surface horizon expands by
+`acos(1 / (1 + maxElevation / 6370972))`. Unknown height skips horizon rejection;
+zero explicitly declares surface-only geometry. Per-eye bounds inherit the
+shared height and may raise, but never lower, it.
+
+This is not automatic 3D footprint inference. Host geographic bounds must
+already enclose elevated content. `TangramLayer` accepts `globeMaxElevation`
+and `globeVisibleBounds`; its default geographic bounds still come from the
+ground-level deck viewport. Unknown height may retain more tiles, but does not
+expand that rectangle. No styles, worker geometry or shaders change.
+
+Compared with the same master build and dependencies, this visibility contract
+adds 0.717 KB raw / 0.213 KB gzip to the minified renderer ESM, 0.650 KB raw /
+0.149 KB gzip to the layer entry, and 0.743 KB raw / 0.172 KB gzip to the separate
+WebXR entry. No dependencies are added. Unknown height trades horizon pruning
+for correctness within the supplied footprint; it does not impose a request
+budget, so hosts must keep their geographic candidate bounds appropriately sized.
+
+Still pending: automatic elevation-aware geographic footprints, projected-error LOD, seams across
 different tile detail levels, and projection-aware label/lighting behavior. This
 does not complete the full tranche.
 

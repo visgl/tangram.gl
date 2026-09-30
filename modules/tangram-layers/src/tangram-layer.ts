@@ -7,6 +7,8 @@
 import WebMercatorViewAdapter from './web_mercator_view_adapter';
 import FirstPersonViewAdapter from './first_person_view_adapter';
 import GlobeViewAdapter from './globe_view_adapter';
+import type {GlobeViewAdapterOptions} from './globe_view_adapter';
+import type {GlobeViewport} from './view_adapter_types';
 
 const VIEW_EPSILON = 1e-7;
 
@@ -51,8 +53,8 @@ export function getFirstPersonViewFrame(viewport, options = {}) {
   return FirstPersonViewAdapter.getFrame(viewport, options);
 }
 
-export function getGlobeViewFrame(viewport) {
-  return GlobeViewAdapter.getFrame(viewport);
+export function getGlobeViewFrame(viewport: GlobeViewport, options: GlobeViewAdapterOptions = {}) {
+  return GlobeViewAdapter.getFrame(viewport, options);
 }
 
 /**
@@ -294,7 +296,11 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
       const viewports = this.context.deck.getViewports
         ? this.context.deck.getViewports()
         : [viewport];
-      const viewportError = validateViewport(viewport, viewports);
+      const globeOptions = {
+        maxElevation: this.props.globeMaxElevation ?? undefined,
+        visibleBounds: this.props.globeVisibleBounds ?? undefined
+      };
+      const viewportError = validateViewport(viewport, viewports, globeOptions);
 
       if (viewportError) {
         record.lastViewportError = viewportError.message;
@@ -311,7 +317,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
       record.canvasHeight = height;
       record.renderer.setFrame(
         isGlobeViewport(viewport)
-          ? {...getGlobeViewFrame(viewport), viewport: {width, height}}
+          ? {...getGlobeViewFrame(viewport, globeOptions), viewport: {width, height}}
           : isFirstPersonViewport(viewport)
             ? getFirstPersonViewFrame(viewport, {width, height})
             : getMapViewFrame(viewport, {width, height})
@@ -401,6 +407,8 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
     scene: null,
     sceneBasePath: null,
     apiKey: null,
+    globeMaxElevation: null,
+    globeVisibleBounds: null,
     onSceneLoad: () => {},
     onSceneError: () => {}
   };
@@ -408,7 +416,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
   return TangramLayer;
 }
 
-function validateViewport(viewport, viewports) {
+function validateViewport(viewport, viewports, globeOptions = {}) {
   if (viewports.length !== 1) {
     return new Error('only one deck.gl viewport is supported');
   }
@@ -440,7 +448,7 @@ function validateViewport(viewport, viewports) {
   }
   try {
     if (globe) {
-      getGlobeViewFrame(viewport);
+      getGlobeViewFrame(viewport, globeOptions);
     } else if (isFirstPersonViewport(viewport)) {
       getFirstPersonViewFrame(viewport);
     } else {

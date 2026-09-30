@@ -54,6 +54,12 @@ The renderer stays independent from deck.gl and WebXR. It only consumes the resu
 - `XRGlobePlacement` places a globe with an explicit physical radius and geographic orientation.
 - `XRFirstPersonPlacement` maps one XR meter to one geographic meter in a local east-north-up frame.
 
+`new WebXRGlobeView({globeMaxElevation: 9000})` carries a conservative scene
+height (geographic meters) through mono, stereo preview and immersive frames.
+Omit it when unknown; use `0` only for surface-only content. Room radius and eye
+altitude are not this bound. The generated geographic candidate footprints are
+still ground-based: elevated-frustum footprint inference remains future work.
+
 Planar placements compensate for Web Mercator's latitude-dependent scale, while altitude remains
 in physical meters. Globe placements face their geographic anchor toward the room's positive Z
 axis, with north toward positive Y.

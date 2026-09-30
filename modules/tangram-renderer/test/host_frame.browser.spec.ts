@@ -114,4 +114,38 @@ describe('HostFrame', function () {
             renderViews: [{ camera: createCamera() }]
         })).toThrow(/visibleBounds/);
     });
+
+    it.each([0, 3000])('preserves and inherits a shared elevation bound %s', maxElevation => {
+        const bounds: [number, number, number, number] = [-120, -45, 20, 70];
+        const frame = HostFrame.from({
+            viewport: {width: 800, height: 600},
+            geographicAnchor: {longitude: 0, latitude: 0, zoom: 3},
+            projection: {type: 'globe', visibleBounds: bounds, maxElevation},
+            renderViews: [
+                {id: 'left', camera: createCamera(), projection: {type: 'globe', visibleBounds: bounds}},
+                {id: 'right', camera: createCamera(), projection: {type: 'globe', visibleBounds: bounds, maxElevation: maxElevation + 1}}
+            ]
+        });
+        expect(frame.projection).toMatchObject({maxElevation});
+        expect(frame.getRenderView('left').projection).toMatchObject({maxElevation});
+        expect(frame.getRenderView('right').projection).toMatchObject({maxElevation: maxElevation + 1});
+        bounds[0] = 0;
+        expect(frame.projection).toMatchObject({visibleBounds: [-120, -45, 20, 70]});
+    });
+
+    it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid legacy-frame elevation %s', maxElevation => {
+        expect(() => HostFrame.from({
+            viewport: {width: 800, height: 600}, view: {longitude: 0, latitude: 0, zoom: 3},
+            camera: createCamera(), projection: {type: 'globe', visibleBounds: [-180, -85, 180, 85], maxElevation}
+        })).toThrow(/maxElevation/);
+    });
+
+    it('rejects an eye that lowers the declared scene height', () => {
+        expect(() => HostFrame.from({
+            viewport: {width: 800, height: 600},
+            geographicAnchor: {longitude: 0, latitude: 0, zoom: 3},
+            projection: {type: 'globe', visibleBounds: [-180, -85, 180, 85], maxElevation: 3000},
+            renderViews: [{camera: createCamera(), projection: {type: 'globe', visibleBounds: [-180, -85, 180, 85], maxElevation: 0}}]
+        })).toThrow(/cannot lower/);
+    });
 });

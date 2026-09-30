@@ -13,6 +13,19 @@ const IDENTITY_MATRIX = [
 ];
 
 describe('getGlobeViewFrame', () => {
+  it('copies host elevation bounds without replacing the camera altitude', () => {
+    const visibleBounds = [-170, -80, 170, 80];
+    const frame = getGlobeViewFrame(createViewport(0), {maxElevation: 3000, visibleBounds});
+    visibleBounds[0] = 0;
+    expect(frame.projection).toEqual({type: 'globe', visibleBounds: [-170, -80, 170, 80], maxElevation: 3000});
+    expect(frame.camera.position).toEqual([12, -345, 6]);
+    expect(getGlobeViewFrame(createViewport(0), {maxElevation: 0}).projection.maxElevation).toBe(0);
+  });
+
+  it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects invalid maximum height %s', maxElevation => {
+    expect(() => getGlobeViewFrame(createViewport(0), {maxElevation})).toThrow(/maxElevation/);
+  });
+
   it('preserves deck globe matrices and geographic visibility', () => {
     const viewport = createViewport(40.7);
 

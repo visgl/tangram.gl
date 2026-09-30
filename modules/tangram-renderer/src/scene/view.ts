@@ -228,6 +228,7 @@ export default class View {
         if (projection.type === 'globe') {
             return this.globe_visibility_adapter.findVisibleTileCoordinates({
                 tile_zoom: state.tile_zoom, buffer: state.buffer, visibleBounds: projection.visibleBounds,
+                ...(projection.maxElevation === undefined ? {} : {maxElevation: projection.maxElevation}),
                 cameraPosition: position ? [position[0], position[1], position[2]] : undefined
             });
         }
@@ -595,7 +596,8 @@ function projectionsEqual(previous: HostProjection, next: HostProjection): boole
     }
     const previousBounds = previous.visibleBounds;
     const nextBounds = next.visibleBounds;
-    return Array.isArray(previousBounds) && Array.isArray(nextBounds) &&
+    return previous.maxElevation === next.maxElevation &&
+        Array.isArray(previousBounds) && Array.isArray(nextBounds) &&
         previousBounds.length === nextBounds.length &&
         previousBounds.every((value, index) => value === nextBounds[index]);
 }

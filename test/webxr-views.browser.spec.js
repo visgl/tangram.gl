@@ -276,6 +276,25 @@ describe('WebXR deck.gl views', () => {
     expect(renderViews[0].viewState).toBe(manager.getViewState());
   });
 
+  it('preserves a declared globe height through mono, stereo and immersive frames', () => {
+    const manager = new WebXRViewManager({
+      view: new WebXRGlobeView({id: 'globe', globeMaxElevation: 9000}),
+      viewState: {longitude: 0, latitude: 0, zoom: 2},
+      placement: {type: 'globe', radius: 0.72, anchor: [0, 0]}
+    });
+    const identity = new Matrix4();
+    const frameState = {views: ['left', 'right'].map((eye, index) => ({
+      eye, index, viewport: [index * 400, 0, 400, 300],
+      viewMatrix: new Matrix4().translate([0, 0, -2]), projectionMatrix: identity
+    }))};
+    for (const mode of ['mono', 'stereo-preview', 'immersive-vr']) {
+      const frame = manager.createFrame({width: 800, height: 300, mode,
+        frameState: mode === 'immersive-vr' ? frameState : undefined});
+      expect(frame.hostFrame.projection).toMatchObject({type: 'globe', maxElevation: 9000});
+    }
+    manager.finalize();
+  });
+
   it.each([WebXRMapView, WebXRGlobeView, WebXRFirstPersonView])(
     'keeps the anchor at zero disparity with parallel eye cameras for %s', (View) => {
       const manager = new WebXRViewManager({

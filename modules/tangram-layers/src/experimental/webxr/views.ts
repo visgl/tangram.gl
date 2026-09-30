@@ -137,7 +137,7 @@ export class WebXRGlobeView extends GlobeView {
   }
 
   getHostFrame(viewport) {
-    const frame = getGlobeViewFrame(viewport);
+    const frame = getGlobeViewFrame(viewport, {maxElevation: this.props.globeMaxElevation ?? undefined});
     return {
       view: frame.view,
       projection: frame.projection,

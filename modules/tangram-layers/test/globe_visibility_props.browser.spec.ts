@@ -1,0 +1,46 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
+import {Matrix4} from '@math.gl/core';
+import {expect, test, vi} from 'vitest';
+import createTangramLayerClass from '../src/tangram-layer';
+
+test('updates globe visibility props without recreating the scene and reports invalid heights', () => {
+  class BaseLayer {}
+  class GlobeViewport {}
+  const viewport = Object.assign(new GlobeViewport(), {
+    width: 800, height: 600, longitude: 0, latitude: 0, zoom: 2,
+    isGeospatial: true, cameraPosition: [0, -1000, 0],
+    viewMatrix: new Matrix4(), projectionMatrix: new Matrix4(),
+    getBounds: () => [-120, -60, 120, 60]
+  });
+  const createRenderer = vi.fn();
+  const Layer = createTangramLayerClass({Layer: BaseLayer,
+    ClassicWebGLRenderer: {create: createRenderer}, Renderer: undefined});
+  const layer = new Layer();
+  const setFrame = vi.fn();
+  const raiseError = vi.fn();
+  layer.raiseError = raiseError;
+  layer.props = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
+    globeMaxElevation: 3000, globeVisibleBounds: [-180, -85, 180, 85], onSceneError: vi.fn()};
+  layer.context = {viewport, deck: {getViewports: () => [viewport]}};
+  const record = {renderer: {setFrame}, deckCanvas: document.createElement('canvas'),
+    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null};
+  layer.state = {tangramRecord: record};
+  layer._synchronizeTangramScene(record);
+  expect(raiseError).not.toHaveBeenCalled();
+  expect(setFrame.mock.calls.at(-1)?.[0].projection).toEqual({
+    type: 'globe', visibleBounds: [-180, -85, 180, 85], maxElevation: 3000
+  });
+  layer.props = {...layer.props, globeMaxElevation: 9000};
+  layer.updateState({props: layer.props});
+  layer._synchronizeTangramScene(record);
+  expect(createRenderer).not.toHaveBeenCalled();
+  expect(setFrame.mock.calls.at(-1)?.[0].projection.maxElevation).toBe(9000);
+  layer.props = {...layer.props, globeMaxElevation: -1};
+  const frames = setFrame.mock.calls.length;
+  layer._synchronizeTangramScene(record);
+  expect(setFrame).toHaveBeenCalledTimes(frames);
+  expect(raiseError.mock.calls.at(-1)?.[0].message).toMatch(/maxElevation/);
+});
