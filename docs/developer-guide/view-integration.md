@@ -30,9 +30,9 @@ the tranche size should follow the outcome rather than the file count.
   ([#103](https://github.com/visgl/tangram.gl/pull/103)). This is a baseline LOD
   estimate; projected tile error is still a separate tranche.
 
-FirstPersonView antimeridian footprint handling is proposed in
-[#100](https://github.com/visgl/tangram.gl/pull/100), which remains open. Refresh
-and validate that PR before treating the behavior as part of the baseline.
+FirstPersonView antimeridian footprint handling landed in
+[#100](https://github.com/visgl/tangram.gl/pull/100). Projected coordinates remain
+unwrapped so a seam-crossing footprint stays local.
 
 ## Target frame contract
 
@@ -70,8 +70,8 @@ policies are extracted behind stronger interfaces.
 
 Implemented: atomic frame application, camera-only invalidation, per-eye
 ground/globe visibility unions, and shared animation time. The default planar
-policy retains its legacy bounds fallback for unbounded horizon intersections;
-bounded horizon handling remains in tranche 5.
+policy retains its legacy bounds fallback unless the host supplies explicit
+planar bounds. Bounded first-person horizon handling is described in tranche 5.
 
 Apply projection, camera, tile buffer, viewport, and anchor state before
 recalculating visibility. Check the current `setFrame()` ordering: changing the
@@ -217,12 +217,24 @@ through camera transitions, with measured pixel error and tile/request budgets.
 
 ### 5. Support FirstPersonView near the horizon
 
-Land the antimeridian fix in #100: the FirstPersonView adapter unwraps projected
-ground corners around the camera center so a seam-crossing footprint stays
-local instead of requesting nearly the whole world. Replace the requirement that all
-four viewport corners hit the ground with bounded frustum/ground intersection.
-Clip distant or upward-facing rays using explicit far-distance policy, and
-handle camera altitude and source elevation conservatively.
+Implemented flat-ground slice: all twelve finite frustum edges are intersected
+with `z = 0`, and the resulting polygon is clipped before taking its bounds.
+FirstPersonView no longer requires all four screen corners to hit ground. The
+near/far planes plus a configurable 20 km eye-centered extent per axis keep the
+selection bounded. Extents use local geographic meters; EPSG:3857 scale is
+accounted for at the viewport latitude. Unwrapped longitude bounds preserve
+local antimeridian selections. A sky-only view supplies explicit empty
+visibility rather than falling back to a large rectangle.
+
+Stereo and immersive first-person eyes compute separate footprints from their
+actual matrices; the renderer selects their union. Camera transforms, shader
+blocks and geometry are unchanged. Vitest covers frustum clipping, invalid
+inputs, high latitudes, antimeridian bounds and eye unions; real-device tests
+cover horizon-to-sky-to-ground transitions in mono/stereo on both backends.
+
+Remaining: terrain-aware intersections and elevated-only geometry visibility.
+The current bounding rectangle still uses the existing footprint-derived zoom;
+projected-error LOD and request budgets belong to tranche 4.
 
 Complete when looking toward or above the horizon produces a bounded selection
 of visible tiles instead of an error, and antimeridian navigation does not

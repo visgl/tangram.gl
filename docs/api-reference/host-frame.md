@@ -46,6 +46,24 @@ The deck-independent geographic projection contract. It defaults to
 can describe spherical frames without importing deck.gl classes into the
 renderer package.
 
+Planar projections may also supply `visibleBounds: [west, south, east, north]`
+to override the camera-derived rectangle. Longitudes are ordered and may remain
+unwrapped across the antimeridian (for example, `179` to `181`). Latitudes must
+stay strictly between -90 and 90 degrees, and projected meters must remain
+finite. `visibleBounds:
+null` explicitly declares no visible ground tiles; omitting the property retains
+the existing camera/legacy bounds policy. Empty bounds are not replaced by a
+fallback rectangle. Each render view may override or inherit this policy, and
+tile selection is the union of their footprints.
+
+`calculatePlanarGroundBounds(camera, limits?)`, exported from both renderer
+entries, intersects the twelve edges of a **finite** frustum with EPSG:3857
+`z = 0`. Optional `{sw: {x, y}, ne: {x, y}}` meter-space limits clip the convex
+intersection before returning its bounding rectangle. The result is `null` when
+there is no positive ground area. It does not infer terrain or elevated-only
+geometry visibility. Singular matrices, infinite far planes and malformed limits
+are rejected.
+
 The experimental globe path converts Web Mercator tile vertices to deck's
 radius-256 sphere and uses geographic bounds plus per-eye camera visibility for
 tile selection. Coarse polygon, road and raster triangle meshes receive a cached,
@@ -99,7 +117,7 @@ first ID becomes `default`; later missing IDs become `view-1`, `view-2`, and so
 on.
 
 An eye can additionally supply `geographicAnchor` (its ground-footprint center
-and zoom) and `projection` (its globe geographic bounds). These affect visibility
+and zoom) and `projection` (its planar or globe geographic bounds). These affect visibility
 only; scene/style state uses the shared anchor. All eyes must use the same
 projection type.
 

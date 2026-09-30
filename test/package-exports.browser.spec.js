@@ -19,11 +19,13 @@ import Tangram, {
   Renderer,
   Scene,
   WebMercatorGlobeVisibilityAdapter,
-  WebMercatorVisibilityAdapter
+  WebMercatorVisibilityAdapter,
+  calculatePlanarGroundBounds
 } from '@vis.gl/tangram-renderer';
 import {TangramStyleSheetSchema} from '@vis.gl/tangram-renderer/style-schema';
 import tangramStyleJsonSchema from '@vis.gl/tangram-renderer/tangram-style.schema.json';
-import {Renderer as CoreRenderer, HostFrame as CoreHostFrame} from '@vis.gl/tangram-renderer/core';
+import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
+  calculatePlanarGroundBounds as coreGroundBounds} from '@vis.gl/tangram-renderer/core';
 import {
   WebXRMapView,
   WebXRPresentation
@@ -34,6 +36,8 @@ describe('published package entrypoints', () => {
     const renderer = new CoreRenderer({});
     expect(renderer.scene.view.camera_mode).toBe('external');
     expect(CoreHostFrame).toBeTypeOf('function');
+    expect(coreGroundBounds).toBeTypeOf('function');
+    expect(calculatePlanarGroundBounds).toBeTypeOf('function');
     expect(Tangram.Scene).toBe(Scene);
     expect(window.Tangram).toBe(Tangram);
   });

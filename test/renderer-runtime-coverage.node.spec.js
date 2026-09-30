@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
+import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
 
 describe('renderer runtime support', () => {
   let Task;
@@ -30,7 +30,11 @@ describe('renderer runtime support', () => {
     Task.state = {};
   });
 
+  afterEach(() => vi.restoreAllMocks());
+
   it('schedules, pauses, finishes, cancels and removes tasks', async () => {
+    // Assert scheduling semantics independently of the renderer's wall-clock frame budget.
+    vi.spyOn(performance, 'now').mockReturnValue(1000);
     const calls = [];
     const task = {run: currentTask => {calls.push(currentTask.stats.calls); return true;}};
     const promise = Task.add(task);

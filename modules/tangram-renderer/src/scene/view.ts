@@ -232,6 +232,17 @@ export default class View {
                 cameraPosition: position ? [position[0], position[1], position[2]] : undefined
             });
         }
+        if (projection.visibleBounds !== undefined) {
+            const bounds = projection.visibleBounds;
+            if (bounds === null) return [];
+            const southwest = Geo.latLngToMeters([bounds[0], bounds[1]]);
+            const northeast = Geo.latLngToMeters([bounds[2], bounds[3]]);
+            if (!southwest.every(Number.isFinite) || !northeast.every(Number.isFinite)) {
+                throw new Error('HostFrame planar visibleBounds must project to finite meters');
+            }
+            return this.visibility_adapter.findVisibleTileCoordinates({...state,
+                bounds: {sw: {x: southwest[0], y: southwest[1]}, ne: {x: northeast[0], y: northeast[1]}}});
+        }
         return this.visibility_adapter.findVisibleTileCoordinates(state);
     }
 
@@ -591,15 +602,14 @@ function projectionsEqual(previous: HostProjection, next: HostProjection): boole
     if (!previous || !next || previous.type !== next.type) {
         return false;
     }
-    if (previous.type !== 'globe' || next.type !== 'globe') {
-        return true;
-    }
     const previousBounds = previous.visibleBounds;
     const nextBounds = next.visibleBounds;
-    return previous.maxElevation === next.maxElevation &&
+    const heightMatches = previous.type !== 'globe' || next.type !== 'globe' ||
+        previous.maxElevation === next.maxElevation;
+    return heightMatches && (previousBounds === nextBounds || (
         Array.isArray(previousBounds) && Array.isArray(nextBounds) &&
         previousBounds.length === nextBounds.length &&
-        previousBounds.every((value, index) => value === nextBounds[index]);
+        previousBounds.every((value, index) => value === nextBounds[index])));
 }
 
 /** Allocates the CPU and GPU matrix views used for one tile's transforms. */

@@ -162,7 +162,14 @@ function normalizeProjection(value: unknown): HostProjection {
     const record = value === undefined ? {} : requireRecord(value, 'HostFrame projection');
     const type = record.type ?? 'web-mercator';
     if (type === 'web-mercator') {
-        return {type};
+        if (record.visibleBounds === undefined) return {type};
+        if (record.visibleBounds === null) return {type, visibleBounds: null};
+        const bounds = record.visibleBounds;
+        if (!Array.isArray(bounds) || bounds.length !== 4 || !bounds.every(isFiniteNumber) ||
+            bounds[0] > bounds[2] || bounds[1] > bounds[3] || bounds[1] <= -90 || bounds[3] >= 90) {
+            throw new Error('HostFrame planar projection requires finite ordered visibleBounds with latitudes strictly between -90 and 90');
+        }
+        return {type, visibleBounds: [bounds[0], bounds[1], bounds[2], bounds[3]]};
     }
     if (type !== 'globe') {
         throw new Error(`HostFrame projection type '${String(type)}' is invalid`);

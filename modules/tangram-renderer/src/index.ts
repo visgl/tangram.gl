@@ -81,6 +81,7 @@ const Tangram = {
 };
 
 export {WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter};
+export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 export type {
     CalculatedViewBounds,
     GlobeVisibilityLODAdapter,

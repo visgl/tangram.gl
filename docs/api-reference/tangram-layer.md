@@ -311,6 +311,24 @@ Use a conservative override when elevated content extends outside those bounds.
 `globeMaxElevation` changes horizon rejection, not the geographic rectangle.
 Changing either property updates visibility without reloading the scene.
 
+### First-person visibility
+
+#### `firstPersonMaxGroundExtent` (number, optional) {/* #firstpersonmaxgroundextent */}
+
+* Default: `20000`
+
+Positive finite east/north extent from the eye, per axis, in local geographic
+meters. Applies only to FirstPersonView. The adapter intersects the finite camera
+frustum with flat ground, then clips it to this eye-centered square. The camera's
+near and far planes remain authoritative. Horizon-crossing views no longer
+require every screen corner to hit ground, while fully sky-facing views supply
+explicit empty visibility. Camera matrices and Tangram shaders are unchanged.
+
+The footprint determines the current tile/style zoom estimate; this is not yet
+screen-space-error LOD. Terrain intersections and elevated geometry visible
+without a ground footprint require a future height-aware policy. Changing the
+extent updates visibility without reloading the scene.
+
 ### Inherited presentation properties
 
 The following inherited deck.gl properties are particularly relevant:
@@ -333,7 +351,7 @@ uses this getter when determining whether all layers are ready.
 | --- | --- | --- |
 | `MapView` | Supported | Flat and perspective Web Mercator cameras are supported. |
 | `GlobeView` | Experimental | Tangram tile geometry is projected onto deck.gl's globe. |
-| `FirstPersonView` | Capability preview | The visible ground footprint drives geographic tile selection. |
+| `FirstPersonView` | Experimental | Bounded finite-frustum intersections support horizon and sky-facing flat-ground views. |
 
 Coarse globe polygon, road and raster meshes are refined once per tile, then
 shared by stereo eyes and reused during camera motion. Planar mesh data is

@@ -2,135 +2,104 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {Matrix4} from '@math.gl/core';
+import {calculatePlanarGroundBounds, type HostCamera, type LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
 import WebMercatorViewAdapter from './web_mercator_view_adapter';
-import type {LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
 import type {FirstPersonViewport} from './view_adapter_types';
-const DECK_WORLD_SIZE = 512;
-const TANGRAM_HALF_WORLD_METERS = 20037508.342789244;
-const TANGRAM_TILE_SIZE = 256;
-const FIRST_PERSON_TILE_BUFFER = 1;
 
-/** Typed ground-footprint boundary for deck.gl FirstPersonView. */
+const DECK_WORLD_SIZE = 512;
+const HALF_WORLD_METERS = 20037508.342789244;
+const TILE_SIZE = 256;
+const MAX_MERCATOR_LATITUDE = 85.05112878;
+const DEFAULT_GROUND_EXTENT = 20000;
+
+/** Rendering dimensions and bounded first-person ground visibility policy. */
+export type FirstPersonViewAdapterOptions = {
+  /** Target width in CSS pixels; defaults to viewport width. */
+  width?: number;
+  /** Target height in CSS pixels; defaults to viewport height. */
+  height?: number;
+  /** Maximum east/north extent from the eye in local geographic meters, per axis. Defaults to 20 km. */
+  maxGroundExtent?: number;
+};
+
+/** Typed bounded ground-footprint boundary for deck.gl FirstPersonView. */
 export default class FirstPersonViewAdapter {
-    /** Converts the forward ground footprint without changing camera projection. */
-    static getFrame = getFrame;
+  /** Converts the finite frustum/ground intersection without changing camera matrices. */
+  static getFrame = getFrame;
 }
 
 /**
- * Converts a deck.gl FirstPersonViewport into Tangram's geographic tile frame.
- *
- * FirstPersonViewport uses planar Web Mercator geometry but does not expose a
- * map-style zoom. Its internal zoom describes meters in common space, not the
- * level of detail needed by the visible ground footprint. This adapter
- * intersects the viewport corners with the ground plane and derives a Tangram
- * zoom from the resulting projected meters per pixel.
- *
- * @param {object} viewport deck.gl FirstPersonViewport.
- * @param {{width?: number, height?: number}} [options] Render-target dimensions.
- * @returns {{viewport: object, view: object, camera: object, tileBuffer: number}}
+ * Derives geographic tile visibility from the full finite camera frustum.
+ * Near/far planes and an eye-centered square limit bound horizon intersections.
+ * Looking entirely away from ground supplies explicit empty visibility instead
+ * of an error. Terrain and elevated-only geometry are not included in this flat
+ * ground policy; the host projection can supply a different footprint.
  */
-function getFrame(viewport: FirstPersonViewport, options: {width?: number; height?: number} = {}): LegacyHostFrame {
-  const width = options.width || viewport.width;
-  const height = options.height || viewport.height;
+function getFrame(viewport: FirstPersonViewport, options: FirstPersonViewAdapterOptions = {}): LegacyHostFrame {
+  return getFirstPersonFrameForCamera(viewport, WebMercatorViewAdapter.getCameraFrame(viewport), options);
+}
+
+/** Derives flat-ground visibility from the actual mono or per-eye EPSG:3857 camera. */
+export function getFirstPersonFrameForCamera(
+  viewport: FirstPersonViewport,
+  camera: HostCamera,
+  options: FirstPersonViewAdapterOptions = {}
+): LegacyHostFrame {
+  const width = options.width ?? viewport.width;
+  const height = options.height ?? viewport.height;
+  const maxGroundExtent = options.maxGroundExtent ?? DEFAULT_GROUND_EXTENT;
   if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) {
     throw new Error('FirstPersonViewport requires positive width and height');
   }
-  if (
-    typeof viewport.unproject !== 'function' ||
-    typeof viewport.projectFlat !== 'function' ||
-    typeof viewport.unprojectFlat !== 'function'
-  ) {
-    throw new Error('FirstPersonViewport ground projection methods are required');
+  if (!Number.isFinite(maxGroundExtent) || maxGroundExtent <= 0) {
+    throw new Error('FirstPersonViewport maxGroundExtent must be finite and positive');
   }
-
-  const groundCorners = [
-    [0, 0],
-    [width, 0],
-    [0, height],
-    [width, height]
-  ].map((pixel) => getForwardGroundIntersection(viewport, pixel));
-  if (!groundCorners.every(isFiniteCoordinate)) {
-    throw new Error('FirstPersonViewport must intersect the ground plane');
-  }
-
-  const projectFlat = viewport.projectFlat;
-  const projectedCorners = groundCorners.map((corner) => projectFlat.call(viewport, corner));
-  if (projectedCorners.some((corner) => !isFiniteCoordinate(corner))) {
-    throw new Error('FirstPersonViewport ground footprint must use Web Mercator coordinates');
-  }
-
-  // Use the world copy nearest the camera to keep wrapped ground footprints local.
   const {longitude, latitude} = viewport;
+  const unprojectFlat = viewport.unprojectFlat;
   if (typeof longitude !== 'number' || !Number.isFinite(longitude) ||
-      typeof latitude !== 'number' || !Number.isFinite(latitude)) {
-    throw new Error('FirstPersonViewport geographic center is invalid');
+      typeof latitude !== 'number' || !Number.isFinite(latitude) ||
+      typeof unprojectFlat !== 'function') {
+    throw new Error('FirstPersonViewport geographic center and ground projection method are required');
   }
-  const projectedCenter = projectFlat.call(viewport, [longitude, latitude]);
-  if (!isFiniteCoordinate(projectedCenter)) {
-    throw new Error('FirstPersonViewport projected center is invalid');
+  const inverseView = new Matrix4().copy(camera.view);
+  if (!Number.isFinite(inverseView.determinant()) || inverseView.determinant() === 0) {
+    throw new Error('FirstPersonViewport camera is singular');
   }
-  const unwrappedProjectedCorners = projectedCorners.map(([x, y]) => [
-    x + Math.round((projectedCenter[0] - x) / DECK_WORLD_SIZE) * DECK_WORLD_SIZE,
-    y
+  const eye = inverseView.invert().transformAsPoint([0, 0, 0]);
+  if (!eye.every(Number.isFinite)) throw new Error('FirstPersonViewport eye position is invalid');
+  const latitudeScale = Math.cos(Math.max(-MAX_MERCATOR_LATITUDE,
+    Math.min(MAX_MERCATOR_LATITUDE, latitude)) * Math.PI / 180);
+  const extent = maxGroundExtent / latitudeScale;
+  const bounds = calculatePlanarGroundBounds(camera, {
+    sw: {x: eye[0] - extent, y: eye[1] - extent},
+    ne: {x: eye[0] + extent, y: eye[1] + extent}
+  });
+  const xyScale = DECK_WORLD_SIZE / (HALF_WORLD_METERS * 2);
+  const toGeographic = (x: number, y: number) => unprojectFlat.call(viewport, [
+    x * xyScale + DECK_WORLD_SIZE / 2, y * xyScale + DECK_WORLD_SIZE / 2
   ]);
-
-  const xValues = unwrappedProjectedCorners.map((corner) => corner[0]);
-  const yValues = unwrappedProjectedCorners.map((corner) => corner[1]);
-  const west = Math.min(...xValues);
-  const east = Math.max(...xValues);
-  const north = Math.min(...yValues);
-  const south = Math.max(...yValues);
-  const footprintWidth = east - west;
-  const footprintHeight = south - north;
-  const commonUnitsPerProjectedMeter = DECK_WORLD_SIZE / (TANGRAM_HALF_WORLD_METERS * 2);
-  const metersPerPixel = Math.max(
-    footprintWidth / commonUnitsPerProjectedMeter / width,
-    footprintHeight / commonUnitsPerProjectedMeter / height
-  );
-  if (!Number.isFinite(metersPerPixel) || metersPerPixel <= 0) {
-    throw new Error('FirstPersonViewport ground footprint is empty');
+  const center = bounds ? toGeographic((bounds.sw.x + bounds.ne.x) / 2,
+    (bounds.sw.y + bounds.ne.y) / 2) : [longitude, latitude];
+  const metersPerPixel = bounds ? Math.max((bounds.ne.x - bounds.sw.x) / width,
+    (bounds.ne.y - bounds.sw.y) / height) : extent * 2 / Math.min(width, height);
+  let visibleBounds: [number, number, number, number] | null = null;
+  if (bounds) {
+    const southwest = toGeographic(bounds.sw.x, bounds.sw.y);
+    const northeast = toGeographic(bounds.ne.x, bounds.ne.y);
+    // Keep the longitude interval unwrapped; the renderer's tile wrapping owns world copies.
+    visibleBounds = [southwest[0], southwest[1], northeast[0], northeast[1]];
   }
-
-  const center = viewport.unprojectFlat([(west + east) / 2, (north + south) / 2]);
-  if (!isFiniteCoordinate(center)) {
-    throw new Error('FirstPersonViewport ground footprint center is invalid');
+  if (!center.every(Number.isFinite) || !Number.isFinite(metersPerPixel) || metersPerPixel <= 0 ||
+      (visibleBounds && !visibleBounds.every(Number.isFinite))) {
+    throw new Error('FirstPersonViewport ground footprint is invalid');
   }
-  const worldSizeMeters = TANGRAM_HALF_WORLD_METERS * 2;
-  const zoom = Math.log2(worldSizeMeters / (TANGRAM_TILE_SIZE * metersPerPixel));
-
   return {
     viewport: {width, height},
-    view: {
-      longitude: center[0],
-      latitude: center[1],
-      altitude:
-        viewport.position && Number.isFinite(viewport.position[2]) ? viewport.position[2] : 0,
-      zoom
-    },
-    camera: WebMercatorViewAdapter.getCameraFrame(viewport),
-    tileBuffer: FIRST_PERSON_TILE_BUFFER
+    view: {longitude: center[0], latitude: center[1], altitude: eye[2],
+      zoom: Math.max(0, Math.log2(HALF_WORLD_METERS * 2 / (TILE_SIZE * metersPerPixel)))},
+    projection: {type: 'web-mercator', visibleBounds},
+    camera,
+    tileBuffer: 1
   };
-}
-
-function isFiniteCoordinate(coordinate: number[] | null | undefined): coordinate is number[] {
-  return Boolean(coordinate && Number.isFinite(coordinate[0]) && Number.isFinite(coordinate[1]));
-}
-
-function getForwardGroundIntersection(viewport: FirstPersonViewport, pixel: number[]): number[] | null {
-  const near = viewport.unproject?.([pixel[0], pixel[1], 0]);
-  const far = viewport.unproject?.([pixel[0], pixel[1], 1]);
-  if (
-    !isFiniteCoordinate(near) ||
-    !Number.isFinite(near[2]) ||
-    !isFiniteCoordinate(far) ||
-    !Number.isFinite(far[2])
-  ) {
-    return null;
-  }
-
-  const rayParameter = -near[2] / (far[2] - near[2]);
-  if (!Number.isFinite(rayParameter) || rayParameter <= 0) {
-    return null;
-  }
-  return viewport.unproject?.(pixel, {targetZ: 0}) ?? null;
 }

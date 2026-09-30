@@ -59,8 +59,11 @@ controller tilts and rotates the view.
 Use `?view=mapFlat` or `?view=mapPerspective` to compare the map views.
 `?view=firstPerson` uses the planar first-person adapter, which selects Tangram
 tiles from the camera's visible ground footprint and derives LOD from projected
-meters per pixel. `?view=globe` remains an explicit deck.gl-only capability
-preview until Tangram tile vertices can be projected onto deck.gl's sphere.
+meters per pixel. Finite frustum/ground intersections support horizon-crossing
+views, bounded by the camera planes and `firstPersonMaxGroundExtent` (20 km per
+east/north axis by default). Sky-only views select no ground tiles; terrain and
+elevated-only visibility remain future work. `?view=globe` projects Tangram tile
+vertices onto deck.gl's sphere with experimental coarse-mesh refinement.
 Tangram renders into deck.gl's active luma.gl render pass. On WebGL, the layer
 brackets Tangram GPU work with the WebGLDevice state stack and then leaves a
 clean depth/stencil buffer for the deck layers above it. The WebGPU path owns

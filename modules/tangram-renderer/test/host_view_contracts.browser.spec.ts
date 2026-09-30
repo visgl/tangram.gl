@@ -30,6 +30,26 @@ function frame(overrides: Partial<HostFrameOptions> = {}): HostFrame {
 afterEach(() => vi.restoreAllMocks());
 
 describe('atomic multi-view host contract', () => {
+    test('honors per-eye bounded and empty planar footprints without falling back to a legacy rectangle', () => {
+        const renderer = new Renderer({});
+        const policy = renderer.scene.view.visibility_adapter;
+        const find = vi.spyOn(policy, 'findVisibleTileCoordinates');
+        const stereo = frame({projection: {type: 'web-mercator', visibleBounds: null}, renderViews: [
+            {id: 'sky', camera: camera()},
+            {id: 'ground', camera: camera(), projection: {type: 'web-mercator', visibleBounds: [179, -1, 181, 1]}}
+        ]});
+        renderer.setFrame(stereo);
+        const tiles = renderer.scene.view.findVisibleTileCoordinates();
+        expect(tiles.length).toBeGreaterThan(0);
+        expect(tiles.length).toBeLessThan(20);
+        expect(find.mock.calls.every(([state]) => state.bounds && state.bounds.ne.x > Geo.half_circumference_meters)).toBe(true);
+        renderer.setFrame(frame({projection: {type: 'web-mercator', visibleBounds: null}}));
+        expect(renderer.scene.view.findVisibleTileCoordinates()).toEqual([]);
+        expect(() => renderer.setFrame(frame({projection: {
+            type: 'web-mercator', visibleBounds: [1e308, -1, 1e308, 1]
+        }}))).toThrow(/finite meters/);
+    });
+
     test('invalidates elevation-only changes without reselecting on an eye switch', () => {
         const renderer = new Renderer({});
         const selection = vi.spyOn(renderer.scene.view.scene.tile_manager, 'updateTilesForView');

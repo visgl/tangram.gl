@@ -28,7 +28,11 @@ export type GeographicAnchor = {
 
 /** Geographic projection used by host-provided positions and camera matrices. */
 export type HostProjection =
-  | {type: 'web-mercator'}
+  | {
+      type: 'web-mercator';
+      /** Explicit unwrapped geographic footprint; null means no visible ground, omitted uses camera/legacy bounds. */
+      visibleBounds?: readonly [number, number, number, number] | null;
+    }
   | {
       type: 'globe';
       /** Conservative footprint enclosing ground and elevated content: west, south, east, north. */

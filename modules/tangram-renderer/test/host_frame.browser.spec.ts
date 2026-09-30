@@ -25,6 +25,18 @@ function createCamera(offset = 0): HostCamera {
 }
 
 describe('HostFrame', function () {
+    it('preserves copied planar bounds, explicit empty bounds and unknown bounds distinctly', () => {
+        const visibleBounds = [-181, -10, -179, 10];
+        const base = {viewport: {width: 800, height: 600}, view: {longitude: 180, latitude: 0, zoom: 4}, camera: createCamera()};
+        const frame = HostFrame.from({...base, projection: {type: 'web-mercator', visibleBounds}});
+        visibleBounds[0] = 0;
+        expect(frame.projection).toEqual({type: 'web-mercator', visibleBounds: [-181, -10, -179, 10]});
+        expect(HostFrame.from({...base, projection: {type: 'web-mercator', visibleBounds: null}}).projection).toEqual({type: 'web-mercator', visibleBounds: null});
+        expect(HostFrame.from(base).projection).toEqual({type: 'web-mercator'});
+        expect(() => HostFrame.from({...base, projection: {type: 'web-mercator', visibleBounds: [2, -10, 1, 10]}})).toThrow(/ordered visibleBounds/);
+        expect(() => HostFrame.from({...base, projection: {type: 'web-mercator', visibleBounds: [-1, -90, 1, 10]}})).toThrow(/latitudes/);
+        expect(() => HostFrame.from({...base, projection: {type: 'web-mercator', visibleBounds: [-1, -10, 1, 90]}})).toThrow(/latitudes/);
+    });
     it('normalizes the original renderer frame shape', function () {
         const frame = HostFrame.from({
             viewport: { width: 800, height: 600 },

@@ -4,6 +4,7 @@
 
 export {default as Renderer} from './scene/renderer';
 export {default as HostFrame} from './scene/host_frame';
+export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 export {default as LumaDeviceRenderer} from './gpu/luma_device_renderer';
 export {WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from './scene/visibility_adapter';
 export type {HostFrameOptions, HostRenderView, HostCamera, HostProjection, GeographicAnchor, LegacyHostFrame, RendererOptions, RenderOptions, Viewport} from './types';
