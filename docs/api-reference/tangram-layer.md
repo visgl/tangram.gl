@@ -287,6 +287,30 @@ Called when scene loading or rendering reports an error:
 The same error is also forwarded through deck.gl's layer error handling. Use this callback for
 application-specific status UI or logging.
 
+### Globe visibility
+
+#### `globeMaxElevation` (number, optional) {/* #globemaxelevation */}
+
+* Default: `null` (unknown)
+
+Conservative maximum rendered height above the globe reference sphere, in
+geographic meters. Include terrain, extrusion, offsets and shader displacement.
+Only applies to GlobeView; it is not camera altitude. A finite non-negative bound
+enables elevation-aware horizon rejection. Explicit `0` declares surface-only
+content. Unknown height disables horizon rejection within the geographic
+candidate bounds, potentially retaining more tiles.
+
+#### `globeVisibleBounds` (array, optional) {/* #globevisiblebounds */}
+
+* Default: `null`
+
+Optional `[west, south, east, north]` footprint enclosing ground and elevated
+content. Without an override, the adapter uses deck.gl's ground-level
+`viewport.getBounds({z: 0})`; that is not a complete elevated-frustum footprint.
+Use a conservative override when elevated content extends outside those bounds.
+`globeMaxElevation` changes horizon rejection, not the geographic rectangle.
+Changing either property updates visibility without reloading the scene.
+
 ### Inherited presentation properties
 
 The following inherited deck.gl properties are particularly relevant:
@@ -314,8 +338,9 @@ uses this getter when determining whether all layers are ready.
 Coarse globe polygon, road and raster meshes are refined once per tile, then
 shared by stereo eyes and reused during camera motion. Planar mesh data is
 unchanged. Globe styles cannot use post-projection `position` shader blocks or
-unknown varying custom attributes; elevation-aware horizon culling and LOD seams
-remain experimental. See [view integration](../developer-guide/view-integration.md#3-make-coarse-globe-geometry-follow-the-sphere)
+unknown varying custom attributes. Height-aware horizon rejection requires an
+explicit scene bound; automatic elevated footprints and LOD seams remain
+experimental. See [view integration](../developer-guide/view-integration.md#3-make-coarse-globe-geometry-follow-the-sphere)
 for limits, memory costs and remaining work.
 
 The layer supports deck.gl's WebGL 2 and WebGPU devices. One deck.gl viewport is supported per

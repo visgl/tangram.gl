@@ -52,9 +52,29 @@ tile selection. Coarse polygon, road and raster triangle meshes receive a cached
 globe-only refinement; planar meshes are unchanged. See the
 [geometry refinement limits and costs](../developer-guide/view-integration.md#3-make-coarse-globe-geometry-follow-the-sphere).
 Styles with post-projection `position` shader blocks or unknown varying vertex
-attributes are not supported by this globe path. Elevation-aware culling, label
+attributes are not supported by this globe path. Automatic elevated footprints, label
 orientation, and picking refinements remain tracked in
 [GlobeView support](https://github.com/visgl/tangram.gl/issues/48).
+
+Globe projections may declare `maxElevation`, a finite non-negative upper bound
+in geographic meters above the reference sphere. Include terrain, extrusions,
+offsets and shader displacement; this is not camera altitude. A known bound
+expands the horizon test to retain elevated geometry. Explicit `0` opts into
+surface-only horizon culling. Omission means unknown, so the renderer skips
+horizon rejection within the supplied `visibleBounds`.
+
+The host must supply a conservative geographic footprint enclosing ground **and
+elevated** content. The height bound does not expand `visibleBounds`, derive a
+3D frustum footprint, or choose tile LOD. Underestimating either bound can hide
+content; omission can retain more tiles than surface-only culling.
+
+```ts
+projection: {
+  type: 'globe',
+  visibleBounds: [-120, -45, 20, 70], // supplied by the host
+  maxElevation: 9000
+}
+```
 
 ### `renderViews`
 
@@ -82,6 +102,10 @@ An eye can additionally supply `geographicAnchor` (its ground-footprint center
 and zoom) and `projection` (its globe geographic bounds). These affect visibility
 only; scene/style state uses the shared anchor. All eyes must use the same
 projection type.
+
+Per-eye globe bounds inherit the shared `maxElevation` when omitted. An eye may
+raise that bound but cannot lower it. Changing only the height invalidates tile
+visibility without rebuilding scene styles or cached geometry.
 
 ### Coordinates and matrices
 

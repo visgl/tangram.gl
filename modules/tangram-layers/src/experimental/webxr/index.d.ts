@@ -80,7 +80,10 @@ export class WebXRGlobeController extends GlobeController {}
 export class WebXRFirstPersonView extends FirstPersonView {}
 
 /** GlobeView with WebXR and Tangram host-frame support. */
-export class WebXRGlobeView extends GlobeView {}
+export class WebXRGlobeView extends GlobeView {
+  /** Maximum rendered geographic elevation; omit when no reliable scene-wide bound is known. */
+  constructor(props?: ConstructorParameters<typeof GlobeView>[0] & {globeMaxElevation?: number});
+}
 
 /** Options for creating one reusable WebXR presentation. */
 export type WebXRPresentationOptions = {

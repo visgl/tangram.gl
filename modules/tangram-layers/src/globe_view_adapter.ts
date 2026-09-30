@@ -7,6 +7,14 @@ import type {GlobeViewport} from './view_adapter_types';
 const DECK_TO_TANGRAM_ZOOM_OFFSET = 1;
 const MAX_MERCATOR_LATITUDE = 85.05112878;
 
+/** Scene visibility declarations, independent of the host camera's altitude. */
+export type GlobeViewAdapterOptions = {
+  /** Conservative maximum rendered height in geographic meters; omit if unknown. */
+  maxElevation?: number;
+  /** Optional host-supplied footprint enclosing ground AND elevated content. */
+  visibleBounds?: readonly [number, number, number, number];
+};
+
 /** Typed globe projection and visibility boundary for deck.gl. */
 export default class GlobeViewAdapter {
     /** Converts globe common-space matrices and visible geographic bounds. */
@@ -21,9 +29,14 @@ export default class GlobeViewAdapter {
  * the vertex shader before applying these matrices.
  *
  * @param {object} viewport deck.gl GlobeViewport.
+ * @param options Explicit scene height and conservative geographic footprint.
  * @returns {object} Tangram HostFrame fields for a globe render view.
  */
-function getFrame(viewport: GlobeViewport): LegacyHostFrame {
+function getFrame(viewport: GlobeViewport, options: GlobeViewAdapterOptions = {}): LegacyHostFrame {
+  if (options.maxElevation !== undefined &&
+    (!Number.isFinite(options.maxElevation) || options.maxElevation < 0)) {
+    throw new Error('GlobeView maxElevation must be a finite non-negative number');
+  }
   if (
     !viewport ||
     !Number.isFinite(viewport.width) ||
@@ -38,7 +51,7 @@ function getFrame(viewport: GlobeViewport): LegacyHostFrame {
     throw new Error('deck GlobeViewport matrices, camera position, size, and visible bounds are required');
   }
 
-  const visibleBounds = viewport.getBounds({z: 0});
+  const visibleBounds = options.visibleBounds ?? viewport.getBounds({z: 0});
   if (
     !Array.isArray(visibleBounds) ||
     visibleBounds.length !== 4 ||
@@ -54,7 +67,10 @@ function getFrame(viewport: GlobeViewport): LegacyHostFrame {
       latitude: viewport.latitude,
       zoom: getTangramGlobeZoom(viewport.zoom, viewport.latitude)
     },
-    projection: {type: 'globe', visibleBounds: [visibleBounds[0], visibleBounds[1], visibleBounds[2], visibleBounds[3]]},
+    projection: {
+      type: 'globe', visibleBounds: [visibleBounds[0], visibleBounds[1], visibleBounds[2], visibleBounds[3]],
+      ...(options.maxElevation === undefined ? {} : {maxElevation: options.maxElevation})
+    },
     camera: {
       view: new Float64Array(viewport.viewMatrix),
       projection: new Float32Array(

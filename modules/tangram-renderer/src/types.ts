@@ -31,8 +31,14 @@ export type HostProjection =
   | {type: 'web-mercator'}
   | {
       type: 'globe';
-      /** Geographic bounds visible to the host camera: west, south, east, north. */
+      /** Conservative footprint enclosing ground and elevated content: west, south, east, north. */
       visibleBounds: readonly [number, number, number, number];
+      /**
+       * Conservative maximum rendered elevation in geographic meters above the reference sphere.
+       * Zero declares a surface-only scene. Omitted means unknown and disables horizon rejection.
+       * Includes terrain, extrusion, offsets and shader displacement; never inferred from camera altitude.
+       */
+      maxElevation?: number;
     };
 
 export type HostCamera = {

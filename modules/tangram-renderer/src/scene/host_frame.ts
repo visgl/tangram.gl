@@ -54,6 +54,15 @@ export default class HostFrame {
             if (projection && projection.type !== this.projection.type) {
                 throw new Error('HostFrame render views must share a projection type');
             }
+            if (projection?.type === 'globe' && this.projection.type === 'globe' &&
+                this.projection.maxElevation !== undefined) {
+                if (projection.maxElevation === undefined) {
+                    projection.maxElevation = this.projection.maxElevation;
+                }
+                else if (projection.maxElevation < this.projection.maxElevation) {
+                    throw new Error('HostFrame render-view maxElevation cannot lower the shared scene bound');
+                }
+            }
             return {
                 id,
                 viewport: normalizeViewport(view.viewport ?? this.viewport, `HostFrame render view '${id}' viewport`),
@@ -162,7 +171,12 @@ function normalizeProjection(value: unknown): HostProjection {
     if (!Array.isArray(bounds) || bounds.length !== 4 || !bounds.every(isFiniteNumber)) {
         throw new Error('HostFrame globe projection requires finite visibleBounds');
     }
-    return {type, visibleBounds: [bounds[0], bounds[1], bounds[2], bounds[3]]};
+    return {
+        type, visibleBounds: [bounds[0], bounds[1], bounds[2], bounds[3]],
+        ...(record.maxElevation === undefined ? {} : {
+            maxElevation: normalizeNonNegative(record.maxElevation, 'maxElevation')
+        })
+    };
 }
 
 function normalizeCamera(value: unknown, id: string): HostCamera {

@@ -30,6 +30,21 @@ function frame(overrides: Partial<HostFrameOptions> = {}): HostFrame {
 afterEach(() => vi.restoreAllMocks());
 
 describe('atomic multi-view host contract', () => {
+    test('invalidates elevation-only changes without reselecting on an eye switch', () => {
+        const renderer = new Renderer({});
+        const selection = vi.spyOn(renderer.scene.view.scene.tile_manager, 'updateTilesForView');
+        const projection = {type: 'globe', visibleBounds: [-100, 20, -50, 60]} as const;
+        renderer.setFrame(frame({projection}));
+        selection.mockClear();
+        renderer.setFrame(frame({projection: {...projection, maxElevation: 3000}}));
+        expect(selection).toHaveBeenCalledTimes(1);
+        selection.mockClear();
+        renderer.setFrame(frame({projection: {...projection, maxElevation: 3000}}));
+        renderer.setFrame(renderer.host_frame, {renderViewId: 'right'});
+        expect(selection).not.toHaveBeenCalled();
+        expect(renderer.scene.view.projection).toMatchObject({maxElevation: 3000});
+    });
+
     test('selects tiles only after camera, projection, anchor, dimensions, and buffer are installed', () => {
         const renderer = new Renderer({});
         const view = renderer.scene.view;
@@ -100,6 +115,19 @@ describe('atomic multi-view host contract', () => {
         expect(new Set(renderer.scene.view.findVisibleTileCoordinates().map(coordinate => coordinate.key))).toEqual(new Set(expected.keys()));
         renderer.setFrame(stereo, {renderViewId: 'right'});
         expect(new Set(renderer.scene.view.findVisibleTileCoordinates().map(coordinate => coordinate.key))).toEqual(new Set(expected.keys()));
+    });
+
+    test('passes inherited and raised height bounds to each eye visibility policy', () => {
+        const renderer = new Renderer({});
+        const find = vi.spyOn(renderer.scene.view.globe_visibility_adapter, 'findVisibleTileCoordinates');
+        const projection = {type: 'globe', visibleBounds: [-100, 20, -50, 60], maxElevation: 3000} as const;
+        renderer.setFrame(frame({projection, renderViews: [
+            {id: 'left', camera: camera(-1), projection: {type: 'globe', visibleBounds: projection.visibleBounds}},
+            {id: 'right', camera: camera(1), projection: {...projection, maxElevation: 9000}}
+        ]}));
+        renderer.scene.view.findVisibleTileCoordinates();
+        expect(find.mock.calls.some(([state]) => state.maxElevation === 3000 && state.cameraPosition?.[0] === -1)).toBe(true);
+        expect(find.mock.calls.some(([state]) => state.maxElevation === 9000 && state.cameraPosition?.[0] === 1)).toBe(true);
     });
 
     test('retains visible tiles from either eye during pruning', () => {

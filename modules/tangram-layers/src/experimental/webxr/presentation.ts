@@ -274,6 +274,7 @@ export class WebXRPresentation {
     let projection = frameFields.projection;
     if (this.placement.type === 'globe' && frameState?.views?.length) {
       projection = {
+        ...frameFields.projection,
         type: 'globe',
         visibleBounds: getXRGlobeVisibleBounds({
           views: frameState.views,

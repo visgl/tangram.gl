@@ -108,6 +108,7 @@ describe('WebMercatorGlobeVisibilityAdapter', () => {
             tile_zoom: 4,
             buffer: 0,
             visibleBounds: [-180, -85, 180, 85],
+            maxElevation: 0,
             cameraPosition: [0, -1000, 0]
         });
 
@@ -125,6 +126,78 @@ describe('WebMercatorGlobeVisibilityAdapter', () => {
         });
 
         expect(coordinates).toHaveLength(16);
+    });
+
+    it('does not assume surface-only content when the elevation bound is unknown', () => {
+        const adapter = new WebMercatorGlobeVisibilityAdapter();
+        expect(adapter.findVisibleTileCoordinates({
+            tile_zoom: 4, buffer: 0, visibleBounds: [-180, -85, 180, 85],
+            cameraPosition: [0, -1000, 0]
+        })).toHaveLength(256);
+    });
+
+    it('retains elevated content beyond the ground horizon and expands monotonically', () => {
+        const adapter = new WebMercatorGlobeVisibilityAdapter();
+        const state = {
+            tile_zoom: 8, buffer: 0, visibleBounds: [82, -1, 84, 1] as const,
+            cameraPosition: [0, -1000, 0] as const
+        };
+        const surface = adapter.findVisibleTileCoordinates({...state, maxElevation: 0});
+        const elevated = adapter.findVisibleTileCoordinates({...state, maxElevation: 200000});
+        const higher = adapter.findVisibleTileCoordinates({...state, maxElevation: 400000});
+        expect(surface).toHaveLength(0);
+        expect(elevated.length).toBeGreaterThan(0);
+        expect(new Set(higher.map(tile => tile.key))).toEqual(new Set(elevated.map(tile => tile.key)));
+    });
+
+    it.each([-1, Number.NaN, Number.POSITIVE_INFINITY])('rejects an invalid elevation bound %s', maxElevation => {
+        expect(() => new WebMercatorGlobeVisibilityAdapter().findVisibleTileCoordinates({
+            tile_zoom: 1, buffer: 0, visibleBounds: [-180, -85, 180, 85], maxElevation
+        })).toThrow(/maxElevation/);
+    });
+
+    it.each([[0, 0, 0], [0, -256, 0], [0, Number.NaN, 0]])('retains candidates for an unusable camera %s', (...cameraPosition) => {
+        expect(new WebMercatorGlobeVisibilityAdapter().findVisibleTileCoordinates({
+            tile_zoom: 1, buffer: 0, visibleBounds: [-180, -85, 180, 85], maxElevation: 0,
+            cameraPosition
+        })).toHaveLength(4);
+    });
+
+    it('never rejects tiles containing analytically visible elevated samples', () => {
+        const adapter = new WebMercatorGlobeVisibilityAdapter();
+        const maximumElevation = 200000;
+        const elevatedRadius = 256 * (1 + maximumElevation / 6370972);
+        for (const longitude of [-88, -82, 0, 82, 88]) {
+            const angle = longitude * Math.PI / 180;
+            const point = [elevatedRadius * Math.sin(angle), -elevatedRadius * Math.cos(angle)];
+            const direction = [point[0], point[1] + 1000];
+            // Independently verify the sight segment does not intersect the sphere.
+            const parameter = Math.max(0, Math.min(1,
+                1000 * direction[1] / (direction[0] ** 2 + direction[1] ** 2)));
+            expect(Math.hypot(parameter * direction[0], -1000 + parameter * direction[1])).toBeGreaterThan(256);
+            const coordinates = adapter.findVisibleTileCoordinates({
+                tile_zoom: 8, buffer: 0,
+                visibleBounds: [longitude - 0.01, -0.01, longitude + 0.01, 0.01],
+                cameraPosition: [0, -1000, 0], maxElevation: maximumElevation
+            });
+            const meters = Geo.latLngToMeters([longitude, 0]);
+            const expected = Geo.tileForMeters(meters, 8);
+            expect(coordinates.some(tile => tile.x === expected.x && tile.y === expected.y)).toBe(true);
+        }
+    });
+
+    it('keeps height selection monotonic across a world-spanning polar footprint', () => {
+        const adapter = new WebMercatorGlobeVisibilityAdapter();
+        const state = {tile_zoom: 4, buffer: 0, visibleBounds: [-180, -90, 180, 90] as const,
+            cameraPosition: [0, -1000, 0] as const};
+        let previous = new Set<string>();
+        for (const maxElevation of [0, 1000, 200000, Number.MAX_VALUE]) {
+            const coordinates = adapter.findVisibleTileCoordinates({...state, maxElevation});
+            const keys = new Set(coordinates.map(tile => tile.key));
+            for (const key of previous) expect(keys.has(key)).toBe(true);
+            expect(keys.size).toBe(coordinates.length);
+            previous = keys;
+        }
     });
 });
 

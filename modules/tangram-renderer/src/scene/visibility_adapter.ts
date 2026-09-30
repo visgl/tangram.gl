@@ -54,6 +54,8 @@ export interface GlobeVisibilityViewState {
     readonly visibleBounds: readonly [number, number, number, number];
     /** Camera position in the globe's common-space coordinates, when available. */
     readonly cameraPosition?: readonly [number, number, number];
+    /** Maximum rendered elevation in geographic meters; omitted means unknown, not zero. */
+    readonly maxElevation?: number;
 }
 
 /** Projection-specific tile visibility policy for globe views. */
@@ -162,8 +164,9 @@ function getGroundBounds(camera: HostCamera): Bounds | null {
 /**
  * Selects Web Mercator tiles intersecting geographic bounds on a globe.
  * Antimeridian-crossing bounds are split into two ranges and duplicate tiles
- * are removed while preserving traversal order. When the host camera position
- * is available, tiles wholly behind the globe horizon are omitted.
+ * are removed while preserving traversal order. Horizon rejection requires both
+ * a host camera and an explicit conservative elevation bound. Geographic bounds
+ * must already enclose elevated content; this policy does not infer a frustum footprint.
  */
 export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdapter {
     /**
@@ -172,6 +175,10 @@ export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdap
      * @returns Visible tile coordinates.
      */
     findVisibleTileCoordinates(view: GlobeVisibilityViewState): TileCoordinate[] {
+        if (view.maxElevation !== undefined &&
+            (!Number.isFinite(view.maxElevation) || view.maxElevation < 0)) {
+            throw new Error('Globe visibility maxElevation must be a finite non-negative number');
+        }
         const [west, south, east, north] = view.visibleBounds;
         const zoom = view.tile_zoom;
         const tileCount = Math.pow(2, zoom);
@@ -190,7 +197,7 @@ export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdap
                 const wrappedX = ((x % tileCount) + tileCount) % tileCount;
                 for (let y = yStart; y <= yEnd; y++) {
                     const key = `${wrappedX}/${y}/${zoom}`;
-                    if (!seen.has(key) && isTileVisibleFromCamera(wrappedX, y, zoom, view.cameraPosition)) {
+                    if (!seen.has(key) && isTileVisibleFromCamera(wrappedX, y, zoom, view.cameraPosition, view.maxElevation)) {
                         seen.add(key);
                         coordinates.push(TileID.coord({x: wrappedX, y, z: zoom}));
                     }
@@ -202,14 +209,18 @@ export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdap
 }
 
 const GLOBE_RADIUS = 256;
+// Must match the geographic altitude scale used by deck.gl and Tangram's globe shaders.
+const GLOBE_EARTH_RADIUS = 6370972;
 
 function isTileVisibleFromCamera(
     x: number,
     y: number,
     zoom: number,
-    cameraPosition?: readonly [number, number, number]
+    cameraPosition?: readonly [number, number, number],
+    maxElevation?: number
 ): boolean {
-    if (!cameraPosition || cameraPosition.length !== 3 || cameraPosition.some(value => !Number.isFinite(value))) {
+    if (maxElevation === undefined || !cameraPosition || cameraPosition.length !== 3 ||
+        cameraPosition.some(value => !Number.isFinite(value))) {
         return true;
     }
 
@@ -233,7 +244,11 @@ function isTileVisibleFromCamera(
         ((north - south) / 2 + (east - west) / 2) * Math.PI / 180
     );
     const horizonAngle = Math.acos(GLOBE_RADIUS / cameraDistance);
-    return centerDotCamera >= Math.cos(Math.min(Math.PI, horizonAngle + tileAngularRadius));
+    // A tangent line to the reference sphere can see elevated points beyond the
+    // ground horizon by acos(R / (R + height)). The bound is radial, not eye altitude.
+    const elevationAngle = Math.acos(1 / (1 + maxElevation / GLOBE_EARTH_RADIUS));
+    return centerDotCamera + 1e-12 >=
+        Math.cos(Math.min(Math.PI, horizonAngle + elevationAngle + tileAngularRadius));
 }
 
 function geographicUnitVector(longitude: number, latitude: number): [number, number, number] {
