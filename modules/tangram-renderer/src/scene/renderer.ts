@@ -5,68 +5,29 @@
 import Scene from './scene';
 import HostFrame from './host_frame';
 import LumaDeviceRenderer from '../gpu/luma_device_renderer';
+import type View from './view';
+import type {RendererOptions, RenderOptions, SceneDefinition, SceneListeners, SceneLoadOptions} from '../types';
 
-interface RendererOptions {
-    device?: unknown;
-    [key: string]: unknown;
-}
 
-interface FrameOptions {
-    renderViewId?: string;
-}
+interface FrameOptions {renderViewId?: string}
 
-interface RenderOptions extends FrameOptions {
-    frame?: unknown;
-    renderPass?: unknown;
-    force?: boolean;
-}
-
-interface RendererView {
-    size: {css: {width: number; height: number}};
-    setProjection(projection: unknown): void;
-    setView(view: {lng: number; lat: number; zoom: number}): void;
-    buffer: number;
-}
-
+/** Minimal scene surface needed by the host-driven renderer. */
 interface RendererScene {
-    view: RendererView;
+    view: View;
     config: {animated?: boolean} | null;
     animated: boolean;
     dirty: boolean;
-    subscribe(listeners: unknown): unknown;
-    load(config: unknown, options: RendererOptions): unknown;
+    start_time: number;
+    host_animation_time: number | null;
+    subscribe(listeners: SceneListeners): unknown;
+    load(config: SceneDefinition | null, options: SceneLoadOptions): unknown;
     resizeMap(width: number, height: number): void;
-    setCameraMatrices(camera: unknown): void;
-    updateScene(options: {renderPass?: unknown}): unknown;
+    setCameraMatrices(camera: import('../types').HostCamera): void;
+    updateScene(options: {renderPass?: import('@luma.gl/core').RenderPass | null}): boolean;
     processTasks(): void;
     requestRedraw(): void;
     destroy(): unknown;
 }
-
-interface RendererHostFrame {
-    projection: unknown;
-    geographicAnchor: {longitude: number; latitude: number; zoom: number};
-    tileBuffer: number;
-    getRenderView(renderViewId?: string): {
-        id: string;
-        viewport: {width: number; height: number};
-        camera: unknown;
-    };
-}
-
-interface RendererGpuBackend {
-    device: unknown;
-    getSceneOptions(): Record<string, unknown>;
-    destroy(): void;
-}
-
-const sceneFactory = Scene as unknown as {
-    create(config: unknown, options: RendererOptions): RendererScene;
-};
-const hostFrameFactory = HostFrame as unknown as {
-    from(frame: unknown): RendererHostFrame;
-};
-const gpuBackendFactory = LumaDeviceRenderer as unknown as new (device: unknown) => RendererGpuBackend;
 
 /**
  * Embeddable Tangram renderer driven by a host-provided frame.
@@ -77,18 +38,20 @@ const gpuBackendFactory = LumaDeviceRenderer as unknown as new (device: unknown)
  */
 export default class Renderer {
 
-    gpuBackend: RendererGpuBackend | null;
-    device_renderer: RendererGpuBackend | null;
+    gpuBackend: LumaDeviceRenderer | null;
+    device_renderer: LumaDeviceRenderer | null;
     scene: RendererScene;
-    host_frame: RendererHostFrame | null;
+    host_frame: HostFrame | null;
     active_render_view_id: string | null;
+    private animationFrame: unknown = null;
+    private readonly renderedViews = new Set<string>();
 
-    constructor(config: unknown, options: RendererOptions = {}) {
-        this.gpuBackend = options.device ? new gpuBackendFactory(options.device) : null;
+    constructor(config: SceneDefinition, options: RendererOptions = {}) {
+        this.gpuBackend = options.device ? new LumaDeviceRenderer(options.device) : null;
         // Retain the historical field while integrations migrate to gpuBackend.
         this.device_renderer = this.gpuBackend;
         const device_options = this.gpuBackend ? this.gpuBackend.getSceneOptions() : {};
-        this.scene = sceneFactory.create(config, Object.assign({}, options, device_options, {
+        this.scene = Scene.create(config, Object.assign({}, options, device_options, {
             device: this.gpuBackend ? this.gpuBackend.device : options.device,
             disableRenderLoop: true,
             cameraMode: 'external'
@@ -97,42 +60,40 @@ export default class Renderer {
         this.active_render_view_id = null;
     }
 
-    static create(config: unknown, options: RendererOptions = {}): Renderer {
+    static create(config: SceneDefinition, options: RendererOptions = {}): Renderer {
         return new Renderer(config, options);
     }
 
-    subscribe(listeners: unknown): unknown {
+    subscribe(listeners: SceneListeners): unknown {
         return this.scene.subscribe(listeners);
     }
 
-    load(config: unknown, options: RendererOptions = {}): unknown {
+    load(config: SceneDefinition | null = null, options: SceneLoadOptions = {}): unknown {
         return this.scene.load(config, options);
     }
 
     /**
      * Applies host-owned viewport, geographic, and camera state.
      */
-    setFrame(frame: unknown, {renderViewId}: FrameOptions = {}): RendererHostFrame {
-        const host_frame = hostFrameFactory.from(frame);
+    setFrame(frame: unknown, {renderViewId}: FrameOptions = {}): HostFrame {
+        const host_frame = HostFrame.from(frame);
         const render_view = host_frame.getRenderView(renderViewId);
         const viewport = render_view.viewport;
-        const anchor = host_frame.geographicAnchor;
         const render_view_changed = this.active_render_view_id !== render_view.id;
 
         this.host_frame = host_frame;
         this.active_render_view_id = render_view.id;
-        this.scene.view.setProjection(host_frame.projection);
-        if (this.scene.view.size.css.width !== viewport.width ||
-            this.scene.view.size.css.height !== viewport.height) {
-            this.scene.resizeMap(viewport.width, viewport.height);
+
+        this.scene.view.applyHostFrame(host_frame, () => {
+            if (this.scene.view.size.css.width !== viewport.width || this.scene.view.size.css.height !== viewport.height) {
+                this.scene.resizeMap(viewport.width, viewport.height);
+            }
+        }, () => this.scene.setCameraMatrices(render_view.camera));
+        if (host_frame !== this.animationFrame) {
+            this.animationFrame = host_frame;
+            this.renderedViews.clear();
+            this.scene.host_animation_time = host_frame.animationTime ?? Math.max(0, (Date.now() - this.scene.start_time) / 1000);
         }
-        this.scene.view.setView({
-            lng: anchor.longitude,
-            lat: anchor.latitude,
-            zoom: anchor.zoom
-        });
-        this.scene.setCameraMatrices(render_view.camera);
-        this.scene.view.buffer = host_frame.tileBuffer;
         if (render_view_changed) {
             this.scene.dirty = true;
         }
@@ -142,7 +103,7 @@ export default class Renderer {
     /**
      * Updates and draws Tangram into a host-owned render pass.
      */
-    render({frame, renderPass = null, renderViewId, force = false}: RenderOptions = {}): unknown {
+    render({frame, renderPass = null, renderViewId, force = false}: Omit<RenderOptions, 'frame'> & {frame?: HostFrame | RenderOptions['frame']} = {}): boolean {
         if (frame) {
             this.setFrame(frame, { renderViewId });
         }
@@ -155,8 +116,20 @@ export default class Renderer {
         if (force) {
             this.scene.dirty = true;
         }
+        // Reusing a frame is supported: drawing the same eye again starts the next logical frame.
+        if (this.active_render_view_id && this.renderedViews.has(this.active_render_view_id)) {
+            this.renderedViews.clear();
+            if (this.host_frame) {
+                this.scene.host_animation_time = this.host_frame.animationTime ?? Math.max(0, (Date.now() - this.scene.start_time) / 1000);
+            }
+        }
         const rendered = this.scene.updateScene({ renderPass });
-        this.scene.processTasks();
+        if (this.renderedViews.size === 0) {
+            this.scene.processTasks();
+        }
+        if (rendered && this.active_render_view_id) {
+            this.renderedViews.add(this.active_render_view_id);
+        }
         if (rendered && this.scene.config && this.scene.animated) {
             this.scene.requestRedraw();
         }

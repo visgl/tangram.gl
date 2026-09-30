@@ -8,6 +8,9 @@ export {
   getExternalCameraFrame,
   getFirstPersonViewFrame,
   getGlobeViewFrame,
-  injectNextzenApiKey
+  injectNextzenApiKey,
+  WebMercatorViewAdapter,
+  FirstPersonViewAdapter,
+  GlobeViewAdapter
 } from './src/index.ts';
 export {default} from './src/index.ts';

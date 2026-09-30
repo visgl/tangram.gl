@@ -5,59 +5,11 @@
 
 import Utils from '../utils/utils';
 import ShaderProgram from '../gl/shader_program';
-import {Matrix3, Matrix4} from '@math.gl/core';
+import CameraBase, {type CameraView, type CameraConfiguration, type Program, type UniformBuffer} from './camera_base';
+import ExternalCamera from './external_camera';
 
-type Matrix = Float32Array | Float64Array;
-type Vector = number[] | Float32Array | Float64Array;
-type CameraType = 'external' | 'isometric' | 'flat' | 'perspective';
-type CameraConfiguration = {
-    type?: CameraType;
-    position?: number[];
-    zoom?: number;
-    focal_length?: number | number[][];
-    fov?: number | number[][];
-    vanishing_point?: number[];
-    axis?: {x: number; y: number} | number[];
-};
-type CameraView = {
-    setView(view: {lng?: number; lat?: number; zoom?: number}): void;
-    scene: {requestRedraw(): void};
-    size: {
-        css: {width: number; height: number};
-        meters: {x: number; y: number};
-    };
-    aspect: number;
-    meters_per_pixel: number;
-    zoom: number;
-    center: {meters: {x: number; y: number}};
-};
-type Program = {uniform(type: string, name: string, value: Vector | Matrix): void};
-type UniformBuffer = {setUniforms(uniforms: Record<string, Vector | Matrix>): void};
-type MatrixSet = {
-    model_view32: Matrix;
-    model: Matrix;
-    normal32: Matrix;
-    inverse_normal32: Matrix;
-};
-
-// Abstract base class
-export default class Camera {
-    readonly view: CameraView;
-    readonly position?: number[];
-    readonly zoom?: number;
-    private readonly matrix3 = new Matrix3();
-    protected readonly matrix4 = new Matrix4();
-    type?: CameraType;
-    view_matrix: Matrix = new Float64Array(16);
-    projection_matrix: Matrix = new Float32Array(16);
-    position_meters: Vector = [0, 0, 0];
-
-    constructor(name: string, view: CameraView, options: CameraConfiguration = {}) {
-        this.view = view;
-        this.position = options.position;
-        this.zoom = options.zoom;
-    }
-
+/** Classic Tangram camera factory, intentionally absent from the core entry. */
+export default class Camera extends CameraBase {
     // Create a camera by type name, factory-style
     static create(name: string, view: CameraView, config: CameraConfiguration): Camera {
         switch (config.type) {
@@ -74,148 +26,6 @@ export default class Camera {
         }
     }
 
-    // Update method called once per frame
-    update(): void {
-    }
-
-    // Called once per frame per program (e.g. for main render pass, then for each additional pass for feature selection, etc.)
-    setupProgram(/*program*/ _program?: Program, _uniformBuffer?: UniformBuffer): void {
-    }
-
-    // Sync camera position/zoom to scene view
-    updateView (): void {
-        if (this.position || this.zoom) {
-            let view: {lng?: number; lat?: number; zoom?: number} = {};
-            if (this.position) {
-                view = { lng: this.position[0], lat: this.position[1], zoom: this.position[2] };
-            }
-            if (this.zoom) {
-                view.zoom = this.zoom;
-            }
-            this.view.setView(view);
-        }
-    }
-
-    // Set model-view and normal matrices
-    setupMatrices (matrices: MatrixSet, program: Program, uniform_buffer?: UniformBuffer): void {
-        // Model view matrix - transform tile space into view space (meters, relative to camera)
-        this.matrix4.copy(this.view_matrix).multiplyRight(matrices.model).toArray(matrices.model_view32);
-
-        // Normal matrices - transforms surface normals into view space
-        const normal_matrix = this.matrix3.set(
-            matrices.model_view32[0], matrices.model_view32[1], matrices.model_view32[2],
-            matrices.model_view32[4], matrices.model_view32[5], matrices.model_view32[6],
-            matrices.model_view32[8], matrices.model_view32[9], matrices.model_view32[10]
-        );
-        if (normal_matrix.determinant() !== 0) {
-            normal_matrix.invert().transpose().toArray(matrices.normal32);
-            normal_matrix.copy(matrices.normal32);
-            if (normal_matrix.determinant() !== 0) {
-                normal_matrix.invert().toArray(matrices.inverse_normal32);
-            }
-        }
-        if (uniform_buffer) {
-            uniform_buffer.setUniforms({
-                u_modelView: matrices.model_view32,
-                u_normalMatrix: matrices.normal32,
-                u_inverseNormalMatrix: matrices.inverse_normal32
-            });
-        }
-        else {
-            program.uniform('Matrix4fv', 'u_modelView', matrices.model_view32);
-            program.uniform('Matrix3fv', 'u_normalMatrix', matrices.normal32);
-            program.uniform('Matrix3fv', 'u_inverseNormalMatrix', matrices.inverse_normal32);
-        }
-    }
-
-}
-
-/**
-    Camera whose view and projection matrices are supplied by an embedding renderer.
-
-    This lets hosts such as deck.gl remain authoritative for camera projection while
-    Tangram continues to manage scene loading, tile selection, and drawing.
-*/
-export class ExternalCamera extends Camera {
-    readonly vanishing_point: number[];
-
-    constructor(name: string, view: CameraView, options: CameraConfiguration = {}) {
-        super(name, view, options);
-        this.type = 'external';
-        this.position_meters = [0, 0, 0];
-        this.vanishing_point = [0, 0];
-        this.view_matrix = new Float64Array(16);
-        this.projection_matrix = new Float32Array(16);
-        this.matrix4.identity().toArray(this.view_matrix);
-        this.matrix4.identity().toArray(this.projection_matrix);
-
-        (ShaderProgram as any).replaceBlock('camera', `
-            uniform mat4 u_projection;
-            uniform vec3 u_eye;
-            uniform vec2 u_vanishing_point;
-
-            void cameraProjection (inout vec4 position) {
-                position = u_projection * position;
-            }`
-        );
-    }
-
-    setMatrices({view, projection, position = [0, 0, 0]}: {view: Matrix; projection: Matrix; position?: Vector}): boolean {
-        if (!view || view.length !== 16 || !projection || projection.length !== 16) {
-            throw new Error('ExternalCamera requires 4x4 view and projection matrices');
-        }
-        const changed = !matrixEquals(this.view_matrix, view) ||
-            !matrixEquals(this.projection_matrix, projection) ||
-            !vectorEquals(this.position_meters, position);
-        if (!changed) {
-            return false;
-        }
-        this.view_matrix.set(view);
-        this.projection_matrix.set(projection);
-        this.position_meters = Array.from(position);
-        this.view.scene.requestRedraw();
-        return true;
-    }
-
-    setupProgram(program: Program, uniform_buffer?: UniformBuffer): void {
-        if (uniform_buffer) {
-            uniform_buffer.setUniforms({
-                u_projection: this.projection_matrix,
-                u_eye: this.position_meters,
-                u_vanishing_point: this.vanishing_point
-            });
-        }
-        else {
-            program.uniform('Matrix4fv', 'u_projection', this.projection_matrix);
-            program.uniform('3fv', 'u_eye', this.position_meters);
-            program.uniform('2fv', 'u_vanishing_point', this.vanishing_point);
-        }
-    }
-
-    transformVector(vector: Vector): number[] {
-        const matrix = this.view_matrix;
-        const transformed = [
-            matrix[0] * vector[0] + matrix[4] * vector[1] + matrix[8] * vector[2],
-            matrix[1] * vector[0] + matrix[5] * vector[1] + matrix[9] * vector[2],
-            matrix[2] * vector[0] + matrix[6] * vector[1] + matrix[10] * vector[2]
-        ];
-        const length = Math.hypot(...transformed);
-        return length === 0 ? transformed : transformed.map(value => value / length);
-    }
-
-}
-
-function matrixEquals(left: Matrix, right: Matrix): boolean {
-    for (let index = 0; index < 16; index++) {
-        if (left[index] !== right[index]) {
-            return false;
-        }
-    }
-    return true;
-}
-
-function vectorEquals(left: Vector, right: Vector): boolean {
-    return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 /**
@@ -226,7 +36,7 @@ function vectorEquals(left: Vector, right: Vector): boolean {
     a traditional web mercator map. This means you can set the camera location by [lat, lng, zoom] as you would a typical
     web mercator map, then adjust the focal length as needed.
 
-    Vanishing point can also be adjusted to achieve different "viewing angles", e.g. instead of looking straight down into
+    Vanishing point can also be adjusted to achieve different 'viewing angles', e.g. instead of looking straight down into
     the center of the viewport, the camera appears to be tilted at an angle. For example:
 
     [0, 0] = looking towards center of viewport
@@ -260,7 +70,7 @@ export class PerspectiveCamera extends Camera {
         this.projection_matrix = new Float32Array(16);
 
         // 'camera' is the name of the shader block, e.g. determines where in the shader this code is injected
-        (ShaderProgram as any).replaceBlock('camera', `
+        ShaderProgram.replaceBlock('camera', `
             uniform mat4 u_projection;
             uniform vec3 u_eye;
             uniform vec2 u_vanishing_point;
@@ -384,7 +194,7 @@ export class PerspectiveCamera extends Camera {
 }
 
 // Isometric-style projection
-// Note: this is actually an "axonometric" projection, but I'm using the colloquial term isometric because it is more recognizable.
+// Note: this is actually an 'axonometric' projection, but I'm using the colloquial term isometric because it is more recognizable.
 // An isometric projection is a specific subset of axonometric projections.
 // 'axis' determines the xy skew applied to a vertex based on its z coordinate, e.g. [0, 1] axis causes buildings to be drawn
 // straight upwards on screen at their true height, [0, .5] would draw them up at half-height, [1, 0] would be sideways, etc.
@@ -407,7 +217,7 @@ export class IsometricCamera extends Camera {
         this.projection_matrix = new Float32Array(16);
 
         // 'camera' is the name of the shader block, e.g. determines where in the shader this code is injected
-        (ShaderProgram as any).replaceBlock('camera', `
+        ShaderProgram.replaceBlock('camera', `
             uniform mat4 u_projection;
             uniform vec3 u_eye;
             uniform vec2 u_vanishing_point;

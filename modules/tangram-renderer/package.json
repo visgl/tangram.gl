@@ -14,6 +14,11 @@
       "default": "./dist/index.js"
     },
     "./dist/*": "./dist/*",
+    "./core": {
+      "types": "./src/core.d.ts",
+      "import": "./dist/core.js",
+      "default": "./dist/core.js"
+    },
     "./style-schema": {
       "import": "./dist/style-schema.js"
     },

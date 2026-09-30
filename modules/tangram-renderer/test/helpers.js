@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 
-import Scene from '../src/scene/scene';
+import Scene from '../src/scene/classic_scene';
 
 let container = document.createElement('div');
 container.style.width = '250px';

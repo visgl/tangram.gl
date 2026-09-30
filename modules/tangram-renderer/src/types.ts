@@ -45,6 +45,10 @@ export type HostRenderView = {
   id?: string;
   viewport?: Viewport;
   camera: HostCamera;
+  /** Optional per-eye footprint anchor; scene/style state still uses the shared anchor. */
+  geographicAnchor?: GeographicAnchor;
+  /** Optional per-eye geographic bounds for union visibility. */
+  projection?: HostProjection;
 };
 
 export type HostFrameOptions = {
@@ -54,6 +58,8 @@ export type HostFrameOptions = {
   renderViews: readonly HostRenderView[];
   activeRenderViewId?: string;
   tileBuffer?: number;
+  /** Shared elapsed scene animation time in seconds. */
+  animationTime?: number;
 };
 
 export type LegacyHostFrame = {
@@ -62,10 +68,14 @@ export type LegacyHostFrame = {
   projection?: HostProjection;
   camera: HostCamera;
   tileBuffer?: number;
+  /** Shared elapsed scene animation time in seconds. */
+  animationTime?: number;
 };
 
 export type RendererOptions = {
   device?: Device;
+  /** Optional worker script URL; otherwise the package uses its embedded worker. */
+  workerURL?: string;
   /** Renderer-owned policy for viewport bounds and tile visibility/LOD. */
   visibilityAdapter?: VisibilityLODAdapter;
   /** Renderer-owned policy for selecting tiles for globe projection bounds. */

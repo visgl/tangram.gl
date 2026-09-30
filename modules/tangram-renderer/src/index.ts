@@ -1,10 +1,11 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 /*jshint worker: true*/
 
-import Scene from './scene/scene';
+import Scene from './scene/classic_scene';
 import ClassicWebGLRenderer from './scene/renderer';
 import HostFrame from './scene/host_frame';
 import LumaDeviceRenderer from './gpu/luma_device_renderer';

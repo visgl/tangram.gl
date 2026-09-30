@@ -197,7 +197,10 @@ export class WebXRPresentation {
       renderView.camera = {
         ...renderView.camera,
         view: viewMatrix,
-        projection: this.view.getXRProjectionMatrix({projectionMatrix, viewMatrix})
+        projection: this.view.getXRProjectionMatrix({projectionMatrix, viewMatrix}),
+        position: this.placement.type === 'globe'
+          ? new Matrix4(viewMatrix).invert().transformAsPoint([0, 0, 0])
+          : renderView.camera.position
       };
       renderView.hostFrame = {...renderView.hostFrame, camera: renderView.camera};
       return renderView;
@@ -220,7 +223,9 @@ export class WebXRPresentation {
         camera: {
           view: viewMatrix,
           projection: this.view.getXRProjectionMatrix({projectionMatrix, viewMatrix}),
-          position: [0, 0, 0]
+          position: this.placement.type === 'globe'
+            ? new Matrix4(viewMatrix).invert().transformAsPoint([0, 0, 0])
+            : [0, 0, 0]
         },
         deckViewport: logicalViewport,
         xrView,
@@ -281,7 +286,12 @@ export class WebXRPresentation {
       viewport: {x: 0, y: 0, width, height},
       geographicAnchor: frameFields.view,
       projection,
-      renderViews,
+      renderViews: renderViews.map(renderView => ({
+        ...renderView,
+        geographicAnchor: renderView.hostFrame?.view,
+        // Immersive globe bounds already describe the union in room space.
+        projection: frameState?.views?.length ? undefined : renderView.hostFrame?.projection
+      })),
       activeRenderViewId: renderViews[0].id,
       tileBuffer: frameFields.tileBuffer
     };

@@ -6,15 +6,38 @@ Copyright (c) vis.gl contributors
 
 # deck.gl view integration roadmap
 
-Tangram's host-driven renderer already accepts deck.gl view and projection
-matrices. Matrix ownership is only one part of supporting a view: the renderer
-also needs to know how world positions are projected and which tiles provide
-the appropriate level of detail.
+Tangram's host-driven renderer accepts deck.gl view and projection matrices.
+The next tranches make tile selection, curved geometry, interaction, and package
+boundaries reliable across MapView, FirstPersonView, GlobeView, and WebXR.
+
+Each tranche should deliver a coherent behavior or package boundary, with its
+tests and documentation in the same PR. Closely related files belong together;
+the tranche size should follow the outcome rather than the file count.
+
+## Completed foundation
+
+- Web Mercator camera conversion is extracted into `WebMercatorViewAdapter`
+  ([#96](https://github.com/visgl/tangram.gl/pull/96)).
+- Host-driven scene loading avoids synthesizing a classic Tangram camera
+  ([#98](https://github.com/visgl/tangram.gl/pull/98)).
+- Renderer-owned visibility policies support Web Mercator bounds and globe
+  bounds, including antimeridian ranges
+  ([#99](https://github.com/visgl/tangram.gl/pull/99)).
+- Globe camera position reaches the renderer
+  ([#101](https://github.com/visgl/tangram.gl/pull/101)), with conservative
+  horizon culling ([#102](https://github.com/visgl/tangram.gl/pull/102)).
+- The globe adapter applies a latitude-dependent tile zoom adjustment
+  ([#103](https://github.com/visgl/tangram.gl/pull/103)). This is a baseline LOD
+  estimate; projected tile error is still a separate tranche.
+
+FirstPersonView antimeridian footprint handling is proposed in
+[#100](https://github.com/visgl/tangram.gl/pull/100), which remains open. Refresh
+and validate that PR before treating the behavior as part of the baseline.
 
 ## Target frame contract
 
-`Renderer.setFrame()` should evolve from a Web Mercator-shaped object into four
-independent host policies:
+`HostFrame` already separates the shared geographic anchor from per-view camera
+and viewport state. Complete the boundary around four independent host policies:
 
 1. **Render views** — one or more view/projection matrix pairs, eye positions,
    and viewport rectangles, plus shared redraw scheduling. A normal deck.gl
@@ -41,84 +64,165 @@ globe adapter additionally supplies geographic visibility bounds. It keeps
 deck.gl out of the renderer while the remaining culling and tessellation
 policies are extracted behind stronger interfaces.
 
-## Tranches
+## Additional tranches, in recommended order
 
-### 1. Extract the current Web Mercator behavior
+### 1. Apply host frames consistently across all views
 
-Move `getExternalCameraFrame()` and the Web Mercator checks out of
-`TangramLayer` into a `WebMercatorViewAdapter` (tracked separately in PR #96).
-The renderer now defines an injectable `VisibilityLODAdapter`; its default
-`WebMercatorVisibilityAdapter` owns the existing meter-bounds and buffered
-tile-range calculations. Keep the existing flat and pitched `MapView` examples
-as conformance tests. Globe tile selection is also extracted behind the
-renderer-owned `WebMercatorGlobeVisibilityAdapter`, which handles geographic
-bounds and antimeridian-crossing ranges without importing deck.gl.
+Implemented: atomic frame application, camera-only invalidation, per-eye
+ground/globe visibility unions, and shared animation time. The default planar
+policy retains its legacy bounds fallback for unbounded horizon intersections;
+bounded horizon handling remains in tranche 5.
 
-### 2. Make scene cameras optional
+Apply projection, camera, tile buffer, viewport, and anchor state before
+recalculating visibility. Check the current `setFrame()` ordering: changing the
+anchor can trigger tile selection before the new camera matrices are supplied.
+Invalidate visibility when only the camera changes, even if the anchor and
+geographic bounds are unchanged.
 
-Scene loading now avoids synthesizing Tangram's default camera in external mode;
-classic scenes retain the existing default-camera behavior. Complete camera
-policy injection when `Scene` constructs `View`; visibility/LOD policy
-injection is available through renderer options. A real
-`@vis.gl/tangram-renderer/core` entry still requires removing the classic camera
-factory from the core dependency graph before it can exclude Leaflet,
-interaction handlers, the standalone loop, and classic camera implementations.
+Select the union of tiles needed by all render views in a `HostFrame`. Keep
+per-eye camera uniforms and draw passes separate, and keep frame time shared.
+Define a conservative union for each projection rather than treating the active
+eye as the visibility authority.
 
-### 3. FirstPersonView
+Complete when camera-only movement updates tiles in the same frame, either eye
+can see its required tiles, switching eyes cannot prune the other eye's tiles,
+and animation advances once per logical frame.
 
-First-person rendering continues using planar Web Mercator geometry. The deck
-adapter intersects the viewport corners with the ground plane, selects tiles
-covering that footprint, and derives LOD from projected meters per pixel instead
-of treating deck.gl's internal meter scale as a map zoom. Camera matrices still
-come directly from deck.gl.
+### 2. Finish the typed view and camera boundary
 
-The initial supported contract is a fixed-altitude camera whose four viewport
-corners intersect the Web Mercator ground plane. Horizon-level views, terrain
-elevation, and footprints crossing the antimeridian remain follow-up work.
+Implemented: checked HostFrame/View and camera-policy boundaries, extracted
+FirstPersonView/GlobeView adapters, injected classic cameras, and a separately
+built `@vis.gl/tangram-renderer/core` entry with a dependency-graph gate. The root
+entry preserves the standalone Scene API. Legacy Scene traversal and the layer
+lifecycle still have pre-existing type suppressions; this is not a claim that
+the entire renderer's TypeScript migration is finished.
 
-### 4. Implement GlobeView
+Extract FirstPersonView and GlobeView adapters alongside the Web Mercator
+adapter. Define explicit types for host frames, render views, projection state,
+camera policy, and visibility/LOD results. Document coordinates, units, matrix
+order, clip-space conventions, viewport origins, and CSS versus device pixels.
+Remove `@ts-nocheck` from the files changed by this tranche.
 
-The first GlobeView tranche converts each tile vertex from Web Mercator meters
-to longitude/latitude and then to deck.gl globe coordinates before applying
-the host camera matrix. It uses bounds supplied by `GlobeViewport` to select
-tiles on both WebGL 2 and WebGPU.
+Inject camera construction into `Scene`/`View` so an external-camera entry no
+longer imports the classic camera factory. Expose `tangram-renderer/core` only
+after inspecting its dependency graph. Keep Leaflet integration in the example;
+optional classic camera support can remain within the renderer package.
 
-The globe visibility adapter now uses the host camera position to conservatively
-reject tiles wholly behind the globe horizon. Remaining production-hardening
-work is to subdivide coarse tile geometry enough to follow the sphere, refine
-LOD from screen-space error, orient labels, and align picking with bent geometry.
-The deck adapter also compensates globe tile zoom for the latitude-dependent
-scale used by `GlobeViewport`, capped at the Web Mercator latitude limit.
+Complete when the core import excludes Leaflet and classic cameras, strict
+typing covers the frame boundary, and existing classic examples still work.
 
-Tangram custom position shaders should run before the host projection hook.
-Styles that replace geographic position entirely, such as the Albers morph,
-must declare Web Mercator-only compatibility until they provide their own globe
-projection behavior.
+### 3. Make coarse globe geometry follow the sphere
 
-The renderer consumes only the `HostFrame` projection discriminator and bounds;
-the deck.gl viewport check and matrix extraction stay in `tangram-layers`.
+Add projection-aware subdivision for polygon triangles, long line segments, and
+raster tile meshes. Bound angular spans or projected curvature error, preserve
+feature IDs and style attributes, and make neighboring tile edges agree. Avoid
+rebuilding geometry when only the camera moves; key any additional mesh cache by
+projection and refinement settings.
 
-### 5. Conformance and packaging
+Account for extrusion and terrain height in globe visibility bounds so the
+reference sphere's horizon cannot hide elevated geometry. Preserve Tangram
+shader block ordering and explicitly reject incompatible position overrides.
 
-For every adapter, test matrix forwarding, frustum-derived tile selection,
-fractional LOD changes, resize, animation scheduling, cleanup, multiple
-render-view frusta, and WebGL/WebGPU parity. Keep one example page per deck.gl
-view so unsupported combinations are visible in navigation and cannot regress
-silently.
+Complete when low-zoom oceans, land, and raster tiles follow the globe without
+large chords or seam cracks on WebGL 2 and WebGPU, with recorded geometry and
+memory costs.
+
+### 4. Choose tile LOD from projected error
+
+Separate scene/style zoom from tile LOD. Evaluate projected tile size or error
+using the host matrices and viewport, including latitude, pitch, resize, and
+device pixel ratio. For multiple eyes, use the detail required by either eye.
+Add hysteresis and resource limits to prevent tile churn and excessive requests.
+
+Compare the existing globe zoom adjustment with actual deck.gl viewports rather
+than relying only on fixtures that repeat its formula. Define source min/max
+zoom behavior and how refinement changes without changing style evaluation.
+
+Complete when MapView, FirstPersonView, and GlobeView have predictable detail
+through camera transitions, with measured pixel error and tile/request budgets.
+
+### 5. Support FirstPersonView near the horizon
+
+Refresh and land the antimeridian fix in #100. Replace the requirement that all
+four viewport corners hit the ground with bounded frustum/ground intersection.
+Clip distant or upward-facing rays using explicit far-distance policy, and
+handle camera altitude and source elevation conservatively.
+
+Complete when looking toward or above the horizon produces a bounded selection
+of visible tiles instead of an error, and antimeridian navigation does not
+request a world-wide footprint. Terrain-aware intersection can follow after the
+flat-ground contract is proven.
+
+### 6. Align labels, lighting, and picking with projection
+
+Distinguish screen-facing labels from ground-oriented symbols. Transform surface
+normals consistently on the globe, and carry the same curved geometry and host
+matrices into picking. Preserve feature identity through subdivision and hiding
+behind the horizon.
+
+Complete when labels and lighting follow the intended surface orientation, and
+screen/spatial picks select the visible feature on MapView, GlobeView, and
+FirstPersonView, including the antimeridian and stereo views.
+
+### 7. Finish WebXR placement and interaction
+
+Build on the typed host-frame and projection contracts. Verify room-meter
+placement for tabletop maps and physical-radius globes, and one geographic meter
+per XR meter for first-person rendering. Feed real XR eye matrices and viewport
+rectangles into the same rendering path used by stereo preview.
+
+Route mono/stereo controls and XR navigation through one logical view state.
+Define picking rays, grabbing, locomotion, and teardown through interaction
+intents. Keep Thor and webcam gesture translation local to its example.
+
+Complete when mono, preview, and immersive rendering share animated scenes and
+consistent navigation/picking, with deterministic mocked-frame tests and a
+recorded native or emulated VR check.
+
+### 8. Advance modern tile sources through conformance
+
+Continue the pluggable loader boundary for MVT, MLT, and PMTiles, using published
+loaders.gl capabilities when available. Compare decoded geometry, properties,
+IDs, cancellation, transferables, and worker behavior before production switches.
+Adapt Tilezen styles to Protomaps layers and evaluate Mapterhorn terrain through
+the same boundary.
+
+Complete each source/format switch with a working example, fixture-based parity
+tests, attribution, and decode/worker/application bundle measurements. Track
+upstream parser gaps in their owning repositories.
+
+## Work that accompanies the tranches
+
+- **TypeScript:** migrate complete related subsystems with real types. Remove
+  suppressions and unsafe assertions as contracts become explicit; keep the
+  migration behavior-preserving unless a documented fix is part of the PR.
+- **luma.gl:** centralize GPU resource ownership and render-pass state through
+  core APIs, then measure and test any shadertools adoption. Preserve Tangram's
+  style blocks and shader injection behavior during each change.
+- **Builds:** audit the remaining renderer-specific esbuild orchestration before
+  consolidating it into dev-tools/ocular. Direct Rollup dependencies are already
+  absent from the package manifests inspected for this roadmap; custom worker,
+  legacy bundle, watch, and schema steps still need explicit output contracts.
+- **Coverage:** target the authored renderer and layer code, including currently
+  suppressed frame/view logic. Raise coverage toward greater than 90% with
+  meaningful boundary and lifecycle tests; retain valid denominators and separate
+  WebGL 2/WebGPU rendering coverage from aggregate unit coverage.
+- **Regression evidence:** keep representative rendered examples for every view,
+  include camera transitions and stereo-eye differences, and record bundle,
+  worker, geometry, and memory changes when a tranche affects them.
 
 ## Good code entry points
 
-- `modules/tangram-layers/src/tangram-layer.ts`: extract viewport validation
-  and `getExternalCameraFrame()` into adapters.
-- `modules/tangram-renderer/src/scene/renderer.ts`: define the new host frame
-  contract.
-- `modules/tangram-renderer/src/scene/view.ts`: inject projection and
-  visibility/LOD policies.
+- `modules/tangram-layers/src/tangram-layer.ts`: FirstPersonView/GlobeView frame
+  construction and viewport validation.
+- `modules/tangram-renderer/src/scene/host_frame.ts`: typed shared and per-view
+  state contracts.
+- `modules/tangram-renderer/src/scene/renderer.ts`: frame application order and
+  render-view selection.
+- `modules/tangram-renderer/src/scene/view.ts`: camera construction, visibility
+  invalidation, and projection state.
 - `modules/tangram-renderer/src/tile/tile_manager.ts`: consume adapter-provided
   visible tiles instead of assuming rectangular Web Mercator bounds.
-- Tangram's vertex shader assembly: add the host projection hook after style
-  position transforms and before camera projection.
-
-The recommended implementation order is Web Mercator extraction, then
-FirstPersonView, then GlobeView. This provides a reusable interface before the
-most invasive shader and tessellation work begins.
+- `modules/tangram-renderer/src/builders`: polygon and line geometry refinement.
+- Tangram's GLSL/WGSL projection helpers: curved positions, normals, and matching
+  rendering/picking behavior.

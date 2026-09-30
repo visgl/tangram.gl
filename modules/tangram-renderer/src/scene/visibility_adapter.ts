@@ -4,9 +4,13 @@
 
 import Geo, {type Bounds, type Meters, type Tile} from '../utils/geo';
 import {TileID, type TileCoordinate} from '../tile/tile_id';
+import type {HostCamera} from '../types';
+import {Matrix4} from '@math.gl/core';
 
 /** State consumed by a renderer-owned visibility and LOD adapter. */
 export interface VisibilityViewState {
+    /** Optional host matrices for policies selecting a precise per-eye footprint. */
+    readonly camera?: HostCamera;
     readonly center: {readonly lng: number; readonly lat: number};
     readonly zoom: number;
     readonly tile_zoom: number;
@@ -78,7 +82,7 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
         const centerCoordinate = Geo.latLngToMeters([view.center.lng, view.center.lat]);
         const centerMeters = {x: centerCoordinate[0], y: centerCoordinate[1]};
         const centerTile = Geo.tileForMeters([centerMeters.x, centerMeters.y], tileZoom);
-        const bounds = {
+        const bounds = (view.camera && getGroundBounds(view.camera)) || {
             sw: {
                 x: centerMeters.x - sizeMeters.x / 2,
                 y: centerMeters.y - sizeMeters.y / 2
@@ -125,6 +129,34 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
         }
         return coordinates;
     }
+}
+
+/** Intersects a planar host frustum with EPSG:3857 ground, retaining the legacy fallback near the horizon. */
+function getGroundBounds(camera: HostCamera): Bounds | null {
+    const matrix = new Matrix4(camera.projection).multiplyRight(camera.view);
+    const determinant = matrix.determinant();
+    if (!Number.isFinite(determinant) || determinant === 0) {
+        return null;
+    }
+    matrix.invert();
+    const points: number[][] = [];
+    for (const [horizontal, vertical] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const near = matrix.transformAsPoint([horizontal, vertical, -1]);
+        const far = matrix.transformAsPoint([horizontal, vertical, 1]);
+        const parameter = -near[2] / (far[2] - near[2]);
+        if (!Number.isFinite(parameter) || parameter < 0 || parameter > 1) {
+            return null;
+        }
+        const point = [near[0] + (far[0] - near[0]) * parameter, near[1] + (far[1] - near[1]) * parameter];
+        if (!point.every(Number.isFinite)) {
+            return null;
+        }
+        points.push(point);
+    }
+    return {
+        sw: {x: Math.min(...points.map(point => point[0])), y: Math.min(...points.map(point => point[1]))},
+        ne: {x: Math.max(...points.map(point => point[0])), y: Math.max(...points.map(point => point[1]))}
+    };
 }
 
 /**

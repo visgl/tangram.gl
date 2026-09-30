@@ -33,7 +33,7 @@ interface RenderDimensions {
 interface TangramCameraFrame {
   view: Float64Array;
   projection: Float32Array;
-  position: number[];
+  position: [number, number, number];
 }
 
 /**
