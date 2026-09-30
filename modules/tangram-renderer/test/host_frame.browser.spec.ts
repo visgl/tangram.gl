@@ -25,6 +25,22 @@ function createCamera(offset = 0): HostCamera {
 }
 
 describe('HostFrame', function () {
+    it.each([undefined, 0, 3, 4])('normalizes data LOD %s in modern and legacy frames', tileZoom => {
+        const frame = HostFrame.from({viewport: {width: 800, height: 600},
+            view: {longitude: 0, latitude: 0, zoom: 4.5}, camera: createCamera(), tileZoom});
+        expect(frame.tileZoom).toBe(tileZoom);
+        expect(new HostFrame({...frame, tileZoom}).tileZoom).toBe(tileZoom);
+        expect(frame.geographicAnchor.zoom).toBe(4.5);
+    });
+
+    it.each([-1, 0.5, 5, 23, NaN, Infinity, '3', null])('rejects invalid or finer-than-style data LOD %s', tileZoom => {
+        const frame = {viewport: {width: 800, height: 600},
+            geographicAnchor: {longitude: 0, latitude: 0, zoom: 4.5}, renderViews: [{camera: createCamera()}], tileZoom};
+        expect(() => HostFrame.from(frame)).toThrow(/tileZoom/);
+        expect(() => HostFrame.from({...frame, geographicAnchor: undefined,
+            view: frame.geographicAnchor, renderViews: undefined, camera: createCamera()})).toThrow(/tileZoom/);
+    });
+
     it('preserves copied planar bounds, explicit empty bounds and unknown bounds distinctly', () => {
         const visibleBounds = [-181, -10, -179, 10];
         const base = {viewport: {width: 800, height: 600}, view: {longitude: 180, latitude: 0, zoom: 4}, camera: createCamera()};

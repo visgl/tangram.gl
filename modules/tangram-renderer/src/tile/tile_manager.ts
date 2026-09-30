@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // @ts-nocheck
 
@@ -232,16 +233,17 @@ export default class TileManager {
     updateVisibility(tile) {
         tile.visible = false;
         if (tile.style_z === this.view.tile_zoom) {
-            if (this.visible_coords[tile.coords.key]) {
+            const direct = this.visible_coords[tile.coords.key];
+            if (direct && TileID.normalizedCoord(direct, tile.source).key === tile.coords.key) {
                 tile.visible = true;
+                return;
             }
-            else {
-                // brute force
-                for (let key in this.visible_coords) {
-                    if (TileID.isDescendant(tile.coords, this.visible_coords[key])) {
-                        tile.visible = true;
-                        break;
-                    }
+            // Match the actual source-normalized data level, not any ancestor.
+            // A data-only LOD transition retains style_z on both cached levels.
+            for (let key in this.visible_coords) {
+                if (TileID.normalizedCoord(this.visible_coords[key], tile.source).key === tile.coords.key) {
+                    tile.visible = true;
+                    break;
                 }
             }
         }
@@ -333,7 +335,8 @@ export default class TileManager {
                     source,
                     coords,
                     workers: this.scene.workers,
-                    style_z: this.view.baseZoom(coords.z),
+                    // Data LOD can be coarser than style zoom in a host frame.
+                    style_z: this.view.tile_zoom,
                     view: this.view
                 });
 

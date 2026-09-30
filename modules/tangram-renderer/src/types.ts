@@ -68,6 +68,8 @@ export type HostFrameOptions = {
   renderViews: readonly HostRenderView[];
   activeRenderViewId?: string;
   tileBuffer?: number;
+  /** Optional shared data-tile zoom (integer 0–22, no higher than the shared style zoom). */
+  tileZoom?: number;
   /** Shared elapsed scene animation time in seconds. */
   animationTime?: number;
 };
@@ -78,6 +80,8 @@ export type LegacyHostFrame = {
   projection?: HostProjection;
   camera: HostCamera;
   tileBuffer?: number;
+  /** Optional shared data-tile zoom; omission preserves zoom-driven selection. */
+  tileZoom?: number;
   /** Shared elapsed scene animation time in seconds. */
   animationTime?: number;
 };

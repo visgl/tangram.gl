@@ -6,7 +6,7 @@ import {expect} from 'vitest';
 import {luma, type Device} from '@luma.gl/core';
 import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
-import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
+import {HostFrame, Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import type {Scene} from '@vis.gl/tangram-renderer';
 import {Timeline} from '@luma.gl/engine';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
@@ -51,7 +51,7 @@ type RuntimeScene = Scene & {
   tile_manager: {
     isLoadingVisibleTiles(): boolean;
     allVisibleTilesLabeled(): boolean;
-    tiles: Record<string, {meshes: Record<string, {
+    tiles: Record<string, {visible: boolean; style_z: number; coords: {z: number}; meshes: Record<string, {
       id: number;
       geometry_count: number;
       globe_mesh?: {id: number; geometry_count: number; buffer_size: number} | null;
@@ -70,6 +70,8 @@ export class RenderingHarness {
   readonly timeline = new Timeline();
   readonly scale: number;
   interpupillaryDistance = 0.064;
+  /** Optional explicit data LOD, shared by every submitted eye. */
+  tileZoom?: number;
   device!: Device;
   renderer!: ClassicWebGLRenderer;
 
@@ -91,6 +93,12 @@ export class RenderingHarness {
           originalTriangles: mesh.geometry_count, bytes: mesh.globe_mesh.buffer_size}] : []
       ))
     );
+  }
+
+  /** Inspect actual built visible tiles after source zoom normalization. */
+  getTileLods() {
+    return Object.values((this.renderer.scene as RuntimeScene).tile_manager.tiles)
+      .filter(tile => tile.visible).map(tile => ({dataZoom: tile.coords.z, styleZoom: tile.style_z}));
   }
 
   /** Create a real device and load the fixture through Tangram's scene worker. */
@@ -131,8 +139,9 @@ export class RenderingHarness {
     this.presentation.updateTransitions();
     const frame = this.presentation.createFrame({width: this.canvas.width, height: this.canvas.height,
       interpupillaryDistance: this.interpupillaryDistance});
+    const hostFrame = new HostFrame({...frame.hostFrame, tileZoom: this.tileZoom});
     for (const [index, view] of frame.renderViews.entries()) {
-      this.renderer.setFrame(frame.hostFrame, {renderViewId: view.id});
+      this.renderer.setFrame(hostFrame, {renderViewId: view.id});
       const renderPass = this.device.beginRenderPass({
         clearColor: index === 0 ? [0, 0, 0, 1] : false,
         clearDepth: index === 0 ? 1 : false,
@@ -144,7 +153,7 @@ export class RenderingHarness {
         scissorRect: [viewport.x || 0, viewport.y || 0, viewport.width, viewport.height]
       });
       const render = () => {
-        this.renderer.render({frame: frame.hostFrame, renderPass, renderViewId: view.id, force: true});
+        this.renderer.render({frame: hostFrame, renderPass, renderViewId: view.id, force: true});
       };
       if (this.device.type === 'webgl') {
         (this.renderer.scene as RuntimeScene).withWebGLContext(render);

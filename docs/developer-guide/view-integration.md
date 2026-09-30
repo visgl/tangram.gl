@@ -203,6 +203,18 @@ memory costs.
 
 ### 4. Choose tile LOD from projected error
 
+Implemented foundation: `HostFrame.tileZoom` optionally selects one coarser data
+level across every eye while preserving shared scene/style zoom, worker zoom,
+source normalization and source display filters. Omitting it restores the
+legacy policy. Strict frame validation rejects fractional, out-of-range and
+finer-than-style levels. Real WebGL 2/WebGPU tests change data LOD while keeping
+zoom-filtered styles visible in stereo MapView, GlobeView and FirstPersonView.
+See the [contract and source-limit behavior](../api-reference/host-frame.md#tilezoom).
+
+Automatic projected-error selection, per-tile mixed LOD, hysteresis, request
+budgets and finer-than-style geometry scaling remain pending. This foundation
+does not change the normal deck adapters' LOD decisions or complete the tranche.
+
 Separate scene/style zoom from tile LOD. Evaluate projected tile size or error
 using the host matrices and viewport, including latitude, pitch, resize, and
 device pixel ratio. For multiple eyes, use the detail required by either eye.

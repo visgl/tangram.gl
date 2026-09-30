@@ -9,6 +9,7 @@ const frameOptions = {
   viewport: {width: 800, height: 600},
   geographicAnchor: {longitude: -74, latitude: 40.7, zoom: 12},
   projection: {type: 'web-mercator'},
+  tileZoom: 10,
   renderViews: [
     {
       id: 'main',
