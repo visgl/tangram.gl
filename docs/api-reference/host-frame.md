@@ -23,6 +23,7 @@ new HostFrame({
   renderViews,
   activeRenderViewId,
   tileBuffer,
+  tileZoom,
   animationTime
 });
 ```
@@ -35,8 +36,8 @@ The complete render target as `{width, height}`. Normalized frames also expose
 ### `geographicAnchor`
 
 Shared state `{longitude, latitude, altitude, zoom}`. `altitude` defaults to
-zero. The current Web Mercator visibility implementation uses `zoom` for tile
-selection and style evaluation.
+zero. `zoom` controls style evaluation and, by default, tile selection. An
+explicit `tileZoom` can reduce data detail without changing the style zoom.
 
 ### `projection`
 
@@ -156,6 +157,39 @@ defaults to the first render view.
 A finite non-negative number of additional Web Mercator tiles to retain around
 the current bounds. It defaults to zero. Globe adapters normally provide zero
 because their geographic visibility bounds already cover the host viewport.
+
+### `tileZoom`
+
+Optional shared **data** tile level, an integer from 0 to 22 and no higher than
+`Math.floor(geographicAnchor.zoom)`. All eyes select the same requested level;
+their footprints are still unioned. Lowering it does not lower scene/style zoom,
+worker styling zoom, or the animation clock.
+Omitting it restores the existing zoom-driven policy. The legacy single-camera
+frame accepts the same option.
+
+```ts
+new HostFrame({
+  viewport,
+  geographicAnchor: {longitude: -74, latitude: 40.7, zoom: 16.5},
+  tileZoom: 14,
+  renderViews: [{id: 'main', camera}]
+});
+```
+
+This requests level-14 data styled at level 16. Source `zooms`, `max_zoom`, tile
+size/zoom bias and geographic bounds still apply, so the actual fetched level
+may be lower. Existing `min_display_zoom` checks the requested coordinate level;
+choosing a level below it hides that source rather than forcing finer tiles.
+`max_display_zoom` continues to use style zoom. Coarser source data may contain
+fewer features or more simplified shapes; preserving style evaluation cannot
+restore missing data.
+
+This is an opt-in uniform LOD contract, not an automatic projected-error policy.
+The host must keep geographic candidate bounds and tile buffers appropriately
+bounded. There is no new request budget or transition hysteresis. Finer-than-style
+LOD and mixed levels within one frame are not supported by this contract;
+Tangram's geometry overzoom scaling and proxy transitions need further work.
+Normal deck.gl and WebXR adapters do not opt in automatically.
 
 ### `animationTime`
 

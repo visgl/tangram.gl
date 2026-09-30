@@ -12,7 +12,9 @@ export interface VisibilityViewState {
     /** Optional host matrices for policies selecting a precise per-eye footprint. */
     readonly camera?: HostCamera;
     readonly center: {readonly lng: number; readonly lat: number};
+    /** Scene/style zoom used to calculate meter scale, independent of data detail. */
     readonly zoom: number;
+    /** Requested data-tile level, before source normalization. */
     readonly tile_zoom: number;
     readonly size: {readonly css: {readonly width: number; readonly height: number}};
     readonly bounds: Bounds | null;
@@ -22,7 +24,7 @@ export interface VisibilityViewState {
 
 /** Bounds and LOD state calculated for a Tangram view. */
 export interface CalculatedViewBounds {
-    /** Tile/style zoom selected for the current view. */
+    /** Data-tile zoom selected for the current view. */
     tileZoom: number;
     metersPerPixel: number;
     sizeMeters: Meters;

@@ -30,6 +30,46 @@ function frame(overrides: Partial<HostFrameOptions> = {}): HostFrame {
 afterEach(() => vi.restoreAllMocks());
 
 describe('atomic multi-view host contract', () => {
+    test.each(['web-mercator', 'globe'] as const)('%s selects one shared data LOD without changing style zoom', type => {
+        const renderer = new Renderer({});
+        const view = renderer.scene.view;
+        const selection = vi.spyOn(view.scene.tile_manager, 'updateTilesForView');
+        const options: Partial<HostFrameOptions> = {
+            geographicAnchor: {longitude: 0, latitude: 0, zoom: 4.5},
+            projection: {type, visibleBounds: [-20, -10, 20, 10]},
+            tileZoom: 2,
+            renderViews: [{id: 'left', camera: camera(-1), geographicAnchor: {longitude: 0, latitude: 0, zoom: 1}},
+                {id: 'right', camera: camera(1), geographicAnchor: {longitude: 0, latitude: 0, zoom: 3}}]
+        };
+        renderer.setFrame(frame(options));
+        expect(view.findVisibleTileCoordinates().every(coordinate => coordinate.z === 2)).toBe(true);
+        expect(view.findVisibleTileCoordinates().length).toBeGreaterThan(0);
+        expect(view.center?.tile?.z).toBe(2);
+        expect(view.zoom).toBe(4.5);
+        expect(view.tile_zoom).toBe(4);
+        selection.mockClear();
+        renderer.setFrame(frame({...options, tileZoom: 3}));
+        expect(selection).toHaveBeenCalledTimes(1);
+        expect(view.findVisibleTileCoordinates().every(coordinate => coordinate.z === 3)).toBe(true);
+        expect(view.tile_zoom).toBe(4);
+        selection.mockClear();
+        renderer.setFrame(frame({...options, tileZoom: 3}), {renderViewId: 'right'});
+        expect(selection).not.toHaveBeenCalled();
+        renderer.setFrame(frame({...options, tileZoom: undefined, renderViews: [{camera: camera()}]}));
+        expect(view.center?.tile?.z).toBe(4);
+        expect(view.findVisibleTileCoordinates().every(coordinate => coordinate.z === 4)).toBe(true);
+    });
+
+    test('rejects invalid LOD before changing the previous host frame', () => {
+        const renderer = new Renderer({});
+        renderer.setFrame(frame({tileZoom: 2}));
+        const previous = renderer.host_frame;
+        expect(() => renderer.setFrame({...frame(), tileZoom: 5})).toThrow(/tileZoom/);
+        expect(renderer.host_frame).toBe(previous);
+        expect(renderer.scene.view.tile_zoom).toBe(4);
+        expect(renderer.scene.view.center?.tile?.z).toBe(2);
+    });
+
     test('honors per-eye bounded and empty planar footprints without falling back to a legacy rectangle', () => {
         const renderer = new Renderer({});
         const policy = renderer.scene.view.visibility_adapter;

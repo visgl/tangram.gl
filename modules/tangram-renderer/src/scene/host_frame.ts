@@ -27,6 +27,8 @@ export default class HostFrame {
     readonly activeRenderViewId: string;
     /** Conservative neighboring tile buffer. */
     readonly tileBuffer: number;
+    /** Shared data-tile level, independent of scene/style zoom, when supplied. */
+    readonly tileZoom?: number;
     /** Shared elapsed scene animation time in seconds, when supplied. */
     readonly animationTime?: number;
 
@@ -37,6 +39,7 @@ export default class HostFrame {
         this.geographicAnchor = normalizeAnchor(record.geographicAnchor);
         this.projection = normalizeProjection(record.projection);
         this.tileBuffer = normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer');
+        this.tileZoom = normalizeTileZoom(record.tileZoom, this.geographicAnchor.zoom);
         this.animationTime = record.animationTime === undefined ? undefined :
             normalizeNonNegative(record.animationTime, 'animationTime');
         if (!Array.isArray(record.renderViews) || record.renderViews.length === 0) {
@@ -129,9 +132,22 @@ export default class HostFrame {
             }),
             activeRenderViewId: typeof record.activeRenderViewId === 'string' ? record.activeRenderViewId : undefined,
             tileBuffer: normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer'),
+            tileZoom: normalizeTileZoom(record.tileZoom, normalizeAnchor(record.geographicAnchor).zoom),
             animationTime: record.animationTime === undefined ? undefined : normalizeNonNegative(record.animationTime, 'animationTime')
         });
     }
+}
+
+/** Validate coarsening without introducing unsupported geometry underzoom. */
+function normalizeTileZoom(value: unknown, styleZoom: number): number | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 22 ||
+        value > Math.floor(styleZoom)) {
+        throw new Error('HostFrame tileZoom must be an integer from 0 to 22, no higher than the shared style zoom');
+    }
+    return value;
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {

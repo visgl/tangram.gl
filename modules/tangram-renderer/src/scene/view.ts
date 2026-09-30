@@ -84,6 +84,7 @@ export default class View {
     private applyingFrame = false;
     camera?: Camera;
     zoom: number | null;
+    /** Integer style zoom retained for source display filters and worker geometry. */
     tile_zoom: number | undefined;
     center: ViewCenter | null;
     bounds: Bounds | null;
@@ -153,7 +154,7 @@ export default class View {
     /** Installs every host field before making one visibility update. */
     applyHostFrame(frame: HostFrame, resize: () => void, setCamera: () => void): void {
         const key = JSON.stringify({
-            anchor: frame.geographicAnchor, projection: frame.projection, buffer: frame.tileBuffer,
+            anchor: frame.geographicAnchor, projection: frame.projection, buffer: frame.tileBuffer, tileZoom: frame.tileZoom,
             views: frame.renderViews.map(view => ({
                 viewport: view.viewport, anchor: view.geographicAnchor, projection: view.projection,
                 camera: {view: Array.from(view.camera.view), projection: Array.from(view.camera.projection), position: view.camera.position}
@@ -189,7 +190,8 @@ export default class View {
             return null;
         }
         return {
-            center: this.center, zoom: this.zoom, tile_zoom: this.tile_zoom ?? this.baseZoom(this.zoom),
+            center: this.center, zoom: this.zoom,
+            tile_zoom: this.hostFrame?.tileZoom ?? this.tile_zoom ?? this.baseZoom(this.zoom),
             size: {css: {width: this.size.css.width, height: this.size.css.height}},
             bounds: this.bounds, buffer: this.buffer, wrap: this.wrap
         };
@@ -416,9 +418,9 @@ export default class View {
         }
 
         const viewBounds = this.visibility_adapter.calculateBounds(state);
-        this.tile_zoom = viewBounds.tileZoom;
-        if (typeof previousTileZoom === 'number' && viewBounds.tileZoom !== previousTileZoom) {
-            this.zoom_direction = viewBounds.tileZoom > previousTileZoom ? 1 : -1;
+        this.tile_zoom = this.hostFrame?.tileZoom === undefined ? viewBounds.tileZoom : this.baseZoom(state.zoom);
+        if (typeof previousTileZoom === 'number' && this.tile_zoom !== previousTileZoom) {
+            this.zoom_direction = this.tile_zoom > previousTileZoom ? 1 : -1;
         }
         this.meters_per_pixel = viewBounds.metersPerPixel;
         this.size.meters = viewBounds.sizeMeters;
@@ -455,7 +457,7 @@ export default class View {
                 ...state,
                 center: {lng: anchor.longitude, lat: anchor.latitude},
                 zoom: anchor.zoom,
-                tile_zoom: this.baseZoom(anchor.zoom),
+                tile_zoom: hostFrame.tileZoom ?? this.baseZoom(anchor.zoom),
                 size: {css: eye.viewport},
                 camera: projection.type === 'web-mercator' ? eye.camera : undefined
             };

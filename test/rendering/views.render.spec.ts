@@ -6,7 +6,7 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {commands} from 'vitest/browser';
 import {WebMercatorViewport} from '@deck.gl/core';
 import {RenderingHarness, coloredPixels, changedPixels, eyeDifference, DEVICE_TYPE, type ViewKind} from './harness';
-import {createRasterScene} from './scene';
+import {createRasterScene, createScene} from './scene';
 
 let harness: RenderingHarness | undefined;
 beforeEach(() => commands.startRenderingDiagnostics());
@@ -73,6 +73,31 @@ test('street-level zoom, resize, and style reload retain visible geometry', asyn
   const resized = await harness.pixels();
   expect([resized.width, resized.height]).toEqual([640, 360]);
   expect(coloredPixels(resized)).toBeGreaterThan(100);
+});
+
+test.each(['perspective', 'globe', 'first-person'] as const)('%s: explicit data LOD preserves zoom-filtered GPU styling', async kind => {
+  harness = new RenderingHarness(kind, 'stereo-preview');
+  await harness.initialize();
+  await harness.settle();
+  const styleZoom = Math.floor(harness.presentation.createFrame({width: harness.canvas.width,
+    height: harness.canvas.height, interpupillaryDistance: harness.interpupillaryDistance}).hostFrame.geographicAnchor.zoom);
+  expect(styleZoom).toBeGreaterThan(0);
+  const scene = createScene(harness.sourceUrl, '#20d0b0', false, harness.scale);
+  await harness.renderer.load({...scene, layers: {
+    roads: {...scene.layers.roads, filter: {...scene.layers.roads.filter, $zoom: {min: styleZoom}}},
+    buildings: {...scene.layers.buildings, filter: {...scene.layers.buildings.filter, $zoom: {min: styleZoom}}}
+  }});
+  for (const tileZoom of [styleZoom - 1, styleZoom, undefined]) {
+    harness.tileZoom = tileZoom;
+    await harness.settle();
+    const levels = harness.getTileLods();
+    expect(levels.length).toBeGreaterThan(0);
+    expect(levels.every(tile => tile.styleZoom === styleZoom && tile.dataZoom <= (tileZoom ?? styleZoom))).toBe(true);
+    expect(new Set(levels.map(tile => tile.dataZoom)).size).toBe(1);
+    const pixels = await harness.pixels();
+    expect(coloredPixels(pixels, 0, pixels.width / 2)).toBeGreaterThan(50);
+    expect(coloredPixels(pixels, pixels.width / 2)).toBeGreaterThan(50);
+  }
 });
 
 test('raster tiles render and can switch back to vector geometry', async () => {
