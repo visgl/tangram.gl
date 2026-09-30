@@ -83,9 +83,10 @@ to longitude/latitude and then to deck.gl globe coordinates before applying
 the host camera matrix. It uses bounds supplied by `GlobeViewport` to select
 tiles on both WebGL 2 and WebGPU.
 
-The remaining production-hardening work is to subdivide coarse tile geometry
-enough to follow the sphere, reject tiles behind the horizon, choose LOD from
-screen-space error, orient labels, and align picking with bent geometry.
+The globe visibility adapter now uses the host camera position to conservatively
+reject tiles wholly behind the globe horizon. Remaining production-hardening
+work is to subdivide coarse tile geometry enough to follow the sphere, choose
+LOD from screen-space error, orient labels, and align picking with bent geometry.
 
 Tangram custom position shaders should run before the host projection hook.
 Styles that replace geographic position entirely, such as the Albers morph,
