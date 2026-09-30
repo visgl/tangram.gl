@@ -44,7 +44,7 @@ export default class Renderer {
     host_frame: HostFrame | null;
     active_render_view_id: string | null;
     private animationFrame: unknown = null;
-    private readonly renderedViews = new Set<string>();
+    private readonly submittedViews = new Set<string>();
 
     constructor(config: SceneDefinition, options: RendererOptions = {}) {
         this.gpuBackend = options.device ? new LumaDeviceRenderer(options.device) : null;
@@ -91,7 +91,7 @@ export default class Renderer {
         }, () => this.scene.setCameraMatrices(render_view.camera));
         if (host_frame !== this.animationFrame) {
             this.animationFrame = host_frame;
-            this.renderedViews.clear();
+            this.submittedViews.clear();
             this.scene.host_animation_time = host_frame.animationTime ?? Math.max(0, (Date.now() - this.scene.start_time) / 1000);
         }
         if (render_view_changed) {
@@ -116,19 +116,19 @@ export default class Renderer {
         if (force) {
             this.scene.dirty = true;
         }
-        // Reusing a frame is supported: drawing the same eye again starts the next logical frame.
-        if (this.active_render_view_id && this.renderedViews.has(this.active_render_view_id)) {
-            this.renderedViews.clear();
+        // Submitting an eye again starts the next logical frame, even when its previous draw was skipped.
+        if (this.active_render_view_id && this.submittedViews.has(this.active_render_view_id)) {
+            this.submittedViews.clear();
             if (this.host_frame) {
                 this.scene.host_animation_time = this.host_frame.animationTime ?? Math.max(0, (Date.now() - this.scene.start_time) / 1000);
             }
         }
         const rendered = this.scene.updateScene({ renderPass });
-        if (this.renderedViews.size === 0) {
+        if (this.submittedViews.size === 0) {
             this.scene.processTasks();
         }
-        if (rendered && this.active_render_view_id) {
-            this.renderedViews.add(this.active_render_view_id);
+        if (this.active_render_view_id) {
+            this.submittedViews.add(this.active_render_view_id);
         }
         if (rendered && this.scene.config && this.scene.animated) {
             this.scene.requestRedraw();

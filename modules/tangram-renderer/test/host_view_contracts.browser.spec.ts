@@ -149,6 +149,45 @@ describe('atomic multi-view host contract', () => {
         expect(tasks).toHaveBeenCalledTimes(2);
     });
 
+    test.each([
+        {name: 'skipped mono', eyes: ['left'], results: [false]},
+        {name: 'skipped stereo', eyes: ['left', 'right'], results: [false, false]},
+        {name: 'skipped first eye', eyes: ['left', 'right'], results: [false, true]},
+        {name: 'skipped second eye', eyes: ['left', 'right'], results: [true, false]}
+    ])('tracks submissions and advances reused frames for $name', ({eyes, results}) => {
+        const renderer = new Renderer({});
+        const submittedTimes: (number | null)[] = [];
+        let submission = 0;
+        vi.spyOn(renderer.scene, 'updateScene').mockImplementation(() => {
+            submittedTimes.push(renderer.scene.host_animation_time);
+            return results[submission++ % results.length];
+        });
+        const tasks = vi.spyOn(renderer.scene, 'processTasks');
+        const now = vi.spyOn(Date, 'now');
+        const sharedFrame = frame();
+        for (let cycle = 0; cycle < 2; cycle++) {
+            for (const [eyeIndex, eye] of eyes.entries()) {
+                now.mockReturnValue(renderer.scene.start_time + (cycle * 2 + eyeIndex + 1) * 1000);
+                expect(renderer.render({frame: sharedFrame, renderViewId: eye})).toBe(results[eyeIndex]);
+                expect(tasks).toHaveBeenCalledTimes(cycle + 1);
+            }
+        }
+        expect(submittedTimes).toEqual([...eyes.map(() => 1), ...eyes.map(() => 3)]);
+    });
+
+    test('starts a fresh explicit-time frame even when every eye skips drawing', () => {
+        const renderer = new Renderer({});
+        vi.spyOn(renderer.scene, 'updateScene').mockReturnValue(false);
+        const tasks = vi.spyOn(renderer.scene, 'processTasks');
+        for (const animationTime of [4, 7]) {
+            const sharedFrame = frame({animationTime});
+            renderer.render({frame: sharedFrame, renderViewId: 'left'});
+            renderer.render({renderViewId: 'right'});
+            expect(renderer.scene.host_animation_time).toBe(animationTime);
+        }
+        expect(tasks).toHaveBeenCalledTimes(2);
+    });
+
     test.each([NaN, Infinity, 1e100])('rejects non-finite GPU projection values (%s)', value => {
         const projection = new Float64Array(new Matrix4());
         projection[0] = value;

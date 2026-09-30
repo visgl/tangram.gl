@@ -114,10 +114,11 @@ because their geographic visibility bounds already cover the host viewport.
 
 Optional non-negative elapsed scene time in seconds, shared by every eye.
 Supply it when the host uses an XR or other non-wall-clock timeline. Without it,
-the renderer captures elapsed time when a logical frame starts. Drawing a new
-frame object or drawing an already-rendered eye starts the next logical frame;
-switching to another eye does not advance time. Background tasks are processed
-once per logical frame.
+the renderer captures elapsed time when a logical frame starts. Submitting a new
+frame object or submitting an eye again starts the next logical frame;
+switching to another eye does not advance time. Submissions count even when a
+draw is skipped during initialization or because nothing needs rendering.
+Background tasks are processed once per logical frame.
 
 ## Static methods
 
