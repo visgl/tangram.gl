@@ -6778,6 +6778,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/trusted-types@npm:^1.0.6":
+  version: 1.0.6
+  resolution: "@types/trusted-types@npm:1.0.6"
+  checksum: 10c0/4bc61ac65b8e42d17c77a23f29cdf94e498acd2e23f4c00cf15c8281de94263ac313d46cbcd7cd1d03c066d497f9396845e3210ff0074f5f90f212cb3e8aac28
+  languageName: node
+  linkType: hard
+
 "@types/unist@npm:*, @types/unist@npm:^3.0.0":
   version: 3.0.3
   resolution: "@types/unist@npm:3.0.3"
@@ -6867,7 +6874,11 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@vis.gl/tangram-classic@workspace:examples/classic"
   dependencies:
+    "@vis.gl/dev-tools": "npm:2.0.0-alpha.8"
     "@vis.gl/tangram-renderer": "workspace:^"
+    monaco-editor: "npm:0.53.0"
+    playwright: "npm:^1.58.0"
+    vitest: "npm:^4.0.18"
   languageName: unknown
   linkType: soft
 
@@ -13854,6 +13865,15 @@ __metadata:
   version: 3.1.1
   resolution: "mjolnir.js@npm:3.1.1"
   checksum: 10c0/272e973124685db960a9254f22d194f889de12546d03d55f6570eeed64deaa10dede443308ef76f78233d153700e7963a30a3c6a44d7f084b7c5168f2722031e
+  languageName: node
+  linkType: hard
+
+"monaco-editor@npm:0.53.0":
+  version: 0.53.0
+  resolution: "monaco-editor@npm:0.53.0"
+  dependencies:
+    "@types/trusted-types": "npm:^1.0.6"
+  checksum: 10c0/016495f0b869ea3a4151b660e5b8653999e54da9834001b4e7e88edae5c749aee2f1b56020bfece51cd08fc8e7125cd9732f414e373aea554e2f2812ee8245f1
   languageName: node
   linkType: hard
 

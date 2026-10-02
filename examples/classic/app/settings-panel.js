@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {DEFAULT_SCENE, SCENE_OPTIONS} from './scene-catalog.js';
+import {createMonacoEnvironment} from './monaco-workers.js';
 
 function configureMonacoWorkers() {
   if (window.MonacoEnvironment) {
@@ -12,23 +13,20 @@ function configureMonacoWorkers() {
     window.tangramClassicBaseUrl || './',
     document.baseURI
   ).href;
-  window.MonacoEnvironment = {
-    getWorker(_workerId, label) {
-      const workerName = label === 'json' ? 'monaco-json.worker.js' : 'monaco-editor.worker.js';
-      return new Worker(new URL(workerName, workerBaseUrl), {type: 'module'});
-    }
-  };
+  window.MonacoEnvironment = createMonacoEnvironment(workerBaseUrl);
 }
 
 configureMonacoWorkers();
 
+// Match the locally built workers instead of allowing the CDN's semver
+// resolution to drift independently from the editor's worker protocol.
 const {
   AccordeonPanel,
   PanelManager,
   SettingsPanel,
   SidebarPanelContainer,
   TextEditorPanel
-} = await import('https://esm.sh/@deck.gl-community/panels@9.4.0-alpha.2?bundle');
+} = await import('https://esm.sh/@deck.gl-community/panels@9.4.0-alpha.2?bundle&deps=monaco-editor@0.53.0');
 
 const EXAMPLE_SCHEMA = {
   title: 'Example',

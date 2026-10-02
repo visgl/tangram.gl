@@ -2,4 +2,4 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import 'https://esm.sh/monaco-editor@0.52.2/esm/vs/editor/editor.worker.js';
+import 'monaco-editor/esm/vs/editor/editor.worker.js';
