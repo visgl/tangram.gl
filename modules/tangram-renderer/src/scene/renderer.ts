@@ -21,6 +21,8 @@ interface RendererScene {
     host_animation_time: number | null;
     subscribe(listeners: SceneListeners): unknown;
     load(config: SceneDefinition | null, options: SceneLoadOptions): unknown;
+    /** Retrieves current source and TileJSON provider credits for the host UI. */
+    getAttributions(): Promise<string[]>;
     resizeMap(width: number, height: number): void;
     setCameraMatrices(camera: import('../types').HostCamera): void;
     updateScene(options: {renderPass?: import('@luma.gl/core').RenderPass | null}): boolean;
@@ -70,6 +72,11 @@ export default class Renderer {
 
     load(config: SceneDefinition | null = null, options: SceneLoadOptions = {}): unknown {
         return this.scene.load(config, options);
+    }
+
+    /** Returns source credits without coupling the renderer to DOM, deck.gl or Leaflet controls. */
+    getAttributions(): Promise<string[]> {
+        return this.scene.getAttributions();
     }
 
     /**

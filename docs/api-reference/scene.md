@@ -135,6 +135,21 @@ const restaurants = await scene.queryFeatures({
 });
 ```
 
+## Attribution
+
+### `getAttributions()`
+
+Returns a promise of deduplicated source credit HTML, including TileJSON provider
+attribution. Explicit source credits and discovered metadata are retained
+together. Call after loading and refresh on configuration/source updates.
+Metadata failures reject instead of returning incomplete credits. Sources using
+only a tile URL must declare `attribution` explicitly; Tangram cannot infer a
+license from the tile URL or its features.
+
+The renderer never mounts a control or trusts this HTML. The displaying host
+must sanitize it and keep the required links readable. See
+[tile providers and attribution](../developer-guide/tile-providers.md).
+
 ## Media capture
 
 ### `screenshot({background = 'white'})`

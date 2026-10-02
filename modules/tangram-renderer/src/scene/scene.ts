@@ -25,7 +25,7 @@ import SceneLoader from './scene_loader';
 import View from './view';
 import Light from '../lights/light';
 import TileManager from '../tile/tile_manager';
-import DataSource from '../sources/data_source';
+import DataSource, {NetworkSource} from '../sources/data_source';
 import '../sources/sources';
 import FeatureSelection from '../selection/selection';
 import RenderStateManager from '../gl/render_state';
@@ -43,6 +43,8 @@ export default class Scene {
     declare subscribe: (listeners: SceneListeners) => void;
     declare view: View;
     declare config: (NonNullable<ViewScene['config']> & {animated?: boolean}) | null;
+    /** Current source instances, recreated when scene configuration changes. */
+    declare sources: Record<string, DataSource>;
     declare dirty: boolean;
     declare start_time: number;
     declare host_animation_time: number | null;
@@ -1491,6 +1493,18 @@ export default class Scene {
             return this.updateConfig({ normalize: false }).then(() => this.updating--);
         }
         return Promise.resolve();
+    }
+
+    /**
+     * Returns deduplicated credits for all current sources, including TileJSON providers.
+     * Hosts must display these credits and sanitize HTML before DOM insertion.
+     * Metadata loading is cached by each source; failures reject instead of silently dropping credits.
+     */
+    async getAttributions(): Promise<string[]> {
+        const sources: DataSource[] = Object.values(this.sources);
+        await Promise.all(sources.map(source => source instanceof NetworkSource && source.tilejson
+            ? source.resolveURL() : undefined));
+        return [...new Set(sources.flatMap(source => source.getAttributions()))];
     }
 
     // Update scene config, and optionally rebuild geometry

@@ -3,6 +3,7 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 
 import Tangram from '../../modules/tangram-renderer/dist/tangram.debug.mjs';
+import {createAttributionFragment} from './app/attribution.js';
 
 const {Scene} = Tangram;
 const {Geo, debugSettings} = Tangram.debug;
@@ -169,7 +170,8 @@ function extendLeaflet(options) {
 
                 // Subscribe to tangram events
                 this.scene.subscribe({
-                    move: this.onTangramViewUpdate.bind(this)
+                    move: this.onTangramViewUpdate.bind(this),
+                    update: () => Promise.resolve().then(() => this.updateAttribution()).catch(error => this.fire('error', error))
                 });
 
                 // Use leaflet's existing event system as the callback mechanism
@@ -181,13 +183,7 @@ function extendLeaflet(options) {
                         blocking: false
                     }).then(() => {
 
-                    if (!this.options.attribution) {
-                        for (const [, value] of Object.entries(this.scene.config.sources)) {
-                            if (value.attribution) {
-                                map.attributionControl.addAttribution(value.attribution);
-                            }
-                        }
-                    }
+                    void this.updateAttribution().catch(error => this.fire('error', error));
 
                     this._updating_tangram = true;
 
@@ -203,7 +199,27 @@ function extendLeaflet(options) {
                 });
             },
 
+            /** Update source credits independently of optional layer-level attribution. */
+            async updateAttribution() {
+                const map = this._map;
+                const scene = this.scene;
+                if (!map?.attributionControl || !scene) return;
+                const generation = this._attributionGeneration = (this._attributionGeneration || 0) + 1;
+                const credits = await scene.getAttributions();
+                if (this._map !== map || this.scene !== scene || generation !== this._attributionGeneration) return;
+                for (const credit of this._sourceAttributions || []) map.attributionControl.removeAttribution(credit);
+                this._sourceAttributions = credits.map(credit => {
+                    const container = document.createElement('span');
+                    container.append(createAttributionFragment([credit]));
+                    return container.innerHTML;
+                });
+                for (const credit of this._sourceAttributions) map.attributionControl.addAttribution(credit);
+            },
+
             onRemove (map) {
+                this._attributionGeneration = (this._attributionGeneration || 0) + 1;
+                for (const credit of this._sourceAttributions || []) map.attributionControl?.removeAttribution(credit);
+                this._sourceAttributions = [];
                 layerBaseClass.prototype.onRemove.apply(this, arguments);
 
                 map.off('layeradd layerremove overlayadd overlayremove', this._updateMapLayerCount);

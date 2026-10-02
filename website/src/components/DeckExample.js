@@ -184,11 +184,7 @@ export default function DeckExample({
         </div>
         <p id="attribution">
           &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
-          <span id="carto-attribution"> &copy; Basemap data providers</span>
-          <span id="nextzen-attribution" hidden>
-            {' '}
-            &copy; Nextzen
-          </span>
+          {' | '}<a href="https://carto.com/attributions">CARTO</a>
         </p>
       </div>
       {errorMessage ? <p className="alert alert--danger">{errorMessage}</p> : null}

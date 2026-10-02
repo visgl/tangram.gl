@@ -56,6 +56,28 @@ depth-write settings are translated by `LumaDeviceRenderer` into luma.gl
 `RenderPipelineParameters`. Classic rendering continues to apply the equivalent
 state through its existing WebGL state manager.
 
+## Source attribution
+
+### `renderer.getAttributions()`
+
+Returns `Promise<string[]>` containing deduplicated credit HTML from every
+current scene source, including attribution discovered when resolving TileJSON.
+Call after `load()` completes, and refresh after scene updates or source changes.
+The method delegates to `scene.getAttributions()` and adds no DOM or widget
+dependency. It resolves/caches TileJSON metadata but never fetches tile payloads
+just to obtain credits. Metadata failures reject; do not silently omit required
+credits when handling an error.
+
+The host is responsible for displaying credits and sanitizing provider HTML.
+Do not insert these strings directly with `innerHTML`. Keep safe linked text
+visible in map, fullscreen and captured/exported presentations, as required by
+the provider. Credits describe all configured sources, not a per-pixel visible
+source filter.
+
+See [tile providers and attribution](../developer-guide/tile-providers.md) for
+OpenFreeMap compatibility and headset presentation requirements. Deck hosts can
+use [`onAttributionChange`](./tangram-layer.md#onattributionchange).
+
 ## TypeScript contracts
 
 The package root exports the runtime classes together with `RendererOptions`,

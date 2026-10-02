@@ -28,6 +28,10 @@ const renderer = ClassicWebGLRenderer.create('scene.yaml', rendererOptions);
 
 renderer.setFrame(frame);
 renderer.load();
+const credits: Promise<string[]> = renderer.getAttributions();
+const sceneCredits: Promise<string[]> = renderer.scene.getAttributions();
+void credits;
+void sceneCredits;
 renderer.scene.updateConfig({rebuild: false});
 renderer.scene.setDataSource('places', {type: 'GeoJSON', data: {type: 'FeatureCollection'}});
 renderer.scene.queryFeatures({filter: {kind: 'place'}, geometry: true});

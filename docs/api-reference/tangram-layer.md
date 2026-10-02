@@ -287,6 +287,19 @@ Called when scene loading or rendering reports an error:
 The same error is also forwarded through deck.gl's layer error handling. Use this callback for
 application-specific status UI or logging.
 
+#### `onAttributionChange` (function, optional) {/* #onattributionchange */}
+
+* Default: no-op
+
+Called with `(credits: string[], scene: Scene)` after scene loading and source
+updates, once TileJSON attribution is available. Results from disposed layers
+or superseded metadata requests are ignored. Credits are deduplicated provider
+HTML, **not sanitized DOM content**. Display safe linked text in your map UI;
+TangramLayer does not mount an attribution control. Metadata failures are sent
+to `onSceneError` without making an otherwise renderable scene fatal.
+
+See [attribution requirements and safe presentation](../developer-guide/tile-providers.md).
+
 ### Globe visibility
 
 #### `globeMaxElevation` (number, optional) {/* #globemaxelevation */}

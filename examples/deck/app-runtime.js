@@ -7,6 +7,7 @@ import {PathLayer, ScatterplotLayer} from '@deck.gl/layers';
 import {webgpuAdapter} from 'https://esm.sh/@luma.gl/webgpu@9.4.0?bundle&external=@luma.gl/core';
 import {TangramLayer} from '@vis.gl/tangram-layers';
 import {resolveDeckExampleViewMode} from './app-loader.js';
+import {CARTO_ATTRIBUTION, getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 export function initializeDeckExample({
   embeddedViewMode,
@@ -162,8 +163,7 @@ export function initializeDeckExample({
   const infoTabPanels = document.querySelectorAll('[data-example-tab-panel]');
   const fullscreenButton = document.getElementById('example-fullscreen');
   const fullscreenTarget = document.getElementById('deck-container');
-  const cartoAttribution = document.getElementById('carto-attribution');
-  const nextzenAttribution = document.getElementById('nextzen-attribution');
+  const attributionElement = document.getElementById('attribution');
   const tronSourceLink = document.getElementById('tron-source-link');
   const nextzenKeyForm = document.getElementById('nextzen-key-form');
   const nextzenKeyInput = document.getElementById('nextzen-api-key');
@@ -204,6 +204,7 @@ export function initializeDeckExample({
 
   function createLayers() {
     const basemap = BASEMAPS[basemapId];
+    const attributionBasemapId = basemapId;
     const layers = [];
     const usesGlobeOverlay = viewModeId === 'globe';
     const overlayLandmarks = usesGlobeOverlay ? globeLandmarks : landmarks;
@@ -215,6 +216,9 @@ export function initializeDeckExample({
           scene: basemap.scene,
           apiKey,
           visible: basemapVisible,
+          onAttributionChange: credits => {
+            if (basemapId === attributionBasemapId) updateAttribution(attributionElement, credits);
+          },
           onSceneLoad: () => {
             const message = `${basemap.label} loaded through Tangram`;
             setStatus(
@@ -259,8 +263,7 @@ export function initializeDeckExample({
     const basemap = BASEMAPS[basemapId];
     const isTron = basemapId === 'tron' || basemapId === 'tronNextzen';
     const usesNextzen = basemapId === 'tronNextzen';
-    cartoAttribution.hidden = usesNextzen;
-    nextzenAttribution.hidden = !usesNextzen;
+    updateAttribution(attributionElement, getConfiguredAttributions(basemap.scene));
     tronSourceLink.hidden = !isTron;
     nextzenKeyForm.hidden = !usesNextzen;
     basemapSelect.disabled = !viewMode.supportsTangram;
@@ -446,6 +449,7 @@ export function initializeDeckExample({
         carto: {
           type: 'Raster',
           url,
+          attribution: CARTO_ATTRIBUTION,
           max_zoom: 20
         }
       },
@@ -472,6 +476,7 @@ export function initializeDeckExample({
         carto: {
           type: 'MVT',
           url: 'https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt',
+          attribution: CARTO_ATTRIBUTION,
           tile_size: 512,
           max_zoom: 14
         }
@@ -592,6 +597,7 @@ export function initializeDeckExample({
   function createTronNextzenScene(runtimeApiKey) {
     return {
       import: ['https://www.nextzen.org/carto/tron-style/6/tron-style.zip'],
+      sources: {mapzen: {attribution: '© <a href="https://www.nextzen.org/">Nextzen</a> © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'}},
       global: {
         sdk_api_key: runtimeApiKey || '',
         sdk_animated: true
@@ -631,6 +637,7 @@ export function initializeDeckExample({
         mapzen: {
           type: 'MVT',
           url: 'https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt',
+          attribution: CARTO_ATTRIBUTION,
           url_params: null,
           rasters: [],
           tile_size: 512,

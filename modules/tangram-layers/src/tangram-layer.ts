@@ -254,6 +254,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
         load: (message) => {
           injectNextzenApiKey(message.config, record.apiKey);
         },
+        update: () => this._updateAttributions(record),
         error: (message) =>
           this._reportSceneError(record, normalizeError(message), message.type !== 'scene_import')
       });
@@ -274,6 +275,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
             record.loaded = true;
             record.owner.setNeedsRedraw && record.owner.setNeedsRedraw();
             record.owner.props.onSceneLoad(record.scene);
+            this._updateAttributions(record);
           }
           return result;
         })
@@ -291,6 +293,21 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
         });
 
       return record;
+    }
+
+    /** Refresh credits after source recreation; ignore stale metadata and disposed layers. */
+    _updateAttributions(record) {
+      if (record.disposed || typeof record.renderer.getAttributions !== 'function') return;
+      const generation = record.attributionGeneration = (record.attributionGeneration || 0) + 1;
+      Promise.resolve().then(() => record.disposed ? undefined : record.renderer.getAttributions()).then(credits => {
+        if (credits && !record.disposed && generation === record.attributionGeneration) {
+          record.owner.props.onAttributionChange?.(credits, record.scene);
+        }
+      }).catch(error => {
+        if (!record.disposed && generation === record.attributionGeneration) {
+          this._reportSceneError(record, normalizeError(error), false);
+        }
+      });
     }
 
     _synchronizeTangramScene(record) {
@@ -414,6 +431,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
     globeVisibleBounds: null,
     firstPersonMaxGroundExtent: 20000,
     onSceneLoad: () => {},
+    onAttributionChange: () => {},
     onSceneError: () => {}
   };
 

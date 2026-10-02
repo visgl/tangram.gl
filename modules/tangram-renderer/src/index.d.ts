@@ -55,6 +55,8 @@ export declare class Scene {
   unsubscribe(listeners: SceneListeners): void;
   load(config?: SceneDefinition | null, options?: SceneLoadOptions): Promise<unknown>;
   updateConfig(options?: SceneUpdateOptions): Promise<void>;
+  /** Deduplicated source/TileJSON credits; HTML must be sanitized by the displaying host. */
+  getAttributions(): Promise<string[]>;
   setDataSource(name: string, config: SceneDataSource): Promise<unknown> | undefined;
   queryFeatures(
     options?: SceneQueryOptions
@@ -74,6 +76,8 @@ export declare class ClassicWebGLRenderer {
   ): HostFrame;
   render(options?: RenderOptions): boolean;
   load(config?: SceneDefinition | null, options?: SceneLoadOptions): Promise<unknown>;
+  /** Current source/TileJSON credits for the host's attribution UI. */
+  getAttributions(): Promise<string[]>;
   subscribe(listeners: SceneListeners): void;
   destroy(): unknown;
 }
