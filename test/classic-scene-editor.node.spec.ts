@@ -197,14 +197,42 @@ test('teardown ignores an in-flight renderer rejection and does not publish a la
   expect(harness.onDocumentChange).toHaveBeenCalledTimes(before);
 });
 
-test('reports error-and-revert renderer events even when Scene.load resolves', async () => {
-  let listener: {error: (event: {error: Error}) => void};
+test.each([undefined, 'yaml'])('reports root error-and-revert events of type %s even when Scene.load resolves', async type => {
+  let listener: {error: (event: {type?: string; error: Error}) => void};
   const scene = {
     subscribe: vi.fn(next => {listener = next;}), unsubscribe: vi.fn(),
-    load: vi.fn(async () => {listener.error({error: new Error('reverted scene')});})
+    load: vi.fn(async () => {
+      listener.error({type, error: new Error('reverted scene')});
+      listener.error({type: 'scene_import', error: new Error('unavailable fallback import')});
+    })
   };
   await expect(loadClassicEditorScene(scene, {}, undefined, () => false)).rejects.toThrow('reverted scene');
   expect(scene.unsubscribe).toHaveBeenCalledWith(listener!);
+});
+
+test('keeps an accepted style selected and editable after a recoverable import error', async () => {
+  let listener: {error: (event: {type: string; error: Error}) => void};
+  const scene = {
+    subscribe: vi.fn(next => {listener = next;}), unsubscribe: vi.fn(),
+    load: vi.fn(async () => {
+      listener.error({type: 'scene_import', error: new Error('unavailable nested import')});
+    })
+  };
+  const harness = createHarness();
+  harness.loadScene.mockImplementation((config, options) => loadClassicEditorScene(scene, config, options, () => false));
+  await harness.controller.selectScene('styles/second.yaml');
+  expect(harness.onDocumentChange).toHaveBeenLastCalledWith({
+    source: '{\n  "scene": {\n    "second": true\n  }\n}', status: 'ready', message: '', readOnly: false
+  });
+  expect(scene.unsubscribe).toHaveBeenCalledWith(listener!);
+
+  harness.controller.editSource('{"edited":true}');
+  await vi.advanceTimersByTimeAsync(400);
+  expect(scene.load).toHaveBeenLastCalledWith({edited: true}, {
+    base_path: 'https://example.test/tangram.gl/examples/classic/styles/'
+  });
+  expect(harness.onDocumentChange).toHaveBeenLastCalledWith(expect.objectContaining({status: 'applied', readOnly: false}));
+  expect(scene.unsubscribe).toHaveBeenCalledTimes(2);
 });
 
 test('does not load after disposal while waiting for renderer startup', async () => {
