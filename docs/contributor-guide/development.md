@@ -62,6 +62,15 @@ different Monaco release. Browser and coverage commands build the workers before
 running the hermetic schema-validation and editing tests. These generated assets
 stay under `examples/classic/dist/` and are copied into the website, not committed.
 
+The playground uses a controlled community `TextEditorPanel` document. Style
+selection replaces its `value` through the mounted sidebar/accordion composition;
+changing `defaultValue` or updating a nested panel definition alone does not
+update the visible editor. Keep renderer loads serialized, preserve the selected
+style's base URL when applying edits, and cancel queued edits and source requests
+when changing styles or leaving the example. Browser regressions exercise the
+same community panel version through an example-only development dependency,
+with local fixtures rather than CDN or tile-service requests.
+
 Private shared development helpers live under `dev-modules/`. They are not
 published and should stay focused on test and build infrastructure.
 

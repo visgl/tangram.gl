@@ -23,6 +23,7 @@ test('pins the panel client to the exact locally installed worker version', () =
   const packageConfig = JSON.parse(readFileSync(new URL('../examples/classic/package.json', import.meta.url), 'utf8'));
   const panelSource = readFileSync(new URL('../examples/classic/app/settings-panel.js', import.meta.url), 'utf8');
   expect(packageConfig.devDependencies['monaco-editor']).toBe('0.53.0');
+  expect(panelSource).toContain(`@deck.gl-community/panels@${packageConfig.devDependencies['@deck.gl-community/panels']}?bundle`);
   expect(panelSource).toContain(`deps=monaco-editor@${packageConfig.devDependencies['monaco-editor']}`);
   for (const worker of ['editor', 'json']) {
     const entry = readFileSync(new URL(`../examples/classic/monaco-${worker}.worker.js`, import.meta.url), 'utf8');
