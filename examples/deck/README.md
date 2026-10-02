@@ -34,6 +34,13 @@ The zero-parameter demo defaults to WebGPU when the browser exposes it and to
 the vector-backed TRON style. Use the selectors or `?device=webgl` and
 `?basemap=streetsVector` to exercise the compatibility paths.
 
+Vector scenes default to OpenFreeMap's stable TileJSON endpoint. The **Vector
+provider** selector or `?provider=carto` retains CARTO as an explicit alternative.
+Both sources use OpenMapTiles layers, data zooms through 14, and source-driven
+attribution. The Positron raster scene stays on CARTO; the original Nextzen scene
+is independent of this selector. Provider selection is preserved when changing
+devices or views; switching providers reloads the page and keeps the chosen style.
+
 The demo can switch between Streets vector tiles, styled locally by
 Tangram, Positron raster tiles, and the canonical animated TRON 2.0
 vector style from [`tangrams/tron-style`](https://github.com/tangrams/tron-style).

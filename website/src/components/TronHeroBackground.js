@@ -56,6 +56,7 @@ export default function TronHeroBackground() {
         '@deck.gl/core': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@deck.gl/layers': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.0?bundle',
+        '@math.gl/core': 'https://esm.sh/@math.gl/core@4.1.0?bundle',
         '@vis.gl/tangram-layers': `${tangramLayersUrl}?homepage=1`,
         '@vis.gl/tangram-renderer': `${tangramRendererUrl}?homepage=1`,
         '@vis.gl/tangram-renderer/core': `${tangramRendererUrl.replace('/index.js', '/core.js')}?homepage=1`
@@ -125,7 +126,8 @@ export default function TronHeroBackground() {
       </div>
       <p id="attribution" className="tangram-home-attribution">
         &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
-        {' | '}<a href="https://carto.com/attributions">CARTO</a>
+        {' | '}<a href="https://www.openmaptiles.org/">© OpenMapTiles</a>
+        {' | '}<a href="https://openfreemap.org">OpenFreeMap</a>
       </p>
     </>
   );

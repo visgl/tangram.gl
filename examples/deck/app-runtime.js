@@ -8,6 +8,7 @@ import {webgpuAdapter} from 'https://esm.sh/@luma.gl/webgpu@9.4.0?bundle&externa
 import {TangramLayer} from '@vis.gl/tangram-layers';
 import {resolveDeckExampleViewMode} from './app-loader.js';
 import {CARTO_ATTRIBUTION, getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
+import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 
 export function initializeDeckExample({
   embeddedViewMode,
@@ -21,6 +22,7 @@ export function initializeDeckExample({
   }
 
   const searchParams = new URLSearchParams(window.location.search);
+  const vectorProvider = resolveVectorProvider(searchParams.get('provider'));
   const requestedBackend = searchParams.get('device');
   const defaultDeviceType = 'webgpu';
   const deviceType = requestedBackend || (navigator.gpu ? defaultDeviceType : 'webgl');
@@ -50,7 +52,7 @@ export function initializeDeckExample({
     },
     tron: {
       label: 'TRON 2.0 shaders on vector tiles',
-      scene: createTronCartoScene({
+      scene: createTronVectorScene({
         portable: useWebGPU,
         labels: enablePortableText,
         animateTraffic: enablePortableTraffic,
@@ -157,6 +159,8 @@ export function initializeDeckExample({
   const statusElement = document.getElementById('status');
   const visibilityInput = document.getElementById('basemap-visible');
   const basemapSelect = document.getElementById('basemap-style');
+  const providerSelect = document.getElementById('vector-provider');
+  if (providerSelect) providerSelect.value = vectorProvider;
   const viewSelect = document.getElementById('view-type');
   const deviceTabButtons = document.querySelectorAll('[data-device-type]');
   const infoTabButtons = document.querySelectorAll('[data-example-tab]');
@@ -264,6 +268,7 @@ export function initializeDeckExample({
     const isTron = basemapId === 'tron' || basemapId === 'tronNextzen';
     const usesNextzen = basemapId === 'tronNextzen';
     updateAttribution(attributionElement, getConfiguredAttributions(basemap.scene));
+    if (providerSelect) providerSelect.disabled = usesNextzen || basemapId === 'positronRaster';
     tronSourceLink.hidden = !isTron;
     nextzenKeyForm.hidden = !usesNextzen;
     basemapSelect.disabled = !viewMode.supportsTangram;
@@ -328,6 +333,13 @@ export function initializeDeckExample({
   viewSelect?.addEventListener('change', (event) => {
     const url = new URL(window.location.href);
     url.searchParams.set('view', event.target.value);
+    window.location.assign(url);
+  });
+
+  providerSelect?.addEventListener('change', (event) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('provider', resolveVectorProvider(event.target.value));
+    url.searchParams.set('basemap', basemapId);
     window.location.assign(url);
   });
 
@@ -473,54 +485,48 @@ export function initializeDeckExample({
         Montserrat: {url: resolveExampleAsset('../classic/fonts/montserrat.woff')}
       },
       sources: {
-        carto: {
-          type: 'MVT',
-          url: 'https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt',
-          attribution: CARTO_ATTRIBUTION,
-          tile_size: 512,
-          max_zoom: 14
-        }
+        basemap: createVectorSource(vectorProvider)
       },
       layers: {
         landcover: {
-          data: {source: 'carto', layer: 'landcover'},
+          data: {source: 'basemap', layer: 'landcover'},
           draw: {
             polygons: {order: 1, color: '#e8eee5'}
           }
         },
         landuse: {
-          data: {source: 'carto', layer: 'landuse'},
+          data: {source: 'basemap', layer: 'landuse'},
           draw: {
             polygons: {order: 2, color: '#eeeae2'}
           }
         },
         parks: {
-          data: {source: 'carto', layer: 'park'},
+          data: {source: 'basemap', layer: 'park'},
           draw: {
             polygons: {order: 3, color: '#cfe5c8'}
           }
         },
         water: {
-          data: {source: 'carto', layer: 'water'},
+          data: {source: 'basemap', layer: 'water'},
           draw: {
             polygons: {order: 4, color: '#b9d9e7'}
           }
         },
         waterways: {
-          data: {source: 'carto', layer: 'waterway'},
+          data: {source: 'basemap', layer: 'waterway'},
           draw: {
             lines: {order: 5, color: '#a4cfdf', width: '1px'}
           }
         },
         buildings: {
-          data: {source: 'carto', layer: 'building'},
+          data: {source: 'basemap', layer: 'building'},
           filter: {$zoom: {min: 14}},
           draw: {
             polygons: {order: 6, color: '#ded8d0'}
           }
         },
         roads: {
-          data: {source: 'carto', layer: 'transportation'},
+          data: {source: 'basemap', layer: 'transportation'},
           draw: {
             lines: {
               order: () => {
@@ -569,7 +575,7 @@ export function initializeDeckExample({
           }
         },
         places: {
-          data: {source: 'carto', layer: 'place'},
+          data: {source: 'basemap', layer: 'place'},
           draw: {
             text: {
               order: 8,
@@ -605,7 +611,7 @@ export function initializeDeckExample({
     };
   }
 
-  function createTronCartoScene({
+  function createTronVectorScene({
     portable = false,
     labels = true,
     animateTraffic = true,
@@ -634,15 +640,7 @@ export function initializeDeckExample({
         }
       },
       sources: {
-        mapzen: {
-          type: 'MVT',
-          url: 'https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt',
-          attribution: CARTO_ATTRIBUTION,
-          url_params: null,
-          rasters: [],
-          tile_size: 512,
-          max_zoom: 14
-        }
+        mapzen: createVectorSource(vectorProvider)
       },
       layers: {
         landuse: {

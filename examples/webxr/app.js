@@ -10,7 +10,8 @@ import {webgpuAdapter} from '@luma.gl/webgpu';
 import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import {createStereoControls} from './stereo-controls.js';
 import {submitEyeRenderPass} from './submit-eye.js';
-import {CARTO_ATTRIBUTION, updateAttribution} from '../classic/app/attribution.js';
+import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
+import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {
   WebXRFirstPersonView,
   WebXRFirstPersonController,
@@ -70,6 +71,16 @@ const statusElement = document.getElementById('webxr-status');
 const titleElement = document.getElementById('webxr-title');
 const deviceButtons = document.querySelectorAll('[data-webxr-device]');
 const query = new URLSearchParams(window.location.search);
+const vectorProvider = resolveVectorProvider(query.get('provider'));
+const providerSelect = document.getElementById('webxr-vector-provider');
+if (providerSelect) {
+  providerSelect.value = vectorProvider;
+  providerSelect.addEventListener('change', event => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('provider', resolveVectorProvider(event.target.value));
+    window.location.assign(url);
+  });
+}
 const requestedDeviceType = query.get('device') === 'webgpu' ? 'webgpu' : 'webgl';
 const requestedViewMode = window.tangramWebXRViewMode || query.get('view');
 const viewMode = VIEW_MODES[requestedViewMode] || VIEW_MODES.globe;
@@ -181,6 +192,7 @@ const stereoControls = createStereoControls({
 });
 
 const scene = createTronScene({portable: requestedDeviceType === 'webgpu'});
+updateAttribution(document.getElementById('attribution'), getConfiguredAttributions(scene));
 
 if (titleElement) {
   titleElement.textContent = `WebXR ${viewMode.label}`;
@@ -722,18 +734,10 @@ function createTronScene({portable}) {
       }
     },
     sources: {
-      mapzen: {
-        type: 'MVT',
-        url: 'https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt',
-        attribution: CARTO_ATTRIBUTION,
-        url_params: null,
-        rasters: [],
-        tile_size: 512,
-        max_zoom: 14
-      }
+      mapzen: createVectorSource(vectorProvider)
     },
     layers: {
-      // Imported Tilezen rules must not merge into the CARTO rules below.
+      // Imported Tilezen rules must not merge into the OpenMapTiles rules below.
       landuse: {data: {source: 'mapzen', layer: '__disabled__'}},
       water: {data: {source: 'mapzen', layer: '__disabled__'}},
       roads: {data: {source: 'mapzen', layer: '__disabled__'}},
@@ -810,7 +814,7 @@ function createTronScene({portable}) {
 }
 
 // Tangram serializes style functions into workers, where `feature` is supplied
-// by the scene evaluator. CARTO/OpenMapTiles names its heights differently.
+// by the scene evaluator. OpenMapTiles names its heights differently.
 function buildingExtrusion() {
   return [
     feature.render_min_height || feature.min_height || 0,

@@ -144,6 +144,13 @@ export default function WebXRExample({viewMode = 'globe'}) {
               </button>
             ) : null}
           </div>
+          <label>
+            Vector provider
+            <select id="webxr-vector-provider" defaultValue="openfreemap">
+              <option value="openfreemap">OpenFreeMap</option>
+              <option value="carto">CARTO</option>
+            </select>
+          </label>
           <details id="webxr-stereo-settings" className="webxr-help">
             <summary>Stereo settings</summary>
           </details>
@@ -171,7 +178,8 @@ export default function WebXRExample({viewMode = 'globe'}) {
         </aside>
         <p id="attribution" className="webxr-attribution">
           &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
-          {' | '}<a href="https://carto.com/attributions">CARTO</a>
+          {' | '}<a href="https://www.openmaptiles.org/">© OpenMapTiles</a>
+          {' | '}<a href="https://openfreemap.org">OpenFreeMap</a>
         </p>
       </div>
       {errorMessage ? <p className="alert alert--danger">{errorMessage}</p> : null}
