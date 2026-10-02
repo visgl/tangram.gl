@@ -67,7 +67,10 @@ test('budget coarsens before enumeration, includes both eyes, and preserves inst
     const left = {...createFrame(7).renderViews[0], id: 'left'};
     const right = {...left, id: 'right'};
     const frame = createFrame(7, {maxTiles: 40}, {tileBuffer: 1, renderViews: [left, right]});
+    const observedFrames: (HostFrame | null)[] = [];
+    view.subscribe({move: () => observedFrames.push(renderer.host_frame)});
     renderer.setFrame(frame);
+    expect(observedFrames).toEqual([frame]);
     const count = view.findVisibleTileCoordinates().length;
     expect(count).toBeGreaterThan(0);
     expect(count).toBeLessThanOrEqual(20);
@@ -95,6 +98,31 @@ test('empty planar footprint does not allocate tiles', () => {
     const renderer = new Renderer({});
     renderer.setFrame(createFrame(3, {maxTiles: 1}, {projection: {type: 'web-mercator', visibleBounds: null}}));
     expect(renderer.scene.view.findVisibleTileCoordinates()).toEqual([]);
+});
+
+test('candidate budgets recalculate custom footprints at every candidate data zoom', () => {
+    const base = new WebMercatorVisibilityAdapter();
+    const calculatedZooms: number[] = [];
+    const renderer = new Renderer({}, {visibilityAdapter: {
+        calculateBounds: state => {
+            calculatedZooms.push(state.tile_zoom);
+            const result = base.calculateBounds(state);
+            if (state.tile_zoom < 8) {
+                const edge = Geo.circumference_meters / 2;
+                result.bounds = {sw: {x: -edge, y: -edge}, ne: {x: edge, y: edge}};
+            }
+            return result;
+        },
+        countTileCoordinates: state => base.countTileCoordinates(state),
+        findVisibleTileCoordinates: state => base.findVisibleTileCoordinates(state)
+    }});
+    renderer.setFrame(createFrame(2.5, {maxTiles: 64}, {projection: {type: 'web-mercator'}}));
+    expect(renderer.scene.view.center?.tile?.z).toBe(2);
+    expect(calculatedZooms).toContain(3);
+    expect(calculatedZooms).toContain(2);
+    const coordinates = renderer.scene.view.findVisibleTileCoordinates();
+    expect(coordinates).toHaveLength(25);
+    expect(coordinates.every(tile => tile.z === 2)).toBe(true);
 });
 
 test.each(['map', 'first-person', 'globe'] as const)('%s real deck camera selects bounded uniform data detail without altering style zoom', kind => {

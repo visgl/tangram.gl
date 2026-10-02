@@ -165,7 +165,7 @@ export default class View {
         }) : [];
         const dataTileZoom = this.projectedTileLOD.select(frame, eyeStates, zoom => {
             let count = 0;
-            for (const {eye, state, projection} of eyeStates) {
+            for (const {eye, projection} of eyeStates) {
                 if (projection.type === 'globe') {
                     if (!this.globe_visibility_adapter.countTileCoordinates) {
                         throw new Error('Automatic tile LOD requires a globe visibility candidate counter');
@@ -179,7 +179,9 @@ export default class View {
                     if (!this.visibility_adapter.countTileCoordinates) {
                         throw new Error('Automatic tile LOD requires a planar visibility candidate counter');
                     }
-                    count += this.visibility_adapter.countTileCoordinates({...state, tile_zoom: zoom});
+                    const state = this.getHostEyeState(frame, eye, zoom);
+                    const bounds = getProjectionBounds(projection, this.visibility_adapter.calculateBounds(state).bounds);
+                    count += this.visibility_adapter.countTileCoordinates({...state, bounds});
                 }
             }
             return count;
@@ -469,7 +471,8 @@ export default class View {
         this.meters_per_pixel = viewBounds.metersPerPixel;
         this.size.meters = viewBounds.sizeMeters;
         this.center.meters = viewBounds.centerMeters;
-        this.center.tile = viewBounds.centerTile;
+        this.center.tile = this.dataTileZoom === undefined ? viewBounds.centerTile :
+            Geo.tileForMeters([viewBounds.centerMeters.x, viewBounds.centerMeters.y], this.dataTileZoom);
         this.bounds = viewBounds.bounds;
 
         this.scene.tile_manager.updateTilesForView();
