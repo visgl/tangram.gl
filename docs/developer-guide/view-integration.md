@@ -277,7 +277,7 @@ high latitudes, antimeridian equivalents, wall/roof normals and mixed vectors.
 Packaged-renderer tests exercise both GLSL vertex and fragment directional
 lighting through camera rotations. No dependencies are added. With unchanged
 dependencies, the minified renderer ESM (including its embedded worker) grows
-by 4.867 KB raw / 1.009 KB gzip; the layer and WebXR entries are unchanged.
+by 4.891 KB raw / 1.017 KB gzip; the layer and WebXR entries are unchanged.
 
 Remaining: configurable WGSL scene lights, geographic point/spot-light placement,
 tangent-space normal maps, terrain normals, projected labels and picking. This
