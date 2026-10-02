@@ -49,6 +49,45 @@ test('URL-backed sources require explicit attribution and do not fetch tile payl
     expect(request).not.toHaveBeenCalled();
 });
 
+test.each([false, true])('setDataSource replaces existing provider credits and notifies subscribers (TileJSON: %s)', async useTileJSON => {
+    const request = vi.spyOn(Utils, 'io')
+        .mockResolvedValueOnce({status: 200, body: JSON.stringify({
+            tiles: ['https://old.example/{z}/{x}/{y}.pbf'], attribution: '© Old metadata'
+        })})
+        .mockResolvedValueOnce({status: 200, body: JSON.stringify({
+            tiles: ['https://new.example/{z}/{x}/{y}.pbf'], attribution: '© New metadata'
+        })});
+    const scene = Scene.create({});
+    Object.assign(scene, {config: {
+        sources: {basemap: {type: 'MVT', tilejson: 'https://old.example/planet', attribution: '© Old explicit'}},
+        layers: {roads: {data: {source: 'basemap'}}}
+    }});
+    scene.createDataSources();
+    const previousSource = scene.sources.basemap;
+    expect(await scene.getAttributions()).toEqual(['© Old explicit', '© Old metadata']);
+    const rebuild = vi.spyOn(scene, 'rebuild').mockResolvedValue(undefined);
+    const updateConfig = vi.spyOn(scene, 'updateConfig');
+    const subscriberCredits: Promise<string[]>[] = [];
+    const update = vi.fn(() => subscriberCredits.push(scene.getAttributions()));
+    scene.subscribe({update});
+
+    await scene.setDataSource('basemap', {
+        type: 'MVT', attribution: '© New explicit', tile_size: 512,
+        ...(useTileJSON ? {tilejson: 'https://new.example/planet'} : {url: 'https://new.example/{z}/{x}/{y}.pbf'})
+    });
+
+    const expected = useTileJSON ? ['© New explicit', '© New metadata'] : ['© New explicit'];
+    expect(scene.sources.basemap).not.toBe(previousSource);
+    expect(scene.sources.basemap.tile_size).toBe(512);
+    expect(scene.sources.basemap).toMatchObject({builds_geometry_tiles: true});
+    expect(await scene.getAttributions()).toEqual(expected);
+    expect(await Promise.all(subscriberCredits)).toEqual([expected]);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(updateConfig).not.toHaveBeenCalled();
+    expect(rebuild).toHaveBeenCalledExactlyOnceWith({sources: ['basemap']});
+    expect(request).toHaveBeenCalledTimes(useTileJSON ? 2 : 1);
+});
+
 test.each([undefined, 12, {}, '  '])('invalid/absent TileJSON attribution %s is ignored, not interpreted as markup', async attribution => {
     vi.spyOn(Utils, 'io').mockResolvedValue({status: 200, body: JSON.stringify({tiles: ['https://provider.example/{z}/{x}/{y}.pbf'], attribution})});
     const scene = Scene.create({});

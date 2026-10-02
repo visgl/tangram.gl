@@ -38,7 +38,8 @@ Ordinary tile-URL sources need explicit attribution. When both `url` and
 declare credits explicitly in that case too. Metadata failures reject so a host
 can report the problem rather than silently claim complete attribution.
 
-Refresh after source changes. `TangramLayer.onAttributionChange` handles loading,
+Refresh after source changes, including replacements through `setDataSource()`.
+`TangramLayer.onAttributionChange` handles loading,
 updates, stale asynchronous results and disposal for deck applications. The
 classic Leaflet example adds/removes source credits through Leaflet's existing
 control. Neither renderer entry imports Leaflet or an attribution widget.

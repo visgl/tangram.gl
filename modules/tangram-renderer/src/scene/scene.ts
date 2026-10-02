@@ -1294,6 +1294,10 @@ export default class Scene {
         if (load) {
             return this.updateConfig({ rebuild: { sources: [name] } });
         } else {
+            // Source-only updates keep the lightweight rebuild path, but must
+            // replace main-thread instances and notify attribution subscribers.
+            this.createDataSources();
+            this.trigger('update', {config: this.config});
             return this.rebuild({ sources: [name] });
         }
     }
