@@ -137,6 +137,8 @@ export type SceneUpdateOptions = {
 
 export type SceneDataSource = {
   type: string;
+  /** Required provider credit HTML for the host to display safely. */
+  attribution?: string;
   url?: string;
   tilejson?: string | Record<string, unknown>;
   data?: unknown;

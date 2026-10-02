@@ -119,15 +119,13 @@ export default function TronHeroBackground() {
             <form id="nextzen-key-form">
               <input id="nextzen-api-key" defaultValue="" />
             </form>
-            <span id="carto-attribution" />
-            <span id="nextzen-attribution" />
             <span id="tron-source-link" />
           </div>
         </div>
       </div>
       <p id="attribution" className="tangram-home-attribution">
         &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
-        <span id="carto-attribution-label"> &copy; Basemap data providers</span>
+        {' | '}<a href="https://carto.com/attributions">CARTO</a>
       </p>
     </>
   );

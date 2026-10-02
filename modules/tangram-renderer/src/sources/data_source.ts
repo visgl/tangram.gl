@@ -37,6 +37,8 @@ export default class DataSource {
     zoom_bias!: number;
     min_display_zoom!: number;
     max_display_zoom!: number | null;
+    /** Provider credits discovered in TileJSON, kept separate from scene-authored credits. */
+    protected metadata_attribution?: string;
 
     constructor (config: SourceConfig, sources?: Record<string, any>) {
         this.validate(config);
@@ -92,6 +94,13 @@ export default class DataSource {
         // no tiles will be requested or displayed outside of these min/max values
         this.min_display_zoom = Math.max(config.min_display_zoom || 0, this.zooms[0]);
         this.max_display_zoom = (config.max_display_zoom != null) ? config.max_display_zoom : null;
+    }
+
+    /** Returns source-authored and discovered provider HTML without inserting it into a DOM. */
+    getAttributions(): string[] {
+        const values: unknown[] = [this.config.attribution, this.metadata_attribution];
+        return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .map(value => value.trim()))];
     }
 
     // Register a new data source type name, providing a function that returns the class name
@@ -342,6 +351,7 @@ export class NetworkSource extends DataSource {
                         throw Error(`Data source '${this.name}': TileJSON must provide at least one tile URL`);
                     }
                     this.url = this.addURLParams(URLs.addBaseURL(metadata.tiles[0], this.tilejson));
+                    this.metadata_attribution = typeof metadata.attribution === 'string' ? metadata.attribution : undefined;
                     return this.url;
                 });
         }

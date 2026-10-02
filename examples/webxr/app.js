@@ -10,6 +10,7 @@ import {webgpuAdapter} from '@luma.gl/webgpu';
 import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import {createStereoControls} from './stereo-controls.js';
 import {submitEyeRenderPass} from './submit-eye.js';
+import {CARTO_ATTRIBUTION, updateAttribution} from '../classic/app/attribution.js';
 import {
   WebXRFirstPersonView,
   WebXRFirstPersonController,
@@ -547,9 +548,11 @@ async function initialize() {
   }
   renderer = ClassicWebGLRenderer.create(scene, rendererOptions);
   renderer.subscribe({
-    error: (message) => setStatus(message?.message || String(message), 'error')
+    error: (message) => setStatus(message?.message || String(message), 'error'),
+    update: () => Promise.resolve().then(refreshAttribution).catch(error => setStatus(error.message, 'error'))
   });
   await renderer.load(scene, {blocking: false});
+  await refreshAttribution();
 
   animationLoop = new AnimationLoop({
     device,
@@ -627,6 +630,16 @@ async function enableThorGestures() {
   } catch (error) {
     thorButton.disabled = false;
     setStatus(error.message, 'error');
+  }
+}
+
+/** Credits stay in the fullscreen container for mono/stereo preview and never accept unsafe HTML. */
+async function refreshAttribution() {
+  if (destroyed || !renderer) return;
+  const currentRenderer = renderer;
+  const credits = await currentRenderer.getAttributions();
+  if (!destroyed && renderer === currentRenderer) {
+    updateAttribution(document.getElementById('attribution'), credits);
   }
 }
 
@@ -712,6 +725,7 @@ function createTronScene({portable}) {
       mapzen: {
         type: 'MVT',
         url: 'https://tiles-a.basemaps.cartocdn.com/vectortiles/carto.streets/v1/{z}/{x}/{y}.mvt',
+        attribution: CARTO_ATTRIBUTION,
         url_params: null,
         rasters: [],
         tile_size: 512,
