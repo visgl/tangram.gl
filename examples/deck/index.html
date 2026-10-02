@@ -41,6 +41,13 @@ Copyright (c) vis.gl contributors
             </select>
           </label>
           <label class="control">
+            <span>Vector provider</span>
+            <select id="vector-provider">
+              <option value="openfreemap">OpenFreeMap</option>
+              <option value="carto">CARTO</option>
+            </select>
+          </label>
+          <label class="control">
             <span>deck.gl view</span>
             <select id="view-type">
               <option value="mapFlat">MapView — flat</option>
@@ -99,7 +106,8 @@ Copyright (c) vis.gl contributors
       </div>
       <p id="attribution">
         &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
-        | <a href="https://carto.com/attributions">CARTO</a>
+        | <a href="https://www.openmaptiles.org/">&copy; OpenMapTiles</a>
+        | <a href="https://openfreemap.org">OpenFreeMap</a>
       </p>
     </div>
     <script type="importmap">
@@ -108,6 +116,7 @@ Copyright (c) vis.gl contributors
           "@deck.gl/core": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
           "@deck.gl/layers": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
           "@luma.gl/core": "https://esm.sh/@luma.gl/core@9.4.0?bundle",
+          "@math.gl/core": "https://esm.sh/@math.gl/core@4.1.0?bundle",
           "@vis.gl/tangram-layers": "../../modules/tangram-layers/dist/index.js?monorepo=1",
           "@vis.gl/tangram-renderer": "../../modules/tangram-renderer/dist/index.js?monorepo=1",
           "@vis.gl/tangram-renderer/core": "../../modules/tangram-renderer/dist/core.js?monorepo=1"

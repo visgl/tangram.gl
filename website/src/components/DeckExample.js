@@ -54,6 +54,7 @@ export default function DeckExample({
         '@deck.gl/core': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@deck.gl/layers': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.0?bundle',
+        '@math.gl/core': 'https://esm.sh/@math.gl/core@4.1.0?bundle',
         '@vis.gl/tangram-layers': `${tangramLayersUrl}?embedded=1`,
         '@vis.gl/tangram-renderer': `${tangramRendererUrl}?embedded=1`,
         '@vis.gl/tangram-renderer/core': `${tangramRendererUrl.replace('/index.js', '/core.js')}?embedded=1`
@@ -125,6 +126,13 @@ export default function DeckExample({
                 <option value="tronNextzen">Original TRON 2.0 on Nextzen</option>
               </select>
             </label>
+            <label className="control">
+              <span>Vector provider</span>
+              <select id="vector-provider" defaultValue="openfreemap">
+                <option value="openfreemap">OpenFreeMap</option>
+                <option value="carto">CARTO</option>
+              </select>
+            </label>
             <label className="control checkbox-control">
               <input id="basemap-visible" type="checkbox" defaultChecked />
               Show TangramBasemapLayer
@@ -184,7 +192,8 @@ export default function DeckExample({
         </div>
         <p id="attribution">
           &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>
-          {' | '}<a href="https://carto.com/attributions">CARTO</a>
+          {' | '}<a href="https://www.openmaptiles.org/">© OpenMapTiles</a>
+          {' | '}<a href="https://openfreemap.org">OpenFreeMap</a>
         </p>
       </div>
       {errorMessage ? <p className="alert alert--danger">{errorMessage}</p> : null}

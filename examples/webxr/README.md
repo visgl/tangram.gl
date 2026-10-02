@@ -42,7 +42,14 @@ do not override headset tracking.
 Drag on either half to update the shared camera. Controls and VR setup instructions
 are available in a collapsible panel below the main viewing area.
 
-The TRON scene uses separate CARTO layers and reads OpenMapTiles `render_height`
+The **Vector provider** selector defaults to OpenFreeMap; `?provider=carto`
+selects the CARTO alternative. Sources resolve TileJSON credits and tile URLs
+from the stable planet endpoint, with data zoom capped at 14. Browser credits
+stay inside the fullscreen container for mono/stereo preview. DOM attribution
+is not visible in an immersive framebuffer; an in-headset credit surface is
+still required before treating immersive VR as attribution-complete.
+
+The TRON scene uses separate OpenMapTiles layers and reads `render_height`
 and `render_min_height` for building extrusion. It keeps the original animated
 traffic shaders on WebGL and the portable traffic implementation on WebGPU.
 

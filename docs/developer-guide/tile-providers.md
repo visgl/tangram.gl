@@ -57,7 +57,27 @@ The current experimental examples do **not** implement that surface. Likewise,
 canvas screenshots/video omit DOM credits; add attribution to exported media
 as required by the provider. Merely retrieving credits does not establish compliance.
 
-## Assessing OpenFreeMap
+## Default vector provider: OpenFreeMap
+
+The deck streets/TRON examples, homepage hero and WebXR vector scenes use
+OpenFreeMap by default. Choose **Vector provider → CARTO** in deck or WebXR
+controls, or append `?provider=carto` (use `&provider=carto` with existing query
+parameters). The provider is retained when changing devices/views; changing it
+reloads the example with the same style selection. This is a selectable
+alternative, not a silent automatic failover. The Positron raster alternative
+remains on CARTO; the Nextzen style still requires its existing key.
+
+The classic OpenMapTiles compatibility scenes already use OpenFreeMap. Offline
+GeoJSON previews and their CARTO raster context are intentionally unchanged.
+
+The shared source factory uses TileJSON rather than a hard-coded dated URL,
+clears inherited `url`/URL parameters, sets maximum data zoom 14 and tile size
+512 for deck/WebXR, and declares loading-time credits before metadata arrives.
+At higher view zooms Tangram overzooms level-14 data rather than requesting
+nonexistent higher levels. Recheck service metadata before changing these limits.
+
+The immersive headset/export attribution limitations above still apply. This
+provider migration does not establish immersive-VR attribution compliance.
 
 [OpenFreeMap](https://openfreemap.org/) offers a public instance without API keys
 or registration, and publishes an unmodified OpenMapTiles schema. Its
@@ -77,20 +97,21 @@ TileJSON credit is the straightforward choice. The public service currently
 offers no SLA guarantee. Follow the provider's current instructions rather than
 treating this document as a substitute for its terms.
 
-### Proposed rollout
+### Compatibility and follow-up validation
 
-1. Add OpenFreeMap as a selectable vector provider, retaining CARTO as an option.
-2. Reuse the OpenMapTiles-to-Tilezen compatibility transform for classic styles.
+1. Retain CARTO as a selectable vector option and as the raster alternative.
+2. Reuse the existing OpenMapTiles-to-Tilezen compatibility transform for classic styles.
    Compare layer names, road classes, building `render_height`/`render_min_height`,
    labels and zoom behavior with small conformance fixtures.
 3. Check TRON traffic, crosshatch, extruded buildings and labels with real tiles
    across MapView, FirstPersonView and GlobeView, on both GPU backends.
 4. Verify required links in source changes, stereo preview, fullscreen and exports;
    implement the separate immersive attribution surface before headset signoff.
-5. Only make it the default after visual parity and service behavior are understood.
+5. Continue regional and zoom-level comparisons; preserve the CARTO option while
+   remaining visual differences are characterized.
 
-The current deck vector examples already target OpenMapTiles-style layers such
+The deck vector examples target OpenMapTiles-style layers such
 as `transportation`, `building`, `landuse`, `water` and `place`. Legacy Tilezen
 styles expect different collections and properties; changing only a Nextzen
-URL will not make all those styles work. This assessment does not switch defaults
-or claim that every classic style is compatible.
+URL will not make all those styles work. This migration does not claim that
+every classic style is compatible.
