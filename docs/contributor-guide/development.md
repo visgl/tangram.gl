@@ -53,6 +53,15 @@ build consumes that output. For a standalone local server, run
 `yarn workspace @vis.gl/tangram-classic start`; the command builds both the
 renderer and playground before serving them.
 
+The classic build also uses `ocular-bundle` to create same-origin Monaco editor
+and JSON workers. Their exact Monaco version is pinned in the classic package's
+development dependencies and in the community panel's CDN `deps` parameter;
+update both together because the editor/worker RPC protocol is versioned.
+Do not replace these bundles with cross-origin worker URLs or workers from a
+different Monaco release. Browser and coverage commands build the workers before
+running the hermetic schema-validation and editing tests. These generated assets
+stay under `examples/classic/dist/` and are copied into the website, not committed.
+
 Private shared development helpers live under `dev-modules/`. They are not
 published and should stay focused on test and build infrastructure.
 

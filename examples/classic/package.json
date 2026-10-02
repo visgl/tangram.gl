@@ -8,10 +8,17 @@
     "dist"
   ],
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/build.mjs && yarn build:editor-workers",
+    "build:editor-workers": "ocular-bundle ./monaco-editor.worker.js --format=iife --env=prod --output=dist/monaco-editor.worker.js && ocular-bundle ./monaco-json.worker.js --format=iife --env=prod --output=dist/monaco-json.worker.js",
     "start": "yarn workspace @vis.gl/tangram-renderer build && yarn build && node scripts/serve.mjs"
   },
   "dependencies": {
     "@vis.gl/tangram-renderer": "workspace:^"
+  },
+  "devDependencies": {
+    "@vis.gl/dev-tools": "2.0.0-alpha.8",
+    "monaco-editor": "0.53.0",
+    "playwright": "^1.58.0",
+    "vitest": "^4.0.18"
   }
 }

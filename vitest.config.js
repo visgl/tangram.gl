@@ -15,7 +15,16 @@ const GENERATED_OR_EXTERNAL_COVERAGE_PATHS = [
 
 export default getVitestConfig({
   overrides: {
-    optimizeDeps: {include: ['sinon', '@luma.gl/experimental']},
+    optimizeDeps: {include: [
+      'sinon', '@luma.gl/experimental',
+      // Eagerly optimize Monaco's lazy JSON runtime so first use cannot reload
+      // other tests while their worker/client protocols are being initialized.
+      'monaco-editor/esm/vs/editor/editor.api.js',
+      'monaco-editor/esm/vs/editor/editor.worker.js',
+      'monaco-editor/esm/vs/language/json/monaco.contribution.js',
+      'monaco-editor/esm/vs/language/json/jsonMode.js',
+      'monaco-editor/esm/vs/language/json/json.worker.js'
+    ]},
     plugins: [
       {
         name: 'tangram-glsl',

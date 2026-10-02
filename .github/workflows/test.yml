@@ -51,6 +51,8 @@ jobs:
           test -f website/build/modules/tangram-renderer/dist/loaders-gl-worker.js
           test -f website/build/examples/deck/index.html
           test -f website/build/examples/classic/index.html
+          test -f website/build/examples/classic/monaco-editor.worker.js
+          test -f website/build/examples/classic/monaco-json.worker.js
           test -f /tmp/tangram-renderer.tgz
 
   lint:
