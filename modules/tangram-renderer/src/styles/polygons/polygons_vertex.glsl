@@ -11,7 +11,7 @@ uniform float u_tile_proxy_order_offset;
 uniform float u_meters_per_pixel;
 uniform float u_device_pixel_ratio;
 #ifndef TANGRAM_UNIFORM_BLOCK_TANGRAMVIEW
-uniform int u_projection_mode;
+uniform highp int u_projection_mode;
 #endif
 uniform mat4 u_model;
 uniform mat4 u_modelView;

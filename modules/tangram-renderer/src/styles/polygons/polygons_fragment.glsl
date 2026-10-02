@@ -12,7 +12,7 @@ uniform float u_device_pixel_ratio;
 uniform mat3 u_normalMatrix;
 uniform mat3 u_inverseNormalMatrix;
 #ifndef TANGRAM_UNIFORM_BLOCK_TANGRAMVIEW
-uniform int u_projection_mode;
+uniform highp int u_projection_mode;
 #endif
 
 varying vec4 v_position;
