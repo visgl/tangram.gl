@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {GeographicAnchor, HostCamera, HostFrameOptions, HostProjection, Viewport} from '../types';
+import type {GeographicAnchor, HostCamera, HostFrameOptions, HostProjection, HostTileLODOptions, Viewport} from '../types';
 
 /** Validated per-eye state; optional visibility overrides never change scene/style state. */
 export interface NormalizedRenderView {
@@ -29,6 +29,8 @@ export default class HostFrame {
     readonly tileBuffer: number;
     /** Shared data-tile level, independent of scene/style zoom, when supplied. */
     readonly tileZoom?: number;
+    /** Validated projected-scale LOD settings, when enabled. */
+    readonly tileLOD?: Readonly<Required<HostTileLODOptions>>;
     /** Shared elapsed scene animation time in seconds, when supplied. */
     readonly animationTime?: number;
 
@@ -40,6 +42,10 @@ export default class HostFrame {
         this.projection = normalizeProjection(record.projection);
         this.tileBuffer = normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer');
         this.tileZoom = normalizeTileZoom(record.tileZoom, this.geographicAnchor.zoom);
+        this.tileLOD = normalizeTileLOD(record.tileLOD);
+        if (this.tileZoom !== undefined && this.tileLOD !== undefined) {
+            throw new Error('HostFrame tileZoom and tileLOD are mutually exclusive');
+        }
         this.animationTime = record.animationTime === undefined ? undefined :
             normalizeNonNegative(record.animationTime, 'animationTime');
         if (!Array.isArray(record.renderViews) || record.renderViews.length === 0) {
@@ -133,9 +139,27 @@ export default class HostFrame {
             activeRenderViewId: typeof record.activeRenderViewId === 'string' ? record.activeRenderViewId : undefined,
             tileBuffer: normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer'),
             tileZoom: normalizeTileZoom(record.tileZoom, normalizeAnchor(record.geographicAnchor).zoom),
+            tileLOD: normalizeTileLOD(record.tileLOD),
             animationTime: record.animationTime === undefined ? undefined : normalizeNonNegative(record.animationTime, 'animationTime')
         });
     }
+}
+
+/** Copy and validate all policy inputs before camera or scene state is touched. */
+function normalizeTileLOD(value: unknown): Required<HostTileLODOptions> | undefined {
+    if (value === undefined) return undefined;
+    const record = requireRecord(value, 'HostFrame tileLOD');
+    const targetTilePixels = record.targetTilePixels ?? 512;
+    const pixelRatio = record.pixelRatio ?? 1;
+    const maxTiles = record.maxTiles ?? 256;
+    const hysteresis = record.hysteresis ?? 0.2;
+    if (!isFiniteNumber(targetTilePixels) || targetTilePixels <= 0 ||
+        !isFiniteNumber(pixelRatio) || pixelRatio <= 0 ||
+        !isFiniteNumber(maxTiles) || !Number.isSafeInteger(maxTiles) || maxTiles < 1 ||
+        !isFiniteNumber(hysteresis) || hysteresis < 0 || hysteresis >= 1) {
+        throw new Error('HostFrame tileLOD requires positive pixel scales, a positive integer maxTiles, and hysteresis in [0, 1)');
+    }
+    return {targetTilePixels, pixelRatio, maxTiles, hysteresis};
 }
 
 /** Validate coarsening without introducing unsupported geometry underzoom. */

@@ -9,6 +9,8 @@ import ExternalCamera from './external_camera';
 import type Camera from './camera_base';
 import type {CameraView, CameraConfiguration, MatrixSet, Program, UniformBuffer} from './camera_base';
 import type HostFrame from './host_frame';
+import type {NormalizedRenderView} from './host_frame';
+import ProjectedTileLOD from './projected_tile_lod';
 import type {HostCamera, HostProjection} from '../types';
 import type {Bounds, Meters, Tile} from '../utils/geo';
 import type {TileCoordinate} from '../tile/tile_id';
@@ -80,6 +82,8 @@ export default class View {
     readonly globe_visibility_adapter: GlobeVisibilityLODAdapter;
     private readonly cameraFactory?: CameraFactory;
     private hostFrame: HostFrame | null = null;
+    private readonly projectedTileLOD = new ProjectedTileLOD();
+    private dataTileZoom?: number;
     private visibilityKey = '';
     private applyingFrame = false;
     camera?: Camera;
@@ -153,8 +157,36 @@ export default class View {
 
     /** Installs every host field before making one visibility update. */
     applyHostFrame(frame: HostFrame, resize: () => void, setCamera: () => void): void {
+        const eyeStates = frame.tileLOD ? frame.renderViews.map(eye => {
+            const state = this.getHostEyeState(frame, eye, Math.floor(frame.geographicAnchor.zoom));
+            const projection = eye.projection ?? frame.projection;
+            const bounds = getProjectionBounds(projection, this.visibility_adapter.calculateBounds(state).bounds);
+            return {eye, state: {...state, bounds}, camera: eye.camera, viewport: eye.viewport, projection, bounds};
+        }) : [];
+        const dataTileZoom = this.projectedTileLOD.select(frame, eyeStates, zoom => {
+            let count = 0;
+            for (const {eye, state, projection} of eyeStates) {
+                if (projection.type === 'globe') {
+                    if (!this.globe_visibility_adapter.countTileCoordinates) {
+                        throw new Error('Automatic tile LOD requires a globe visibility candidate counter');
+                    }
+                    count += this.globe_visibility_adapter.countTileCoordinates({
+                        tile_zoom: zoom, buffer: frame.tileBuffer, visibleBounds: projection.visibleBounds,
+                        cameraPosition: eye.camera.position, maxElevation: projection.maxElevation
+                    });
+                }
+                else {
+                    if (!this.visibility_adapter.countTileCoordinates) {
+                        throw new Error('Automatic tile LOD requires a planar visibility candidate counter');
+                    }
+                    count += this.visibility_adapter.countTileCoordinates({...state, tile_zoom: zoom});
+                }
+            }
+            return count;
+        });
         const key = JSON.stringify({
-            anchor: frame.geographicAnchor, projection: frame.projection, buffer: frame.tileBuffer, tileZoom: frame.tileZoom,
+            anchor: frame.geographicAnchor, projection: frame.projection, buffer: frame.tileBuffer, tileZoom: dataTileZoom,
+            tileLOD: frame.tileLOD,
             views: frame.renderViews.map(view => ({
                 viewport: view.viewport, anchor: view.geographicAnchor, projection: view.projection,
                 camera: {view: Array.from(view.camera.view), projection: Array.from(view.camera.projection), position: view.camera.position}
@@ -162,6 +194,7 @@ export default class View {
         });
         const changed = key !== this.visibilityKey;
         this.hostFrame = frame;
+        this.dataTileZoom = dataTileZoom;
         this.applyingFrame = true;
         try {
             this.buffer = frame.tileBuffer;
@@ -191,9 +224,20 @@ export default class View {
         }
         return {
             center: this.center, zoom: this.zoom,
-            tile_zoom: this.hostFrame?.tileZoom ?? this.tile_zoom ?? this.baseZoom(this.zoom),
+            tile_zoom: this.dataTileZoom ?? this.tile_zoom ?? this.baseZoom(this.zoom),
             size: {css: {width: this.size.css.width, height: this.size.css.height}},
             bounds: this.bounds, buffer: this.buffer, wrap: this.wrap
+        };
+    }
+
+    /** Derives an eye's geographic state without mutating the installed logical frame. */
+    private getHostEyeState(frame: HostFrame, eye: NormalizedRenderView, tileZoom: number): VisibilityViewState {
+        const anchor = eye.geographicAnchor ?? frame.geographicAnchor;
+        const projection = eye.projection ?? frame.projection;
+        return {
+            center: {lng: anchor.longitude, lat: anchor.latitude}, zoom: anchor.zoom, tile_zoom: tileZoom,
+            size: {css: eye.viewport}, bounds: null, buffer: frame.tileBuffer, wrap: this.wrap,
+            camera: projection.type === 'web-mercator' ? eye.camera : undefined
         };
     }
 
@@ -418,7 +462,7 @@ export default class View {
         }
 
         const viewBounds = this.visibility_adapter.calculateBounds(state);
-        this.tile_zoom = this.hostFrame?.tileZoom === undefined ? viewBounds.tileZoom : this.baseZoom(state.zoom);
+        this.tile_zoom = this.dataTileZoom === undefined ? viewBounds.tileZoom : this.baseZoom(state.zoom);
         if (typeof previousTileZoom === 'number' && this.tile_zoom !== previousTileZoom) {
             this.zoom_direction = this.tile_zoom > previousTileZoom ? 1 : -1;
         }
@@ -451,19 +495,12 @@ export default class View {
         }
         const coordinates = new Map<string, TileCoordinate>();
         for (const eye of views) {
-            const anchor = eye.geographicAnchor ?? hostFrame.geographicAnchor;
             const projection = eye.projection ?? this.projection;
-            const eyeState: VisibilityViewState = {
-                ...state,
-                center: {lng: anchor.longitude, lat: anchor.latitude},
-                zoom: anchor.zoom,
-                tile_zoom: hostFrame.tileZoom ?? this.baseZoom(anchor.zoom),
-                size: {css: eye.viewport},
-                camera: projection.type === 'web-mercator' ? eye.camera : undefined
-            };
+            const eyeState = this.getHostEyeState(hostFrame, eye,
+                this.dataTileZoom ?? this.baseZoom((eye.geographicAnchor ?? hostFrame.geographicAnchor).zoom));
             const bounds = this.visibility_adapter.calculateBounds(eyeState);
             const visible = this.findCoordinates(
-                {...eyeState, bounds: bounds.bounds, tile_zoom: bounds.tileZoom},
+                {...eyeState, bounds: bounds.bounds, tile_zoom: this.dataTileZoom ?? bounds.tileZoom},
                 projection, eye.camera.position
             );
             for (const coordinate of visible) {
@@ -595,6 +632,21 @@ export default class View {
         return (this.pan_snap_timer <= VIEW_PAN_SNAP_TIME);
     }
 
+}
+
+/** Projects explicit geographic footprints, unwrapping globe samples across the antimeridian. */
+function getProjectionBounds(projection: HostProjection, fallback: Bounds): Bounds | null {
+    if (projection.visibleBounds === undefined) return fallback;
+    if (projection.visibleBounds === null) return null;
+    const [west, south, east, north] = projection.visibleBounds;
+    const clampLatitude = (latitude: number) => projection.type === 'globe'
+        ? Math.max(-85.05112878, Math.min(85.05112878, latitude)) : latitude;
+    const southwest = Geo.latLngToMeters([west, clampLatitude(south)]);
+    const northeast = Geo.latLngToMeters([projection.type === 'globe' && east < west ? east + 360 : east, clampLatitude(north)]);
+    if (![...southwest, ...northeast].every(Number.isFinite)) {
+        throw new Error('HostFrame visibleBounds must project to finite meters');
+    }
+    return {sw: {x: southwest[0], y: southwest[1]}, ne: {x: northeast[0], y: northeast[1]}};
 }
 
 function projectionsEqual(previous: HostProjection, next: HostProjection): boolean {

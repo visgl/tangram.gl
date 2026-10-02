@@ -44,6 +44,8 @@ export interface VisibilityLODAdapter {
     calculateBounds(view: VisibilityViewState): CalculatedViewBounds;
     /** Returns visible tiles for the current Web Mercator view. */
     findVisibleTileCoordinates(view: VisibilityViewState): TileCoordinate[];
+    /** Conservative candidate visits before allocation; required only for automatic host LOD. */
+    countTileCoordinates?(view: VisibilityViewState): number;
 }
 
 /** Geographic state required to select tiles for a globe viewport. */
@@ -64,6 +66,8 @@ export interface GlobeVisibilityViewState {
 export interface GlobeVisibilityLODAdapter {
     /** Returns visible tiles for the geographic bounds of a globe viewport. */
     findVisibleTileCoordinates(view: GlobeVisibilityViewState): TileCoordinate[];
+    /** Candidate visits before deduplication/horizon rejection; required only for automatic host LOD. */
+    countTileCoordinates?(view: GlobeVisibilityViewState): number;
 }
 
 /**
@@ -106,25 +110,12 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
      * @returns Visible tile coordinates at the current tile zoom.
      */
     findVisibleTileCoordinates(view: VisibilityViewState): TileCoordinate[] {
-        if (!view.bounds) {
+        const range = getPlanarTileRange(view);
+        if (!range) {
             return [];
         }
 
         const zoom = view.tile_zoom;
-        const southwest = Geo.tileForMeters([view.bounds.sw.x, view.bounds.sw.y], zoom);
-        const northeast = Geo.tileForMeters([view.bounds.ne.x, view.bounds.ne.y], zoom);
-        let range = [
-            southwest.x - view.buffer,
-            northeast.x + view.buffer,
-            northeast.y - view.buffer,
-            southwest.y + view.buffer
-        ];
-
-        if (!view.wrap) {
-            const maxTile = (1 << zoom) - 1;
-            range = range.map(value => Math.min(Math.max(0, value), maxTile));
-        }
-
         const coordinates: TileCoordinate[] = [];
         for (let x = range[0]; x <= range[1]; x++) {
             for (let y = range[2]; y <= range[3]; y++) {
@@ -133,11 +124,34 @@ export class WebMercatorVisibilityAdapter implements VisibilityLODAdapter {
         }
         return coordinates;
     }
+
+    /** Counts the same buffered range as enumeration without creating tile objects. */
+    countTileCoordinates(view: VisibilityViewState): number {
+        const range = getPlanarTileRange(view);
+        return range ? countTileRange(range) : 0;
+    }
+}
+
+/** Shared enumeration bounds keep the allocation budget consistent with selection. */
+function getPlanarTileRange(view: VisibilityViewState): number[] | null {
+    if (!view.bounds) return null;
+    const southwest = Geo.tileForMeters([view.bounds.sw.x, view.bounds.sw.y], view.tile_zoom);
+    const northeast = Geo.tileForMeters([view.bounds.ne.x, view.bounds.ne.y], view.tile_zoom);
+    const range = [southwest.x - view.buffer, northeast.x + view.buffer,
+        northeast.y - view.buffer, southwest.y + view.buffer];
+    const maxTile = 2 ** view.tile_zoom - 1;
+    return view.wrap ? range : range.map(value => Math.min(Math.max(0, value), maxTile));
+}
+
+/** Counts loop visits, including wrapped duplicates and fractional buffer origins. */
+function countTileRange(range: number[]): number {
+    return Math.max(0, Math.floor(range[1] - range[0]) + 1) *
+        Math.max(0, Math.floor(range[3] - range[2]) + 1);
 }
 
 /** Intersects a planar host frustum with EPSG:3857 ground, retaining the legacy fallback near the horizon. */
 function getGroundBounds(camera: HostCamera): Bounds | null {
-    const matrix = new Matrix4(camera.projection).multiplyRight(camera.view);
+    const matrix = new Matrix4().copy(camera.projection).multiplyRight(camera.view);
     const determinant = matrix.determinant();
     if (!Number.isFinite(determinant) || determinant === 0) {
         return null;
@@ -181,20 +195,12 @@ export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdap
             (!Number.isFinite(view.maxElevation) || view.maxElevation < 0)) {
             throw new Error('Globe visibility maxElevation must be a finite non-negative number');
         }
-        const [west, south, east, north] = view.visibleBounds;
         const zoom = view.tile_zoom;
         const tileCount = Math.pow(2, zoom);
-        const northY = latitudeToTileY(north, zoom);
-        const southY = latitudeToTileY(south, zoom);
-        const yStart = Math.max(0, Math.min(northY, southY) - view.buffer);
-        const yEnd = Math.min(tileCount - 1, Math.max(northY, southY) + view.buffer);
-        const longitudeRanges = splitLongitudeRange(west, east);
         const coordinates: TileCoordinate[] = [];
         const seen = new Set<string>();
 
-        for (const [rangeWest, rangeEast] of longitudeRanges) {
-            const xStart = longitudeToTileX(rangeWest, zoom) - view.buffer;
-            const xEnd = longitudeToTileX(rangeEast, zoom) + view.buffer;
+        for (const [xStart, xEnd, yStart, yEnd] of getGlobeTileRanges(view)) {
             for (let x = xStart; x <= xEnd; x++) {
                 const wrappedX = ((x % tileCount) + tileCount) % tileCount;
                 for (let y = yStart; y <= yEnd; y++) {
@@ -208,6 +214,25 @@ export class WebMercatorGlobeVisibilityAdapter implements GlobeVisibilityLODAdap
         }
         return coordinates;
     }
+
+    /** Bounds raw traversal work, not just the smaller visible/deduplicated result. */
+    countTileCoordinates(view: GlobeVisibilityViewState): number {
+        return getGlobeTileRanges(view).reduce((count, range) => count + countTileRange(range), 0);
+    }
+}
+
+/** Shared globe ranges account for antimeridian splitting and wrapped buffers. */
+function getGlobeTileRanges(view: GlobeVisibilityViewState): number[][] {
+    const [west, south, east, north] = view.visibleBounds;
+    const zoom = view.tile_zoom;
+    const northY = latitudeToTileY(north, zoom);
+    const southY = latitudeToTileY(south, zoom);
+    const yStart = Math.max(0, Math.min(northY, southY) - view.buffer);
+    const yEnd = Math.min(2 ** zoom - 1, Math.max(northY, southY) + view.buffer);
+    return splitLongitudeRange(west, east).map(([rangeWest, rangeEast]) => [
+        longitudeToTileX(rangeWest, zoom) - view.buffer,
+        longitudeToTileX(rangeEast, zoom) + view.buffer, yStart, yEnd
+    ]);
 }
 
 const GLOBE_RADIUS = 256;

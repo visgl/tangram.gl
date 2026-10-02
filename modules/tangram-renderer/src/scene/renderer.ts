@@ -81,14 +81,13 @@ export default class Renderer {
         const viewport = render_view.viewport;
         const render_view_changed = this.active_render_view_id !== render_view.id;
 
-        this.host_frame = host_frame;
-        this.active_render_view_id = render_view.id;
-
         this.scene.view.applyHostFrame(host_frame, () => {
             if (this.scene.view.size.css.width !== viewport.width || this.scene.view.size.css.height !== viewport.height) {
                 this.scene.resizeMap(viewport.width, viewport.height);
             }
         }, () => this.scene.setCameraMatrices(render_view.camera));
+        this.host_frame = host_frame;
+        this.active_render_view_id = render_view.id;
         if (host_frame !== this.animationFrame) {
             this.animationFrame = host_frame;
             this.submittedViews.clear();

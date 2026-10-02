@@ -24,6 +24,7 @@ new HostFrame({
   activeRenderViewId,
   tileBuffer,
   tileZoom,
+  tileLOD,
   animationTime
 });
 ```
@@ -190,6 +191,57 @@ bounded. There is no new request budget or transition hysteresis. Finer-than-sty
 LOD and mixed levels within one frame are not supported by this contract;
 Tangram's geometry overzoom scaling and proxy transitions need further work.
 Normal deck.gl and WebXR adapters do not opt in automatically.
+
+### `tileLOD`
+
+Optional automatic **uniform data LOD**, mutually exclusive with `tileZoom`.
+Both current and legacy frame shapes accept it. Omission keeps the existing
+zoom-driven behavior; no normal deck or WebXR example changes its default.
+
+```ts
+new HostFrame({
+  ...presentationFrame.hostFrame,
+  tileLOD: {
+    targetTilePixels: 512,
+    pixelRatio: window.devicePixelRatio,
+    maxTiles: 256,
+    hysteresis: 0.2
+  }
+});
+```
+
+All four fields are optional and default to the values above, except
+`pixelRatio`, which defaults to `1`. Pixel scales must be finite and positive,
+`maxTiles` a positive safe integer, and hysteresis in `[0, 1)` zoom levels.
+Viewport dimensions remain CSS pixels; pass the actual render-target pixel ratio.
+
+The renderer samples a 3×3 grid over each eye's surface footprint, measures the
+largest local screen-space magnification, and uses the most demanding eye to
+estimate a tile level. Planar positions use EPSG:3857 meters; globe positions
+and derivatives use the renderer's radius-256 sphere. The result is capped at
+the shared integer style zoom and level 22. The current level is retained within
+the hysteresis band; changes to policy settings, projection type or manual mode
+reset that history. Source normalization/display filters still behave as
+described under `tileZoom`.
+
+Before enumerating coordinates, the renderer lowers the level until the sum of
+buffered **candidate visits across all eyes** fits `maxTiles`. This conservatively
+counts overlapping eyes, wrapped duplicates and globe candidates later rejected
+by the horizon test. It bounds traversal/allocation work, **not** total cached
+tiles, bytes, source count, in-flight requests or source-normalized fetches.
+If even level zero cannot fit, `setFrame` throws without replacing the installed
+frame. Custom visibility adapters must implement a conservative
+`countTileCoordinates` method to opt into this policy; manual/legacy behavior
+does not require it.
+
+This is a sampled surface-scale estimate, not a certified feature-geometry
+pixel-error bound. A target edge size cannot guarantee detail at every point of
+a highly oblique footprint, and a resource cap can deliberately select coarser
+data. Missing visible samples conservatively retain the style-zoom cap before
+budget coarsening. Hosts must still provide bounded, conservative ground/globe
+footprints, including elevated geometry. Mixed per-tile LOD, elevation-aware
+error estimation, cache/request budgets and finer-than-style geometry remain
+separate work.
 
 ### `animationTime`
 
