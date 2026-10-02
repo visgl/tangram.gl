@@ -69,7 +69,12 @@ export default class ExternalCamera extends Camera {
         }
     }
 
+    /** Keep globe directional lights in common space; planar lights remain view-relative. */
     transformVector(vector: Vector): number[] {
+        if (this.view.projection?.type === 'globe') {
+            const length = Math.hypot(...vector);
+            return length === 0 ? Array.from(vector) : Array.from(vector, value => value / length);
+        }
         const matrix = this.view_matrix;
         const transformed = [
             matrix[0] * vector[0] + matrix[4] * vector[1] + matrix[8] * vector[2],

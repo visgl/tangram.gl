@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 uniform vec2 u_resolution;
 uniform float u_time;
@@ -91,6 +92,19 @@ vec3 tangramGlobePosition(vec3 mercator_position) {
     ) * radius;
 }
 
+// Rotate east/north/up surface normals into the same globe common space used
+// by positions and the host eye. No tile scale or camera is applied.
+vec3 tangramGlobeNormal(vec3 mercator_position, vec3 local_normal) {
+    const float TANGRAM_NORMAL_MERCATOR_RADIUS = 6378137.;
+    const float TANGRAM_NORMAL_HALF_PI = 1.5707963;
+    float longitude = mercator_position.x / TANGRAM_NORMAL_MERCATOR_RADIUS;
+    float latitude = 2. * atan(exp(mercator_position.y / TANGRAM_NORMAL_MERCATOR_RADIUS)) - TANGRAM_NORMAL_HALF_PI;
+    vec3 east = vec3(cos(longitude), sin(longitude), 0.);
+    vec3 north = vec3(-sin(longitude) * sin(latitude), cos(longitude) * sin(latitude), cos(latitude));
+    vec3 up = vec3(sin(longitude) * cos(latitude), -cos(longitude) * cos(latitude), sin(latitude));
+    return normalize(mat3(east, north, up) * local_normal);
+}
+
 vec4 tangramModelView(vec4 local_position, out vec4 world_position) {
     world_position = u_model * local_position;
     if (u_projection_mode == 1) {
@@ -158,6 +172,11 @@ void main() {
 
     // World coordinates for 3d procedural textures
     position = tangramModelView(position, v_world_position);
+    // Geographic orientation requires absolute meters, before the procedural
+    // texture precision wrap changes v_world_position's origin.
+    v_normal = u_projection_mode == 1
+        ? tangramGlobeNormal(v_world_position.xyz, TANGRAM_NORMAL)
+        : normalize(u_normalMatrix * TANGRAM_NORMAL);
     v_world_position = wrapWorldPosition(v_world_position);
 
     // Modify position before camera projection
@@ -165,7 +184,6 @@ void main() {
 
     // Setup varyings
     v_position = position;
-    v_normal = normalize(u_normalMatrix * TANGRAM_NORMAL);
     v_color = a_color;
 
     #if defined(TANGRAM_LIGHTING_VERTEX)

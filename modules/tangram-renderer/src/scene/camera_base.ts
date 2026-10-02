@@ -4,6 +4,7 @@
 // Copyright (c) 2026 vis.gl contributors
 
 import {Matrix3, Matrix4} from '@math.gl/core';
+import type {HostProjection} from '../types';
 
 export type Matrix = Float32Array | Float64Array;
 export type Vector = number[] | Float32Array | Float64Array;
@@ -18,6 +19,8 @@ export type CameraConfiguration = {
     axis?: {x: number; y: number} | number[];
 };
 export type CameraView = {
+    /** Host geographic projection; omitted by classic planar cameras. */
+    projection?: HostProjection;
     setView(view: {lng?: number; lat?: number; zoom?: number}): void;
     scene: {requestRedraw(): void};
     size: {

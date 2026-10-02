@@ -30,6 +30,23 @@ function frame(overrides: Partial<HostFrameOptions> = {}): HostFrame {
 afterEach(() => vi.restoreAllMocks());
 
 describe('atomic multi-view host contract', () => {
+    test('camera policy observes projection switches without replacing the camera or matrices', () => {
+        const renderer = new Renderer({});
+        const hostCamera: HostCamera = {...camera(), view: new Float64Array(new Matrix4().rotateZ(Math.PI / 2))};
+        const planar = frame({renderViews: [{camera: hostCamera}]});
+        renderer.setFrame(planar);
+        const activeCamera = renderer.scene.view.camera;
+        expect(activeCamera).toBeInstanceOf(ExternalCamera);
+        if (!(activeCamera instanceof ExternalCamera)) throw new Error('Expected host camera');
+        expect(activeCamera.transformVector([1, 0, 0])[1]).toBeCloseTo(1);
+        renderer.setFrame(frame({projection: {type: 'globe', visibleBounds: [-20, -10, 20, 10]},
+            renderViews: [{camera: hostCamera}]}));
+        expect(renderer.scene.view.camera).toBe(activeCamera);
+        expect(activeCamera.transformVector([1, 0, 0])).toEqual([1, 0, 0]);
+        renderer.setFrame(planar);
+        expect(activeCamera.transformVector([1, 0, 0])[1]).toBeCloseTo(1);
+    });
+
     test.each(['web-mercator', 'globe'] as const)('%s selects one shared data LOD without changing style zoom', type => {
         const renderer = new Renderer({});
         const view = renderer.scene.view;
