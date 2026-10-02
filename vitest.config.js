@@ -17,6 +17,8 @@ export default getVitestConfig({
   overrides: {
     optimizeDeps: {include: [
       'sinon', '@luma.gl/experimental',
+      '@deck.gl-community/panels',
+      'monaco-editor',
       // Eagerly optimize Monaco's lazy JSON runtime so first use cannot reload
       // other tests while their worker/client protocols are being initialized.
       'monaco-editor/esm/vs/editor/editor.api.js',

@@ -16,6 +16,7 @@
     "@vis.gl/tangram-renderer": "workspace:^"
   },
   "devDependencies": {
+    "@deck.gl-community/panels": "9.4.2-beta.1",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "monaco-editor": "0.53.0",
     "playwright": "^1.58.0",

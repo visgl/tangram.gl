@@ -2254,6 +2254,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deck.gl-community/panels@npm:9.4.2-beta.1":
+  version: 9.4.2-beta.1
+  resolution: "@deck.gl-community/panels@npm:9.4.2-beta.1"
+  dependencies:
+    "@probe.gl/stats": "npm:^4.1.1"
+    monaco-editor: "npm:^0.53.0"
+    preact: "npm:^10.17.0"
+  peerDependencies:
+    apache-arrow: ">=17"
+  peerDependenciesMeta:
+    apache-arrow:
+      optional: true
+  checksum: 10c0/0d793ecadb9ce1aea3a592852ec799e880eba524179861f6ceaf268f4327c398bf5d2a00fc52a67f3455fea25c660b3c2971481266daea825c521b245fd8faf4
+  languageName: node
+  linkType: hard
+
 "@deck.gl/core@npm:9.4.0, @deck.gl/core@npm:^9.4.0":
   version: 9.4.0
   resolution: "@deck.gl/core@npm:9.4.0"
@@ -6874,6 +6890,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@vis.gl/tangram-classic@workspace:examples/classic"
   dependencies:
+    "@deck.gl-community/panels": "npm:9.4.2-beta.1"
     "@vis.gl/dev-tools": "npm:2.0.0-alpha.8"
     "@vis.gl/tangram-renderer": "workspace:^"
     monaco-editor: "npm:0.53.0"
@@ -13868,7 +13885,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"monaco-editor@npm:0.53.0":
+"monaco-editor@npm:0.53.0, monaco-editor@npm:^0.53.0":
   version: 0.53.0
   resolution: "monaco-editor@npm:0.53.0"
   dependencies:
@@ -15940,6 +15957,18 @@ __metadata:
     picocolors: "npm:^1.1.1"
     source-map-js: "npm:^1.2.1"
   checksum: 10c0/2bdafc00d96bd57b6649a52e458864a4bf58ee56cfdbe4aea1472b5cccc127e6c1ad653bd0bec50d211e650eb0b9270c80e1e72aff2e2fa40d9e7363234d6e43
+  languageName: node
+  linkType: hard
+
+"preact@npm:^10.17.0":
+  version: 10.29.8
+  resolution: "preact@npm:10.29.8"
+  peerDependencies:
+    preact-render-to-string: ">=5"
+  peerDependenciesMeta:
+    preact-render-to-string:
+      optional: true
+  checksum: 10c0/505460352139e0ce5b9c971b69d8d9f3b73ea0f316e3ff1c0b3db9a1abe206c9dff6ba385eb796253c38fcc08b5ade70cd8da3d9d6c9e9aec1a2fd59348253ae
   languageName: node
   linkType: hard
 
