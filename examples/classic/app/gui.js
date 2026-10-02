@@ -1,6 +1,9 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
+
+import {SCENE_OPTIONS} from './scene-catalog.js';
 
 export function initializeClassicGui({
     scene,
@@ -61,37 +64,7 @@ export function initializeClassicGui({
     }
 
     function setScene(gui) {
-        // NOTE: using previous version of Mapzen/Nextzen basemaps, until some issues are
-        // resolved in current versions (syntax errors on shields, etc.)
-        var scenes = {
-            // Offline preview that does not require a tile service or API key
-            'Local streets (offline)': 'styles/local-basemap.yaml',
-            'TRON preview (offline)': 'styles/local-tron.yaml',
-            // Open raster basemaps that do not require a tile-service API key
-            'Light raster basemap': 'styles/open-light-raster.yaml',
-            'Street map raster': 'styles/open-streets-raster.yaml',
-            'Albers projection morph': 'styles/projection-morph.yaml',
-
-            // Default style
-            'Simple': 'scene.yaml',
-
-            // Nextzen (nee Mapzen) basemaps
-            'Bubble Wrap': 'styles/bubble-wrap.yaml',
-            'Walkabout': 'styles/walkabout.yaml',
-            'Refill': 'styles/refill.yaml',
-            'Refill Blue Terrain': 'styles/refill-blue-terrain.yaml',
-            'Tron': 'styles/tron.yaml',
-
-            // Crosshatch style (texture/shader demos)
-            'Crosshatch': 'styles/crosshatch.zip',
-            'Crosshatch (local preview)': 'styles/crosshatch-preview.yaml',
-
-            // Fragment shader example
-            'Rainbow Buildings': 'styles/rainbow-buildings.yaml',
-
-            // Vertex shader example
-            'Pop-up Buildings': 'styles/popup-buildings.yaml'
-        };
+        var scenes = Object.fromEntries(SCENE_OPTIONS.map(option => [option.label, option.value]));
 
         Object.keys(scenes).forEach(function (s) { scenes[s] = JSON.stringify(scenes[s]); }); // need to stringify JSON for dat.gui :(
 
@@ -106,6 +79,7 @@ export function initializeClassicGui({
         gui.add(gui, 'scene', scenes).onChange(function(value) {
             sceneKey = Object.keys(scenes).filter(function(s){ return scenes[s] === value })[0]; // find scene from sample list
             value = JSON.parse(value); // need to stringify JSON for dat.gui :(
+            window.tangramUpdateCartoBasemap?.(value);
             scene.load(value);
         });
     }
