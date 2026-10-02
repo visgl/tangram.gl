@@ -8,7 +8,7 @@ import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {HostFrame, Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import type {HostTileLODOptions} from '@vis.gl/tangram-renderer/core';
-import type {Scene} from '@vis.gl/tangram-renderer';
+import type {Scene, SceneDefinition} from '@vis.gl/tangram-renderer';
 import {Timeline} from '@luma.gl/engine';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
   WebXRMapController, WebXRGlobeController, WebXRFirstPersonController,
@@ -105,10 +105,9 @@ export class RenderingHarness {
   }
 
   /** Create a real device and load the fixture through Tangram's scene worker. */
-  async initialize() {
+  async initialize(scene: SceneDefinition = createScene(this.sourceUrl, undefined, false, this.scale)) {
     await this.initializeDevice();
     this.presentation.attachController({element: this.canvas, timeline: this.timeline});
-    const scene = createScene(this.sourceUrl, undefined, false, this.scale);
     this.renderer = ClassicWebGLRenderer.create(scene, {
       device: this.device, canvas: this.canvas, numWorkers: 1,
       continuousZoom: true, highDensityDisplay: false, logLevel: 'warn',

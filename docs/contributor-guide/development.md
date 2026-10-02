@@ -107,8 +107,8 @@ fails the lane; it does not silently fall back or skip. Both local runs and CI
 use Chromium's software adapter for consistency. Hardware GPU and headset
 testing remain necessary before a release.
 
-The fixtures are small authored GeoJSON roads/buildings and an in-memory raster
-checkerboard. They exercise real worker loading, triangulation, extrusion,
+The fixtures are small authored GeoJSON roads/buildings, generated OpenMapTiles-
+shaped MVT bytes, and an in-memory raster checkerboard. They exercise real worker loading, triangulation, extrusion,
 shader compilation, texture uploads, and drawing. Public network requests and
 browser/GPU errors fail the tests.
 
@@ -119,6 +119,7 @@ browser/GPU errors fail the tests.
 | Eye separation | Matching eye images at zero IPD; distinct images at 64 mm |
 | Zoom, resize, style changes | Geometry remains visible, image dimensions update, colors change |
 | Animation | Frozen clock advances produce different road pixels |
+| OpenMapTiles sources | MVT decoding in workers, transportation/building/place collections, property-driven heights, named labels, traffic animation, and capped-data overzoom |
 | Mouse input | Trusted Chromium drag events in either eye update shared state and pixels for all three view families |
 | Trackpad input | Fractional wheel events pass through DOM recognition and pan without zooming |
 | Touch input | Chromium two-touch pinch changes zoom and rotation |
@@ -136,6 +137,12 @@ uploads full-resolution PNGs, browser error diagnostics, and JUnit results in
 `screenshots/rendering/` and must not be committed. The ordinary unit-test and
 source-coverage lanes remain separate: rendering a generated bundle does not
 inflate source coverage.
+
+`openmaptiles.render.spec.ts` checks city tiles at native levels 13/14 and a regional
+globe tile at level 3. Both use the same authored topology, with scale-adjusted
+coordinates and heights. No provider snapshot, font download, or tile service
+is required. This is schema/rendering conformance, not a claim of complete visual
+parity with every OpenFreeMap or CARTO style.
 
 ## Website and examples
 
