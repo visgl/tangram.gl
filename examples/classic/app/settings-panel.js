@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {DEFAULT_SCENE, SCENE_OPTIONS} from './scene-catalog.js';
+
 function configureMonacoWorkers() {
   if (window.MonacoEnvironment) {
     return;
@@ -28,24 +30,6 @@ const {
   TextEditorPanel
 } = await import('https://esm.sh/@deck.gl-community/panels@9.4.0-alpha.2?bundle');
 
-const SCENE_OPTIONS = [
-  {label: 'Local streets', value: 'styles/local-basemap.yaml'},
-  {label: 'TRON preview', value: 'styles/local-tron.yaml'},
-  {label: 'Light raster basemap', value: 'styles/open-light-raster.yaml'},
-  {label: 'Street map raster', value: 'styles/open-streets-raster.yaml'},
-  {label: 'Albers projection morph', value: 'styles/projection-morph.yaml'},
-  {label: 'Crosshatch preview', value: 'styles/crosshatch-preview.yaml'},
-  {label: 'Simple', value: 'styles/simple.yaml'},
-  {label: 'Bubble Wrap', value: 'styles/bubble-wrap.yaml'},
-  {label: 'Walkabout', value: 'styles/walkabout.yaml'},
-  {label: 'Refill', value: 'styles/refill.yaml'},
-  {label: 'Refill Blue Terrain', value: 'styles/refill-blue-terrain.yaml'},
-  {label: 'TRON', value: 'styles/tron.yaml'},
-  {label: 'Crosshatch', value: 'styles/crosshatch.yaml'},
-  {label: 'Rainbow Buildings', value: 'styles/rainbow-buildings.yaml'},
-  {label: 'Pop-up Buildings', value: 'styles/popup-buildings.yaml'}
-];
-
 const EXAMPLE_SCHEMA = {
   title: 'Example',
   sections: [
@@ -58,13 +42,13 @@ const EXAMPLE_SCHEMA = {
           name: 'scene',
           label: 'Select style',
           type: 'select',
-          description: 'Historical styles use a keyless OpenMapTiles compatibility source.',
+          description: 'TRON and Crosshatch use live OpenFreeMap vector tiles. Local previews are separate choices.',
           options: SCENE_OPTIONS.map(option => ({
             label: option.label,
             value: option.value,
             description: 'Runs without a Nextzen key.'
           })),
-          defaultValue: 'styles/local-basemap.yaml',
+          defaultValue: DEFAULT_SCENE,
           persist: 'none'
         },
       ]
@@ -107,7 +91,7 @@ const SETTINGS_SCHEMA = {
 function createSettings() {
   const sceneUrl = window.tangramRequestedSceneWithoutKey
     ? 'styles/local-basemap.yaml'
-    : new URLSearchParams(window.location.search).get('scene') || 'styles/local-basemap.yaml';
+    : new URLSearchParams(window.location.search).get('scene') || window.tangramClassicScene || DEFAULT_SCENE;
   return {scene: sceneUrl, camera: 'perspective', debug: false};
 }
 

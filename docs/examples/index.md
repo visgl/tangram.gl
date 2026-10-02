@@ -40,12 +40,12 @@ directly from a checkout with a simple HTTP server.
   <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/tron.yaml">
     <span className="example-tile__eyebrow">Basemap</span>
     <strong>TRON</strong>
-    <span>Procedural neon geometry and animated shader effects.</span>
+    <span>Procedural neon geometry and animated highway traffic on live OpenFreeMap vector tiles.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/crosshatch.yaml">
     <span className="example-tile__eyebrow">Shader</span>
     <strong>Crosshatch</strong>
-    <span>A self-contained texture and shader study with local data.</span>
+    <span>The original texture and shader study on live OpenFreeMap vector tiles.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/rainbow-buildings.yaml">
     <span className="example-tile__eyebrow">Shader</span>
@@ -58,12 +58,12 @@ directly from a checkout with a simple HTTP server.
     <span>A vertex-shader experiment that lifts geometry around the view.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/local-basemap.yaml">
-    <span className="example-tile__eyebrow">Offline</span>
+    <span className="example-tile__eyebrow">Local data preview</span>
     <strong>Local streets</strong>
     <span>A deterministic vector preview that needs no tile-service key.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/local-tron.yaml">
-    <span className="example-tile__eyebrow">Offline</span>
+    <span className="example-tile__eyebrow">Local data preview</span>
     <strong>TRON preview</strong>
     <span>A local neon scene for testing when hosted tiles are unavailable.</span>
   </a>
@@ -86,6 +86,13 @@ directly from a checkout with a simple HTTP server.
 
 The classic playground remains available as a full-screen application and
 includes the same scenes in its control panel.
+
+The playground starts with the full animated TRON style. TRON and Crosshatch
+load keyless OpenFreeMap tiles through the OpenMapTiles-to-Tilezen adapter;
+they do not use the small local preview fixture or a CARTO raster underlay.
+Their original style archives remain separate from the tile service.
+Local-data previews are still selectable, with an optional CARTO raster context
+that requires a network connection. The local GeoJSON itself needs no tile service.
 
 The deck example is the recommended integration starting point. It exercises
 the package entrypoints, a deck.gl overlay, vector styles, and the TRON style

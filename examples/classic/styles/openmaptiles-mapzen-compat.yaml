@@ -6,6 +6,8 @@ sources:
   mapzen: &openmaptiles
     type: MVT
     url: ''
+    # Clear API keys inherited from hosted Nextzen style imports.
+    url_params: null
     tilejson: https://tiles.openfreemap.org/planet
     tile_size: 256
     max_zoom: 14

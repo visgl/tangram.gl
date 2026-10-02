@@ -79,19 +79,31 @@ page, so the examples sidebar stays visible while you move between demos.
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-playground.webp" alt="" loading="lazy" />
     <span className="example-tile__eyebrow">Playground</span>
     <strong>Classic playground</strong>
-    <span>Edit schema-validated scene JSON and explore the original Tangram styling workflow.</span>
+    <span>Edit schema-validated scene JSON, starting with animated TRON on live OpenFreeMap tiles.</span>
+  </a>
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/tron.yaml">
+    <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-tron.webp" alt="" loading="lazy" />
+    <span className="example-tile__eyebrow">Live vector · OpenFreeMap</span>
+    <strong>TRON</strong>
+    <span>Neon roads, glows, and animated highway traffic from the original style on live tiles.</span>
+  </a>
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/crosshatch.yaml">
+    <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-crosshatch.webp" alt="" loading="lazy" />
+    <span className="example-tile__eyebrow">Live vector · OpenFreeMap</span>
+    <strong>Crosshatch</strong>
+    <span>Texture and shader styling applied to live roads, buildings, and land features.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/local-basemap.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-local-streets.webp" alt="" loading="lazy" />
-    <span className="example-tile__eyebrow">Offline vector</span>
+    <span className="example-tile__eyebrow">Local data preview</span>
     <strong>Local streets</strong>
     <span>A keyless local vector-tile preview for quick renderer experiments.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/local-tron.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-local-tron.webp" alt="" loading="lazy" />
-    <span className="example-tile__eyebrow">Offline vector</span>
+    <span className="example-tile__eyebrow">Local data preview</span>
     <strong>TRON preview</strong>
-    <span>Dark neon roads and animated styling using the local preview data.</span>
+    <span>A small local-data neon preview, separate from the full animated TRON style.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/open-light-raster.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-open-light.webp" alt="" loading="lazy" />
@@ -141,23 +153,11 @@ page, so the examples sidebar stays visible while you move between demos.
     <strong>Refill Blue Terrain</strong>
     <span>A cool terrain variation of the Refill style.</span>
   </a>
-  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/tron.yaml">
-    <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-tron.webp" alt="" loading="lazy" />
-    <span className="example-tile__eyebrow">Style</span>
-    <strong>TRON</strong>
-    <span>Neon roads, glows, and animated highway traffic from the original style.</span>
-  </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/crosshatch-preview.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-crosshatch-preview.webp" alt="" loading="lazy" />
-    <span className="example-tile__eyebrow">Shader</span>
+    <span className="example-tile__eyebrow">Local data preview</span>
     <strong>Crosshatch preview</strong>
     <span>A local preview of texture and fragment-shader styling.</span>
-  </a>
-  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/crosshatch.yaml">
-    <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-crosshatch.webp" alt="" loading="lazy" />
-    <span className="example-tile__eyebrow">Shader</span>
-    <strong>Crosshatch</strong>
-    <span>The bundled texture and shader example from the classic gallery.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/rainbow-buildings.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-rainbow-buildings.webp" alt="" loading="lazy" />

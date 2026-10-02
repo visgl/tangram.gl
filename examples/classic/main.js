@@ -1,11 +1,13 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 import Tangram from '../../modules/tangram-renderer/dist/tangram.debug.mjs';
 import {leafletLayer} from './leaflet-layer.js';
 import {initializeApiKey} from './app/key.js';
 import {initializeUrlSync} from './app/url.js';
+import {DEFAULT_SCENE, getPreviewBasemapUrl} from './app/scene-catalog.js';
 
 /*
     Hello source-viewers!
@@ -18,7 +20,7 @@ export function createClassicDemo() {
         return null;
     }
 
-    var scene_url = window.tangramClassicScene || 'styles/local-basemap.yaml';
+    var scene_url = window.tangramClassicScene || DEFAULT_SCENE;
     var nextzen_scenes = [
         'scene.yaml',
         'styles/crosshatch.zip'
@@ -78,16 +80,16 @@ export function createClassicDemo() {
     // not cover the viewport.
     var cartoBasemap;
     function updateCartoBasemap(scene) {
-        var sceneName = typeof scene === 'string' ? scene : '';
-        var isDark = sceneName.indexOf('local-tron') > -1;
-        var tileUrl = isDark
-            ? 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-            : 'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png';
+        var tileUrl = getPreviewBasemapUrl(scene);
         if (cartoBasemap && cartoBasemap._url === tileUrl) {
             return;
         }
         if (cartoBasemap) {
             cartoBasemap.remove();
+            cartoBasemap = null;
+        }
+        if (!tileUrl) {
+            return;
         }
         cartoBasemap = L.tileLayer(tileUrl, {
             maxZoom: 22,
