@@ -32,7 +32,7 @@ import type {
   TangramUniformBufferOptions
 } from './gpu/tangram_gpu_backend.js';
 
-export type {Matrix4, Vector3, SceneDefinition, Viewport, GeographicAnchor, HostProjection, HostCamera, HostRenderView, HostFrameOptions, LegacyHostFrame, RendererOptions, SceneLoadOptions, SceneUpdateOptions, SceneDataSource, SceneFeature, SceneQueryOptions, SceneScreenshot, RenderOptions, SceneConfigEvent, SceneErrorEvent, SceneEventMap, SceneListener, SceneListeners, WorkerRequest, WorkerResponse, WorkerBrokerMessage} from './types.js';
+export type {Matrix4, Vector3, SceneDefinition, Viewport, GeographicAnchor, HostProjection, HostCamera, HostRenderView, HostTileLODOptions, HostFrameOptions, LegacyHostFrame, RendererOptions, SceneLoadOptions, SceneUpdateOptions, SceneDataSource, SceneFeature, SceneQueryOptions, SceneScreenshot, RenderOptions, SceneConfigEvent, SceneErrorEvent, SceneEventMap, SceneListener, SceneListeners, WorkerRequest, WorkerResponse, WorkerBrokerMessage} from './types.js';
 export {
   WebMercatorGlobeVisibilityAdapter,
   WebMercatorVisibilityAdapter

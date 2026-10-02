@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {ClassicWebGLRenderer, HostFrame} from '@vis.gl/tangram-renderer';
-import type {HostFrameOptions, RendererOptions} from '@vis.gl/tangram-renderer';
+import type {HostFrameOptions, HostTileLODOptions, RendererOptions} from '@vis.gl/tangram-renderer';
 
 const frameOptions = {
   viewport: {width: 800, height: 600},
@@ -27,6 +27,8 @@ const frame = new HostFrame(frameOptions);
 const renderer = ClassicWebGLRenderer.create('scene.yaml', rendererOptions);
 
 renderer.setFrame(frame);
+const tileLOD = {targetTilePixels: 512, pixelRatio: 2, maxTiles: 256, hysteresis: 0.2} satisfies HostTileLODOptions;
+renderer.setFrame({...frameOptions, tileZoom: undefined, tileLOD});
 renderer.load();
 renderer.scene.updateConfig({rebuild: false});
 renderer.scene.setDataSource('places', {type: 'GeoJSON', data: {type: 'FeatureCollection'}});

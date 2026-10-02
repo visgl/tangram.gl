@@ -211,9 +211,17 @@ finer-than-style levels. Real WebGL 2/WebGPU tests change data LOD while keeping
 zoom-filtered styles visible in stereo MapView, GlobeView and FirstPersonView.
 See the [contract and source-limit behavior](../api-reference/host-frame.md#tilezoom).
 
-Automatic projected-error selection, per-tile mixed LOD, hysteresis, request
-budgets and finer-than-style geometry scaling remain pending. This foundation
-does not change the normal deck adapters' LOD decisions or complete the tranche.
+An opt-in `HostFrame.tileLOD` now estimates uniform detail from the largest
+sampled projected surface scale across all eyes, with device-pixel ratio,
+transition hysteresis and a pre-enumeration candidate budget. It supports real
+MapView, FirstPersonView and GlobeView matrices while leaving style evaluation
+unchanged. See [options and limits](../api-reference/host-frame.md#tilelod).
+Normal deck adapters retain their existing defaults.
+
+Certified feature-geometry pixel error, per-tile mixed LOD, cache/request/byte
+budgets and finer-than-style geometry scaling remain pending. The candidate
+budget counts raw traversal across eyes, not GPU memory or network requests;
+this uniform surface estimate does not complete the entire tranche.
 
 Separate scene/style zoom from tile LOD. Evaluate projected tile size or error
 using the host matrices and viewport, including latitude, pitch, resize, and

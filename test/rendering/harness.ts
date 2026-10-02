@@ -7,6 +7,7 @@ import {luma, type Device} from '@luma.gl/core';
 import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {HostFrame, Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
+import type {HostTileLODOptions} from '@vis.gl/tangram-renderer/core';
 import type {Scene} from '@vis.gl/tangram-renderer';
 import {Timeline} from '@luma.gl/engine';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
@@ -72,6 +73,8 @@ export class RenderingHarness {
   interpupillaryDistance = 0.064;
   /** Optional explicit data LOD, shared by every submitted eye. */
   tileZoom?: number;
+  /** Optional projected-scale data LOD for the shared logical frame. */
+  tileLOD?: HostTileLODOptions;
   device!: Device;
   renderer!: ClassicWebGLRenderer;
 
@@ -139,7 +142,7 @@ export class RenderingHarness {
     this.presentation.updateTransitions();
     const frame = this.presentation.createFrame({width: this.canvas.width, height: this.canvas.height,
       interpupillaryDistance: this.interpupillaryDistance});
-    const hostFrame = new HostFrame({...frame.hostFrame, tileZoom: this.tileZoom});
+    const hostFrame = new HostFrame({...frame.hostFrame, tileZoom: this.tileZoom, tileLOD: this.tileLOD});
     for (const [index, view] of frame.renderViews.entries()) {
       this.renderer.setFrame(hostFrame, {renderViewId: view.id});
       const renderPass = this.device.beginRenderPass({

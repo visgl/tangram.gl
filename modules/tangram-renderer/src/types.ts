@@ -61,6 +61,18 @@ export type HostRenderView = {
   projection?: HostProjection;
 };
 
+/** Opt-in uniform data LOD estimated from projected surface scale across all eyes. */
+export type HostTileLODOptions = {
+  /** Target projected tile edge in device pixels; defaults to 512. */
+  targetTilePixels?: number;
+  /** Device pixels per viewport CSS pixel; defaults to 1. */
+  pixelRatio?: number;
+  /** Buffered candidate visits across eyes, before deduplication; defaults to 256. */
+  maxTiles?: number;
+  /** Zoom-level dead band around transitions; defaults to 0.2. */
+  hysteresis?: number;
+};
+
 export type HostFrameOptions = {
   viewport: Viewport;
   geographicAnchor: GeographicAnchor;
@@ -70,6 +82,8 @@ export type HostFrameOptions = {
   tileBuffer?: number;
   /** Optional shared data-tile zoom (integer 0–22, no higher than the shared style zoom). */
   tileZoom?: number;
+  /** Automatic shared data LOD; mutually exclusive with tileZoom. */
+  tileLOD?: HostTileLODOptions;
   /** Shared elapsed scene animation time in seconds. */
   animationTime?: number;
 };
@@ -82,6 +96,8 @@ export type LegacyHostFrame = {
   tileBuffer?: number;
   /** Optional shared data-tile zoom; omission preserves zoom-driven selection. */
   tileZoom?: number;
+  /** Opt-in projected-scale data LOD. */
+  tileLOD?: HostTileLODOptions;
   /** Shared elapsed scene animation time in seconds. */
   animationTime?: number;
 };

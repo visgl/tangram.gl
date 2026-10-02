@@ -75,7 +75,7 @@ test('street-level zoom, resize, and style reload retain visible geometry', asyn
   expect(coloredPixels(resized)).toBeGreaterThan(100);
 });
 
-test.each(['perspective', 'globe', 'first-person'] as const)('%s: explicit data LOD preserves zoom-filtered GPU styling', async kind => {
+test.each(['perspective', 'globe', 'first-person'] as const)('%s: data LOD preserves zoom-filtered GPU styling', async kind => {
   harness = new RenderingHarness(kind, 'stereo-preview');
   await harness.initialize();
   await harness.settle();
@@ -87,12 +87,13 @@ test.each(['perspective', 'globe', 'first-person'] as const)('%s: explicit data 
     roads: {...scene.layers.roads, filter: {...scene.layers.roads.filter, $zoom: {min: styleZoom}}},
     buildings: {...scene.layers.buildings, filter: {...scene.layers.buildings.filter, $zoom: {min: styleZoom}}}
   }});
-  for (const tileZoom of [styleZoom - 1, styleZoom, undefined]) {
-    harness.tileZoom = tileZoom;
+  for (const tileZoom of [styleZoom - 1, styleZoom, undefined, 'automatic'] as const) {
+    harness.tileLOD = tileZoom === 'automatic' ? {maxTiles: 128, targetTilePixels: 1024} : undefined;
+    harness.tileZoom = tileZoom === 'automatic' ? undefined : tileZoom;
     await harness.settle();
     const levels = harness.getTileLods();
     expect(levels.length).toBeGreaterThan(0);
-    expect(levels.every(tile => tile.styleZoom === styleZoom && tile.dataZoom <= (tileZoom ?? styleZoom))).toBe(true);
+    expect(levels.every(tile => tile.styleZoom === styleZoom && tile.dataZoom <= (harness?.tileZoom ?? styleZoom))).toBe(true);
     expect(new Set(levels.map(tile => tile.dataZoom)).size).toBe(1);
     const pixels = await harness.pixels();
     expect(coloredPixels(pixels, 0, pixels.width / 2)).toBeGreaterThan(50);
