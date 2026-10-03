@@ -88,7 +88,7 @@ select it by name:
 ```yaml
 scene:
   scripts:
-    - https://visgl.github.io/tangram.gl/modules/tangram-renderer/dist/loaders-gl-worker.js
+    - https://vis.gl/tangram.gl/modules/tangram-renderer/dist/loaders-gl-worker.js
 sources:
   map:
     type: MVT

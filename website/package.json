@@ -9,7 +9,6 @@
     "start": "yarn prepare-assets && docusaurus start",
     "build": "yarn prepare-assets && docusaurus build",
     "serve": "docusaurus serve",
-    "deploy": "docusaurus deploy",
     "clear": "docusaurus clear"
   },
   "dependencies": {
