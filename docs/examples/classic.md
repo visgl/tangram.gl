@@ -37,3 +37,8 @@ The **Albers projection morph** is a self-contained port of the classic
 [Escape from Mercator](https://www.mapzen.com/blog/escape-from-mercator)
 experiment. Zoom out to watch the bundled US map transition from Web Mercator
 to an Albers equal-area projection.
+Selecting it opens a US-wide view, and both the state fills and borders morph
+together. Zoom in through levels 5–10 to blend back toward Web Mercator. Direct
+links with an explicit `#zoom/latitude/longitude` retain that authored view.
+This shader-block experiment uses the classic WebGL playground, not the hosted
+WebGPU shader path.

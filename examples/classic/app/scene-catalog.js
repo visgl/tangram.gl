@@ -24,6 +24,13 @@ export const SCENE_OPTIONS = [
   {label: 'Crosshatch (local preview)', value: 'styles/crosshatch-preview.yaml'}
 ];
 
+/** Return a scene-specific [zoom, latitude, longitude] overview, if it needs one. */
+export function getSceneOverview(scene) {
+  if (typeof scene !== 'string') return null;
+  const pathname = new URL(scene, 'https://example.invalid/').pathname;
+  return pathname.endsWith('/styles/projection-morph.yaml') ? [4, 39, -96] : null;
+}
+
 /** Get the optional raster context only for the three small local-data previews. */
 export function getPreviewBasemapUrl(scene) {
   if (typeof scene !== 'string') {

@@ -238,7 +238,7 @@ export function createClassicDemo() {
     window.tangramUpdateCartoBasemap = updateCartoBasemap;
 
     const destroyApiKey = initializeApiKey({scene: layer.scene});
-    const destroyUrlSync = initializeUrlSync({map, layer});
+    const destroyUrlSync = initializeUrlSync({map, layer, sceneUrl: scene_url});
 
     function initializeClassicDemo() {
         layer.addTo(map);

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {DEFAULT_SCENE, SCENE_OPTIONS} from './scene-catalog.js';
+import {DEFAULT_SCENE, SCENE_OPTIONS, getSceneOverview} from './scene-catalog.js';
 import {createSceneEditorController, createSceneEditorPanels, loadClassicEditorScene} from './scene-editor.js';
 
 const EXAMPLE_SCHEMA = {
@@ -196,6 +196,8 @@ export async function startSettingsPanel({
     loadScene: (config, options) => loadClassicEditorScene(scene, config, options, () => disposed),
     resolveSceneUrl,
     onSceneSelected: sceneUrl => {
+      const overview = getSceneOverview(sceneUrl);
+      if (overview) window.map?.setView(overview.slice(1, 3), overview[0]);
       sidebarPanel.setProps({title: 'Tangram playground'});
       window.tangramUpdateCartoBasemap?.(sceneUrl);
       const nextUrl = new URL(window.location.href);

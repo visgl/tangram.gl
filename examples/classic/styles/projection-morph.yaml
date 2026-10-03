@@ -27,8 +27,7 @@ sources:
     url: ../data/us-states-10m.json
 
 styles:
-  projection-morph:
-    base: polygons
+  albers-projection:
     lighting: false
     animated: true
     shaders:
@@ -78,13 +77,18 @@ styles:
           float latitude = y2lat(mercator.y);
           float longitude = x2lon(mercator.x);
           position.xy = mix(latlon2albers(latitude, longitude), position.xy, projectionMix());
+  projection-morph:
+    base: polygons
+    mix: albers-projection
+    shaders:
+      blocks:
         color: |
           color.rgb = mix(vec3(0.19, 0.32, 0.52), vec3(0.78, 0.39, 0.18),
                           clamp((worldPosition().z + 1.0) * 0.02, 0.0, 1.0));
 
   state-borders:
     base: lines
-    lighting: false
+    mix: albers-projection
 
 layers:
   states:

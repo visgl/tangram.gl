@@ -15,6 +15,13 @@ function readScene(name: string) {
 }
 
 describe('classic live style choices', () => {
+  test('shares one Albers projection block between state fills and borders', () => {
+    const scene = readScene('projection-morph.yaml');
+    expect(scene.styles['projection-morph']).toMatchObject({base: 'polygons', mix: 'albers-projection'});
+    expect(scene.styles['state-borders']).toMatchObject({base: 'lines', mix: 'albers-projection'});
+    expect(scene.styles['albers-projection'].shaders.blocks.position).toContain('latlon2albers');
+    expect(scene.sources.states.url).toBe('../data/us-states-10m.json');
+  });
   test('starts with full TRON and routes both live choices through their compatibility wrapper', () => {
     expect(DEFAULT_SCENE).toBe('styles/tron.yaml');
     expect(SCENE_OPTIONS.slice(0, 2)).toEqual([
