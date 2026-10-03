@@ -11,6 +11,7 @@ import Geo from '../utils/geo';
 import StyleParser from '../styles/style_parser';
 import {Vector3} from '@math.gl/core';
 import {convertLumaLight, mapTangramLight} from './light-definitions';
+import {projectGeographicLight, projectGeographicDirection} from './geographic-lights';
 
 import ambient_source from './ambient_light.glsl';
 import directional_source from './directional_light.glsl';
@@ -174,9 +175,7 @@ export default class Light {
     /** Return a detached luma.gl descriptor and the exact resolved Tangram shading extensions. */
     toLumaLight() {
         this.update();
-        const direction = this.direction && (this.type === 'directional' || this.lumaLight) && this.view.camera &&
-            typeof this.view.camera.transformVector === 'function' ?
-            this.view.camera.transformVector(this.direction) : this.direction;
+        const direction = this.getLightingDirection();
         const mapping = mapTangramLight({
             type: this.type,
             ambient: this.ambient, diffuse: this.diffuse, specular: this.specular,
@@ -198,6 +197,16 @@ export default class Light {
                 ...('direction' in this.lumaLight ? {direction: [...direction]} : {})};
         }
         return mapping;
+    }
+
+    /** Resolve native geographic spot orientation before applying the active eye's camera. */
+    getLightingDirection() {
+        let direction = this.direction;
+        if (this.lumaLight?.positionSpace === 'geographic' && this.lumaLight.directionSpace !== 'common' && direction) {
+            direction = projectGeographicDirection(this.lumaLight.position, direction, this.view.projection?.type === 'globe');
+        }
+        return direction && (this.type === 'directional' || this.lumaLight) && typeof this.view.camera?.transformVector === 'function'
+            ? this.view.camera.transformVector(direction) : direction;
     }
 
     // Called once per frame per program (e.g. for main render pass, then for each additional
@@ -279,9 +288,7 @@ class DirectionalLight extends Light {
 
     setupProgram (_program) {
         super.setupProgram(_program);
-        const camera = this.view.camera;
-        const direction = camera && typeof camera.transformVector === 'function' ?
-            camera.transformVector(this.direction) : this.direction;
+        const direction = this.getLightingDirection();
         _program.uniform('3fv', `u_${this.name}.direction`, direction);
     }
 
@@ -336,7 +343,9 @@ class PointLight extends Light {
         if (this.origin === 'luma') {
             // Native luma positions share the projected common space of geometry.
             const camera = this.view.camera;
-            const position = this.position;
+            const position = this.lumaLight?.positionSpace === 'geographic'
+                ? projectGeographicLight(this.position, this.view.projection?.type === 'globe', this.view.center?.lng)
+                : this.position;
             const matrix = camera.view_matrix;
             const globe = this.view.projection?.type === 'globe';
             const projected = globe ? position : [
@@ -420,8 +429,7 @@ class SpotLight extends PointLight {
     setupProgram (_program) {
         super.setupProgram(_program);
 
-        const direction = this.lumaLight && typeof this.view.camera.transformVector === 'function' ?
-            this.view.camera.transformVector(this.direction) : this.direction;
+        const direction = this.getLightingDirection();
         _program.uniform('3fv', `u_${this.name}.direction`, direction);
         _program.uniform('1f', `u_${this.name}.spotCosCutoff`, Math.cos(this.angle * 3.14159 / 180));
         _program.uniform('1f', `u_${this.name}.spotExponent`, this.exponent);

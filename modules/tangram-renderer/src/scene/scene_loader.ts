@@ -321,6 +321,9 @@ const SceneLoader = {
         config.cameras = config.cameras || {};
         const native_lights = Array.isArray(config.lights);
         config.lights = normalizeSceneLights(config.lights || {});
+        if (native_lights && Object.keys(config.lights).length === 0) {
+            config.scene.lighting = 'configured'; // Explicit empty arrays still select the configurable WGSL path.
+        }
         config.styles = config.styles || {};
         config.layers = config.layers || {};
 

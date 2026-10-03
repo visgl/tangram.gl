@@ -290,8 +290,24 @@ With unchanged dependencies, this slice adds 6.584 KB raw / 1.769 KB gzip to
 the minified renderer ESM, including its embedded worker; the layer and WebXR
 entries are unchanged.
 
-Remaining: configurable WGSL scene lights, geographic point/spot-light placement,
-tangent-space normal maps, terrain normals, surface-oriented labels, projected
+Implemented configurable-lighting slice: native luma.gl definitions and opt-in
+legacy scene lights drive WGSL polygon, line and raster surfaces. Constant
+materials preserve Tangram's separate emission/ambient/diffuse/specular responses
+and falloff. A fixed, per-eye snapshot layout supports up to 16 visible lights;
+oversized lists and unsupported material textures/normal maps fail explicitly.
+Shaders specialize to the active light count, and replaced material resources
+are released. Unconfigured legacy WebGPU shading remains unchanged.
+
+Implemented geographic-light slice: native point/spot definitions accept
+longitude/latitude/altitude, with local east/north/up spot directions. The renderer
+projects them into map or globe common space before resolving each eye, including
+the nearest planar antimeridian copy. Unit conformance compares globe positions
+with deck.gl; real WebGL 2/WebGPU probes cover both stereo eyes and scene reloads.
+No runtime dependencies are added. Compared with master using the same installed
+dependencies, the minified renderer ESM (including its embedded worker) adds
+22.514 KB raw / 5.272 KB gzip; the layer, WebXR entry and loaders.gl worker are unchanged.
+
+Remaining: tangent-space normal maps, terrain normals, surface-oriented labels, projected
 collision, terrain/building occlusion, spatial picking, and WebGPU selection. This
 is not a completed lighting/label/picking tranche; see the
 [current globe coordinate contract](../api-reference/host-frame.md#coordinates-and-matrices).
