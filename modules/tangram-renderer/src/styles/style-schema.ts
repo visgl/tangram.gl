@@ -88,11 +88,13 @@ const lumaLightCommon = {
     visible: withLightGlobal(z.boolean()).optional()
 };
 const lumaPositionalLight = {
-    position: lightVectorSchema.describe('Projected world position, not longitude/latitude'),
+    position: lightVectorSchema.describe('Projected world position, or longitude/latitude/altitude when positionSpace is geographic'),
     attenuation: lightVectorSchema.optional().describe('Constant, linear, quadratic distance coefficients'),
     attenuationExponent: withLightGlobal(z.number().finite().nonnegative()).optional().describe('Additional Tangram exponent falloff'),
     radius: z.union([lightDistanceSchema, z.tuple([lightDistanceSchema.nullable(), lightDistanceSchema])]).optional(),
-    origin: withLightGlobal(z.enum(['world', 'ground', 'camera'])).optional().describe('Optional legacy position interpretation')
+    origin: withLightGlobal(z.enum(['world', 'ground', 'camera'])).optional().describe('Optional legacy position interpretation'),
+    positionSpace: withLightGlobal(z.enum(['common', 'geographic'])).optional().describe('Projected position or longitude/latitude/altitude'),
+    directionSpace: withLightGlobal(z.enum(['common', 'enu'])).optional().describe('Geographic spotlight direction defaults to east/north/up')
 };
 
 /** Native luma.gl light definitions accepted by the scene's light array. */

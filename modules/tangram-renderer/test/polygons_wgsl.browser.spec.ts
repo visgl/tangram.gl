@@ -20,7 +20,9 @@ describe('Polygon WGSL', function () {
         expect(source).toContain('surface_normal = tangramGlobeNormal(world_position.xyz, surface_normal)');
         expect(source).toContain('abs(normalize(attributes.a_normal.xyz).z)');
         expect(source).toContain('let side_amount = 1.0 - smoothstep');
-        expect(source).toContain('return input.color;');
+        expect(source).toContain('var color = input.color;');
+        expect(source).toContain('return color;');
+        expect(source).not.toContain('tangramCalculateLighting');
         expect(source).not.toContain('var u_rasters: texture_2d<f32>');
     });
 

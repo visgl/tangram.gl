@@ -4,6 +4,8 @@
 
 import Geo from '../../utils/geo';
 import {GLOBE_PROJECTION_WGSL} from '../globe_projection_wgsl';
+import {GLOBE_NORMAL_WGSL} from '../globe_normal_wgsl';
+import {buildLightingWGSL} from '../../lights/lighting-wgsl';
 
 const LAYER_DELTA = 1 / (1 << 14);
 const ATTRIBUTE_SCALE = 1024;
@@ -25,7 +27,15 @@ const ATTRIBUTE_SCALE = 1024;
  * @param {boolean} options.animated Enables the portable traffic vehicles.
  * @returns {string} Complete WGSL source for the line style.
  */
-export function buildLinesWGSL({ animated = false } = {}) {
+export function buildLinesWGSL({ animated = false, lighting, lightCount }: {
+    /** Enable the existing portable traffic animation. */
+    animated?: boolean;
+    /** Opt into constant-material surface lighting. */
+    lighting?: 'vertex' | 'fragment' | false;
+    /** Active scene light count, used to specialize shader compilation. */
+    lightCount?: number;
+} = {}) {
+    const configured = lighting === 'vertex' || lighting === 'fragment';
     const animated_fragment = animated ? `
 
     let direction = select(-1.0, 1.0, input.texcoord.x < 0.5);
@@ -73,6 +83,7 @@ export function buildLinesWGSL({ animated = false } = {}) {
 @group(0) @binding(3) var u_texture: texture_2d<f32>;
 @group(0) @binding(4) var u_textureSampler: sampler;
 ${GLOBE_PROJECTION_WGSL}
+${configured ? `${GLOBE_NORMAL_WGSL}\n${buildLightingWGSL(lightCount)}` : ''}
 
 struct LineAttributes {
     @location(0) a_position: vec4<i32>,
@@ -87,6 +98,7 @@ struct LineVaryings {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) texcoord: vec2<f32>,
+    ${configured ? '@location(2) normal: vec3<f32>, @location(3) eye_position: vec3<f32>, @location(4) lighting: vec4<f32>,' : ''}
 };
 
 @vertex
@@ -126,7 +138,8 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
         f32(attributes.a_z_and_offset_scale.x) / ${Geo.height_scale}.0,
         1.0
     );
-    var clip_position = TangramCamera.u_projection * tangramModelView(local_position);
+    let eye_position = tangramModelView(local_position);
+    var clip_position = TangramCamera.u_projection * eye_position;
     let layer = f32(attributes.a_position.w) +
         TangramTile.u_tile_proxy_order_offset + 1.0;
     clip_position.z -= layer * ${LAYER_DELTA} * clip_position.w;
@@ -135,6 +148,15 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
     output.color = attributes.a_color;
     output.texcoord = attributes.a_texcoord / 65535.0;
     output.texcoord.y *= TangramLine.u_v_scale_adjust;
+    ${configured ? `
+    var normal = normalize(TangramTile.u_normalMatrix * vec3<f32>(0.0, 0.0, 1.0));
+    if (TangramView.u_projection_mode == 1) {
+        normal = tangramGlobeNormal((TangramTile.u_model * local_position).xyz, vec3<f32>(0.0, 0.0, 1.0));
+    }
+    output.normal = normal;
+    output.eye_position = eye_position.xyz - TangramCamera.u_eye;
+    output.lighting = ${lighting === 'vertex' ? 'tangramCalculateLighting(output.eye_position, normal, vec4<f32>(1.0))' : 'vec4<f32>(1.0)'};
+    ` : ''}
     return output;
 }
 
@@ -163,6 +185,7 @@ fn fragmentMain(input: LineVaryings) -> @location(0) vec4<f32> {
         }
     }
 ${animated_fragment}
+    ${lighting === 'fragment' ? 'color = tangramCalculateLighting(input.eye_position, normalize(input.normal), color);' : lighting === 'vertex' ? 'color *= input.lighting;' : ''}
     return color;
 }
 `;

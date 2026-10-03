@@ -25,6 +25,7 @@ import SceneLoader from './scene_loader';
 import View from './view';
 import Light from '../lights/light';
 import {normalizeSceneLights} from '../lights/light-definitions';
+import {PORTABLE_LIGHT_UNIFORMS, getPortableLightUniforms} from '../lights/lighting-uniforms';
 import TileManager from '../tile/tile_manager';
 import DataSource, {NetworkSource} from '../sources/data_source';
 import '../sources/sources';
@@ -955,6 +956,9 @@ export default class Scene {
         if (this.uniform_buffers.TangramView) {
             this.uniform_buffers.TangramView.setUniform('u_time', time);
             this.view.setupProgram(program, this.uniform_buffers);
+            if (this.uniform_buffers.TangramLighting) {
+                this.uniform_buffers.TangramLighting.setUniforms(getPortableLightUniforms(this.getLumaLightDefinitions()));
+            }
             program.bindUniformBlocks();
         }
         else {
@@ -1399,6 +1403,8 @@ export default class Scene {
                 shaderFactory: this.shader_factory,
                 shaderProgramValidator: this.shader_program_validator,
                 shaderLanguage: this.shader_language,
+                portableLighting: Boolean(this.uniform_buffers.TangramLighting),
+                portableLightCount: Object.keys(this.lights).length,
                 deviceShaderCompilation: this.device_shader_compilation,
                 uniformBlockFactory: options => this.createUniformBuffer(options),
                 meshBufferFactory: this.mesh_buffer_factory,
@@ -1434,6 +1440,10 @@ export default class Scene {
     // Create lighting
     createLights() {
         this.lights = {};
+        this.uniform_buffers = this.uniform_buffers || {};
+        if (Array.isArray(this.config.lights) && this.config.lights.length === 0) {
+            this.config.scene = {...this.config.scene, lighting: 'configured'};
+        }
         this.config.lights = normalizeSceneLights(this.config.lights);
 
         if (debugSettings.wireframe) {
@@ -1446,13 +1456,24 @@ export default class Scene {
             }
             let light = this.config.lights[i];
             const visible = (light.visible ?? light.luma?.visible) !== false;
-            if ('luma' in light && visible && this.shader_language === 'wgsl') {
-                throw new Error('Native luma.gl scene lights currently require WebGL; configurable WGSL lighting is not implemented');
-            }
             light.name = i.replace('-', '_'); // light names are injected in shaders, can't have hyphens
             if (visible) {
                 this.lights[light.name] = Light.create(this.view, light);
             }
+        }
+        const configured = this.shader_language === 'wgsl' && (this.config.scene?.lighting === 'configured' ||
+            Object.values(this.config.lights).some(light => light && typeof light === 'object' && 'luma' in light));
+        if (configured) {
+            getPortableLightUniforms(this.getLumaLightDefinitions()); // Reject resource overflow before compiling styles.
+            if (!this.uniform_buffers.TangramLighting) {
+                this.uniform_buffers.TangramLighting = this.createUniformBuffer({
+                    name: 'TangramLighting', binding: 6, snapshotPerMesh: true,
+                    uniforms: PORTABLE_LIGHT_UNIFORMS
+                });
+            }
+        } else if (this.uniform_buffers.TangramLighting) {
+            this.uniform_buffers.TangramLighting.destroy();
+            delete this.uniform_buffers.TangramLighting;
         }
         Light.inject(this.lights);
     }

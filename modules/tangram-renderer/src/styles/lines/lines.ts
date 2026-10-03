@@ -35,7 +35,8 @@ Object.assign(Lines, {
     selection: true, // enable feature selection
 
     getWGSLShaderSource() {
-        return buildLinesWGSL({ animated: this.animated === true });
+        return buildLinesWGSL({ animated: this.animated === true, lighting: this.portable_lighting_mode,
+            lightCount: this.portable_light_count });
     },
 
     setGL(gl_context, uniform_blocks = {}, options = {}) {

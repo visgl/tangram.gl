@@ -9,6 +9,7 @@ import Scene from '../src/scene/scene';
 import SceneLoader from '../src/scene/scene_loader';
 import ShaderProgram from '../src/gl/shader_program';
 import ExternalCamera from '../src/scene/external_camera';
+import {Style} from '../src/styles/style';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -112,6 +113,55 @@ describe('native luma lights drive Tangram uniforms', () => {
 });
 
 describe('scene light integration', () => {
+    test('rejects light overflow before creating a GPU lighting resource', () => {
+        const scene = Object.create(Scene.prototype);
+        scene.config = {scene: {}, lights: Array.from({length: 17}, () => ({type: 'ambient', color: [255, 255, 255]}))};
+        scene.shader_language = 'wgsl';
+        scene.view = createView();
+        scene.createUniformBuffer = vi.fn();
+        expect(() => scene.createLights()).toThrow('at most 16');
+        expect(scene.createUniformBuffer).not.toHaveBeenCalled();
+    });
+
+    test('portable style materials are private, refreshed and destroyed when lighting is disabled', () => {
+        const style = Object.assign(Object.create(Style), {base: 'polygons',
+            defines: {TANGRAM_LIGHTING_FRAGMENT: true}, material: {diffuse: {amount: [1, 1, 1, 1]}}});
+        const first = {destroy: vi.fn(), setUniforms: vi.fn()};
+        const second = {destroy: vi.fn(), setUniforms: vi.fn()};
+        const factory = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);
+        const shared = {TangramLighting: {}};
+        const options = {portableLighting: true, portableLightCount: 2,
+            uniformBlockFactory: factory, maxTextureSize: 1024};
+        style.setGL(null, shared, options);
+        expect(style.portable_lighting_mode).toBe('fragment');
+        expect(style.portable_light_count).toBe(2);
+        expect(shared).not.toHaveProperty('TangramMaterial');
+        expect(style.uniform_blocks.TangramMaterial).toBe(first);
+        style.setup();
+        expect(first.setUniforms).toHaveBeenCalledWith(expect.objectContaining({u_material_flags: [0, 0, 1, 0]}));
+        style.setGL(null, shared, options);
+        expect(first.destroy).toHaveBeenCalledTimes(1);
+        style.setGL(null, shared, {...options, portableLighting: false});
+        expect(second.destroy).toHaveBeenCalledTimes(1);
+        expect(style.portable_material_buffer).toBeNull();
+        expect(style.portable_lighting_mode).toBeUndefined();
+        expect(style.uniform_blocks).toBe(shared);
+    });
+    test('derived styles never destroy an inherited material buffer', () => {
+        const parentBuffer = {destroy: vi.fn()};
+        const parent = Object.assign(Object.create(Style), {base: 'polygons',
+            portable_material_buffer: parentBuffer});
+        const configuredChild = Object.create(parent);
+        configuredChild.setGL(null, {}, {maxTextureSize: 1024});
+        configuredChild.destroy();
+        const unconfiguredChild = Object.create(parent);
+        unconfiguredChild.destroy();
+        expect(parentBuffer.destroy).not.toHaveBeenCalled();
+        expect(parent.portable_material_buffer).toBe(parentBuffer);
+        expect(configuredChild.portable_material_buffer).toBeNull();
+        expect(unconfiguredChild.portable_material_buffer).toBeNull();
+    });
+
     test.each(['array', 'named'])('resolves and refreshes native %s light globals before conversion', shape => {
         const native = {type: 'point', position: 'global.lamp_position', color: 'global.lamp_color',
             attenuation: 'global.lamp_attenuation', visible: 'global.lamp_visible'};
@@ -149,6 +199,27 @@ describe('scene light integration', () => {
     test('retains historical default lights while allowing an explicitly empty native list', () => {
         expect(SceneLoader.finalize({config: {}, bundle: null}).config.lights.default_light).toEqual({type: 'directional'});
         expect(SceneLoader.finalize({config: {lights: []}, bundle: null}).config.lights).toEqual({});
+        expect(SceneLoader.finalize({config: {lights: []}, bundle: null}).config.scene.lighting).toBe('configured');
+    });
+
+    test('configured legacy lighting and empty native arrays keep a bounded block through config updates', () => {
+        const scene = Object.create(Scene.prototype);
+        scene.config = SceneLoader.finalize({config: {scene: {lighting: 'configured'}, lights: {}}, bundle: null}).config;
+        scene.shader_language = 'wgsl';
+        scene.view = createView();
+        const buffer = {destroy: vi.fn()};
+        scene.createUniformBuffer = vi.fn(() => buffer);
+        vi.spyOn(Light, 'inject').mockImplementation(() => {});
+        scene.createLights();
+        expect(scene.uniform_buffers.TangramLighting).toBe(buffer);
+        scene.config.lights = [];
+        scene.createLights();
+        expect(scene.getLumaLightDefinitions()).toEqual([]);
+        expect(scene.createUniformBuffer).toHaveBeenCalledTimes(1);
+        scene.config.lights = {sun: {type: 'directional'}};
+        scene.config.scene.lighting = 'legacy';
+        scene.createLights();
+        expect(buffer.destroy).toHaveBeenCalledTimes(1);
     });
 
     test('creates native light arrays and snapshots without mutating the authored array', () => {
@@ -162,9 +233,28 @@ describe('scene light integration', () => {
         expect(scene.getLumaLightDefinitions()[0].light).toMatchObject(lights[0]);
         expect(lights).toEqual([{type: 'ambient', color: [255, 128, 0]}]);
         scene.shader_language = 'wgsl';
-        expect(() => scene.createLights()).toThrow('configurable WGSL lighting');
+        const buffer = {setUniforms: vi.fn(), destroy: vi.fn()};
+        scene.createUniformBuffer = vi.fn(() => buffer);
+        scene.createLights();
+        expect(scene.createUniformBuffer).toHaveBeenCalledWith(expect.objectContaining({name: 'TangramLighting', binding: 6, snapshotPerMesh: true}));
         scene.config.lights = {hidden: {luma: {type: 'ambient', visible: false}}};
         scene.createLights();
         expect(scene.getLumaLightDefinitions()).toEqual([]);
+        scene.config.lights = {sun: {type: 'directional'}};
+        scene.createLights();
+        expect(buffer.destroy).toHaveBeenCalled();
+        expect(scene.uniform_buffers.TangramLighting).toBeUndefined();
+    });
+
+    test('geographic spots project position and ENU direction for the active eye without rewriting authored coordinates', () => {
+        const view = createView(true);
+        const native = {type: 'spot', position: [0, 0, 0], positionSpace: 'geographic', direction: [0, 0, -1]};
+        const lamp = Light.create(view, {name: 'lamp', luma: native});
+        const snapshot = lamp.toLumaLight();
+        expect(snapshot.tangram.position).toEqual([-1, -258, -3]);
+        expect(snapshot.tangram.direction).toEqual([0, 1, 0]);
+        expect(native.position).toEqual([0, 0, 0]);
+        view.camera.position_meters = [2, 3, 4];
+        expect(lamp.toLumaLight().tangram.position).toEqual([-2, -259, -4]);
     });
 });
