@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 uniform vec2 u_resolution;
 uniform float u_time;
@@ -92,6 +93,28 @@ vec4 tangramModelView(vec4 local_position, out vec4 world_position) {
     return u_modelView * local_position;
 }
 
+// Segment/sphere occlusion for billboard anchors in radius-256 common space.
+bool tangramGlobeOccluded(vec3 position, float altitude, vec3 eye) {
+    vec3 sphere_eye = eye / 256.;
+    // Missing or interior eyes cannot define an exterior horizon.
+    if (dot(sphere_eye, sphere_eye) <= 1.) {
+        return false;
+    }
+    // Do not mistake runtime sin/cos rounding for a below-surface anchor.
+    vec3 sphere_position = normalize(position) * (1. + altitude / 6370972.);
+    vec3 segment = sphere_position - sphere_eye;
+    float segment_length_squared = dot(segment, segment);
+    if (segment_length_squared == 0.) {
+        return false;
+    }
+    float closest_amount = clamp(-dot(sphere_eye, segment) / segment_length_squared, 0., 1.);
+    // Interpolate endpoints rather than subtracting a large camera offset
+    // again: a front-side surface anchor must retain its unit radius.
+    vec3 closest = mix(sphere_eye, sphere_position, closest_amount);
+    // Preserve surface/tangent anchors within a small f32 tolerance.
+    return dot(closest, closest) < 1. - 0.000001;
+}
+
 #ifdef TANGRAM_CURVED_LABEL
     // Assumes stops are [0, 0.33, 0.66, 0.99];
     float mix4linear(vec4 v, float x) {
@@ -145,6 +168,12 @@ void main() {
     // Position
     vec4 world_position;
     vec4 position = tangramModelView(vec4(a_position.xyz, 1.), world_position);
+    // Occlude the shared geographic anchor before screen-space offsets. This
+    // also applies to text and selection programs using this vertex shader.
+    if (u_projection_mode == 1 && tangramGlobeOccluded(position.xyz, world_position.z, u_eye)) {
+        gl_Position = vec4(2., 2., 2., 1.);
+        return;
+    }
 
     // Apply positioning and scaling in screen space
     vec2 _shape = a_shape.xy / 256.;                 // values have an 8-bit fraction

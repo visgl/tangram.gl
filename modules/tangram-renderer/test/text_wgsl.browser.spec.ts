@@ -6,6 +6,15 @@ import {describe, expect, it} from 'vitest';
 import {buildTextWGSL} from '../src/styles/text/text_wgsl';
 
 describe('Text WGSL', function () {
+    it('occludes globe anchors per eye without changing planar text offsets', function () {
+        const source = buildTextWGSL();
+        const condition = 'TangramView.u_projection_mode == 1 && tangramGlobeOccluded(projected_position.xyz,';
+        expect(source).toContain(condition);
+        expect(source).toContain('(TangramTile.u_model * local_position).z, TangramCamera.u_eye');
+        expect(source.indexOf(condition)).toBeLessThan(source.indexOf('var clip_position'));
+        expect(source).toContain('dot(sphere_eye, sphere_eye) <= 1.0');
+    });
+
     it('builds screen-space text quads with a portable atlas binding', function () {
         const source = buildTextWGSL();
 

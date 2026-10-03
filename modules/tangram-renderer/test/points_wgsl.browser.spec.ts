@@ -6,6 +6,15 @@ import {describe, expect, it} from 'vitest';
 import {buildPointsWGSL} from '../src/styles/points/points_wgsl';
 
 describe('Point WGSL', function () {
+    it('occludes globe anchors per eye before applying screen offsets', function () {
+        const source = buildPointsWGSL();
+        const condition = 'TangramView.u_projection_mode == 1 && tangramGlobeOccluded(projected_position.xyz,';
+        expect(source).toContain(condition);
+        expect(source).toContain('(TangramTile.u_model * local_position).z, TangramCamera.u_eye');
+        expect(source.indexOf(condition)).toBeLessThan(source.indexOf('let screen_offset'));
+        expect(source).toContain('mix(sphere_eye, sphere_position, closest_amount)');
+    });
+
     it('selects point rendering through a buffered attribute', function () {
         const source = buildPointsWGSL();
 
