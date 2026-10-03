@@ -100,7 +100,7 @@ export default class Light {
                 // Add the calculation function to the list
                 calculateLights += `calculateLight(${light_name}, _eyeToPoint, _normal);\n`;
             }
-            // Struct layout must include fields needed by any light, not only the last injected instance.
+            // Keep aggregate defines for custom blocks; built-in falloff is selected per light.
             const points = Object.values(lights).filter(light => light.type === 'point' || light.type === 'spotlight');
             ShaderProgram.defines['TANGRAM_POINTLIGHT_ATTENUATION_EXPONENT'] = points.some(light => light.attenuation !== 0);
             ShaderProgram.defines['TANGRAM_POINTLIGHT_ATTENUATION_INNER_RADIUS'] = points.some(light => light.radius?.[0] != null);

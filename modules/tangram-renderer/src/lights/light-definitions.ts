@@ -74,7 +74,7 @@ export interface ResolvedTangramLight {
 
 /** A luma.gl light plus the Tangram-only data required for lossless shading. */
 export interface TangramLightMapping {
-    /** Canonical luma.gl descriptor: byte RGB, intensity 1, resolved position/direction. */
+    /** Luma.gl-compatible byte RGB and resolved coordinates, with optional Tangram controls. */
     light: TangramLight;
     /** Positions are resolved lighting coordinates, not geographic longitude/latitude. */
     coordinateSpace: 'tangram-lighting';
@@ -94,7 +94,7 @@ export interface LumaLightConfig {
     specular: TangramLightColor;
     /** Independent copy of the native light, used for native falloff and coordinates. */
     lumaLight: TangramLight;
-    /** Positional lights use projected common-space coordinates, not geographic units. */
+    /** Native common space by default, or an explicitly selected legacy position interpretation. */
     origin: 'luma' | 'world' | 'ground' | 'camera';
     /** Native projected position. */
     position?: Triple;

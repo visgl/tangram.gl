@@ -129,5 +129,8 @@ describe('scene light integration', () => {
         expect(lights).toEqual([{type: 'ambient', color: [255, 128, 0]}]);
         scene.shader_language = 'wgsl';
         expect(() => scene.createLights()).toThrow('configurable WGSL lighting');
+        scene.config.lights = {hidden: {luma: {type: 'ambient', visible: false}}};
+        scene.createLights();
+        expect(scene.getLumaLightDefinitions()).toEqual([]);
     });
 });

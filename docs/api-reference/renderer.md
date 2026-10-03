@@ -139,8 +139,8 @@ distance attenuation and cone transition. The scalar legacy `attenuation`
 field remains valid in old dictionaries, but is named `attenuationExponent`
 in extended definitions so it does not conflict with luma.gl's coefficient
 vector. Optional `origin` selects legacy `world`, `ground`, or `camera` position
-interpretation; omitting it preserves native common-space positions. `visible:
-false` suppresses an entry. Legacy coordinate origins retain their existing
+interpretation; omitting it preserves native common-space positions.
+`visible: false` suppresses an entry. Legacy coordinate origins retain their existing
 planar semantics; use native common-space positions for globe lights.
 
 Existing named Tangram light dictionaries and their historical default light
