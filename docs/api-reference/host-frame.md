@@ -142,11 +142,26 @@ WebGPU shader path performs the depth conversion.
 
 The current globe shader first converts the geographic position to a
 radius-256 sphere. Its `camera.projection` is the combined world-to-clip matrix
-(`deckProjection × deckView`), while `camera.view` remains available for normal
-transforms. Globe `camera.position` is the common-space eye used for horizon
-culling. Planar `camera.position` is the shader's eye-space lighting origin,
+(`deckProjection × deckView`). Polygon and road normals rotate from local
+east/north/up into that same globe common space at each vertex; they do not
+use the planar tile's normal matrix. Globe `camera.position` is the common-space
+eye used for both horizon culling and GLSL lighting. Planar `camera.position` is the shader's eye-space lighting origin,
 not a longitude/latitude tuple. Use the package view adapters rather than
 interchanging those conventions.
+
+For globe GLSL styles, directional-light `direction` and custom `normal` shader
+blocks use globe common-space axes: longitude zero lies on -Y, longitude 90°
+east on +X, and geographic north on +Z. Directional lights remain fixed in that
+space when the camera or stereo eye changes. The interpolated default normals
+are renormalized before fragment lighting. Planar light and normal-block
+conventions are unchanged.
+
+The portable WGSL polygon shader rotates wall normals into the same common
+space for its fixed directional shading. Roof-versus-wall classification still
+uses local up, so roofs and raster tiles keep their existing unlit colors.
+This does not add configurable WGSL scene lights. Geographic point/spot-light
+placement, tangent-space normal maps, terrain normals, labels, and picking are
+separate follow-up work.
 
 ### `activeRenderViewId`
 

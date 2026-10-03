@@ -16,7 +16,9 @@ describe('Polygon WGSL', function () {
         expect(source).toContain('TangramTile.u_modelView * local_position');
         expect(source).toContain('TangramView.u_projection_mode == 1');
         expect(source).toContain('tangramGlobePosition');
-        expect(source).toContain('let surface_normal = normalize(attributes.a_normal.xyz)');
+        expect(source).toContain('var surface_normal = normalize(attributes.a_normal.xyz)');
+        expect(source).toContain('surface_normal = tangramGlobeNormal(world_position.xyz, surface_normal)');
+        expect(source).toContain('abs(normalize(attributes.a_normal.xyz).z)');
         expect(source).toContain('let side_amount = 1.0 - smoothstep');
         expect(source).toContain('return input.color;');
         expect(source).not.toContain('var u_rasters: texture_2d<f32>');

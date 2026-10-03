@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 uniform vec2 u_resolution;
 uniform float u_time;
@@ -10,6 +11,9 @@ uniform float u_meters_per_pixel;
 uniform float u_device_pixel_ratio;
 uniform mat3 u_normalMatrix;
 uniform mat3 u_inverseNormalMatrix;
+#ifndef TANGRAM_UNIFORM_BLOCK_TANGRAMVIEW
+uniform highp int u_projection_mode;
+#endif
 
 varying vec4 v_position;
 varying vec3 v_normal;
@@ -50,7 +54,8 @@ void main (void) {
     #pragma tangram: setup
 
     vec4 color = v_color;
-    vec3 normal = TANGRAM_NORMAL;
+    // Interpolated radial/tangent normals are not unit length between vertices.
+    vec3 normal = u_projection_mode == 1 ? normalize(TANGRAM_NORMAL) : TANGRAM_NORMAL;
 
     // Apply raster to vertex color
     #ifdef TANGRAM_RASTER_TEXTURE_COLOR

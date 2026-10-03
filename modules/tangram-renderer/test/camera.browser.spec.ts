@@ -124,4 +124,17 @@ describe('Camera', () => {
         camera.setupProgram(program);
         expect(program.uniform).toHaveBeenCalledWith('3fv', 'u_eye', camera.position_meters);
     });
+
+    it('keeps globe directional lights fixed in common space across camera rotations', () => {
+        const view = createView();
+        const camera = new ExternalCamera('external', view);
+        const rotation = new Matrix4().rotateZ(Math.PI / 2);
+        camera.setMatrices({view: rotation, projection: new Matrix4()});
+        expect(camera.transformVector([2, 0, 0])[1]).toBeCloseTo(1);
+        view.projection = {type: 'globe', visibleBounds: [-180, -85, 180, 85]};
+        expect(camera.transformVector([2, 0, 0])).toEqual([1, 0, 0]);
+        expect(camera.transformVector([0, 0, 0])).toEqual([0, 0, 0]);
+        view.projection = {type: 'web-mercator'};
+        expect(camera.transformVector([2, 0, 0])[1]).toBeCloseTo(1);
+    });
 });

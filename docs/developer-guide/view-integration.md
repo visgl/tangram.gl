@@ -263,6 +263,27 @@ flat-ground contract is proven.
 
 ### 6. Align labels, lighting, and picking with projection
 
+Implemented surface-normal slice: polygon roofs, walls, and road surfaces
+rotate their east/north/up normals into radius-256 globe common space at each
+vertex. GLSL directional lights use that same space instead of being rotated
+by the camera a second time. Fragment lighting renormalizes interpolated globe
+normals. Portable WGSL wall shading uses the matching tangent basis, while
+local roof/wall classification preserves the existing unlit roof/raster colors.
+Planar normal matrices and shading are unchanged.
+
+Real-device probes compare GLSL and WGSL output with geographic tangents
+derived independently from deck.gl GlobeViewport, including cardinal positions,
+high latitudes, antimeridian equivalents, wall/roof normals and mixed vectors.
+Packaged-renderer tests exercise both GLSL vertex and fragment directional
+lighting through camera rotations. No dependencies are added. With unchanged
+dependencies, the minified renderer ESM (including its embedded worker) grows
+by 4.891 KB raw / 1.017 KB gzip; the layer and WebXR entries are unchanged.
+
+Remaining: configurable WGSL scene lights, geographic point/spot-light placement,
+tangent-space normal maps, terrain normals, projected labels and picking. This
+is not a completed lighting/label/picking tranche; see the
+[current globe coordinate contract](../api-reference/host-frame.md#coordinates-and-matrices).
+
 Distinguish screen-facing labels from ground-oriented symbols. Transform surface
 normals consistently on the globe, and carry the same curved geometry and host
 matrices into picking. Preserve feature identity through subdivision and hiding

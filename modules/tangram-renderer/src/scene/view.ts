@@ -261,6 +261,7 @@ export default class View {
         return {
             scene: this.scene,
             setView: state => this.setView(state),
+            get projection() { return view.projection; },
             get size() {
                 const state = view.getReadyState();
                 return {css: {width: state.width, height: state.height}, meters: state.sizeMeters};
