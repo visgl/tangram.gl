@@ -77,10 +77,10 @@ directly from a checkout with a simple HTTP server.
     <strong>Street map raster</strong>
     <span>Open street-map tiles with familiar labels and landmarks.</span>
   </a>
-  <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/projection-morph.yaml#7/39/-96">
+  <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/projection-morph.yaml#4/39/-96">
     <span className="example-tile__eyebrow">Projection</span>
     <strong>Albers projection morph</strong>
-    <span>Zoom between Web Mercator and an Albers equal-area projection.</span>
+    <span>Watch a continuous morph between Web Mercator and an Albers equal-area projection.</span>
   </a>
 </div>
 

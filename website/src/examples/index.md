@@ -117,11 +117,11 @@ page, so the examples sidebar stays visible while you move between demos.
     <strong>Open street map</strong>
     <span>A street-map raster alternative for testing the renderer without vector data.</span>
   </a>
-  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/projection-morph.yaml">
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/projection-morph.yaml#4/39/-96">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-projection-morph.webp" alt="" loading="lazy" />
     <span className="example-tile__eyebrow">Shader projection</span>
     <strong>Albers projection morph</strong>
-    <span>Morph vertices between geographic projections as zoom changes without replacing the host camera.</span>
+    <span>Watch an animated Albers ↔ Mercator morph without replacing the host camera.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/simple.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-simple.webp" alt="" loading="lazy" />

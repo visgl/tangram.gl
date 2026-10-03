@@ -15,6 +15,7 @@ let frame: HTMLDivElement;
 let originalUrl: string;
 let sourceRequest: ((signal: AbortSignal) => Promise<Response>) | undefined;
 const loadScene = vi.fn(async (_config: string | object, _options?: {base_path: string}) => {});
+const setView = vi.fn();
 
 beforeEach(() => {
   originalUrl = window.location.href;
@@ -31,6 +32,8 @@ beforeEach(() => {
     }
   });
   loadScene.mockClear();
+  setView.mockClear();
+  vi.stubGlobal('map', {setView});
   sourceRequest = undefined;
   vi.stubGlobal('scene', {
     load: loadScene, subscribe: vi.fn(), unsubscribe: vi.fn(), config: {},
@@ -115,6 +118,21 @@ test('editor content changes apply once and update the visible accordion heading
   ]);
   await expect.poll(() => frame.textContent, {timeout: 10000}).toContain('Scene JSON (applied)');
   expect(model.getValue()).toBe('{"scene":{"style":"edited"}}');
+});
+
+test('selecting Albers from a street-level style opens its national overview', async () => {
+  await mountPanels();
+  frame.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')!.click();
+  const option = await vi.waitFor(() => {
+    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+      .find(element => element.textContent?.includes('Albers projection morph'));
+    expect(option).toBeDefined();
+    return option!;
+  });
+  option.click();
+  await expect.poll(() => loadScene.mock.calls.length).toBe(1);
+  expect(setView).toHaveBeenCalledExactlyOnceWith([39, -96], 4);
+  expect(window.location.search).toContain('projection-morph.yaml');
 });
 
 test('leaving a mounted playground removes its host and model and cancels pending edits', async () => {

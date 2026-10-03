@@ -53,6 +53,14 @@ build consumes that output. For a standalone local server, run
 `yarn workspace @vis.gl/tangram-classic start`; the command builds both the
 renderer and playground before serving them.
 
+Use `yarn website:start` for the integrated development preview, or build with
+`yarn website:build` and run `yarn workspace tangram-layers-website serve`.
+Open the clean example route, such as `/tangram.gl/examples/classic?scene=styles/projection-morph.yaml#4/39/-96`.
+Website asset assembly excludes standalone `index.html` pages: Docusaurus owns
+the example routes, and a copied directory index would shadow those pages and
+redirect away from the selected scene. Standalone example builds retain their
+entry pages.
+
 The classic build also uses `ocular-bundle` to create same-origin Monaco editor
 and JSON workers. Their exact Monaco version is pinned in the classic package's
 development dependencies and in the community panel's CDN `deps` parameter;

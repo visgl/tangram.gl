@@ -1,6 +1,9 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
+
+import {getSceneOverview} from './scene-catalog.js';
 
 const DEFAULT_VIEW = [16, 40.70531887544228, -74.00976419448853];
 
@@ -9,8 +12,8 @@ export function getViewFromUrl(hash = window.location.hash) {
   return values.length === 3 && values.every(Number.isFinite) ? values : null;
 }
 
-export function initializeUrlSync({map, layer, location = window.location}) {
-  const initialView = getViewFromUrl(location.hash) || DEFAULT_VIEW;
+export function initializeUrlSync({map, layer, sceneUrl, location = window.location}) {
+  const initialView = getViewFromUrl(location.hash) || getSceneOverview(sceneUrl) || DEFAULT_VIEW;
   let updateTimeout = null;
 
   function updateUrl() {

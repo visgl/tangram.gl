@@ -27,8 +27,7 @@ sources:
     url: ../data/us-states-10m.json
 
 styles:
-  projection-morph:
-    base: polygons
+  albers-projection:
     lighting: false
     animated: true
     shaders:
@@ -39,6 +38,7 @@ styles:
         QUARTER_PI: 0.7853981633974483
         ZOOM_START: 5.0
         ZOOM_END: 10.0
+        MORPH_PERIOD: 12.0
       blocks:
         global: |
           float deg2rad(float degrees) {
@@ -71,20 +71,28 @@ styles:
           }
 
           float projectionMix() {
-              return smoothstep(ZOOM_START, ZOOM_END, u_map_position.z);
+              // At overview zoom, continuously morph Albers -> Mercator -> Albers.
+              // Fade to Mercator when zooming in so local navigation stays familiar.
+              float animatedMix = 0.5 - 0.5 * cos(u_time * (2.0 * PI / MORPH_PERIOD));
+              return mix(animatedMix, 1.0, smoothstep(ZOOM_START, ZOOM_END, u_map_position.z));
           }
         position: |
           vec2 mercator = u_map_position.xy + position.xy;
           float latitude = y2lat(mercator.y);
           float longitude = x2lon(mercator.x);
           position.xy = mix(latlon2albers(latitude, longitude), position.xy, projectionMix());
+  projection-morph:
+    base: polygons
+    mix: albers-projection
+    shaders:
+      blocks:
         color: |
           color.rgb = mix(vec3(0.19, 0.32, 0.52), vec3(0.78, 0.39, 0.18),
                           clamp((worldPosition().z + 1.0) * 0.02, 0.0, 1.0));
 
   state-borders:
     base: lines
-    lighting: false
+    mix: albers-projection
 
 layers:
   states:
