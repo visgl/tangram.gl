@@ -168,3 +168,9 @@ Run `yarn website:start` for the Docusaurus site or run `yarn build:modules`
 before serving the repository root to open `examples/deck/` directly.
 `yarn website:build` builds and stages the examples and package outputs into
 the static site before building Docusaurus.
+
+The public documentation and examples live at
+[vis.gl/tangram.gl](https://vis.gl/tangram.gl/). This repository retains local
+website development and CI build validation, but does not deploy a GitHub Pages
+site. Publication is managed by the canonical host, outside this repository;
+merging a PR here does not trigger a repository Pages deployment.

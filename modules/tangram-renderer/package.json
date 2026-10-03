@@ -3,6 +3,7 @@
   "version": "1.0.0-alpha.0",
   "private": true,
   "description": "Tangram vector-tile scene renderer powered by luma.gl",
+  "homepage": "https://vis.gl/tangram.gl/",
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",

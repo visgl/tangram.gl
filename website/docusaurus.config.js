@@ -10,7 +10,7 @@ const path = require('path');
 const config = {
   title: 'tangram.gl',
   tagline: 'Tangram rendering and deck.gl basemap integration',
-  url: 'https://visgl.github.io',
+  url: 'https://vis.gl',
   baseUrl: '/tangram.gl/',
   favicon: '/favicon.png',
   organizationName: 'visgl',

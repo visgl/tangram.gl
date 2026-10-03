@@ -6,7 +6,7 @@ scene:
   background:
     color: '#d9e7ee'
   scripts:
-    - https://visgl.github.io/tangram.gl/modules/tangram-renderer/dist/loaders-gl-worker.js
+    - https://vis.gl/tangram.gl/modules/tangram-renderer/dist/loaders-gl-worker.js
 
 sources:
   map:

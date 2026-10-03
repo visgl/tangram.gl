@@ -12,6 +12,10 @@ This repository is a vis.gl-oriented monorepo for the Tangram renderer and its
 deck.gl integration. It is an experimental Linux Foundation/Mapzen Tangram
 custodian fork; it is not the official Tangram project website.
 
+Read the [tangram.gl documentation and examples](https://vis.gl/tangram.gl/).
+The canonical website is hosted separately; this repository does not publish
+to GitHub Pages.
+
 ## Packages
 
 - [`@vis.gl/tangram-renderer`](modules/tangram-renderer/) contains the complete

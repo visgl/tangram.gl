@@ -1,5 +1,6 @@
 {
   "name": "@vis.gl/tangram-layers",
+  "homepage": "https://vis.gl/tangram.gl/",
   "version": "1.0.0-alpha.0",
   "private": true,
   "description": "deck.gl layers for Tangram basemaps",
