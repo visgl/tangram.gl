@@ -82,6 +82,11 @@ const Tangram = {
 
 export {WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter};
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';
+export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
+export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
+    TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
+    TangramPositionalLightExtensions, TangramLightColor} from './lights/light-definitions';
+export type {Light as LumaLight} from '@luma.gl/shadertools';
 export type {
     CalculatedViewBounds,
     GlobeVisibilityLODAdapter,

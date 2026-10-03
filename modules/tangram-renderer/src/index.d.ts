@@ -48,6 +48,11 @@ export type {
 import HostFrame from './scene/host_frame';
 export {HostFrame};
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';
+export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
+export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
+    TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
+    TangramPositionalLightExtensions, TangramLightColor} from './lights/light-definitions';
+export type {Light as LumaLight} from '@luma.gl/shadertools';
 
 export declare class Scene {
   static create(config: SceneDefinition, options?: RendererOptions): Scene;
@@ -57,6 +62,8 @@ export declare class Scene {
   updateConfig(options?: SceneUpdateOptions): Promise<void>;
   /** Deduplicated source/TileJSON credits; HTML must be sanitized by the displaying host. */
   getAttributions(): Promise<string[]>;
+  /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
+  getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   setDataSource(name: string, config: SceneDataSource): Promise<unknown> | undefined;
   queryFeatures(
     options?: SceneQueryOptions
@@ -78,6 +85,8 @@ export declare class ClassicWebGLRenderer {
   load(config?: SceneDefinition | null, options?: SceneLoadOptions): Promise<unknown>;
   /** Current source/TileJSON credits for the host's attribution UI. */
   getAttributions(): Promise<string[]>;
+  /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
+  getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   subscribe(listeners: SceneListeners): void;
   destroy(): unknown;
 }

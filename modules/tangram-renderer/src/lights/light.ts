@@ -10,6 +10,7 @@ import GLSL from '../gl/glsl';
 import Geo from '../utils/geo';
 import StyleParser from '../styles/style_parser';
 import {Vector3} from '@math.gl/core';
+import {convertLumaLight, mapTangramLight} from './light-definitions';
 
 import ambient_source from './ambient_light.glsl';
 import directional_source from './directional_light.glsl';
@@ -22,6 +23,7 @@ export default class Light {
     constructor (view, config) {
         this.name = config.name;
         this.view = view;
+        this.lumaLight = config.lumaLight;
 
         if (config.ambient == null || typeof config.ambient === 'number') {
             this.ambient = GLSL.expandVec3(config.ambient || 0);
@@ -48,6 +50,9 @@ export default class Light {
     // Create a light by type name, factory-style
     // 'config' must include 'name' and 'type', along with any other type-specific properties
     static create (view, config) {
+        if ('luma' in config) {
+            config = {...config, ...convertLumaLight(config.luma)};
+        }
         if (Light.types[config.type]) {
             return new Light.types[config.type](view, config);
         }
@@ -95,6 +100,11 @@ export default class Light {
                 // Add the calculation function to the list
                 calculateLights += `calculateLight(${light_name}, _eyeToPoint, _normal);\n`;
             }
+            // Keep aggregate defines for custom blocks; built-in falloff is selected per light.
+            const points = Object.values(lights).filter(light => light.type === 'point' || light.type === 'spotlight');
+            ShaderProgram.defines['TANGRAM_POINTLIGHT_ATTENUATION_EXPONENT'] = points.some(light => light.attenuation !== 0);
+            ShaderProgram.defines['TANGRAM_POINTLIGHT_ATTENUATION_INNER_RADIUS'] = points.some(light => light.radius?.[0] != null);
+            ShaderProgram.defines['TANGRAM_POINTLIGHT_ATTENUATION_OUTER_RADIUS'] = points.some(light => light.radius != null);
         }
 
         // Glue together the final lighting function that sums all the lights
@@ -159,6 +169,35 @@ export default class Light {
 
     // Update method called once per frame
     update () {
+    }
+
+    /** Return a detached luma.gl descriptor and the exact resolved Tangram shading extensions. */
+    toLumaLight() {
+        this.update();
+        const direction = this.direction && (this.type === 'directional' || this.lumaLight) && this.view.camera &&
+            typeof this.view.camera.transformVector === 'function' ?
+            this.view.camera.transformVector(this.direction) : this.direction;
+        const mapping = mapTangramLight({
+            type: this.type,
+            ambient: this.ambient, diffuse: this.diffuse, specular: this.specular,
+            ...(this.position_eye ? {position: this.position_eye.slice(0, 3)} : {}),
+            ...(direction ? {direction} : {}),
+            ...(this.attenuation != null ? {attenuation: this.attenuation} : {}),
+            ...(this.radius ? {radius: this.radius.map(value => value == null ? null :
+                StyleParser.convertUnits(value, {zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom)}))} : {}),
+            ...(this.angle != null ? {angle: this.angle, exponent: this.exponent} : {})
+        });
+        if (this.lumaLight) {
+            mapping.light = {...this.lumaLight,
+                color: [...this.lumaLight.color],
+                ambient: [...mapping.tangram.ambient], diffuse: [...mapping.tangram.diffuse],
+                specular: [...mapping.tangram.specular],
+                ...('position' in this.lumaLight ? {position: [...mapping.light.position],
+                    attenuation: [...this.lumaLight.attenuation],
+                    ...(mapping.tangram.radius ? {radius: [...mapping.tangram.radius]} : {})} : {}),
+                ...('direction' in this.lumaLight ? {direction: [...direction]} : {})};
+        }
+        return mapping;
     }
 
     // Called once per frame per program (e.g. for main render pass, then for each additional
@@ -294,7 +333,22 @@ class PointLight extends Light {
     }
 
     updateEyePosition () {
-        if (this.origin === 'world') {
+        if (this.origin === 'luma') {
+            // Native luma positions share the projected common space of geometry.
+            const camera = this.view.camera;
+            const position = this.position;
+            const matrix = camera.view_matrix;
+            const globe = this.view.projection?.type === 'globe';
+            const projected = globe ? position : [
+                matrix[0] * position[0] + matrix[4] * position[1] + matrix[8] * position[2] + matrix[12],
+                matrix[1] * position[0] + matrix[5] * position[1] + matrix[9] * position[2] + matrix[13],
+                matrix[2] * position[0] + matrix[6] * position[1] + matrix[10] * position[2] + matrix[14]
+            ];
+            // Standalone cameras bind only their height as u_eye; hosted cameras bind all components.
+            const eye = camera.type === 'external' || globe ? camera.position_meters : [0, 0, camera.position_meters[2]];
+            this.position_eye = projected.map((value, index) => value - eye[index]);
+        }
+        else if (this.origin === 'world') {
             // For world origin, format is: [longitude, latitude, meters (default) or pixels w/px units]
 
             // Move light's world position into camera space
@@ -325,22 +379,14 @@ class PointLight extends Light {
         super.setupProgram(_program);
 
         _program.uniform('4fv', `u_${this.name}.position`, this.position_eye);
+        _program.uniform('1f', `u_${this.name}.useLumaAttenuation`, this.lumaLight ? 1 : 0);
+        _program.uniform('3fv', `u_${this.name}.attenuationCoefficients`, this.lumaLight?.attenuation || [1, 0, 0]);
 
-        if(ShaderProgram.defines['TANGRAM_POINTLIGHT_ATTENUATION_EXPONENT']) {
-            _program.uniform('1f', `u_${this.name}.attenuationExponent`, this.attenuation);
-        }
-
-        if(ShaderProgram.defines['TANGRAM_POINTLIGHT_ATTENUATION_INNER_RADIUS']) {
-            _program.uniform('1f', `u_${this.name}.innerRadius`,
-                StyleParser.convertUnits(this.radius[0],
-                    { zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom) }));
-        }
-
-        if(ShaderProgram.defines['TANGRAM_POINTLIGHT_ATTENUATION_OUTER_RADIUS']) {
-            _program.uniform('1f', `u_${this.name}.outerRadius`,
-                StyleParser.convertUnits(this.radius[1],
-                    { zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom) }));
-        }
+        _program.uniform('1f', `u_${this.name}.attenuationExponent`, this.attenuation);
+        _program.uniform('1f', `u_${this.name}.innerRadius`, this.radius?.[0] == null ? -1 :
+            StyleParser.convertUnits(this.radius[0], {zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom)}));
+        _program.uniform('1f', `u_${this.name}.outerRadius`, this.radius == null ? -1 :
+            StyleParser.convertUnits(this.radius[1], {zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom)}));
     }
 }
 Light.types['point'] = PointLight;
@@ -354,7 +400,7 @@ class SpotLight extends PointLight {
         this.struct_name = 'SpotLight';
 
         this.direction = this._direction = (config.direction || [0, 0, -1]).map(parseFloat); // [x, y, z]
-        this.exponent = config.exponent ? parseFloat(config.exponent) : 0.2;
+        this.exponent = this.lumaLight ? config.exponent ?? 0 : config.exponent ? parseFloat(config.exponent) : 0.2;
         this.angle = config.angle ? parseFloat(config.angle) : 20;
     }
 
@@ -374,9 +420,13 @@ class SpotLight extends PointLight {
     setupProgram (_program) {
         super.setupProgram(_program);
 
-        _program.uniform('3fv', `u_${this.name}.direction`, this.direction);
+        const direction = this.lumaLight && typeof this.view.camera.transformVector === 'function' ?
+            this.view.camera.transformVector(this.direction) : this.direction;
+        _program.uniform('3fv', `u_${this.name}.direction`, direction);
         _program.uniform('1f', `u_${this.name}.spotCosCutoff`, Math.cos(this.angle * 3.14159 / 180));
         _program.uniform('1f', `u_${this.name}.spotExponent`, this.exponent);
+        _program.uniform('2fv', `u_${this.name}.lumaConeCos`, this.lumaLight ?
+            [Math.cos(this.lumaLight.innerConeAngle), Math.cos(this.lumaLight.outerConeAngle)] : [1, 0]);
     }
 
 }

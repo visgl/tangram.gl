@@ -58,7 +58,7 @@ function createWorkerPlugin(minified) {
 function createEntry(format) {
   const exportAssignment = format === 'esm' ? `
     export default Tangram;
-    export {calculatePlanarGroundBounds, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
+    export {calculatePlanarGroundBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
       from ${JSON.stringify(resolve(sourceDirectory, 'index.ts'))};
   ` : '';
   const isEsm = format === 'esm';
@@ -177,7 +177,7 @@ function getCoreBuildOptions() {
         import {setWorkerURL} from ${JSON.stringify(resolve(sourceDirectory, 'scene/worker_url.ts'))};
         import workerSource from 'tangram-worker';
         setWorkerURL(URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'})));
-        export {Renderer, HostFrame, LumaDeviceRenderer, calculatePlanarGroundBounds, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
+        export {Renderer, HostFrame, LumaDeviceRenderer, calculatePlanarGroundBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
           from ${JSON.stringify(resolve(sourceDirectory, 'core.ts'))};
       `
     },

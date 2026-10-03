@@ -7,6 +7,7 @@ import HostFrame from './host_frame';
 import LumaDeviceRenderer from '../gpu/luma_device_renderer';
 import type View from './view';
 import type {RendererOptions, RenderOptions, SceneDefinition, SceneListeners, SceneLoadOptions} from '../types';
+import type {TangramLightMapping} from '../lights/light-definitions';
 
 
 interface FrameOptions {renderViewId?: string}
@@ -23,6 +24,8 @@ interface RendererScene {
     load(config: SceneDefinition | null, options: SceneLoadOptions): unknown;
     /** Retrieves current source and TileJSON provider credits for the host UI. */
     getAttributions(): Promise<string[]>;
+    /** Returns detached lighting descriptors for the currently active eye. */
+    getLumaLightDefinitions(): TangramLightMapping[];
     resizeMap(width: number, height: number): void;
     setCameraMatrices(camera: import('../types').HostCamera): void;
     updateScene(options: {renderPass?: import('@luma.gl/core').RenderPass | null}): boolean;
@@ -77,6 +80,11 @@ export default class Renderer {
     /** Returns source credits without coupling the renderer to DOM, deck.gl or Leaflet controls. */
     getAttributions(): Promise<string[]> {
         return this.scene.getAttributions();
+    }
+
+    /** Resolve Tangram lights into luma.gl definitions, retaining non-equivalent Tangram extensions. */
+    getLumaLightDefinitions(): TangramLightMapping[] {
+        return this.scene.getLumaLightDefinitions();
     }
 
     /**

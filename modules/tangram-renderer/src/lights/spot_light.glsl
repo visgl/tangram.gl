@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 /*
 
@@ -15,22 +16,17 @@ struct SpotLight {
     vec3 diffuse;
     vec3 specular;
     vec4 position;
+    float useLumaAttenuation;
+    vec3 attenuationCoefficients;
 
-#ifdef TANGRAM_POINTLIGHT_ATTENUATION_EXPONENT
     float attenuationExponent;
-#endif
-
-#ifdef TANGRAM_POINTLIGHT_ATTENUATION_INNER_RADIUS
     float innerRadius;
-#endif
-
-#ifdef TANGRAM_POINTLIGHT_ATTENUATION_OUTER_RADIUS
     float outerRadius;
-#endif
 
     vec3 direction;
     float spotCosCutoff;
     float spotExponent;
+    vec2 lumaConeCos;
 };
 
 void calculateLight(in SpotLight _light, in vec3 _eyeToPoint, in vec3 _normal) {
@@ -45,48 +41,41 @@ void calculateLight(in SpotLight _light, in vec3 _eyeToPoint, in vec3 _normal) {
 
     // Attenuation defaults
     float attenuation = 1.0;
-    #ifdef TANGRAM_POINTLIGHT_ATTENUATION_EXPONENT
-        float Rin = 1.0;
+    if (_light.attenuationExponent != 0.0) {
+        float Rin = _light.innerRadius >= 0.0 ? _light.innerRadius : 1.0;
         float e = _light.attenuationExponent;
-
-        #ifdef TANGRAM_POINTLIGHT_ATTENUATION_INNER_RADIUS
-            Rin = _light.innerRadius;
-        #endif
-
-        #ifdef TANGRAM_POINTLIGHT_ATTENUATION_OUTER_RADIUS
+        if (_light.outerRadius >= 0.0) {
             float Rdiff = _light.outerRadius-Rin;
             float d = clamp(max(0.0,dist-Rin)/Rdiff, 0.0, 1.0);
             attenuation = 1.0-(pow(d,e));
-        #else
+        } else {
             // If no outer is provide behaves like:
             // https://imdoingitwrong.wordpress.com/2011/01/31/light-attenuation/
             float d = max(0.0,dist-Rin)/Rin+1.0;
             attenuation = clamp(1.0/(pow(d,e)), 0.0, 1.0);
-        #endif
-    #else
-        float Rin = 0.0;
-
-        #ifdef TANGRAM_POINTLIGHT_ATTENUATION_INNER_RADIUS
-            Rin = _light.innerRadius;
-            #ifdef TANGRAM_POINTLIGHT_ATTENUATION_OUTER_RADIUS
+        }
+    } else {
+        float Rin = max(_light.innerRadius, 0.0);
+        if (_light.innerRadius >= 0.0) {
+            if (_light.outerRadius >= 0.0) {
                 float Rdiff = _light.outerRadius-Rin;
                 float d = clamp(max(0.0,dist-Rin)/Rdiff, 0.0, 1.0);
                 attenuation = 1.0-d*d;
-            #else
+            } else {
                 // If no outer is provide behaves like:
                 // https://imdoingitwrong.wordpress.com/2011/01/31/light-attenuation/
                 float d = max(0.0,dist-Rin)/Rin+1.0;
                 attenuation = clamp(1.0/d, 0.0, 1.0);
-            #endif
-        #else
-            #ifdef TANGRAM_POINTLIGHT_ATTENUATION_OUTER_RADIUS
+            }
+        } else {
+            if (_light.outerRadius >= 0.0) {
                 float d = clamp(dist/_light.outerRadius, 0.0, 1.0);
                 attenuation = 1.0-d*d;
-            #else
+            } else {
                 attenuation = 1.0;
-            #endif
-        #endif
-    #endif
+            }
+        }
+    }
 
     // spotlight attenuation factor
     float spotAttenuation = 0.0;
@@ -96,6 +85,16 @@ void calculateLight(in SpotLight _light, in vec3 _eyeToPoint, in vec3 _normal) {
 
     if (spotDot >= _light.spotCosCutoff) {
         spotAttenuation = pow(spotDot, _light.spotExponent);
+    }
+    if (_light.useLumaAttenuation > 0.5) {
+        vec3 coefficients = _light.attenuationCoefficients;
+        float distanceAttenuation = coefficients.x + coefficients.y * dist + coefficients.z * dist * dist;
+        float coneFactor = _light.lumaConeCos.x == _light.lumaConeCos.y
+            ? step(_light.lumaConeCos.y, spotDot)
+            : smoothstep(_light.lumaConeCos.y, _light.lumaConeCos.x, spotDot);
+        // Match luma.gl's minimum cone factor, including its small outside-cone contribution.
+        attenuation /= max(distanceAttenuation, 0.0001);
+        spotAttenuation = max(coneFactor, 0.0001) * pow(spotDot, _light.spotExponent);
     }
 
     light_accumulator_ambient.rgb += _light.ambient * attenuation * spotAttenuation;

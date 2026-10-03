@@ -13,6 +13,7 @@ import { getPropertyPath, setPropertyPath } from '../utils/props';
 import { flattenGlobalProperties, applyGlobalProperties, isGlobalSubstitution } from './globals';
 import { createSceneBundle } from './scene_bundle';
 import { isReserved } from '../styles/layer';
+import {normalizeSceneLights} from '../lights/light-definitions';
 
 const SceneLoader = {
 
@@ -318,7 +319,8 @@ const SceneLoader = {
         config.global = config.global || {};
         config.scene = config.scene || {};
         config.cameras = config.cameras || {};
-        config.lights = config.lights || {};
+        const native_lights = Array.isArray(config.lights);
+        config.lights = normalizeSceneLights(config.lights || {});
         config.styles = config.styles || {};
         config.layers = config.layers || {};
 
@@ -337,8 +339,8 @@ const SceneLoader = {
         }
 
         // If no lights specified, create default
-        if (Object.keys(config.lights).length === 0 ||
-            Object.keys(config.lights).every(i => config.lights[i].visible === false)) {
+        if (!native_lights && (Object.keys(config.lights).length === 0 ||
+            Object.keys(config.lights).every(i => config.lights[i].visible === false))) {
             config.lights.default_light = {
                 type: 'directional'
             };
