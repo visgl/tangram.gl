@@ -279,8 +279,20 @@ lighting through camera rotations. No dependencies are added. With unchanged
 dependencies, the minified renderer ESM (including its embedded worker) grows
 by 4.891 KB raw / 1.017 KB gzip; the layer and WebXR entries are unchanged.
 
+Implemented billboard-visibility slice: GLSL and WGSL points, attached labels,
+and standalone text test each eye-to-anchor segment against the globe sphere
+before screen offsets. This hides far-side overlays without relying on basemap
+depth geometry, preserves elevated anchors whose segments clear the sphere, and
+uses the same test in WebGL selection. Real-device tests cover camera rotation,
+mono/stereo rendering, per-eye horizon differences, elevated anchors, selection,
+and tangent/precision/missing-eye boundaries. Planar rendering is unchanged.
+With unchanged dependencies, this slice adds 6.584 KB raw / 1.769 KB gzip to
+the minified renderer ESM, including its embedded worker; the layer and WebXR
+entries are unchanged.
+
 Remaining: configurable WGSL scene lights, geographic point/spot-light placement,
-tangent-space normal maps, terrain normals, projected labels and picking. This
+tangent-space normal maps, terrain normals, surface-oriented labels, projected
+collision, terrain/building occlusion, spatial picking, and WebGPU selection. This
 is not a completed lighting/label/picking tranche; see the
 [current globe coordinate contract](../api-reference/host-frame.md#coordinates-and-matrices).
 

@@ -145,7 +145,8 @@ radius-256 sphere. Its `camera.projection` is the combined world-to-clip matrix
 (`deckProjection × deckView`). Polygon and road normals rotate from local
 east/north/up into that same globe common space at each vertex; they do not
 use the planar tile's normal matrix. Globe `camera.position` is the common-space
-eye used for both horizon culling and GLSL lighting. Planar `camera.position` is the shader's eye-space lighting origin,
+eye used for tile horizon culling, billboard surface occlusion, and GLSL lighting.
+Planar `camera.position` is the shader's eye-space lighting origin,
 not a longitude/latitude tuple. Use the package view adapters rather than
 interchanging those conventions.
 
@@ -160,8 +161,27 @@ The portable WGSL polygon shader rotates wall normals into the same common
 space for its fixed directional shading. Roof-versus-wall classification still
 uses local up, so roofs and raster tiles keep their existing unlit colors.
 This does not add configurable WGSL scene lights. Geographic point/spot-light
-placement, tangent-space normal maps, terrain normals, labels, and picking are
-separate follow-up work.
+placement, tangent-space normal maps, and terrain normals are separate follow-up
+work.
+
+Screen-facing globe points, attached labels, and standalone text test the segment
+from the current eye to their geographic anchor against the radius-256 sphere,
+before applying screen offsets. This hides far-side overlays even without a
+basemap surface underneath. Elevated anchors remain visible when that segment
+clears the sphere; visibility is not inferred from a ground normal. Each stereo
+eye uses its own `camera.position`, so a horizon label can be visible in only one
+eye. The WebGL selection pass uses the same vertex test.
+
+Anchor directions are normalized and their radius restored from geographic
+altitude, so runtime trigonometric rounding does not bury surface labels. The
+test keeps tangent/surface anchors visible within a small normalized f32
+tolerance. Missing/zero eyes and eyes inside or on the sphere conservatively skip
+this exterior-horizon test. Hosts must supply the actual common-space eye for
+reliable occlusion. This is reference-sphere occlusion, not terrain/building
+occlusion or a per-glyph intersection. Screen-space collision still uses the
+existing planar layout, and hidden labels can still occupy that layout. Surface
+label orientation, projected collision, spatial picking, and WebGPU selection
+remain follow-up work.
 
 ### `activeRenderViewId`
 

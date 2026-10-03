@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {GLOBE_PROJECTION_WGSL} from '../globe_projection_wgsl';
+import {GLOBE_VISIBILITY_WGSL} from '../globe_visibility_wgsl';
 
 const PI = Math.PI;
 
@@ -20,6 +21,7 @@ export function buildTextWGSL() {
 @group(0) @binding(3) var u_texture: texture_2d<f32>;
 @group(0) @binding(4) var u_textureSampler: sampler;
 ${GLOBE_PROJECTION_WGSL}
+${GLOBE_VISIBILITY_WGSL}
 
 struct TextAttributes {
     @location(0) a_position: vec4<i32>,
@@ -117,7 +119,13 @@ fn vertexMain(attributes: TextAttributes) -> TextVaryings {
         f32(attributes.a_position.z),
         1.0
     );
-    var clip_position = TangramCamera.u_projection * tangramModelView(local_position);
+    let projected_position = tangramModelView(local_position);
+    if (TangramView.u_projection_mode == 1 && tangramGlobeOccluded(projected_position.xyz,
+        (TangramTile.u_model * local_position).z, TangramCamera.u_eye)) {
+        output.position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
+        return output;
+    }
+    var clip_position = TangramCamera.u_projection * projected_position;
     let screen_offset = shape * clip_position.w * 2.0 *
         TangramView.u_device_pixel_ratio / TangramView.u_resolution;
     clip_position = vec4<f32>(
