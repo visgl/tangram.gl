@@ -97,6 +97,12 @@ let `ClassicWebGLRenderer.setFrame()` call this from the selected render view.
 frame. `update({force, renderPass})` advances and renders the scene. Applications
 using `ClassicWebGLRenderer` should call `renderer.render()` instead.
 
+### `getLumaLightDefinitions()`
+
+Returns current-eye light snapshots with luma.gl descriptors and retained
+Tangram-specific shading fields. See [light definitions](./renderer.md#light-definitions)
+for native scene inputs, coordinate conventions and backend limitations.
+
 ## Feature inspection
 
 ### `getFeatureAt(pixel, options)`

@@ -78,6 +78,113 @@ See [tile providers and attribution](../developer-guide/tile-providers.md) for
 OpenFreeMap compatibility and headset presentation requirements. Deck hosts can
 use [`onAttributionChange`](./tangram-layer.md#onattributionchange).
 
+## Light definitions
+
+The renderer accepts luma.gl 9.4 `Light` descriptors as the scene's `lights`
+array, in JavaScript, JSON or YAML. These are plain definitions, not GPU
+resources. Use `color` in byte RGB (`0..255`), `intensity` as a multiplier,
+and `spot` with cone angles in radians:
+
+```ts
+import type {LumaLight} from '@vis.gl/tangram-renderer';
+
+const lights = [
+  {type: 'ambient', color: [255, 255, 255], intensity: 0.3},
+  {type: 'directional', color: [255, 240, 220], intensity: 0.8,
+    direction: [0.5, -0.5, -1]},
+  {type: 'point', color: [255, 128, 0], position: [0, 0, 100],
+    attenuation: [1, 0.01, 0.001]},
+  {type: 'spot', color: [255, 255, 255], position: [0, 0, 200],
+    direction: [0, 0, -1], innerConeAngle: 0.1, outerConeAngle: 0.4}
+] satisfies LumaLight[];
+
+const renderer = ClassicWebGLRenderer.create({...scene, lights}, {device, canvas});
+```
+
+Positions and directions use the projected common space of the geometry, **not
+longitude/latitude**: EPSG:3857 meters on a planar map, or radius-256 globe
+coordinates for GlobeView. Tangram transforms them to the active eye's lighting
+space. Native lights do not interpret pixel units or Tangram's `origin` setting.
+Distance attenuation is `1 / (constant + linear * distance + quadratic * distance²)`;
+spotlights use the inner/outer cone transition rather than Tangram's exponent.
+An omitted color is black, as in luma.gl. An explicit empty array means no lights.
+
+### Tangram light types extend luma.gl types
+
+`TangramAmbientLight`, `TangramDirectionalLight`, `TangramPointLight`, and
+`TangramSpotLight` extend the corresponding luma.gl definitions with optional
+Tangram controls. Their union is `TangramLight`. Ordinary luma.gl `Light` values
+are assignable directly; a separate wrapper or conversion step is not needed
+for arrays. For example:
+
+```ts
+import type {TangramPointLight} from '@vis.gl/tangram-renderer';
+
+const lamp = {
+  type: 'point',
+  color: [255, 128, 0],
+  position: [0, 0, 100],
+  attenuation: [1, 0.01, 0], // luma.gl's polynomial coefficients
+  ambient: 0.1,             // optional Tangram contribution (normalized)
+  specular: '#ffffff',      // independent Tangram specular contribution
+  attenuationExponent: 2,   // optional additional Tangram falloff
+  radius: [null, '200m']    // optional Tangram inner/outer radius
+} satisfies TangramPointLight;
+```
+
+`ambient`, `diffuse`, and `specular` accept Tangram scalar, normalized RGB/RGBA,
+or CSS colors. Positional lights also accept `radius` and `attenuationExponent`;
+spotlights accept `spotExponent`. These falloff extensions multiply the native
+distance attenuation and cone transition. The scalar legacy `attenuation`
+field remains valid in old dictionaries, but is named `attenuationExponent`
+in extended definitions so it does not conflict with luma.gl's coefficient
+vector. Optional `origin` selects legacy `world`, `ground`, or `camera` position
+interpretation; omitting it preserves native common-space positions. `visible:
+false` suppresses an entry. Legacy coordinate origins retain their existing
+planar semantics; use native common-space positions for globe lights.
+
+Existing named Tangram light dictionaries and their historical default light
+remain supported. To mix the two formats, wrap native definitions explicitly:
+
+```yaml
+lights:
+  legacy-sun:
+    type: directional
+    direction: [0, 0, -1]
+    ambient: 0.3
+  native-lamp:
+    luma:
+      type: point
+      color: [255, 128, 0]
+      position: [0, 0, 100]
+      attenuation: [1, 0.01, 0.001]
+```
+
+### `renderer.getLumaLightDefinitions()`
+
+Returns detached `TangramLightMapping[]` snapshots; also available on `Scene`.
+Call after loading and applying the desired `HostFrame`/render eye. Each mapping
+contains a luma.gl `light`, a `coordinateSpace: 'tangram-lighting'` marker, and
+the exact resolved `tangram` contributions. Positions in these snapshots are
+eye-relative lighting coordinates; **do not feed them back as world positions**.
+
+Tangram's independent ambient/diffuse/specular colors, positional ambient term,
+radius falloff, attenuation exponent and spotlight exponent are carried as
+optional Tangram fields on `mapping.light`, and retained with legacy names in
+`mapping.tangram`. Luma.gl shaders do not consume those extra fields: rendering
+only the standard luma.gl fields is an approximation for legacy lights, not a
+lossless shader replacement. Native coefficients and cone angles are retained.
+`mapTangramLight(resolved)` and `convertLumaLight(light)` expose
+the same conversion boundary for tooling without creating a scene.
+
+**Backend status:** native scene lights currently render on WebGL (including
+vertex/fragment lighting and the hosted GlobeView path). Configurable WGSL scene
+lighting remains a separate migration: native definitions explicitly fail on
+WebGPU rather than being silently ignored. Existing WebGPU wall shading is
+unchanged. The shadertools dependency is used only for public TypeScript light
+definitions; this does not import its shader assembler or material modules into
+the renderer bundle.
+
 ## TypeScript contracts
 
 The package root exports the runtime classes together with `RendererOptions`,

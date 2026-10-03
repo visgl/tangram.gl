@@ -4,6 +4,8 @@
 
 import {ClassicWebGLRenderer, HostFrame} from '@vis.gl/tangram-renderer';
 import type {HostFrameOptions, HostTileLODOptions, RendererOptions} from '@vis.gl/tangram-renderer';
+import type {LumaLight, TangramLight, TangramPointLight, TangramLightMapping} from '@vis.gl/tangram-renderer';
+import {convertLumaLight} from '@vis.gl/tangram-renderer/core';
 
 const frameOptions = {
   viewport: {width: 800, height: 600},
@@ -32,6 +34,17 @@ renderer.setFrame({...frameOptions, tileZoom: undefined, tileLOD});
 renderer.load();
 const credits: Promise<string[]> = renderer.getAttributions();
 const sceneCredits: Promise<string[]> = renderer.scene.getAttributions();
+const lights: TangramLightMapping[] = renderer.getLumaLightDefinitions();
+const light: LumaLight = {type: 'directional', direction: [0, 0, -1], color: [255, 255, 255]};
+convertLumaLight(light);
+const tangramLight: TangramLight = light;
+const nativeLight: LumaLight = tangramLight;
+const lamp = {type: 'point', position: [0, 0, 100], color: [255, 255, 255],
+  ambient: 0.2, attenuation: [1, 0.01, 0], attenuationExponent: 2, radius: [null, '200m']
+} satisfies TangramPointLight;
+convertLumaLight(lamp);
+void nativeLight;
+void lights;
 void credits;
 void sceneCredits;
 renderer.scene.updateConfig({rebuild: false});

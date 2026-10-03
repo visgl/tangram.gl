@@ -65,6 +65,38 @@ export const TangramLayerSchema = z.object({
     priority: z.number().finite().optional()
 }).passthrough();
 
+/** Finite RGB, direction, position, or attenuation triples. */
+const lightVectorSchema = z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]);
+const lightContributionSchema = z.union([z.number().finite(), z.string(), lightVectorSchema,
+    z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()])]);
+const lightDistanceSchema = z.union([z.number().finite().nonnegative(), z.string()]);
+const lumaLightCommon = {
+    color: lightVectorSchema.optional().describe('Byte RGB light color (0–255); omitted means black'),
+    intensity: z.number().finite().nonnegative().optional(),
+    ambient: lightContributionSchema.optional().describe('Optional normalized Tangram ambient contribution'),
+    diffuse: lightContributionSchema.optional().describe('Optional normalized Tangram diffuse contribution'),
+    specular: lightContributionSchema.optional().describe('Optional normalized Tangram specular contribution'),
+    visible: z.boolean().optional()
+};
+const lumaPositionalLight = {
+    position: lightVectorSchema.describe('Projected world position, not longitude/latitude'),
+    attenuation: lightVectorSchema.optional().describe('Constant, linear, quadratic distance coefficients'),
+    attenuationExponent: z.number().finite().nonnegative().optional().describe('Additional Tangram exponent falloff'),
+    radius: z.union([lightDistanceSchema, z.tuple([lightDistanceSchema.nullable(), lightDistanceSchema])]).optional(),
+    origin: z.enum(['world', 'ground', 'camera']).optional().describe('Optional legacy position interpretation')
+};
+
+/** Native luma.gl light definitions accepted by the scene's light array. */
+export const LumaLightSchema = z.discriminatedUnion('type', [
+    z.object({type: z.literal('ambient'), ...lumaLightCommon}),
+    z.object({type: z.literal('directional'), ...lumaLightCommon, direction: lightVectorSchema}),
+    z.object({type: z.literal('point'), ...lumaLightCommon, ...lumaPositionalLight}),
+    z.object({type: z.literal('spot'), ...lumaLightCommon, ...lumaPositionalLight, direction: lightVectorSchema,
+        innerConeAngle: z.number().finite().min(0).max(Math.PI / 2).optional().describe('Radians'),
+        outerConeAngle: z.number().finite().min(0).max(Math.PI / 2).optional().describe('Radians'),
+        spotExponent: z.number().finite().nonnegative().optional().describe('Additional Tangram cone falloff')})
+]);
+
 /** Schema for a Tangram scene style sheet. */
 export const TangramStyleSheetSchema = z.object({
     import: z.union([
@@ -78,7 +110,10 @@ export const TangramStyleSheetSchema = z.object({
     global: z.record(z.string(), TangramStyleValueSchema).optional(),
     cameras: z.record(z.string(), z.record(z.string(), TangramStyleValueSchema)).optional(),
     scene: z.record(z.string(), TangramStyleValueSchema).optional(),
-    lights: z.record(z.string(), z.record(z.string(), TangramStyleValueSchema)).optional(),
+    lights: z.union([
+        z.record(z.string(), z.record(z.string(), TangramStyleValueSchema)),
+        z.array(LumaLightSchema)
+    ]).optional(),
     fonts: z.record(z.string(), TangramStyleValueSchema).optional(),
     textures: z.record(z.string(), TangramStyleValueSchema).optional(),
     styles: z.record(z.string(), TangramStyleSchema).optional(),

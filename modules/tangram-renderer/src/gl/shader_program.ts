@@ -23,6 +23,12 @@ const re_texture_2d = /\btexture2D\b/g;
 const re_texture_cube = /\btextureCube\b/g;
 
 export default class ShaderProgram {
+    /** Global shader defines shared by the Tangram block composer. */
+    declare static defines: Record<string, unknown>;
+    /** Append named GLSL blocks; implemented below for legacy compatibility. */
+    declare static addBlock: (key: string, ...blocks: string[]) => void;
+    /** Remove a named GLSL block; implemented below for legacy compatibility. */
+    declare static removeBlock: (key: string) => void;
     /** Replaces a named Tangram shader block with the supplied source fragments. */
     static declare replaceBlock: (key: string, ...blocks: string[]) => void;
 
