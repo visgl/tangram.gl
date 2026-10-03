@@ -60,6 +60,8 @@ for (const exportName of [
   'HostFrame',
   'LumaDeviceRenderer',
   'calculatePlanarGroundBounds',
+  'convertLumaLight',
+  'mapTangramLight',
   'debug',
   'version',
   'default'
@@ -67,6 +69,22 @@ for (const exportName of [
   const isExported = exportName === 'default' ? /export default/.test(rendererEntry) : exportedNames.has(exportName);
   if (!isExported) {
     throw new Error(`Renderer package entry is missing export: ${exportName}`);
+  }
+}
+
+// Check the bundle exports as well as the shim: a valid shim can import a name
+// that the generated entry accidentally omitted. Include minified public names.
+for (const bundlePath of ['dist/tangram.debug.mjs', 'dist/tangram.min.mjs', 'dist/core.js']) {
+  const bundle = readFileSync(resolve(rendererDirectory, bundlePath), 'utf8');
+  const bundleExportNames = new Set(
+    [...bundle.matchAll(/\bexport\s*\{([^}]+)\}/g)].flatMap(match =>
+      match[1].split(',').map(specifier => specifier.trim().split(/\s+as\s+/).at(-1))
+    )
+  );
+  for (const exportName of ['convertLumaLight', 'mapTangramLight']) {
+    if (!bundleExportNames.has(exportName)) {
+      throw new Error(`${bundlePath} is missing export: ${exportName}`);
+    }
   }
 }
 

@@ -108,6 +108,9 @@ space. Native lights do not interpret pixel units or Tangram's `origin` setting.
 Distance attenuation is `1 / (constant + linear * distance + quadratic * distance²)`;
 spotlights use the inner/outer cone transition rather than Tangram's exponent.
 An omitted color is black, as in luma.gl. An explicit empty array means no lights.
+Native arrays and named `luma` entries both support Tangram's `global.*`
+substitutions. The renderer resolves globals before validating light vectors,
+colors and falloff, and reapplies them when scene configuration is updated.
 
 ### Tangram light types extend luma.gl types
 

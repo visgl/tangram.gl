@@ -63,7 +63,7 @@ describe('native luma.gl light conversion', () => {
         expect(TangramStyleSheetSchema.parse({lights: [input]}).lights).toEqual([input]);
         const spot: TangramSpotLight = {type: 'spot', position: [0, 0, 1], direction: [0, 0, -1], spotExponent: 0};
         expect(convertLumaLight(spot).exponent).toBe(0);
-        expect(normalizeSceneLights([{type: 'ambient', visible: false}])).toMatchObject({luma_light_0: {visible: false}});
+        expect(normalizeSceneLights([{type: 'ambient', visible: false}])).toMatchObject({luma_light_0: {luma: {visible: false}}});
     });
 
     test.each([
@@ -82,7 +82,7 @@ describe('native luma.gl light conversion', () => {
         {type: 'spot', position: [0, 0, 1], direction: [0, 0, -1], spotExponent: -1}
     ])('rejects malformed runtime input: %j', input => {
         // Scene files are untrusted runtime values, not type-checked TypeScript.
-        expect(() => normalizeSceneLights([input])).toThrow();
+        expect(() => Reflect.apply(convertLumaLight, undefined, [input])).toThrow();
     });
 
     test('normalizes arrays without modifying named legacy definitions or adding defaults to an empty array', () => {
@@ -94,6 +94,15 @@ describe('native luma.gl light conversion', () => {
         });
         expect(TangramStyleSheetSchema.safeParse({lights: nativeLights}).success).toBe(true);
         expect(TangramStyleSheetSchema.safeParse({lights: [{type: 'point'}]}).success).toBe(false);
+    });
+
+    test('authored native schema permits globals without accepting arbitrary strings as vectors', () => {
+        const native = {type: 'spot', position: 'global.position', color: [255, 'global.green', 0],
+            direction: [0, 0, -1], attenuation: 'global.coefficients', intensity: 'global.intensity',
+            visible: 'global.visible', innerConeAngle: 'global.inner', outerConeAngle: 'global.outer',
+            attenuationExponent: 'global.exponent', origin: 'global.origin'};
+        expect(TangramStyleSheetSchema.parse({lights: [native]}).lights).toEqual([native]);
+        expect(TangramStyleSheetSchema.safeParse({lights: [{...native, position: 'not a vector'}]}).success).toBe(false);
     });
 });
 

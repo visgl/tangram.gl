@@ -1445,13 +1445,12 @@ export default class Scene {
                 continue;
             }
             let light = this.config.lights[i];
-            light.visible = light.visible ?? light.luma?.visible;
-            if (light.luma && light.visible !== false && this.shader_language === 'wgsl') {
+            const visible = (light.visible ?? light.luma?.visible) !== false;
+            if ('luma' in light && visible && this.shader_language === 'wgsl') {
                 throw new Error('Native luma.gl scene lights currently require WebGL; configurable WGSL lighting is not implemented');
             }
             light.name = i.replace('-', '_'); // light names are injected in shaders, can't have hyphens
-            light.visible = (light.visible === false) ? false : true;
-            if (light.visible) {
+            if (visible) {
                 this.lights[light.name] = Light.create(this.view, light);
             }
         }

@@ -50,7 +50,7 @@ export default class Light {
     // Create a light by type name, factory-style
     // 'config' must include 'name' and 'type', along with any other type-specific properties
     static create (view, config) {
-        if (config.luma) {
+        if ('luma' in config) {
             config = {...config, ...convertLumaLight(config.luma)};
         }
         if (Light.types[config.type]) {

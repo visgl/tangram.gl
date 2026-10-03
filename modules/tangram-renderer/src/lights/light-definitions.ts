@@ -213,13 +213,10 @@ export function convertLumaLight(input: TangramLight): LumaLightConfig {
     };
 }
 
-/** Convert a luma.gl array into named scene entries; named Tangram dictionaries remain unchanged. */
+/** Wrap native arrays without validation so scene globals resolve before Light.create converts them. */
 export function normalizeSceneLights(lights: unknown): unknown {
     if (!Array.isArray(lights)) return lights;
-    return Object.fromEntries(lights.map((light, index) => {
-        const native = convertLumaLight(light).lumaLight;
-        return [`luma_light_${index}`, {luma: native, visible: native.visible ?? true}];
-    }));
+    return Object.fromEntries(lights.map((light, index) => [`luma_light_${index}`, {luma: light}]));
 }
 
 /** Keep legacy color syntax independent of luma.gl's byte RGB field. */

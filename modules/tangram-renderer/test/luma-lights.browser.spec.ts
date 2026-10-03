@@ -112,6 +112,40 @@ describe('native luma lights drive Tangram uniforms', () => {
 });
 
 describe('scene light integration', () => {
+    test.each(['array', 'named'])('resolves and refreshes native %s light globals before conversion', shape => {
+        const native = {type: 'point', position: 'global.lamp_position', color: 'global.lamp_color',
+            attenuation: 'global.lamp_attenuation', visible: 'global.lamp_visible'};
+        const config = SceneLoader.finalize({config: {
+            global: {lamp_position: [1, 2, 3], lamp_color: [255, 0, 0],
+                lamp_attenuation: [1, 2, 3], lamp_visible: true},
+            lights: shape === 'array' ? [native] : {lamp: {luma: native}}
+        }, bundle: null}).config;
+        const scene = Object.create(Scene.prototype);
+        scene.config = SceneLoader.applyGlobalProperties(config);
+        scene.view = createView();
+        vi.spyOn(Light, 'inject').mockImplementation(() => {});
+        scene.createLights();
+        const lamp = scene.lights[Object.keys(scene.lights)[0]];
+        expect(lamp.lumaLight).toMatchObject({position: [1, 2, 3], color: [255, 0, 0], attenuation: [1, 2, 3]});
+        config.global.lamp_position = [4, 5, 6];
+        config.global.lamp_color = [0, 255, 0];
+        config.global.lamp_visible = false;
+        SceneLoader.applyGlobalProperties(config);
+        scene.createLights();
+        expect(scene.getLumaLightDefinitions()).toEqual([]);
+        config.global.lamp_visible = true;
+        SceneLoader.applyGlobalProperties(config);
+        scene.createLights();
+        expect(scene.lights[Object.keys(scene.lights)[0]].lumaLight).toMatchObject({position: [4, 5, 6], color: [0, 255, 0]});
+    });
+
+    test.each([null, {type: 'point'}, {type: 'unsupported'}])('rejects invalid array entries when creating lights: %j', native => {
+        const scene = Object.create(Scene.prototype);
+        scene.config = SceneLoader.finalize({config: {lights: [native]}, bundle: null}).config;
+        scene.view = createView();
+        expect(() => scene.createLights()).toThrow();
+    });
+
     test('retains historical default lights while allowing an explicitly empty native list', () => {
         expect(SceneLoader.finalize({config: {}, bundle: null}).config.lights.default_light).toEqual({type: 'directional'});
         expect(SceneLoader.finalize({config: {lights: []}, bundle: null}).config.lights).toEqual({});
