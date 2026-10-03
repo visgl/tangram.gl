@@ -15,14 +15,13 @@
     "type": "git",
     "url": "https://github.com/visgl/tangram.gl.git"
   },
-  "homepage": "https://visgl.github.io/tangram.gl/",
+  "homepage": "https://vis.gl/tangram.gl/",
   "scripts": {
     "start": "yarn workspace @vis.gl/tangram-renderer watch",
     "bootstrap": "yarn install && ocular-bootstrap",
     "clean": "ocular-clean",
     "website:start": "yarn workspace tangram-layers-website start",
     "website:build": "yarn workspace tangram-layers-website build",
-    "website:deploy": "yarn workspace tangram-layers-website deploy",
     "build": "yarn clean && yarn build:modules && yarn workspace @vis.gl/tangram-classic build",
     "build:modules": "yarn workspace @vis.gl/tangram-renderer build && yarn workspace @vis.gl/tangram-layers build && yarn build:artifacts",
     "build:artifacts": "node scripts/check-renderer-artifacts.mjs",
