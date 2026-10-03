@@ -11,6 +11,7 @@ import {changedPixels, DEVICE_TYPE, readCanvasPixels} from './harness';
 type ClassicScene = Scene & {
   canvas: HTMLCanvasElement;
   view_complete: boolean;
+  host_animation_time: number | null;
   view: {setView(state: {lng: number; lat: number; zoom: number}): void};
   styles: Record<string, {program: {compiled: boolean}}>;
   update(options: {force: boolean}): void;
@@ -53,6 +54,7 @@ async function loadEndpoint(definition: SceneDefinition) {
   scene = Tangram.Scene.create(definition, {container, disableRenderLoop: true, numWorkers: 1,
     highDensityDisplay: false, webGLContextOptions: {preserveDrawingBuffer: true}}) as ClassicScene;
   scene.subscribe({error: event => errors.push(JSON.stringify(event))});
+  scene.host_animation_time = 0;
   scene.view.setView({lng: -96, lat: 39, zoom: 4});
   await scene.load();
   await settleScene();
@@ -74,8 +76,12 @@ test.runIf(DEVICE_TYPE === 'webgl')('Albers compiles both morphing styles and vi
   for (const name of ['projection-morph', 'state-borders']) {
     expect(scene!.styles[name].program.compiled).toBe(true);
   }
-  // Force the other morph endpoint at the same camera to isolate projection from zoom scaling.
-  const mercator = await loadEndpoint({import: sceneUrl,
-    styles: {'albers-projection': {shaders: {defines: {ZOOM_START: -2, ZOOM_END: -1}}}}});
+  // Drive the actual scene clock, without rebuilding styles or moving the camera.
+  scene!.host_animation_time = 6;
+  await settleScene();
+  const mercator = await readCanvasPixels(scene!.canvas);
   expect(changedPixels(albers, mercator)).toBeGreaterThan(1000);
+  scene!.host_animation_time = 12;
+  await settleScene();
+  expect(changedPixels(albers, await readCanvasPixels(scene!.canvas))).toBe(0);
 });

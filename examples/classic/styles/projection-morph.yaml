@@ -38,6 +38,7 @@ styles:
         QUARTER_PI: 0.7853981633974483
         ZOOM_START: 5.0
         ZOOM_END: 10.0
+        MORPH_PERIOD: 12.0
       blocks:
         global: |
           float deg2rad(float degrees) {
@@ -70,7 +71,10 @@ styles:
           }
 
           float projectionMix() {
-              return smoothstep(ZOOM_START, ZOOM_END, u_map_position.z);
+              // At overview zoom, continuously morph Albers -> Mercator -> Albers.
+              // Fade to Mercator when zooming in so local navigation stays familiar.
+              float animatedMix = 0.5 - 0.5 * cos(u_time * (2.0 * PI / MORPH_PERIOD));
+              return mix(animatedMix, 1.0, smoothstep(ZOOM_START, ZOOM_END, u_map_position.z));
           }
         position: |
           vec2 mercator = u_map_position.xy + position.xy;

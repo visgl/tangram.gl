@@ -20,6 +20,9 @@ describe('classic live style choices', () => {
     expect(scene.styles['projection-morph']).toMatchObject({base: 'polygons', mix: 'albers-projection'});
     expect(scene.styles['state-borders']).toMatchObject({base: 'lines', mix: 'albers-projection'});
     expect(scene.styles['albers-projection'].shaders.blocks.position).toContain('latlon2albers');
+    expect(scene.styles['albers-projection'].animated).toBe(true);
+    expect(scene.styles['albers-projection'].shaders.blocks.global).toContain('u_time');
+    expect(scene.styles['albers-projection'].shaders.defines.MORPH_PERIOD).toBe(12);
     expect(scene.sources.states.url).toBe('../data/us-states-10m.json');
   });
   test('starts with full TRON and routes both live choices through their compatibility wrapper', () => {
