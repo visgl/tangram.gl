@@ -9,6 +9,7 @@ import Scene from './scene/classic_scene';
 import ClassicWebGLRenderer from './scene/renderer';
 import HostFrame from './scene/host_frame';
 import LumaDeviceRenderer from './gpu/luma_device_renderer';
+export type {HostTileResourceOptions, TileResourceStatistics} from './types';
 
 // Additional modules are exposed for debugging
 import version from './utils/version';

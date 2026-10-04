@@ -25,6 +25,8 @@ new HostFrame({
   tileBuffer,
   tileZoom,
   tileLOD,
+  tileResources,
+  globePreloadZoom,
   animationTime
 });
 ```
@@ -119,6 +121,46 @@ This is a loading fallback, not permanent whole-world high-resolution rendering:
 cold-start loads still take time, tiles do not cover Mercator's polar caps, and missing
 data in a provider's coarse level cannot be invented. Global residency is separate
 from `tileLOD.maxTiles`, which still bounds active detailed footprint traversal.
+
+### `tileResources`
+
+Optional worker/cache limits shared across **all sources and render views**:
+
+```ts
+tileResources: {
+  maxConcurrentBuilds: 8,
+  maxCachedTiles: 64,
+  maxCachedMeshBytes: 32 * 1024 * 1024
+}
+```
+
+`maxConcurrentBuilds` is a positive safe integer. It limits tile builds submitted
+to workers, not individual HTTP requests, decodes, texture loads, or scene-wide
+configuration work. Visible detail is submitted before globe preload and retained
+off-screen work, with stable center-first ordering within a priority. The queue
+deduplicates source/style-normalized tile keys across eyes. Partial mesh replies
+do not free a slot: completion, removal, cancellation or failure does. A late reply
+from an old generation cannot release a newer build. Lowering the cap does not
+abort active work; no additional work starts until the active count falls below
+the new cap. Removing the policy resumes unlimited submission.
+
+`maxCachedTiles` and `maxCachedMeshBytes` are non-negative safe integers.
+They cap only **completed, unneeded off-screen cache entries**, evicting least
+recently used entries until both limits are satisfied. Zero disables that cache.
+Visible tiles from either eye, proxy ancestors, pinned globe fallback tiles, and
+active/queued builds are protected and can exceed these cache limits. Ordinary
+visibility/source pruning can still remove obsolete work and cancels its queue
+ownership. Omitting a limit retains the existing unlimited cache behavior.
+
+Mesh bytes count allocated planar and globe vertex/index buffers and pending
+label meshes, without double-counting shared mesh references. They exclude
+textures, retained CPU geometry, network data, shader/pipeline resources and driver
+overhead. This is **not a total GPU-memory cap** or a bounded request queue; combine
+it with `tileLOD.maxTiles`, source limits and bounded globe preloading. Cache limits
+are enforced during tile/visibility updates, not by a separate background timer.
+
+See [`renderer.getTileResourceStatistics()`](./renderer.md#renderergettileresourcestatistics)
+for protected/cache residency and shared build-queue diagnostics.
 
 ### `renderViews`
 

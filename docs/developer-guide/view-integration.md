@@ -218,7 +218,16 @@ MapView, FirstPersonView and GlobeView matrices while leaving style evaluation
 unchanged. See [options and limits](../api-reference/host-frame.md#tilelod).
 Normal deck adapters retain their existing defaults.
 
-Certified feature-geometry pixel error, per-tile mixed LOD, cache/request/byte
+Implemented resource-policy slices: `HostFrame.tileResources` caps shared worker
+tile-build concurrency and completed off-screen cache count/mesh bytes. Visible
+detail precedes preload, old-generation replies cannot release new builds, and
+removing/failed tiles release ownership. LRU eviction protects either eye's visible
+tiles, proxy ancestors, pinned globe fallback, and active/queued builds. Host
+diagnostics distinguish protected residency from evictable mesh bytes. These
+opt-in limits preserve the legacy defaults and do not cap textures, total memory,
+HTTP requests, or queued tile metadata. See [resource options](../api-reference/host-frame.md#tileresources).
+
+Certified feature-geometry pixel error, per-tile mixed LOD, total cache/request/byte
 budgets and finer-than-style geometry scaling remain pending. The candidate
 budget counts raw traversal across eyes, not GPU memory or network requests;
 this uniform surface estimate does not complete the entire tranche.

@@ -78,6 +78,21 @@ See [tile providers and attribution](../developer-guide/tile-providers.md) for
 OpenFreeMap compatibility and headset presentation requirements. Deck hosts can
 use [`onAttributionChange`](./tangram-layer.md#onattributionchange).
 
+## Tile resources
+
+### `renderer.getTileResourceStatistics()`
+
+Returns a detached snapshot of `activeBuilds`, `queuedBuilds`, `residentTiles`,
+`cachedTiles`, `cachedMeshBytes`, `protectedTiles`, and `protectedMeshBytes`.
+The counts belong to one logical renderer, not each stereo eye. Protected tiles
+include visible geometry, proxies, pinned coarse globe fallback, and incomplete
+or queued builds. Mesh bytes count vertex/index buffers, including globe variants
+and pending labels; they are not a measurement of textures or total GPU memory.
+
+Use [`HostFrame.tileResources`](./host-frame.md#tileresources) to opt into build
+concurrency and completed off-screen cache limits. The renderer's normal unlimited
+policy is preserved when options are omitted.
+
 ## Light definitions
 
 The renderer accepts luma.gl 9.4 `Light` descriptors as the scene's `lights`

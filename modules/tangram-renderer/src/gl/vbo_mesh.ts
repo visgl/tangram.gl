@@ -14,6 +14,9 @@ import {refineGlobeMesh, type GlobeMeshOptions} from './globe_mesh';
 // A single mesh/VBO, described by a vertex layout, that can be drawn with one or more programs
 export default class VBOMesh  {
 
+    /** Vertex/index allocation bytes, excluding textures and projection-specific child meshes. */
+    declare buffer_size: number;
+
     /** Triangle count of the original planar mesh. */
     geometry_count: number;
     /** Shared fade origin for planar and globe variants. */

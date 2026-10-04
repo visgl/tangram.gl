@@ -35,7 +35,7 @@ export type {
   TangramUniformBufferOptions
 } from './gpu/tangram_gpu_backend.js';
 
-export type {Matrix4, Vector3, SceneDefinition, Viewport, GeographicAnchor, HostProjection, HostCamera, HostRenderView, HostTileLODOptions, HostFrameOptions, LegacyHostFrame, RendererOptions, SceneLoadOptions, SceneUpdateOptions, SceneDataSource, SceneFeature, SceneQueryOptions, SceneScreenshot, RenderOptions, SceneConfigEvent, SceneErrorEvent, SceneEventMap, SceneListener, SceneListeners, WorkerRequest, WorkerResponse, WorkerBrokerMessage} from './types.js';
+export type {Matrix4, Vector3, SceneDefinition, Viewport, GeographicAnchor, HostProjection, HostCamera, HostRenderView, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, HostFrameOptions, LegacyHostFrame, RendererOptions, SceneLoadOptions, SceneUpdateOptions, SceneDataSource, SceneFeature, SceneQueryOptions, SceneScreenshot, RenderOptions, SceneConfigEvent, SceneErrorEvent, SceneEventMap, SceneListener, SceneListeners, WorkerRequest, WorkerResponse, WorkerBrokerMessage} from './types.js';
 export {
   WebMercatorGlobeVisibilityAdapter,
   WebMercatorVisibilityAdapter
@@ -93,6 +93,8 @@ export declare class ClassicWebGLRenderer {
   /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
   getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   subscribe(listeners: SceneListeners): void;
+  /** Shared worker queue and completed-cache mesh bytes; excludes texture/CPU/driver memory. */
+  getTileResourceStatistics(): import('./types.js').TileResourceStatistics;
   destroy(): unknown;
 }
 

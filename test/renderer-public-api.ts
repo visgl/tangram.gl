@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {ClassicWebGLRenderer, HostFrame} from '@vis.gl/tangram-renderer';
-import type {HostFrameOptions, HostTileLODOptions, RendererOptions} from '@vis.gl/tangram-renderer';
+import type {HostFrameOptions, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, RendererOptions} from '@vis.gl/tangram-renderer';
 import type {LumaLight, TangramLight, TangramPointLight, TangramLightMapping} from '@vis.gl/tangram-renderer';
 import {convertLumaLight} from '@vis.gl/tangram-renderer/core';
 
@@ -31,6 +31,10 @@ const renderer = ClassicWebGLRenderer.create('scene.yaml', rendererOptions);
 renderer.setFrame(frame);
 const tileLOD = {targetTilePixels: 512, pixelRatio: 2, maxTiles: 256, hysteresis: 0.2} satisfies HostTileLODOptions;
 renderer.setFrame({...frameOptions, tileZoom: undefined, tileLOD});
+const tileResources = {maxConcurrentBuilds: 8, maxCachedTiles: 64, maxCachedMeshBytes: 32 * 1024 * 1024} satisfies HostTileResourceOptions;
+renderer.setFrame({...frameOptions, tileResources});
+const resources: TileResourceStatistics = renderer.getTileResourceStatistics();
+void resources;
 renderer.load();
 const credits: Promise<string[]> = renderer.getAttributions();
 const sceneCredits: Promise<string[]> = renderer.scene.getAttributions();

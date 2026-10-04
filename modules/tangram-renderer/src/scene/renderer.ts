@@ -6,7 +6,7 @@ import Scene from './scene';
 import HostFrame from './host_frame';
 import LumaDeviceRenderer from '../gpu/luma_device_renderer';
 import type View from './view';
-import type {RendererOptions, RenderOptions, SceneDefinition, SceneListeners, SceneLoadOptions} from '../types';
+import type {RendererOptions, RenderOptions, SceneDefinition, SceneListeners, SceneLoadOptions, TileResourceStatistics} from '../types';
 import type {TangramLightMapping} from '../lights/light-definitions';
 
 
@@ -14,6 +14,8 @@ interface FrameOptions {renderViewId?: string}
 
 /** Minimal scene surface needed by the host-driven renderer. */
 interface RendererScene {
+    /** Shared source/style tile ownership across every eye. */
+    tile_manager: {getResourceStatistics(): TileResourceStatistics};
     view: View;
     config: {animated?: boolean} | null;
     animated: boolean;
@@ -85,6 +87,11 @@ export default class Renderer {
     /** Resolve Tangram lights into luma.gl definitions, retaining non-equivalent Tangram extensions. */
     getLumaLightDefinitions(): TangramLightMapping[] {
         return this.scene.getLumaLightDefinitions();
+    }
+
+    /** Current build queue and completed-cache mesh residency; does not include textures or driver memory. */
+    getTileResourceStatistics(): TileResourceStatistics {
+        return this.scene.tile_manager.getResourceStatistics();
     }
 
     /**

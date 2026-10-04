@@ -302,6 +302,18 @@ See [attribution requirements and safe presentation](../developer-guide/tile-pro
 
 ### Globe visibility
 
+#### `tileResources` (object, optional) {/* #tileresources */}
+
+- Default: `null` (legacy unlimited scheduling/cache policy).
+
+Passes shared `maxConcurrentBuilds`, `maxCachedTiles` and `maxCachedMeshBytes`
+limits into the renderer's [tile resource policy](./host-frame.md#tileresources).
+For example, `{maxConcurrentBuilds: 8, maxCachedTiles: 64}` limits worker build
+concurrency and completed off-screen cache entries without evicting visible tiles,
+proxy ancestors or pinned globe fallback. Mesh-byte caps do not include textures
+or total GPU memory. These settings change resource scheduling, not style zoom or
+camera matrices.
+
 #### `globePreloadZoom` (number, optional) {/* #globepreloadzoom */}
 
 - Default: `null` (disabled)

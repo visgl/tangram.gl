@@ -12,7 +12,7 @@ import type {CameraView, CameraConfiguration, MatrixSet, Program, UniformBuffer}
 import type HostFrame from './host_frame';
 import type {NormalizedRenderView} from './host_frame';
 import ProjectedTileLOD from './projected_tile_lod';
-import type {HostCamera, HostProjection} from '../types';
+import type {HostCamera, HostProjection, HostTileResourceOptions} from '../types';
 import type {Bounds, Meters, Tile} from '../utils/geo';
 import type {TileCoordinate} from '../tile/tile_id';
 import type {VisibilityLODAdapter, GlobeVisibilityLODAdapter, VisibilityViewState} from './visibility_adapter';
@@ -67,6 +67,8 @@ export interface ViewScene {
         removeTiles(predicate: (tile: ViewTile) => boolean): void;
         /** Report tiles pinned by the current bounded globe preload policy. */
         isTilePreloaded?(key: string): boolean;
+        /** Install shared worker/cache limits before refreshing visibility. */
+        setResourceLimits?(options: Readonly<HostTileResourceOptions> | undefined): void;
     };
     updateConfig(options: {rebuild: boolean; normalize: boolean}): unknown;
     requestRedraw(): void;
@@ -191,7 +193,7 @@ export default class View {
         });
         const key = JSON.stringify({
             anchor: frame.geographicAnchor, projection: frame.projection, buffer: frame.tileBuffer, tileZoom: dataTileZoom,
-            tileLOD: frame.tileLOD, globePreloadZoom: frame.globePreloadZoom,
+            tileLOD: frame.tileLOD, tileResources: frame.tileResources, globePreloadZoom: frame.globePreloadZoom,
             views: frame.renderViews.map(view => ({
                 viewport: view.viewport, anchor: view.geographicAnchor, projection: view.projection,
                 camera: {view: Array.from(view.camera.view), projection: Array.from(view.camera.projection), position: view.camera.position}
@@ -202,6 +204,7 @@ export default class View {
         this.dataTileZoom = dataTileZoom;
         this.applyingFrame = true;
         try {
+            this.scene.tile_manager.setResourceLimits?.(frame.tileResources);
             this.buffer = frame.tileBuffer;
             this.setProjection(frame.projection);
             resize();
