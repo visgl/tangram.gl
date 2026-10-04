@@ -32,6 +32,10 @@ export interface TangramPositionalLightExtensions extends TangramLightExtensions
     radius?: number | string | readonly [number | string | null, number | string];
     /** Optional legacy position interpretation; omitted means projected common-space coordinates. */
     origin?: 'world' | 'ground' | 'camera';
+    /** Interpret native position as longitude/latitude/altitude rather than projected common coordinates. */
+    positionSpace?: 'common' | 'geographic';
+    /** Geographic spotlight orientation; defaults to ENU when positionSpace is geographic. */
+    directionSpace?: 'common' | 'enu';
 }
 
 /** Native ambient light with optional independent Tangram color contributions. */
@@ -186,6 +190,12 @@ export function convertLumaLight(input: TangramLight): LumaLightConfig {
         if (lumaLight.origin != null && !['world', 'ground', 'camera'].includes(lumaLight.origin)) {
             throw new Error('Tangram light origin must be world, ground or camera');
         }
+        if (lumaLight.positionSpace != null && !['common', 'geographic'].includes(lumaLight.positionSpace)) throw new Error('Light positionSpace must be common or geographic');
+        if (lumaLight.directionSpace != null && !['common', 'enu'].includes(lumaLight.directionSpace)) throw new Error('Light directionSpace must be common or enu');
+        if (lumaLight.positionSpace === 'geographic') {
+            if (lumaLight.origin != null) throw new Error('Geographic light positions cannot also specify a legacy origin');
+            if (Math.abs(lumaLight.position[1]) > 90) throw new Error('Geographic light latitude must be within +/-90 degrees');
+        } else if (lumaLight.directionSpace === 'enu') throw new Error('ENU light directions require geographic positions');
         if (lumaLight.attenuationExponent != null) validateExponent(lumaLight.attenuationExponent);
         if (lumaLight.radius != null) lumaLight.radius = copyRadius(lumaLight.radius);
     }

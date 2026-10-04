@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Manage rendering styles
 // @ts-nocheck
@@ -376,6 +377,9 @@ export class StyleManager {
         // Only keep built-in base styles
         for (let sname in this.styles) {
             if (!this.base_styles[sname]) {
+                // Rebuilt styles own programs and portable material buffers;
+                // release them before their last manager reference is removed.
+                this.styles[sname].destroy();
                 delete this.styles[sname];
             }
             else {

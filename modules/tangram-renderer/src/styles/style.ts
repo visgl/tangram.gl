@@ -14,6 +14,7 @@ import ShaderProgram from '../gl/shader_program';
 import VBOMesh from '../gl/vbo_mesh';
 import Texture from '../gl/texture';
 import Material from '../lights/material';
+import {PORTABLE_MATERIAL_UNIFORMS, getPortableMaterialUniforms} from '../lights/lighting-uniforms';
 import Light from '../lights/light';
 import {RasterTileSource} from '../sources/raster';
 import log from '../utils/log';
@@ -94,12 +95,16 @@ export var Style = {
     },
 
     destroy () {
-        if (this.program) {
+        if (Object.prototype.hasOwnProperty.call(this, 'portable_material_buffer')) {
+            this.portable_material_buffer?.destroy();
+        }
+        this.portable_material_buffer = null;
+        if (Object.prototype.hasOwnProperty.call(this, 'program') && this.program) {
             this.program.destroy();
             this.program = null;
         }
 
-        if (this.selection_program) {
+        if (Object.prototype.hasOwnProperty.call(this, 'selection_program') && this.selection_program) {
             this.selection_program.destroy();
             this.selection_program = null;
         }
@@ -429,6 +434,23 @@ export var Style = {
         this.defer_texture_bindings = options.deferTextureBindings === true;
         this.defer_uniform_updates = options.deferUniformUpdates === true;
         this.max_texture_size = options.maxTextureSize || Texture.getMaxTextureSize(this.gl);
+        if (Object.prototype.hasOwnProperty.call(this, 'portable_material_buffer')) {
+            this.portable_material_buffer?.destroy();
+        }
+        this.portable_material_buffer = null;
+        this.portable_lighting_mode = undefined;
+        this.portable_light_count = options.portableLightCount;
+        if (options.portableLighting && ['polygons', 'lines', 'raster'].includes(this.baseStyle())) {
+            this.portable_lighting_mode = this.defines.TANGRAM_LIGHTING_VERTEX ? 'vertex' :
+                this.defines.TANGRAM_LIGHTING_FRAGMENT ? 'fragment' : false;
+            if (this.portable_lighting_mode) {
+                getPortableMaterialUniforms(this.material);
+                this.portable_material_buffer = this.uniform_block_factory({
+                    name: 'TangramMaterial', binding: 7, uniforms: PORTABLE_MATERIAL_UNIFORMS
+                });
+                this.uniform_blocks = {...this.uniform_blocks, TangramMaterial: this.portable_material_buffer};
+            }
+        }
     },
 
     makeMesh (vertex_data, vertex_elements, options = {}) {
@@ -837,7 +859,11 @@ export var Style = {
     // Setup any GL state for rendering
     setup () {
         this.setUniforms();
-        this.material.setupProgram(ShaderProgram.current);
+        if (this.portable_material_buffer) {
+            this.portable_material_buffer.setUniforms(getPortableMaterialUniforms(this.material));
+        } else {
+            this.material.setupProgram(ShaderProgram.current);
+        }
     },
 
     // Set style uniforms on currently bound program

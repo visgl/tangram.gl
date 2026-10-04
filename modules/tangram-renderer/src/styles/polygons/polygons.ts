@@ -27,7 +27,8 @@ Object.assign(Polygons, {
     selection: true, // enable feature selection
 
     getWGSLShaderSource() {
-        return buildPolygonsWGSL({ raster: this.raster === 'color' });
+        return buildPolygonsWGSL({ raster: this.raster === 'color', lighting: this.portable_lighting_mode,
+            lightCount: this.portable_light_count });
     },
 
     init() {

@@ -65,6 +65,7 @@ const TANGRAM_RENDERER_FILES = new Set([
   'modules/tangram-renderer/src/lights/ambient_light.glsl',
   'modules/tangram-renderer/src/lights/directional_light.glsl',
   'modules/tangram-renderer/src/lights/light.ts',
+  'modules/tangram-renderer/src/lights/lighting-wgsl.ts',
   'modules/tangram-renderer/src/lights/material.glsl',
   'modules/tangram-renderer/src/lights/material.ts',
   'modules/tangram-renderer/src/lights/point_light.glsl',

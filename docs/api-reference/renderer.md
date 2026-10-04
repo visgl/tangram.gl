@@ -144,7 +144,34 @@ in extended definitions so it does not conflict with luma.gl's coefficient
 vector. Optional `origin` selects legacy `world`, `ground`, or `camera` position
 interpretation; omitting it preserves native common-space positions.
 `visible: false` suppresses an entry. Legacy coordinate origins retain their existing
-planar semantics; use native common-space positions for globe lights.
+planar semantics; use native common-space or geographic positions for globe lights.
+
+### Geographic lamps and spotlights
+
+Set `positionSpace: 'geographic'` on a `TangramPointLight` or `TangramSpotLight`
+to supply `[longitude, latitude, altitude]` in degrees/degrees/meters. The renderer
+projects the lamp into the current map or globe geometry space and resolves it
+separately for each render eye. Planar maps choose the nearest antimeridian world
+copy; latitudes outside Mercator's domain are clamped for planar projection.
+Invalid/nonfinite coordinates and latitudes outside ±90° are rejected.
+
+```ts
+import type {TangramSpotLight} from '@vis.gl/tangram-renderer';
+
+const lamp = {
+  type: 'spot', color: [255, 240, 220], positionSpace: 'geographic',
+  position: [-74.009, 40.705, 200], direction: [0, 0, -1],
+  innerConeAngle: 0.2, outerConeAngle: 0.5
+} satisfies TangramSpotLight;
+```
+
+Geographic spot directions default to east/north/up (`directionSpace: 'enu'`),
+so `[0, 0, -1]` shines down toward the local surface, including on a globe.
+Use `directionSpace: 'common'` to supply a projected direction explicitly.
+Geographic positions cannot also specify legacy `origin`; ENU directions require
+geographic positions. Distance attenuation and numeric radius extensions still
+use projected lighting units: EPSG:3857 meters on maps, radius-256 common units
+on globes. Geographic input does not rescale the attenuation equation.
 
 Existing named Tangram light dictionaries and their historical default light
 remain supported. To mix the two formats, wrap native definitions explicitly:
@@ -180,11 +207,18 @@ lossless shader replacement. Native coefficients and cone angles are retained.
 `mapTangramLight(resolved)` and `convertLumaLight(light)` expose
 the same conversion boundary for tooling without creating a scene.
 
-**Backend status:** native scene lights currently render on WebGL (including
-vertex/fragment lighting and the hosted GlobeView path). Configurable WGSL scene
-lighting remains a separate migration: native definitions explicitly fail on
-WebGPU rather than being silently ignored. Existing WebGPU wall shading is
-unchanged. The shadertools dependency is used only for public TypeScript light
+**Backend status:** native scene lights render on WebGL 2 and WebGPU for polygon,
+line and raster surface styles, with `lighting: 'vertex'`, `'fragment'`, or `false`.
+WebGPU supports constant emission, ambient, diffuse and specular material
+contributions, shininess, and both native and legacy falloff equations. Material
+textures and normal maps explicitly fail on this configured WGSL path; points
+and text remain unlit. WebGPU accepts up to 16 visible lights and rejects larger
+lists instead of silently truncating them. Native arrays/`luma` entries opt in
+automatically, including explicit empty arrays. To opt in with an entirely
+legacy light dictionary, set `scene: {lighting: 'configured'}`. Without that opt-in,
+existing legacy WebGPU wall shading is unchanged. Updating a scene recompiles
+its light-count-specialized shaders and releases replaced material resources.
+The shadertools dependency is used only for public TypeScript light
 definitions; this does not import its shader assembler or material modules into
 the renderer bundle.
 
