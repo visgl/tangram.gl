@@ -16,7 +16,9 @@ import WorkerBroker from '../utils/worker_broker'; // jshint ignore:line
 import Tile from '../tile/tile';
 import Geo from '../utils/geo';
 import DataSource from '../sources/data_source';
-import TangramTileSourceAdapter, {iterateSourceTiles} from '../sources/tile_source_adapter';
+import {iterateSourceTiles} from '../sources/tile_source_adapter';
+import SharedTileSourceAdapter from '../sources/shared_tile_source_adapter';
+import {getFeatureRenderedGeneration} from '../styles/feature_annotations';
 import {registerMvtDecoder} from '../procedures/mvt-parser';
 import {registerMvtTileProvider} from '../procedures/mvt-tile-provider';
 import '../sources/sources';
@@ -39,9 +41,13 @@ const SceneWorker = Object.assign(self, {
     styles: {},
     layers: {},
     tiles: {},
+    /** Worker-local decoded content, independent of renderer mesh/style keys. */
+    sharedTileSources: new SharedTileSourceAdapter(),
 
     // Initialize worker
     init (scene_id, worker_id, num_workers, log_level, device_pixel_ratio, has_element_index_unit, external_scripts) {
+        this.finalizeTileSources();
+        this.sharedTileSources = new SharedTileSourceAdapter(external_scripts.length === 0);
         this.scene_id = scene_id;
         this._worker_id = worker_id;
         this.num_workers = num_workers;
@@ -150,11 +156,18 @@ const SceneWorker = Object.assign(self, {
             changed.push(name);
         }
 
-        // Clear tile cache for data sources that changed
+        // Removed or failed replacement sources must release old requests as well.
+        for (const name in last_sources) {
+            if (this.sources[name] !== last_sources[name]) {
+                this.sharedTileSources.invalidateSource(last_sources[name]);
+                if (changed.indexOf(name) === -1) changed.push(name);
+            }
+        }
+        // Release source leases, selection entries, and build ownership together.
         changed.forEach(source => {
             for (let t in this.tiles) {
                 if (this.tiles[t].source === source) {
-                    delete this.tiles[t];
+                    this.removeTile(t);
                 }
             }
         });
@@ -188,7 +201,7 @@ const SceneWorker = Object.assign(self, {
                 tile.error = null;
 
                 this.loadTileSourceData(tile).then(() => {
-                    if (!this.getTile(tile.key)) {
+                    if (this.getTile(tile.key) !== tile) {
                         log('trace', `stop tile build after data source load because tile was removed: ${tile.key}`);
                         return;
                     }
@@ -202,6 +215,7 @@ const SceneWorker = Object.assign(self, {
                     tile.loaded = true;
                     Tile.buildGeometry(tile, this);
                 }).catch((error) => {
+                    if (this.getTile(tile.key) !== tile) return;
                     tile.loading = false;
                     tile.loaded = false;
                     tile.error = error.stack;
@@ -230,8 +244,18 @@ const SceneWorker = Object.assign(self, {
 
     // Load this tile's data source, or copy from an existing tile's data
     loadTileSourceData (tile) {
-        const source = new TangramTileSourceAdapter(this.sources[tile.source], () => iterateSourceTiles(this.tiles));
-        return source.getTileData({index: tile.coords, id: tile.key, context: tile});
+        return this.sharedTileSources.loadTile(tile, this.sources[tile.source], () => iterateSourceTiles(this.tiles));
+    },
+
+    /** Internal diagnostics distinguish decoded acquisition from styled mesh/build residency. */
+    getTileSourceStatistics() {
+        return this.sharedTileSources.store.getStatistics();
+    },
+
+    /** Explicit cleanup for worker reset; native worker termination also releases its isolated heap. */
+    finalizeTileSources() {
+        for (const key in this.tiles) this.removeTile(key);
+        this.sharedTileSources.finalize();
     },
 
     getTile(key) {
@@ -243,6 +267,7 @@ const SceneWorker = Object.assign(self, {
         var tile = this.tiles[key];
 
         if (tile != null) {
+            this.sharedTileSources.releaseTile(tile);
             // Cancel if loading
             if (tile.loading === true) {
                 log('trace', `cancel tile load for ${key}`);
@@ -281,7 +306,7 @@ const SceneWorker = Object.assign(self, {
 
                 data.features.forEach(feature => {
                     // Optionally check if feature is visible (e.g. was rendered for current generation)
-                    const feature_visible = (feature.generation === this.generation);
+                    const feature_visible = (getFeatureRenderedGeneration(feature) === this.generation);
                     if ((visible === true && !feature_visible) ||
                         (visible === false && feature_visible)) {
                         return;
@@ -384,3 +409,5 @@ const SceneWorker = Object.assign(self, {
 });
 
 WorkerBroker.addTarget('self', SceneWorker);
+
+export default SceneWorker;

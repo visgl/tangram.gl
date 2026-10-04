@@ -17,7 +17,8 @@ claim drop-in compatibility with loaders.gl.
 | Boundary | Responsibility | Tangram behavior retained |
 | --- | --- | --- |
 | `TangramTileSourceAdapter` and payload/request records | Worker-side `getTileData`, decoded publication and reuse | Existing `DataSource.load`/`copyTileData`, URL handling, transforms, winding, seam padding, attached rasters and error behavior |
-| `AlignedTangramTileSource` (candidate) | Structural loaders.gl `TileSource`: metadata, flat/data requests and cancellation | Original source procedures; explicit context creation/cancellation hooks, no loader switch |
+| `SharedTileSourceAdapter` and `DecodedTileStore` | Worker-local leases for compatible pending/ready decoded data | Original built-in tiled parsers; custom hooks retain the legacy path; no warm cache or GPU disposal |
+| `AlignedTangramTileSource` | Structural loaders.gl `TileSource`: metadata, flat/data requests and cancellation | Original source procedures; explicit context creation/cancellation hooks, no loader switch |
 | `TangramTileTraversalAdapter` | `getTileIndices` and `getTileBoundingBox` | Planar/FirstPerson footprints, globe horizon policy, per-eye bounds, stereo union and separate projected data/style zoom |
 | `TangramTileset2D` | Resident table, shared build queue, optional consumer protection, LRU mesh policy and diagnostics | Source/style cache identities, build-generation tokens, protected/proxy/preload residency and opt-in resource limits |
 | `TileManager` and worker adapter | Traversal, hierarchy/refinement, mesh construction/disposal and labels | Map/Globe/FirstPerson eye unions, pinned fallback, style zoom, collision and worker cancellation |
@@ -26,10 +27,10 @@ The tileset does not import a scene, camera, style, GPU backend, deck.gl, or a
 loader. Its unload callback lets the renderer dispose resources. It selects cache
 victims but never silently destroys renderer-owned meshes.
 
-The source adapter delegates to the original source implementations in production.
-It keeps the worker context live rather than cloning it: request IDs, cancellation,
-decoded layers and source-specific state must remain on the object that the worker
-owns. Resolved data errors stay resolved; rejected or synchronously thrown source
+Both source adapters delegate to the original source implementations in production.
+The legacy adapter keeps the worker context live rather than cloning it; compatible
+shared acquisition instead owns a detached source context and binds its payload to
+each worker tile. Resolved data errors stay resolved; rejected or synchronously thrown source
 errors keep their original behavior. An absent source still resolves with empty
 source data.
 
@@ -42,10 +43,17 @@ do not enter worker messages or retain removed tiles globally. The legacy
 `source_data` facade remains synchronized for existing parsers, transforms,
 custom sources, cancellation and feature queries.
 
-Payload shells and request state are separate, but features are **not deeply
-immutable yet**: Tangram still annotates features during style evaluation.
-Freezing or cloning those features here would change behavior. Rebinding a
-payload preserves layer identity and creates fresh request/raster bookkeeping.
+Payload shells and request state are separate. Built-in style evaluation now
+records rendered generations in weak feature sidecars rather than writing
+`feature.generation`. Feature queries preserve the existing aggregate-generation
+visibility semantics across shared layer references, and legacy custom annotations
+remain readable. Picking entries were already keyed by build tile and remain so:
+removing one build cannot clear another build's selection entries.
+
+Features are **not deeply frozen in production**. Custom functions can still
+mutate them, and custom acquisition hooks are not assumed pure. Frozen fixture
+tests enforce built-in bookkeeping isolation without breaking those extensions.
+Rebinding a payload preserves layer identity and creates fresh request/raster bookkeeping.
 Decoded geometry retains Tangram's 4096-unit tile convention and negative local
 Y, including seam padding; it is not geographic GeoJSON. The candidate advertises
 `localCoordinates`. Its optional `getPayloadByteLength` hook supplies decoded
@@ -72,8 +80,9 @@ capabilities until their metadata interface is wired in.
 ## Data identity is not mesh identity
 
 Decoded data reuse matches **source identity and normalized data coordinate key**.
-It deliberately ignores style zoom and build identity. The first loaded match is
-reused, and the registry is read at request time. Distinct unwrapped world-copy
+It deliberately ignores style zoom and build identity. Compatible built-in sources
+reuse pending or ready acquisitions; custom pipelines still reuse the first loaded
+match in the worker registry. Distinct unwrapped world-copy
 keys retain the existing matching behavior.
 
 Renderer residency remains keyed by **source, data coordinate and style zoom**.
@@ -100,6 +109,53 @@ global fallback pinning remain renderer/source adapter responsibilities, not
 generic tileset options. The renderer still uses its current worker protocol and
 parsers; loaders.gl is installed **only for development comparisons**.
 
+## Shared decoded acquisition in production
+
+`SharedTileSourceAdapter` uses a worker-local `DecodedTileStore` for exact built-in
+MVT (Tangram decoder, no alternate tile provider), tiled GeoJSON and raster source
+classes without transforms, preprocessors or external source scripts. Custom
+subclasses, instance loader/parser overrides, standalone sources and registered
+alternate providers/decoders retain the original first-match loading procedure.
+Workers importing external scripts also disable sharing conservatively, since
+those scripts can modify built-in prototypes.
+There is no heuristic purity inference or new scene option promising custom-source
+sharing. Extending eligibility requires a focused conformance change.
+
+The data key is the **source object revision plus normalized coordinate key**,
+not source name alone, style zoom or mesh/build generation. Unwrapped world copies
+remain distinct. Existing routing already pins equal normalized data coordinates
+to the same worker; no routing or cross-worker transfer protocol changes here.
+
+The first consumer starts acquisition on a detached source context. Other
+compatible builds lease the same pending or ready content. Each consumer receives
+independent request/raster/debug shells, while layer references remain shared.
+Acquisition errors and resolved URLs are copied as diagnostics; cancellation IDs
+belong only to the detached acquisition, never to the first renderer tile.
+
+Releasing one pending lease rejects that consumer promptly without cancelling
+another consumer. The final release cancels the underlying request, including an
+ID assigned after TileJSON discovery. Non-cancellable work may finish but cannot
+publish over a new attempt or obsolete source revision. Ordinary rejected loads
+reject all waiting consumers and allow an explicit later retry; resolved legacy
+provider errors continue to resolve and are reported to every consuming build.
+
+Unchanged source instances survive style-only configuration refreshes. Changed,
+removed or failed replacement sources invalidate old acquisitions and release
+their worker tile/selection ownership. Completion and error callbacks check the
+receiving tile object, not merely its reusable key, before building or reporting.
+
+There is **no unreferenced decoded warm cache**. Ready content is retained only
+while live worker tiles hold leases; its final release forgets the record and
+source map. Internal worker diagnostics report unique pending/ready acquisitions,
+consumer counts, actual/shared attempts, cancellation/failure counts and known
+decoded allocation bytes. Unknown bytes remain unknown. Native worker termination
+releases its isolated heap; worker reset also explicitly finalizes the store.
+
+Decoded acquisition does not release a `maxConcurrentBuilds` slot early, change
+mesh-cache budgets, allocate a new global fetch limit, or replace Tangram's
+style-aware refinement. A scene-wide decoded request budget would need to account
+for multiple workers separately.
+
 Resource limits also differ. Tangram's `maxConcurrentBuilds` lasts through the
 final mesh batch, not merely fetch/decode. Its cache caps apply only to completed,
 unneeded off-screen mesh allocations, not total decoded payload bytes. Do not map
@@ -117,7 +173,7 @@ Real browser source tests compare postprocessed MVT, GeoJSON and raster payloads
 | --- | --- |
 | Tile selection and structured bounds | Fixed map, bounded FirstPerson, globe, antimeridian and stereo footprints agree; unwrapped X and north-down Y are preserved |
 | Shared consumers | Detaching one consumer cannot evict another consumer's selected/fallback content |
-| Reuse and request identity | loaders.gl deduplicates XYZ in-flight; Tangram retains distinct style/build tiles and reuses completed decoded content in its source adapter |
+| Reuse and request identity | Both deduplicate compatible in-flight data; Tangram retains distinct style/build tiles, source-revision leases, zero decoded warm retention and a legacy path for custom hooks |
 | Cancellation and generations | Real tileset AbortSignals reach legacy cancellation; aborted provider results cannot publish; Tangram build tokens protect successor mesh builds |
 | Failure/retry | loaders.gl retains a failed header until explicit reload; Tangram source calls reject and retry explicitly without caching a decoded failure |
 | Refinement | Nearest loaded ancestor links agree for the fixture; Tangram still owns style-aware proxy/descendant refinement and label collision |
@@ -125,17 +181,24 @@ Real browser source tests compare postprocessed MVT, GeoJSON and raster payloads
 | Budgets | loaders.gl counts total decoded residency; Tangram counts only evictable off-screen meshes and holds build slots through final mesh batches |
 
 These are conformance groundwork, not a blanket equivalence claim. Generic
-tileset integration, archive metadata, independent feature annotations, complex
+tileset integration, archive metadata, custom feature annotations, complex
 refinement strategies and worker/host consumers still need focused follow-ups.
+
+Shared-acquisition tests additionally exercise independent leases, late
+cancellation IDs, source revisions, explicit retries, zero warm retention and
+recreated tile keys. Native Chromium workers load a tiny local GeoJSON fixture:
+two compatible style consumers issue one real request, and cancelling one does
+not interrupt the other. Built-in styling accepts frozen features, feature queries
+preserve visibility/geometry output, and picking cleanup stays build-owned.
 
 ## Next steps toward a common implementation
 
 1. Extend the fixtures to complex style-aware refinement and multiple worker/host
    consumers. Decide how decoded request slots and mesh build slots compose;
    do not collapse them into one limit.
-2. Move feature generation/style annotations out of reusable decoded content,
-   then make payloads truly immutable. Wire provider-specific archive metadata
-   and cancellation without changing parser registrations or transforms.
+2. Continue isolating custom feature mutations and provider-specific archive
+   metadata/cancellation. Built-in generation annotations and compatible decoded
+   acquisition are isolated already; do not globally freeze extension-owned data.
 3. Propose the demonstrated common contracts upstream. Resolve policy gaps in
    their owning library, with performance and bundle measurements.
 4. Switch one production procedure per reviewed PR, retaining Tangram styling,

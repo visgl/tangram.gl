@@ -49,8 +49,8 @@ export interface AlignedTileSourceOptions<TileT extends TileSourceContext> {
 }
 
 /**
- * Development candidate implementing the structural loaders.gl TileSource contract.
- * Production worker loading remains on TangramTileSourceAdapter until conformance is complete.
+ * Structural loaders.gl TileSource bridge around the original Tangram loading procedures.
+ * Built-in worker sharing uses detached contexts; custom sources retain the legacy adapter path.
  */
 export default class AlignedTangramTileSource<TileT extends TileSourceContext> {
     /** Content remains in Tangram-local tile space, never silently converted to geographic GeoJSON. */

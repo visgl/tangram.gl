@@ -8,6 +8,7 @@
 // @ts-nocheck
 
 import StyleParser from './style_parser';
+import {markFeatureRendered} from './feature_annotations';
 import FeatureSelection from '../selection/selection';
 import gl from '../gl/constants'; // import GL constants since workers can't access GL context
 import ShaderProgram from '../gl/shader_program';
@@ -217,7 +218,7 @@ export var Style = {
         }
 
         if (this.buildGeometry(feature.geometry, style, context) > 0) {
-            feature.generation = this.generation; // track scene generation that feature was rendered for
+            markFeatureRendered(feature, this.generation); // bookkeeping must not mutate shared decoded content
         }
     },
 
