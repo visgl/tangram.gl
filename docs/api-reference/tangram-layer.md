@@ -300,7 +300,18 @@ to `onSceneError` without making an otherwise renderable scene fatal.
 
 See [attribution requirements and safe presentation](../developer-guide/tile-providers.md).
 
-### Globe visibility
+### Tile loading and resources
+
+#### `maxConcurrentTileLoadsPerWorker` (number, optional) {/* #maxconcurrenttileloadsperworker */}
+
+- Default: `null` (unlimited shared source loading).
+
+Positive safe integer forwarded when creating the renderer. Limits unique shared
+built-in source acquisitions independently in each worker, not HTTP requests or
+scene-wide mesh builds. Duplicate data consumers use one slot. Custom hooks,
+alternate providers/decoders and external-script workers retain legacy loading.
+Changing this prop recreates the scene and worker pool; unlike `tileResources`,
+it is not a per-frame policy. See [source-load scheduling and diagnostics](./renderer.md#maxconcurrenttileloadsperworker).
 
 #### `tileResources` (object, optional) {/* #tileresources */}
 
@@ -313,6 +324,8 @@ concurrency and completed off-screen cache entries without evicting visible tile
 proxy ancestors or pinned globe fallback. Mesh-byte caps do not include textures
 or total GPU memory. These settings change resource scheduling, not style zoom or
 camera matrices.
+
+### Globe visibility
 
 #### `globePreloadZoom` (number, optional) {/* #globepreloadzoom */}
 

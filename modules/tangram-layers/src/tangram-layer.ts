@@ -89,7 +89,8 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
         !record ||
         record.sceneSource !== props.scene ||
         record.sceneBasePath !== props.sceneBasePath ||
-        record.apiKey !== props.apiKey;
+        record.apiKey !== props.apiKey ||
+        record.maxConcurrentTileLoadsPerWorker !== (props.maxConcurrentTileLoadsPerWorker ?? undefined);
 
       if (shouldCreateScene) {
         this._disposeTangramRecord(record);
@@ -209,6 +210,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
         sceneSource: props.scene,
         sceneBasePath: props.sceneBasePath,
         apiKey: props.apiKey,
+        maxConcurrentTileLoadsPerWorker: props.maxConcurrentTileLoadsPerWorker ?? undefined,
         canvasWidth: null,
         canvasHeight: null,
         disposed: false,
@@ -228,6 +230,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
         const renderer_options = {
           device,
           canvas: deckCanvas,
+          maxConcurrentTileLoadsPerWorker: record.maxConcurrentTileLoadsPerWorker,
           requestRedraw: () => {
             if (!record.disposed && record.owner.setNeedsRedraw) {
               record.owner.setNeedsRedraw();
@@ -431,6 +434,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
     globeVisibleBounds: null,
     globePreloadZoom: null,
     tileResources: null,
+    maxConcurrentTileLoadsPerWorker: null,
     firstPersonMaxGroundExtent: 20000,
     onSceneLoad: () => {},
     onAttributionChange: () => {},

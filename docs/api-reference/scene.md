@@ -25,6 +25,17 @@ should normally use `ClassicWebGLRenderer.create()` so camera, device, and
 render-loop ownership are configured consistently. The classic example shows
 how an external adapter can drive a `Scene` from Leaflet.
 
+The creation option `maxConcurrentTileLoadsPerWorker` sets a fixed, positive-safe-
+integer capacity for compatible shared built-in source procedures in each worker.
+Omission preserves unlimited loading. See [source-load scheduling](./renderer.md#maxconcurrenttileloadsperworker)
+for cancellation, custom-source exclusions and the distinction from mesh builds.
+
+### `getTileSourceStatistics()`
+
+Returns detached per-worker decoded acquisition counts as
+`Promise<TileSourceStatistics[]>`. The same method is exposed on the host
+renderer; see [source diagnostics](./renderer.md#renderergettilesourcestatistics).
+
 ### `load(config, options)`
 
 Loads a YAML/JSON URL or configuration object. Important options are:

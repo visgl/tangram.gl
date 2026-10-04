@@ -93,6 +93,50 @@ See [tile loading](../developer-guide/tile-loading.md#archive-capabilities-and-l
 
 ## Tile resources
 
+### `maxConcurrentTileLoadsPerWorker`
+
+An optional **renderer creation option**, separate from `HostFrame.tileResources`:
+
+```ts
+const renderer = ClassicWebGLRenderer.create(scene, {
+  device,
+  numWorkers: 2,
+  maxConcurrentTileLoadsPerWorker: 3
+});
+```
+
+Use a positive safe integer. Omission preserves unlimited loading. Each worker
+queues unique compatible built-in MVT, tiled GeoJSON and raster acquisitions in
+FIFO order; duplicate source/data leases consume no additional slot. A slot
+ends when the source acquisition/decode procedure settles, not when a styled mesh
+build completes. Queued final-lease cancellation prevents the provider from
+starting. Running cancellation rejects consumers promptly, but a non-cooperative
+procedure retains its slot until it settles; late content cannot publish.
+
+This is **not a scene-wide HTTP limit**: two workers configured with `3` may run
+six shared source procedures. Metadata, textures, custom hooks/providers/decoders
+and workers with external scripts are outside this budget. Those pipelines keep
+their original loading behavior. The fixed budget is initialized with the worker
+pool; recreate the renderer to change it.
+
+### `renderer.getTileSourceStatistics()`
+
+Returns `Promise<TileSourceStatistics[]>`, also available on `Scene`. Each detached
+entry contains `workerId`, `sharingEnabled`, `maxConcurrentLoads`, `queuedTiles`,
+`activeAcquisitions`, `loadingTiles`, `readyTiles`, `consumers`, `acquisitions`,
+`sharedAcquisitions`, `cancelledAcquisitions`, `failedAcquisitions` and
+`decodedBytes`. `acquisitions` counts actual provider starts, not queued leases.
+Ready bytes remain undefined when allocation size is unknown.
+
+`loadingTiles` counts live pending content, including queued records.
+`activeAcquisitions` also includes retired, cancelled procedures that have not
+settled, so these counts need not sum. `sharingEnabled: false` identifies workers
+with external scripts; zero counts do not mean their custom pipelines are idle.
+Counters do not include meshes, texture requests or driver memory. Worker samples
+are not an atomic global snapshot. An absent worker pool returns `[]`; transport
+failure or replacement of the sampled worker pool rejects rather than returning
+partial/stale counts.
+
 ### `renderer.getTileResourceStatistics()`
 
 Returns a detached snapshot of `activeBuilds`, `queuedBuilds`, `residentTiles`,

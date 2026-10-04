@@ -24,8 +24,14 @@ export interface DecodedTileAcquisition<ValueT> {
 
 /** Detached diagnostics; missing allocation estimates never masquerade as zero decoded bytes. */
 export interface DecodedTileStatistics {
-    /** Pending unique acquisitions. */
+    /** Pending unique acquisitions, including queued work. */
     loadingTiles: number;
+    /** Unique acquisitions waiting for a source-procedure slot. */
+    queuedTiles: number;
+    /** Running source procedures, including cancelled procedures that have not settled. */
+    activeAcquisitions: number;
+    /** Configured source-procedure limit; undefined means unlimited. */
+    maxConcurrentLoads: number | undefined;
     /** Ready records protected by live leases; there is no unreferenced warm cache. */
     readyTiles: number;
     /** Live consumer leases across pending and ready records. */
@@ -40,6 +46,21 @@ export interface DecodedTileStatistics {
     failedAcquisitions: number;
     /** Ready payload bytes, undefined if any live ready record has unknown size. */
     decodedBytes: number | undefined;
+}
+
+/** Request capacity is independent of styled mesh-build scheduling and residency. */
+export interface DecodedTileStoreOptions {
+    /** Positive safe integer; omission preserves unlimited acquisition. */
+    maxConcurrentLoads?: number;
+}
+
+/** Validate an optional load budget before creating resources or worker state. */
+export function validateConcurrentTileLoads(value: unknown): number | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+        throw new Error('maxConcurrentTileLoadsPerWorker must be a positive safe integer');
+    }
+    return value;
 }
 
 /** Consumer settlement hooks do not contain renderer or worker tile objects. */
@@ -73,6 +94,14 @@ export default class DecodedTileStore<ValueT> {
     private readonly sources = new Map<object, Map<string, DecodedRecord<ValueT>>>();
     /** Optional decoded allocation estimator; encoded network bytes are not a substitute. */
     private readonly getByteLength: (value: ValueT) => number | undefined;
+    /** FIFO unique-content queue; duplicate leases never consume another slot. */
+    private readonly queued = new Map<DecodedRecord<ValueT>, DecodedTileAcquisition<ValueT>>();
+    /** Fixed worker-local source-procedure limit, unrelated to GPU mesh ownership. */
+    private readonly maxConcurrentLoads: number | undefined;
+    /** Settling an aborted but non-cooperative procedure still releases exactly one slot. */
+    private activeAcquisitions = 0;
+    /** Batch synchronous leases and cancellation before starting their providers. */
+    private scheduled = false;
     /** Actual unique acquisition attempts. */
     private acquisitions = 0;
     /** Reused pending/ready acquisitions. */
@@ -83,8 +112,9 @@ export default class DecodedTileStore<ValueT> {
     private failedAcquisitions = 0;
 
     /** Create an empty store without fetch, decode, traversal, or GPU dependencies. */
-    constructor(getByteLength: (value: ValueT) => number | undefined = () => undefined) {
+    constructor(getByteLength: (value: ValueT) => number | undefined = () => undefined, options: DecodedTileStoreOptions = {}) {
         this.getByteLength = getByteLength;
+        this.maxConcurrentLoads = validateConcurrentTileLoads(options.maxConcurrentLoads);
     }
 
     /** Acquire one consumer lease, sharing only the exact source revision and data key. */
@@ -96,7 +126,6 @@ export default class DecodedTileStore<ValueT> {
         if (!record) {
             record = {controller: new AbortController(), consumers: new Set()};
             records.set(request.key, record);
-            this.acquisitions++;
         } else this.sharedAcquisitions++;
         const current = record;
         let resolveLease: (value: ValueT) => void = () => {};
@@ -109,20 +138,8 @@ export default class DecodedTileStore<ValueT> {
         current.consumers.add(consumer);
         if (current.result) consumer.resolve(current.result.value);
         if (created) {
-            Promise.resolve().then(() => {
-                if (current.controller.signal.aborted) throw createTileLeaseAbortError();
-                return request.load(current.controller.signal);
-            }).then(value => {
-                if (!this.isCurrent(request.source, request.key, current)) return;
-                current.result = {value};
-                for (const lease of current.consumers) lease.resolve(value);
-            }, error => {
-                if (!this.isCurrent(request.source, request.key, current)) return;
-                this.failedAcquisitions++;
-                this.forgetRecord(request.source, request.key, current);
-                for (const lease of current.consumers) lease.reject(error);
-                current.consumers.clear();
-            });
+            this.queued.set(current, request);
+            this.scheduleAcquisitions();
         }
         return {promise, isActive: () => current.consumers.has(consumer), release: () => {
             if (!current.consumers.delete(consumer)) return;
@@ -157,13 +174,52 @@ export default class DecodedTileStore<ValueT> {
             if (bytes === undefined || !Number.isFinite(bytes) || bytes < 0) decodedBytes = undefined;
             else if (decodedBytes !== undefined) decodedBytes += bytes;
         }
-        return {loadingTiles, readyTiles, consumers, decodedBytes, acquisitions: this.acquisitions,
+        return {loadingTiles, queuedTiles: this.queued.size, activeAcquisitions: this.activeAcquisitions,
+            maxConcurrentLoads: this.maxConcurrentLoads, readyTiles, consumers, decodedBytes, acquisitions: this.acquisitions,
             sharedAcquisitions: this.sharedAcquisitions, cancelledAcquisitions: this.cancelledAcquisitions,
             failedAcquisitions: this.failedAcquisitions};
     }
 
     /** Cancel all pending work and release content; subsequent use starts from an empty store. */
     finalize(): void { for (const source of this.sources.keys()) this.invalidateSource(source); }
+
+    /** Drain only when a source procedure settles, not when its styled mesh finishes. */
+    private scheduleAcquisitions(): void {
+        if (this.scheduled || this.queued.size === 0) return;
+        this.scheduled = true;
+        void Promise.resolve().then(() => {
+            this.scheduled = false;
+            for (const [record, request] of this.queued) {
+                if (this.activeAcquisitions >= (this.maxConcurrentLoads ?? Infinity)) break;
+                this.queued.delete(record);
+                if (!this.isCurrent(request.source, request.key, record)) continue;
+                this.startAcquisition(request, record);
+            }
+        });
+    }
+
+    /** A slot follows the original procedure even if all consumer leases are released early. */
+    private startAcquisition(request: DecodedTileAcquisition<ValueT>, record: DecodedRecord<ValueT>): void {
+        this.activeAcquisitions++;
+        this.acquisitions++;
+        let loading: Promise<ValueT>;
+        try { loading = request.load(record.controller.signal); }
+        catch (error) { loading = Promise.reject(error); }
+        void Promise.resolve(loading).then(value => {
+            if (!this.isCurrent(request.source, request.key, record)) return;
+            record.result = {value};
+            for (const lease of record.consumers) lease.resolve(value);
+        }, error => {
+            if (!this.isCurrent(request.source, request.key, record)) return;
+            this.failedAcquisitions++;
+            this.forgetRecord(request.source, request.key, record);
+            for (const lease of record.consumers) lease.reject(error);
+            record.consumers.clear();
+        }).finally(() => {
+            this.activeAcquisitions--;
+            this.scheduleAcquisitions();
+        });
+    }
 
     /** A late completion cannot publish over a replacement attempt for the same coordinate. */
     private isCurrent(source: object, key: string, record: DecodedRecord<ValueT>): boolean {
@@ -183,6 +239,7 @@ export default class DecodedTileStore<ValueT> {
         if (!record.result && !record.controller.signal.aborted) {
             this.cancelledAcquisitions++;
             record.controller.abort();
+            this.queued.delete(record);
         }
     }
 }

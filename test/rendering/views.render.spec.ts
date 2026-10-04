@@ -117,6 +117,7 @@ test('raster tiles render and can switch back to vector geometry', async () => {
 test.each(['perspective', 'globe', 'first-person'] as const)('%s: stereo tile budgets retain both eyes and release all queued work', async kind => {
   harness = new RenderingHarness(kind, 'stereo-preview');
   harness.tileResources = {maxConcurrentBuilds: 1, maxCachedTiles: 0, maxCachedMeshBytes: 0};
+  harness.maxConcurrentTileLoadsPerWorker = 1;
   if (kind === 'globe') {
     harness.presentation.setViewState({zoom: 3});
     harness.globePreloadZoom = 1;
@@ -133,6 +134,11 @@ test.each(['perspective', 'globe', 'first-person'] as const)('%s: stereo tile bu
     return (statistics?.activeBuilds ?? 0) + (statistics?.queuedBuilds ?? 0);
   }).toBe(0);
   const statistics = harness.renderer.getTileResourceStatistics();
+  const sourceStatistics = await harness.renderer.getTileSourceStatistics();
+  expect(sourceStatistics).toHaveLength(1);
+  expect(sourceStatistics[0]).toMatchObject({workerId: 0, sharingEnabled: true,
+    maxConcurrentLoads: 1, activeAcquisitions: 0, queuedTiles: 0});
+  expect(sourceStatistics[0].acquisitions).toBeGreaterThan(0);
   expect(statistics.cachedTiles).toBe(0);
   expect(statistics.cachedMeshBytes).toBe(0);
   expect(statistics.protectedMeshBytes).toBeGreaterThan(0);

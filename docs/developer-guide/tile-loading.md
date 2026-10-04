@@ -204,7 +204,7 @@ without explicitly reconciling those semantics.
 
 ## Comparative validation
 
-Tests use published `@loaders.gl/tiles@5.0.0-alpha.6`, not copied source or a local
+Tests use published `@loaders.gl/tiles@5.0.0-alpha.8`, not copied source or a local
 checkout. Both engines receive the same compact fixtures. Frozen expected
 footprints additionally guard against two adapters agreeing on the same mistake.
 Real browser source tests compare postprocessed MVT, GeoJSON and raster payloads.
@@ -233,9 +233,82 @@ preserve visibility/geometry output, and picking cleanup stays build-owned.
 
 ## Next steps toward a common implementation
 
+### Independent acquisition and mesh-build capacity
+
+Compatible shared built-in source procedures now have an optional FIFO queue,
+configured at worker creation by `maxConcurrentTileLoadsPerWorker`. One exact
+source/data record owns one slot regardless of the number of style/eye leases.
+The source slot ends after acquisition/decode; the renderer's build slot remains
+held until its final mesh reply. Ready content and retained styled meshes do not
+occupy a source slot. Neither queue inherits the other's limit.
+
+Final queued-lease release removes work before invocation. Source invalidation
+and worker reset remove queued attempts; running aborts cannot publish late data.
+A non-cooperative procedure still occupies its slot until settlement rather than
+allowing a cancellation/retry loop to silently exceed logical capacity. Failure
+releases the slot and advances the next unique request. Unlimited is still the
+default, and extension-owned pipelines retain their original path.
+
+Unit comparisons exercise the same unique-request capacity against the published
+loaders.gl `Tileset2D.maxRequests`. Native Chromium workers prove separate XYZ
+loads obey capacity while overzoom/style consumers share one acquisition and
+cancel independently. The policies are not identical: Tangram uses FIFO with no
+arrival debounce or request-priority callback, limits each worker separately,
+retains source-revision leases and zero decoded warm cache, and does not charge
+custom pipelines to this queue. This is groundwork for common scheduling, not
+a claim of drop-in `RequestScheduler` equivalence or a total HTTP budget.
+
+Public asynchronous source diagnostics report queue/active state per worker,
+separately from the renderer's synchronous mesh-resource statistics. Unknown
+decoded sizes remain unknown; no encoded-response estimate is substituted.
+
+### Loaders-backed tileset candidate
+
+Tranche 9 now has an executable candidate in the renderer's test helpers, backed
+by the actual published `Tileset2D`. It is **development-only**, not a new package
+export or a replacement for `TileManager` in production. Its Chromium tests load
+the same fixed Map, bounded FirstPerson, Globe, antimeridian and stereo traversal
+corpus used by the existing procedure-level comparisons.
+
+The candidate normalizes sparse source levels and overzoom before acquisition,
+deduplicates normalized data while retaining separate source/data/style mesh
+keys, and isolates source revisions in separate instances. Host consumers protect
+shared headers independently. Coarse globe preload has separate protection and
+is not counted as ordinary selected detail. Explicit ancestor/descendant fallback
+inputs remain renderer-owned; decoded header ancestry is not a styled refinement
+decision. Cancellation, explicit failure retry and teardown are exercised without
+network services or GPU resource ownership in the candidate.
+
+The comparison makes these rollout gates concrete:
+
+| Published behavior | Candidate adaptation / remaining production gate |
+| --- | --- |
+| Warm decoded cache and budgets cover total decoded content | Candidate explicitly defaults decoded warm entries to zero. An optional decoded count is separate from Tangram's off-screen mesh count/byte limits; there is no automatic budget translation. |
+| Missing `content.byteLength` contributes zero to cache bytes | Candidate diagnostics use an explicit allocation estimator and retain unknown sizes. A common byte-budget contract is still needed before enforcing decoded memory limits. |
+| Nearest cached ancestor can be unloaded | A fixture contrasts this with Tangram's nearest loaded styled ancestor. Host-authored drawable fallbacks stay protected; switching refinement requires a style/generation-aware policy, not a header pointer. |
+| Aborting a non-cooperative header may accept its late content | Candidate source publication checks the signal and source lifetime after acquisition; pending eviction also explicitly aborts the header. |
+| `Tileset2D.finalize()` clears headers without unload callbacks | Candidate explicitly releases live decoded content once before finalization. This is not GPU mesh disposal. |
+
+`yarn bundle-size:tilesets` reports reproducible browser/minified/gzip probes and
+guards against retained 3D/spatial code in the decoded entry. The current probes
+are 3.714 / 1.393 KB for Tangram's mesh tileset, 15.499 / 4.456 KB for published
+decoded `Tileset2D`, and 19.583 / 5.701 KB for the candidate with its compatibility
+adapter (decimal KB). These are **different responsibilities**, not evidence of a
+drop-in replacement or a bundle saving. The candidate adds no bytes to production
+renderer, layer, optional-worker or WebXR bundles.
+
+Production continues using Tangram's mesh tileset and worker protocol. Common
+source scheduling, failed-header semantics, unknown memory estimates, source
+revision ownership and style-aware refinement need upstream agreement before
+replacing the remaining generic tables/cache bookkeeping. Transferable ownership
+and native multi-worker/GPU integration of a shared tileset are separate rollout
+gates; these fixture comparisons do not claim they are complete.
+
+### Remaining common contracts
+
 1. Extend the fixtures to complex style-aware refinement and multiple worker/host
-   consumers. Decide how decoded request slots and mesh build slots compose;
-   do not collapse them into one limit.
+   consumers. Add priority policy and measure latency/throughput before sharing a
+   common scheduler; do not collapse source slots and mesh build slots into one limit.
 2. Continue isolating custom feature mutations and provider-specific archive
    metadata/cancellation. Built-in generation annotations and compatible decoded
    acquisition are isolated already; do not globally freeze extension-owned data.

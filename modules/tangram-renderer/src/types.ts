@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {Device, RenderPass} from '@luma.gl/core';
+import type {DecodedTileStatistics} from './sources/decoded_tile_store';
 import type {
   GlobeVisibilityLODAdapter,
   VisibilityLODAdapter
@@ -101,6 +102,14 @@ export type TileResourceStatistics = {
   protectedMeshBytes: number;
 };
 
+/** Worker-local decoded acquisition accounting, separate from scene-wide mesh-build statistics. */
+export type TileSourceStatistics = DecodedTileStatistics & {
+  /** Index of the worker in the scene's current worker pool. */
+  workerId: number;
+  /** False for workers with external source scripts; custom pipelines always bypass sharing. */
+  sharingEnabled: boolean;
+};
+
 export type HostFrameOptions = {
   viewport: Viewport;
   geographicAnchor: GeographicAnchor;
@@ -149,6 +158,8 @@ export type RendererOptions = {
   canvas?: HTMLCanvasElement | OffscreenCanvas;
   requestRedraw?: () => void;
   numWorkers?: number;
+  /** Positive safe integer limit for shared built-in tile loads in each worker; omitted is unlimited. */
+  maxConcurrentTileLoadsPerWorker?: number;
   logLevel?: string;
   highDensityDisplay?: boolean;
   introspection?: boolean;

@@ -35,7 +35,7 @@ export type {
   TangramUniformBufferOptions
 } from './gpu/tangram_gpu_backend.js';
 
-export type {Matrix4, Vector3, SceneDefinition, Viewport, GeographicAnchor, HostProjection, HostCamera, HostRenderView, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, HostFrameOptions, LegacyHostFrame, RendererOptions, SceneLoadOptions, SceneUpdateOptions, SceneDataSource, SceneFeature, SceneQueryOptions, SceneScreenshot, RenderOptions, SceneConfigEvent, SceneErrorEvent, SceneEventMap, SceneListener, SceneListeners, WorkerRequest, WorkerResponse, WorkerBrokerMessage} from './types.js';
+export type {Matrix4, Vector3, SceneDefinition, Viewport, GeographicAnchor, HostProjection, HostCamera, HostRenderView, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, TileSourceStatistics, HostFrameOptions, LegacyHostFrame, RendererOptions, SceneLoadOptions, SceneUpdateOptions, SceneDataSource, SceneFeature, SceneQueryOptions, SceneScreenshot, RenderOptions, SceneConfigEvent, SceneErrorEvent, SceneEventMap, SceneListener, SceneListeners, WorkerRequest, WorkerResponse, WorkerBrokerMessage} from './types.js';
 export {
   WebMercatorGlobeVisibilityAdapter,
   WebMercatorVisibilityAdapter
@@ -70,6 +70,8 @@ export declare class Scene {
   getAttributions(): Promise<string[]>;
   /** Normalized TileJSON/archive capabilities, preserving authored source overrides. */
   getSourceMetadata(): Promise<Record<string, import('./sources/tile_source_metadata').TangramTileSourceMetadata>>;
+  /** Detached decoded acquisition diagnostics from each current worker. */
+  getTileSourceStatistics(): Promise<import('./types').TileSourceStatistics[]>;
   /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
   getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   setDataSource(name: string, config: SceneDataSource): Promise<unknown> | undefined;
@@ -95,6 +97,8 @@ export declare class ClassicWebGLRenderer {
   getAttributions(): Promise<string[]>;
   /** Current source capabilities without exposing worker/archive ownership. */
   getSourceMetadata(): Promise<Record<string, import('./sources/tile_source_metadata').TangramTileSourceMetadata>>;
+  /** Per-worker built-in source-procedure slots; separate from renderer mesh-build accounting. */
+  getTileSourceStatistics(): Promise<import('./types').TileSourceStatistics[]>;
   /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
   getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   subscribe(listeners: SceneListeners): void;

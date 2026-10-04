@@ -13,7 +13,7 @@ import type {TileSourceContext} from './tile_source_adapter';
 import {applyTilePayload, getTileSourceRequest, updateTileSourceRequest} from './tile_source_state';
 import type {DecodedTilePayload, TileSourceRequestState} from './tile_source_state';
 import DecodedTileStore, {createTileLeaseAbortError} from './decoded_tile_store';
-import type {DecodedTileLease} from './decoded_tile_store';
+import type {DecodedTileLease, DecodedTileStoreOptions} from './decoded_tile_store';
 
 /** Acquisition anchors copied from worker messages, without mesh or build ownership. */
 export interface SharedTileContext extends TileSourceContext {
@@ -54,14 +54,17 @@ export function supportsSharedTileAcquisition(source: unknown): source is DataSo
 /** Worker-local ownership bridge; custom sources continue through the original first-match procedure. */
 export default class SharedTileSourceAdapter<TileT extends SharedTileContext> {
     /** No unreferenced warm cache; content stays alive only while worker tile leases need it. */
-    readonly store = new DecodedTileStore<SharedTileResult>(result => result.payload.byteLength);
+    readonly store: DecodedTileStore<SharedTileResult>;
     /** Worker tile identity owns its own lease, never the underlying request's cancellation ID. */
     private leases = new WeakMap<TileT, DecodedTileLease<SharedTileResult>>();
     /** Workers with imported external scripts cannot assume built-in prototype purity. */
-    private readonly sharingEnabled: boolean;
+    readonly sharingEnabled: boolean;
 
     /** Enable only known built-in pipelines; external worker scripts conservatively disable sharing. */
-    constructor(sharingEnabled = true) { this.sharingEnabled = sharingEnabled; }
+    constructor(sharingEnabled = true, options: DecodedTileStoreOptions = {}) {
+        this.sharingEnabled = sharingEnabled;
+        this.store = new DecodedTileStore<SharedTileResult>(result => result.payload.byteLength, options);
+    }
 
     /** Acquire compatible decoded content or preserve the original custom-source loading path. */
     loadTile(tile: TileT, source: DataSource | undefined, getRetainedTiles: () => Iterable<TileT>): Promise<TileT> {

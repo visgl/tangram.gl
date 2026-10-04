@@ -167,13 +167,51 @@ test('custom hooks load on their original context and never acquire store leases
 
 test('workers with external scripts retain legacy concurrent acquisition even for built-in sources', async () => {
     const io = vi.spyOn(Utils, 'io').mockResolvedValue(response);
-    worker.sharedTileSources = new SharedTileSourceAdapter(false);
+    worker.sharedTileSources = new SharedTileSourceAdapter(false, {maxConcurrentLoads: 1});
     worker.sources.world = new GeoJSONTileSource({name: 'world', url: '/fixtures/{z}/{x}/{y}.json'}, {});
     const first = createTile(), second = createTile('style-12', 12);
     await Promise.all([worker.loadTileSourceData(first), worker.loadTileSourceData(second)]);
     expect(io).toHaveBeenCalledTimes(2);
-    expect(worker.getTileSourceStatistics()).toMatchObject({acquisitions: 0, consumers: 0});
+    expect(worker.getTileSourceStatistics()).toMatchObject({acquisitions: 0, consumers: 0, sharingEnabled: false, queuedTiles: 0});
     expect(first.source_data?.layers).not.toBe(second.source_data?.layers);
+});
+
+test('a worker queues unique data while duplicate style consumers share the same source-procedure slot', async () => {
+    worker.sharedTileSources = new SharedTileSourceAdapter(true, {maxConcurrentLoads: 1});
+    worker.sources.world = new GeoJSONTileSource({name: 'world', url: '/fixtures/{z}/{x}/{y}.json'}, {});
+    const pending = createDeferred<typeof response>();
+    const io = vi.spyOn(Utils, 'io').mockReturnValueOnce(pending.promise).mockResolvedValue(response);
+    const first = createTile(), duplicate = createTile('style-12', 12), next = createTile('world/1/0/1/1');
+    next.coords = {x: 1, y: 0, z: 1, key: '1/0/1'};
+    next.min = Geo.metersForTile(next.coords); next.max = Geo.metersForTile({x: 2, y: 1, z: 1});
+    const firstLoad = worker.loadTileSourceData(first), duplicateLoad = worker.loadTileSourceData(duplicate), nextLoad = worker.loadTileSourceData(next);
+    await vi.waitFor(() => expect(io).toHaveBeenCalledOnce(), {interval: 1});
+    expect(worker.getTileSourceStatistics()).toMatchObject({activeAcquisitions: 1, queuedTiles: 1, consumers: 3, acquisitions: 1, sharedAcquisitions: 1});
+    const rejected = expect(firstLoad).rejects.toMatchObject({name: 'AbortError'});
+    worker.sharedTileSources.releaseTile(first); await rejected;
+    expect(worker.getTileSourceStatistics().activeAcquisitions).toBe(1);
+    pending.resolve(response);
+    await Promise.all([duplicateLoad, nextLoad]);
+    expect(io).toHaveBeenCalledTimes(2);
+    expect(duplicate.source_data?.layers).not.toBe(next.source_data?.layers);
+    expect(worker.getTileSourceStatistics()).toMatchObject({queuedTiles: 0, readyTiles: 2, consumers: 2, maxConcurrentLoads: 1});
+});
+
+test('removing a queued worker tile prevents its provider from being invoked', async () => {
+    worker.sharedTileSources = new SharedTileSourceAdapter(true, {maxConcurrentLoads: 1});
+    worker.sources.world = new GeoJSONTileSource({name: 'world', url: '/fixtures/{z}/{x}/{y}.json'}, {});
+    const pending = createDeferred<typeof response>(), io = vi.spyOn(Utils, 'io').mockReturnValue(pending.promise);
+    const first = createTile(), next = createTile('queued');
+    next.coords = {x: 1, y: 0, z: 1, key: '1/0/1'};
+    worker.tiles[next.key] = next;
+    const firstLoad = worker.loadTileSourceData(first), nextLoad = worker.loadTileSourceData(next);
+    await vi.waitFor(() => expect(io).toHaveBeenCalledOnce(), {interval: 1});
+    const rejected = expect(nextLoad).rejects.toMatchObject({name: 'AbortError'});
+    worker.removeTile(next.key); await rejected;
+    pending.resolve(response); await firstLoad;
+    expect(io).toHaveBeenCalledOnce();
+    expect(next.source_data).toBeUndefined();
+    expect(worker.getTileSourceStatistics()).toMatchObject({queuedTiles: 0, readyTiles: 1, consumers: 1});
 });
 
 test.each(['MVT', 'Raster'])('%s payloads share content without sharing attached-raster arrays or mesh ownership', async format => {
@@ -292,25 +330,39 @@ test('picking entries remain build-owned when two builds share decoded feature p
     FeatureSelection.clearTile(second.key);
 });
 
-test.each([false, true])('native worker shares real local GeoJSON acquisition with consumer cancellation=%s', async cancelFirst => {
+test.each([false, true])('native worker bounds real local GeoJSON loads with consumer cancellation=%s', async cancelFirst => {
     const workerUrl = new URL('../build/worker.test.js', import.meta.url).href;
     const fixtureUrl = new URL('./fixtures/shared-tile-source.json', import.meta.url).href;
     const script = `importScripts(${JSON.stringify(workerUrl)});
       self.addEventListener('message', async event => {
         if (event.data?.type !== 'test-run') return;
         try {
-          let requests = 0;
+          self.init('queue-probe', 0, 1, 'warn', 1, true, [], 1);
+          let requests = 0, activeRequests = 0, peakRequests = 0;
           const send = XMLHttpRequest.prototype.send;
-          XMLHttpRequest.prototype.send = function(...parameters) { requests++; return send.apply(this, parameters); };
+          XMLHttpRequest.prototype.send = function(...parameters) {
+            requests++; activeRequests++; peakRequests = Math.max(peakRequests, activeRequests);
+            let active = true;
+            const complete = () => { if (active) { active = false; activeRequests--; } };
+            const onReadyStateChange = this.onreadystatechange;
+            this.onreadystatechange = function(event) {
+              if (this.readyState === 4) complete();
+              return onReadyStateChange?.call(this, event);
+            };
+            this.addEventListener('loadend', complete, {once:true});
+            return send.apply(this, parameters);
+          };
           self.createDataSources({sources:{world:{type:'GeoJSON',url:${JSON.stringify(`${fixtureUrl}?tile={z}/{x}/{y}`)}}}});
           const create = key => ({source:'world',key,coords:{x:0,y:0,z:0,key:'0/0/0'},min:{x:-20037508.342789244,y:20037508.342789244},max:{x:20037508.342789244,y:-20037508.342789244}});
           const first = create('style-1'), second = create('style-12');
           const firstLoad = self.loadTileSourceData(first).then(()=>'ready', error=>error.name);
           const secondLoad = self.loadTileSourceData(second);
+          const next = {...create('other-coordinate'), coords:{x:1,y:0,z:1,key:'1/0/1'}, min:{x:0,y:20037508.342789244},max:{x:20037508.342789244,y:0}};
+          const nextLoad = self.loadTileSourceData(next);
           if (${cancelFirst}) self.sharedTileSources.releaseTile(first);
-          const firstState = await firstLoad; await secondLoad;
-          self.postMessage({type:'result',requests,firstState,shared:${cancelFirst} ? first.source_data === undefined : first.source_data.layers === second.source_data.layers,stats:self.getTileSourceStatistics()});
-          self.sharedTileSources.releaseTile(first); self.sharedTileSources.releaseTile(second);
+          const firstState = await firstLoad; await secondLoad; await nextLoad;
+          self.postMessage({type:'result',requests,peakRequests,firstState,shared:${cancelFirst} ? first.source_data === undefined : first.source_data.layers === second.source_data.layers,stats:self.getTileSourceStatistics()});
+          self.sharedTileSources.releaseTile(first); self.sharedTileSources.releaseTile(second); self.sharedTileSources.releaseTile(next);
         } catch(error) { self.postMessage({type:'failure',message:String(error)}); }
       });`;
     const url = URL.createObjectURL(new Blob([script], {type: 'text/javascript'})), nativeWorker = new Worker(url);
@@ -320,7 +372,7 @@ test.each([false, true])('native worker shares real local GeoJSON acquisition wi
             nativeWorker.addEventListener('error', event => reject(new Error(event.message)));
             nativeWorker.postMessage({type: 'test-run'});
         });
-        expect(result).toMatchObject({requests: 1, firstState: cancelFirst ? 'AbortError' : 'ready', shared: true,
-            stats: {acquisitions: 1, sharedAcquisitions: 1, consumers: cancelFirst ? 1 : 2, readyTiles: 1}});
+        expect(result).toMatchObject({requests: 2, peakRequests: 1, firstState: cancelFirst ? 'AbortError' : 'ready', shared: true,
+            stats: {acquisitions: 2, sharedAcquisitions: 1, consumers: cancelFirst ? 2 : 3, readyTiles: 2, queuedTiles: 0, maxConcurrentLoads: 1}});
     } finally { nativeWorker.terminate(); URL.revokeObjectURL(url); }
 });
