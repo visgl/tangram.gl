@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // GL program wrapper to cache uniform locations/values, do compile-time pre-processing
 // (injecting #defines and #pragma blocks into shaders), etc.
