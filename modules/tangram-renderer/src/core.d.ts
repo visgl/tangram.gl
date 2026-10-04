@@ -9,4 +9,4 @@ export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmb
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
     TangramPositionalLightExtensions, TangramLightColor} from './lights/light-definitions';
 export type {Light as LumaLight} from '@luma.gl/shadertools';
-export type {HostFrameOptions, HostRenderView, HostTileLODOptions, HostCamera, HostProjection, GeographicAnchor, LegacyHostFrame, RendererOptions, RenderOptions, Viewport, SceneDefinition, SceneListeners, SceneLoadOptions, VisibilityLODAdapter, GlobeVisibilityLODAdapter, VisibilityViewState, GlobeVisibilityViewState, CalculatedViewBounds} from '@vis.gl/tangram-renderer';
+export type {HostFrameOptions, HostRenderView, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, HostCamera, HostProjection, GeographicAnchor, LegacyHostFrame, RendererOptions, RenderOptions, Viewport, SceneDefinition, SceneListeners, SceneLoadOptions, VisibilityLODAdapter, GlobeVisibilityLODAdapter, VisibilityViewState, GlobeVisibilityViewState, CalculatedViewBounds} from '@vis.gl/tangram-renderer';

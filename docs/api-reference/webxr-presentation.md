@@ -48,6 +48,12 @@ xrProjection × xrView × placement × projectedPosition
 
 The renderer stays independent from deck.gl and WebXR. It only consumes the resulting host frame.
 
+`createFrame` also accepts `tileResources: {maxConcurrentBuilds, maxCachedTiles,
+maxCachedMeshBytes}`. The [renderer resource policy](./host-frame.md#tileresources)
+is shared by both stereo or immersive eyes; the wrapper does not duplicate budgets
+per eye. Omit it to retain the legacy unlimited scheduling/cache policy. Protected
+visible/proxy/preload tiles are not evicted to satisfy off-screen cache limits.
+
 ## Placements
 
 - `XRMapPlacement` places a Web Mercator map on a bounded tabletop or unbounded plane. Its scale is

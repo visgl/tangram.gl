@@ -7,7 +7,7 @@ import {luma, type Device} from '@luma.gl/core';
 import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {HostFrame, Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
-import type {HostTileLODOptions} from '@vis.gl/tangram-renderer/core';
+import type {HostTileLODOptions, HostTileResourceOptions} from '@vis.gl/tangram-renderer/core';
 import type {Scene, SceneDefinition} from '@vis.gl/tangram-renderer';
 import {Timeline} from '@luma.gl/engine';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
@@ -77,6 +77,8 @@ export class RenderingHarness {
   tileZoom?: number;
   /** Optional projected-scale data LOD for the shared logical frame. */
   tileLOD?: HostTileLODOptions;
+  /** Shared scheduling and completed-cache limits across all rendered eyes. */
+  tileResources?: HostTileResourceOptions;
   /** Optional globally retained globe loading fallback. */
   globePreloadZoom?: number;
   /** Optional mocked headset frame submitted through the real immersive rendering path. */
@@ -157,7 +159,7 @@ export class RenderingHarness {
       interpupillaryDistance: this.interpupillaryDistance, frameState: this.frameState,
       ...(this.frameState ? {mode: 'immersive-vr'} : {})});
     const hostFrame = new HostFrame({...frame.hostFrame, tileZoom: this.tileZoom, tileLOD: this.tileLOD,
-      globePreloadZoom: this.globePreloadZoom});
+      globePreloadZoom: this.globePreloadZoom, tileResources: this.tileResources});
     for (const [index, view] of frame.renderViews.entries()) {
       this.renderer.setFrame(hostFrame, {renderViewId: view.id});
       const renderPass = this.device.beginRenderPass({

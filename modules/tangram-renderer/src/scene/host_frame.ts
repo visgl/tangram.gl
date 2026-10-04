@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {GeographicAnchor, HostCamera, HostFrameOptions, HostProjection, HostTileLODOptions, Viewport} from '../types';
+import type {GeographicAnchor, HostCamera, HostFrameOptions, HostProjection, HostTileLODOptions, HostTileResourceOptions, Viewport} from '../types';
 
 /** Validated per-eye state; optional visibility overrides never change scene/style state. */
 export interface NormalizedRenderView {
@@ -31,6 +31,8 @@ export default class HostFrame {
     readonly tileZoom?: number;
     /** Validated projected-scale LOD settings, when enabled. */
     readonly tileLOD?: Readonly<Required<HostTileLODOptions>>;
+    /** Shared opt-in worker and completed off-screen mesh cache limits. */
+    readonly tileResources?: Readonly<HostTileResourceOptions>;
     /** Optional globally resident globe fallback level, capped at 64 coordinates per source. */
     readonly globePreloadZoom?: number;
     /** Shared elapsed scene animation time in seconds, when supplied. */
@@ -45,6 +47,7 @@ export default class HostFrame {
         this.tileBuffer = normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer');
         this.tileZoom = normalizeTileZoom(record.tileZoom, this.geographicAnchor.zoom);
         this.tileLOD = normalizeTileLOD(record.tileLOD);
+        this.tileResources = normalizeTileResources(record.tileResources);
         this.globePreloadZoom = normalizeGlobePreloadZoom(record.globePreloadZoom);
         if (this.globePreloadZoom !== undefined && this.projection.type !== 'globe') {
             throw new Error('HostFrame globePreloadZoom requires a globe projection');
@@ -146,10 +149,27 @@ export default class HostFrame {
             tileBuffer: normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer'),
             tileZoom: normalizeTileZoom(record.tileZoom, normalizeAnchor(record.geographicAnchor).zoom),
             tileLOD: normalizeTileLOD(record.tileLOD),
+            tileResources: normalizeTileResources(record.tileResources),
             globePreloadZoom: normalizeGlobePreloadZoom(record.globePreloadZoom),
             animationTime: record.animationTime === undefined ? undefined : normalizeNonNegative(record.animationTime, 'animationTime')
         });
     }
+}
+
+/** Reject unsafe limits before any camera or worker state is modified. */
+function normalizeTileResources(value: unknown): HostTileResourceOptions | undefined {
+    if (value === undefined) return undefined;
+    const record = requireRecord(value, 'HostFrame tileResources');
+    const result: HostTileResourceOptions = {};
+    for (const name of ['maxConcurrentBuilds', 'maxCachedTiles', 'maxCachedMeshBytes'] as const) {
+        const limit = record[name];
+        if (limit === undefined) continue;
+        if (typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit < (name === 'maxConcurrentBuilds' ? 1 : 0)) {
+            throw new Error(`HostFrame tileResources ${name} must be a ${name === 'maxConcurrentBuilds' ? 'positive' : 'non-negative'} safe integer`);
+        }
+        result[name] = limit;
+    }
+    return Object.freeze(result);
 }
 
 /** Bound global residency before any tile enumeration or scene mutation. */

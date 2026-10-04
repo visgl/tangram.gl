@@ -14,11 +14,28 @@ import log from '../utils/log';
 import WorkerBroker from '../utils/worker_broker';
 import Task from '../utils/task';
 import {getGlobePreloadKey, getGlobeFallbackClipBounds, isGlobeFallbackStyle} from './globe_tile_preload';
+import TileBuildQueue from './tile_build_queue';
+import TileResourceCache from './tile_resource_cache';
+import type {TileCoordinate} from './tile_id';
+import type {HostTileResourceOptions, TileResourceStatistics} from '../types';
 
 export default class TileManager {
+    /** Current eye-union logical coordinates. */
+    declare visible_coords: Record<string, TileCoordinate>;
+    /** Coarse source/style tiles pinned by the current globe preload policy. */
+    declare preloaded_keys: Set<string>;
+    /** Shared tile worker scheduling. */
+    declare build_queue: TileBuildQueue;
+    /** Completed off-screen residency policy and diagnostics. */
+    declare resource_cache: TileResourceCache;
+    /** Opt-in limits copied and validated by HostFrame. */
+    declare resource_limits: Readonly<HostTileResourceOptions> | undefined;
 
     constructor({ scene }) {
         this.scene = scene;
+        this.build_queue = new TileBuildQueue();
+        this.resource_cache = new TileResourceCache();
+        this.resource_limits = undefined;
         this.tiles = {};
         this.pyramid = new TilePyramid();
         this.visible_coords = {};
@@ -40,6 +57,8 @@ export default class TileManager {
     }
 
     destroy() {
+        this.build_queue.clear();
+        this.resource_cache.clear();
         this.forEachTile(tile => tile.destroy());
         this.tiles = {};
         this.pyramid = null;
@@ -60,6 +79,7 @@ export default class TileManager {
 
     keepTile(tile) {
         this.tiles[tile.key] = tile;
+        this.resource_cache.touch(tile.key);
         this.pyramid.addTile(tile);
     }
 
@@ -68,6 +88,8 @@ export default class TileManager {
     }
 
     forgetTile(key) {
+        this.build_queue.cancel(key);
+        this.resource_cache.forget(key);
         if (this.hasTile(key)) {
             let tile = this.tiles[key];
             this.pyramid.removeTile(tile);
@@ -87,7 +109,7 @@ export default class TileManager {
             tile.destroy();
         }
 
-        this.forgetTile(tile.key);
+        this.forgetTile(key);
         this.scene.requestRedraw();
     }
 
@@ -114,30 +136,35 @@ export default class TileManager {
     }
 
     updateTilesForView() {
-        // Find visible tiles and load new ones
-        this.visible_coords = {};
-        let tile_coords = this.view.findVisibleTileCoordinates();
-        for (let c=0; c < tile_coords.length; c++) {
-            const coords = tile_coords[c];
-            this.queueCoordinate(coords);
-            this.visible_coords[coords.key] = coords;
-        }
-
-        this.preloaded_keys.clear();
-        const preloaded = this.view.findPreloadedTileCoordinates?.() || [];
-        this.preloaded_coords = preloaded;
-        this.preload_zoom = preloaded[0]?.z;
-        for (const coords of preloaded) {
-            for (const source of Object.values(this.scene.sources || {})) {
-                if (!source.builds_geometry_tiles || !source.includesTile(coords, this.view.tile_zoom)) continue;
-                const key = getGlobePreloadKey(coords, source, this.view.tile_zoom, coords.z);
-                if (key) this.preloaded_keys.add(key);
+        this.build_queue.suspend();
+        try {
+            // Find visible tiles and load new ones
+            this.visible_coords = {};
+            let tile_coords = this.view.findVisibleTileCoordinates();
+            for (let c=0; c < tile_coords.length; c++) {
+                const coords = tile_coords[c];
+                this.queueCoordinate(coords);
+                this.visible_coords[coords.key] = coords;
             }
-        }
 
-        // Prioritize visible detail before the bounded background preload batch.
-        this.loadQueuedCoordinates();
-        this.updateTileStates();
+            this.preloaded_keys.clear();
+            const preloaded = this.view.findPreloadedTileCoordinates?.() || [];
+            this.preloaded_coords = preloaded;
+            this.preload_zoom = preloaded[0]?.z;
+            for (const coords of preloaded) {
+                for (const source of Object.values(this.scene.sources || {})) {
+                    if (!source.builds_geometry_tiles || !source.includesTile(coords, this.view.tile_zoom)) continue;
+                    const key = getGlobePreloadKey(coords, source, this.view.tile_zoom, coords.z);
+                    if (key) this.preloaded_keys.add(key);
+                }
+            }
+
+            // Prioritize visible detail before the bounded background preload batch.
+            this.loadQueuedCoordinates();
+            this.updateTileStates();
+        } finally {
+            this.build_queue.resume();
+        }
     }
 
     /** Keep only the current source/style generation's global coarse tiles resident. */
@@ -146,19 +173,53 @@ export default class TileManager {
     }
 
     updateTileStates () {
-        this.forEachTile(tile => {
-            this.updateVisibility(tile);
-        });
+        this.build_queue.suspend();
+        try {
+            this.forEachTile(tile => {
+                this.updateVisibility(tile);
+                this.build_queue.setPriority(tile.key, this.getBuildPriority(tile));
+            });
 
-        this.loadQueuedCoordinates();
-        this.updateProxyTiles();
-        for (const coords of this.preloaded_coords || []) this.loadCoordinate(coords, true);
-        this.updateGlobeFallbackTiles();
-        this.view.pruneTilesForView();
-        this.updateRenderableTiles();
-        this.style_manager.updateActiveStyles(this.renderable_tiles);
-        this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
-        return this.updateLabels();
+            this.loadQueuedCoordinates();
+            this.updateProxyTiles();
+            for (const coords of this.preloaded_coords || []) this.loadCoordinate(coords, true);
+            this.updateGlobeFallbackTiles();
+            this.view.pruneTilesForView();
+            this.enforceCacheLimits();
+            this.updateRenderableTiles();
+            this.style_manager.updateActiveStyles(this.renderable_tiles);
+            this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
+            return this.updateLabels();
+        } finally {
+            this.build_queue.resume();
+        }
+    }
+
+    /** Configure shared limits without starting old queued work before the new eye union is installed. */
+    setResourceLimits(options: Readonly<HostTileResourceOptions> | undefined): void {
+        this.resource_limits = options;
+        this.build_queue.setLimit(options?.maxConcurrentBuilds);
+    }
+
+    /** Visible detail precedes global fallback, which precedes retained off-screen builds. */
+    getBuildPriority(tile): number {
+        return tile.visible ? 0 : this.isTilePreloaded(tile.key) ? 1 : 2;
+    }
+
+    /** Evict only completed unneeded tiles; visible/proxy/preload residency is reported separately. */
+    enforceCacheLimits(): void {
+        const tiles = Object.values(this.tiles);
+        const isPreloaded = key => this.isTilePreloaded(key) || this.build_queue.has(key);
+        for (const tile of tiles) {
+            if (this.resource_cache.isProtected(tile, isPreloaded)) this.resource_cache.touch(tile.key);
+        }
+        for (const key of this.resource_cache.selectEvictions(tiles, this.resource_limits, isPreloaded)) this.removeTile(key);
+    }
+
+    /** Detached worker and mesh residency diagnostics, suitable for host UI or tests. */
+    getResourceStatistics(): TileResourceStatistics {
+        return this.resource_cache.getStatistics(Object.values(this.tiles),
+            key => this.isTilePreloaded(key) || this.build_queue.has(key), this.build_queue.getCounts());
     }
 
     updateLabels () {
@@ -403,7 +464,18 @@ export default class TileManager {
     buildTile(tile, options) {
         this.tileBuildStart(tile.key);
         this.updateVisibility(tile);
-        tile.build(this.scene.generation, options);
+        const generation = this.scene.generation;
+        const token = `${tile.id}/${generation}`;
+        this.build_queue.enqueue({key: tile.key, token, priority: this.getBuildPriority(tile),
+            start: () => {
+                Promise.resolve(tile.build(generation, options)).catch(error => {
+                    if (this.tiles[tile.key] === tile && tile.generation === generation) {
+                        this.buildTileError({...tile, error});
+                    }
+                });
+            },
+            fail: error => this.buildTileError({...tile, error})
+        });
     }
 
     // Called on main thread when a web worker completes processing for a single tile (initial load, or rebuild)
@@ -444,15 +516,29 @@ export default class TileManager {
         }
 
         if (progress.done) {
-            this.tileBuildStop(tile.key);
+            this.tileBuildStop(tile.key, `${tile.id}/${tile.generation}`);
+            // A completed off-screen tile becomes evictable only after releasing its build slot.
+            this.enforceCacheLimits();
         }
     }
 
     // Called on main thread when web worker encounters an error building a tile
     buildTileError(tile) {
+        const current = this.tiles[tile.key];
+        if (!current || current.id !== tile.id || current.generation !== tile.generation ||
+            tile.generation !== this.scene.generation) {
+            Tile.abortBuild(tile);
+            this.tileBuildStop(tile.key, `${tile.id}/${tile.generation}`);
+            return;
+        }
         log('error', `Error building tile ${tile.key}:`, tile.error);
+        const ownedMeshData = current.mesh_data;
+        current.destroy();
         this.forgetTile(tile.key);
-        Tile.abortBuild(tile);
+        // A rejected main-thread build can carry the same batch already owned by
+        // its meshes. Destruction released that batch's texture references;
+        // abort only independently transferred worker batches a second time.
+        Tile.abortBuild(tile.mesh_data === ownedMeshData ? {...tile, mesh_data: undefined} : tile);
     }
 
     // Track tile build state
@@ -462,17 +548,19 @@ export default class TileManager {
         log('trace', `tileBuildStart for ${key}: ${Object.keys(this.building_tiles).length}`);
     }
 
-    tileBuildStop(key) {
+    tileBuildStop(key, token) {
+        if (token !== undefined) this.build_queue.finish(key, token);
         // Done building?
         if (this.building_tiles) {
             log('trace', `tileBuildStop for ${key}: ${Object.keys(this.building_tiles).length}`);
-            delete this.building_tiles[key];
+            if (!this.build_queue.has(key)) delete this.building_tiles[key];
             this.checkBuildQueue();
         }
     }
 
     // Check status of tile building queue and notify scene when we're done
     checkBuildQueue() {
+        this.build_queue.pump();
         if (!this.building_tiles || Object.keys(this.building_tiles).length === 0) {
             this.building_tiles = null;
             this.scene.tileManagerBuildDone();

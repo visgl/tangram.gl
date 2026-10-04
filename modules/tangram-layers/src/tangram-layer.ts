@@ -336,13 +336,12 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
 
       record.canvasWidth = width;
       record.canvasHeight = height;
-      record.renderer.setFrame(
-        isGlobeViewport(viewport)
+      const frame = isGlobeViewport(viewport)
           ? {...getGlobeViewFrame(viewport, globeOptions), viewport: {width, height}}
           : isFirstPersonViewport(viewport)
             ? getFirstPersonViewFrame(viewport, {width, height, ...firstPersonOptions})
-            : getMapViewFrame(viewport, {width, height})
-      );
+            : getMapViewFrame(viewport, {width, height});
+      record.renderer.setFrame({...frame, tileResources: this.props.tileResources ?? undefined});
     }
 
     _canRender(record, props) {
@@ -431,6 +430,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
     globeMaxElevation: null,
     globeVisibleBounds: null,
     globePreloadZoom: null,
+    tileResources: null,
     firstPersonMaxGroundExtent: 20000,
     onSceneLoad: () => {},
     onAttributionChange: () => {},

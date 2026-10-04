@@ -10,6 +10,7 @@ import Utils from '../utils/utils';
 import mergeObjects from '../utils/merge';
 import Geo from '../utils/geo';
 import {TileID} from './tile_id';
+import type VBOMesh from '../gl/vbo_mesh';
 import {addLayerDebugEntry} from '../styles/style';
 import StyleParser from '../styles/style_parser';
 import Collision from '../labels/collision';
@@ -23,6 +24,20 @@ let id = 0; // unique tile id
 let build_id = 0; // id tracking order in which tiles were build
 
 export default class Tile {
+    /** Worker-visible tile identity. */
+    declare id: number;
+    /** Source/style-normalized cache key. */
+    declare key: string;
+    /** Generation currently submitted to the worker, or null before the first build. */
+    declare generation: number | null;
+    /** Visibility shared by every host eye. */
+    declare visible: boolean;
+    /** Whether initial worker processing remains incomplete. */
+    declare loading: boolean;
+    /** Completion of every mesh batch for the current generation. */
+    declare built: boolean;
+    /** GPU mesh ownership by style. */
+    declare meshes: Record<string, VBOMesh[]>;
     matrix4 = new Matrix4();
 
     /**
@@ -587,7 +602,7 @@ export default class Tile {
     // Includes a minimum set of pre-defined keys for load state, debug. etc.
     // We use this to send a subset of the tile back to the main thread, to minimize unnecessary data transfer
     // (e.g. very large items like feature geometry are not needed on the main thread)
-    static slice (tile, keys) {
+    static slice (tile, keys?: string[]) {
         let keep = [
             'id',
             'key',

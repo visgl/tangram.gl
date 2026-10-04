@@ -114,6 +114,37 @@ test('raster tiles render and can switch back to vector geometry', async () => {
   expect(changedPixels(raster, vector)).toBeGreaterThan(1000);
 });
 
+test.each(['perspective', 'globe', 'first-person'] as const)('%s: stereo tile budgets retain both eyes and release all queued work', async kind => {
+  harness = new RenderingHarness(kind, 'stereo-preview');
+  harness.tileResources = {maxConcurrentBuilds: 1, maxCachedTiles: 0, maxCachedMeshBytes: 0};
+  if (kind === 'globe') {
+    harness.presentation.setViewState({zoom: 3});
+    harness.globePreloadZoom = 1;
+  }
+  await harness.initialize(createRasterScene());
+  harness.draw();
+  expect(harness.renderer.getTileResourceStatistics().activeBuilds).toBeLessThanOrEqual(1);
+  expect(harness.renderer.getTileResourceStatistics().queuedBuilds).toBeGreaterThan(0);
+  await harness.settle();
+  await expect.poll(() => {
+    harness?.draw();
+    const statistics = harness?.renderer.getTileResourceStatistics();
+    expect(statistics?.activeBuilds).toBeLessThanOrEqual(1);
+    return (statistics?.activeBuilds ?? 0) + (statistics?.queuedBuilds ?? 0);
+  }).toBe(0);
+  const statistics = harness.renderer.getTileResourceStatistics();
+  expect(statistics.cachedTiles).toBe(0);
+  expect(statistics.cachedMeshBytes).toBe(0);
+  expect(statistics.protectedMeshBytes).toBeGreaterThan(0);
+  const pixels = await harness.pixels();
+  expect(coloredPixels(pixels, 0, pixels.width / 2)).toBeGreaterThan(100);
+  expect(coloredPixels(pixels, pixels.width / 2)).toBeGreaterThan(100);
+  if (kind === 'globe') expect(harness.getGlobePreloadState().filter(tile => tile.pinned && tile.built)).toHaveLength(4);
+  harness.tileResources = undefined;
+  await harness.settle();
+  expect(coloredPixels(await harness.pixels())).toBeGreaterThan(200);
+});
+
 test('low-zoom globe raster follows the sphere and reuses geometry for camera and stereo changes', async () => {
   harness = new RenderingHarness('globe');
   harness.presentation.setViewState({zoom: 0});

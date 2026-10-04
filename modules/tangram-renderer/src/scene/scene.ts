@@ -45,6 +45,8 @@ import type {RenderPass} from '@luma.gl/core';
 export default class Scene {
     declare subscribe: (listeners: SceneListeners) => void;
     declare view: View;
+    /** Tile worker and mesh ownership for the active scene. */
+    declare tile_manager: TileManager;
     declare config: (NonNullable<ViewScene['config']> & {animated?: boolean}) | null;
     /** Current source instances, recreated when scene configuration changes. */
     declare sources: Record<string, DataSource>;

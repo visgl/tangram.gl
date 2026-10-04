@@ -73,6 +73,34 @@ export type HostTileLODOptions = {
   hysteresis?: number;
 };
 
+/** Opt-in worker scheduling and completed off-screen mesh cache limits, shared by all eyes. */
+export type HostTileResourceOptions = {
+  /** Maximum concurrently submitted tile builds across sources; positive integer, omitted is unlimited. */
+  maxConcurrentBuilds?: number;
+  /** Maximum completed off-screen cache entries; non-negative integer, omitted is unlimited. */
+  maxCachedTiles?: number;
+  /** Cached vertex/index bytes, including globe variants and pending labels; non-negative integer. */
+  maxCachedMeshBytes?: number;
+};
+
+/** Detached renderer resource accounting; textures, CPU data and driver overhead are not included. */
+export type TileResourceStatistics = {
+  /** Tile builds submitted to workers, not individual network requests. */
+  activeBuilds: number;
+  /** Source/style tile builds waiting for a scheduling slot. */
+  queuedBuilds: number;
+  /** All retained tiles, including visible/proxy/preload and incomplete builds. */
+  residentTiles: number;
+  /** Completed tiles eligible for cache eviction. */
+  cachedTiles: number;
+  /** Vertex/index bytes owned by evictable tiles. */
+  cachedMeshBytes: number;
+  /** Tiles protected from resource-policy eviction. */
+  protectedTiles: number;
+  /** Vertex/index bytes owned by protected tiles. */
+  protectedMeshBytes: number;
+};
+
 export type HostFrameOptions = {
   viewport: Viewport;
   geographicAnchor: GeographicAnchor;
@@ -84,6 +112,8 @@ export type HostFrameOptions = {
   tileZoom?: number;
   /** Automatic shared data LOD; mutually exclusive with tileZoom. */
   tileLOD?: HostTileLODOptions;
+  /** Opt-in scheduling/cache policy shared by every render view and source. */
+  tileResources?: HostTileResourceOptions;
   /** Retain a global coarse level for globe loading gaps; integer 0–3, omitted disables preloading. */
   globePreloadZoom?: number;
   /** Shared elapsed scene animation time in seconds. */
@@ -100,6 +130,8 @@ export type LegacyHostFrame = {
   tileZoom?: number;
   /** Opt-in projected-scale data LOD. */
   tileLOD?: HostTileLODOptions;
+  /** Opt-in scheduling/cache policy; omission restores unlimited scheduling/cache defaults. */
+  tileResources?: HostTileResourceOptions;
   /** Optional bounded global globe fallback level, integer 0–3. */
   globePreloadZoom?: number;
   /** Shared elapsed scene animation time in seconds. */

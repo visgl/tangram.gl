@@ -32,6 +32,8 @@ export type WebXRFrameOptions = XRViewportSize & {
   frameState?: XRFrameState;
   mode?: XRPresentationMode;
   interpupillaryDistance?: number;
+  /** Opt-in shared worker/cache budgets; never multiplied by the number of eyes. */
+  tileResources?: HostFrameOptions['tileResources'];
 };
 
 /** Default human interpupillary distance used by desktop stereo preview, in meters. */
@@ -313,7 +315,7 @@ export class WebXRPresentation {
   }
 
   /** Prepare a presentation snapshot and renderer-independent host frame. */
-  createFrame({width, height, frameState, mode = this.mode, interpupillaryDistance}: WebXRFrameOptions): XRPresentationFrame {
+  createFrame({width, height, frameState, mode = this.mode, interpupillaryDistance, tileResources}: WebXRFrameOptions): XRPresentationFrame {
     const resolvedMode = resolveMode(mode, frameState);
     // A caller may select a presentation mode per frame without calling setMode.
     // Keep controller hit regions and gesture viewport dimensions in lockstep.
@@ -339,7 +341,7 @@ export class WebXRPresentation {
       mode: resolvedMode,
       logicalViewport,
       renderViews,
-      hostFrame: this.createHostFrame({width, height, renderViews, frameState})
+      hostFrame: {...this.createHostFrame({width, height, renderViews, frameState}), tileResources}
     };
   }
 
