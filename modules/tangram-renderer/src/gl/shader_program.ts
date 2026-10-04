@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // GL program wrapper to cache uniform locations/values, do compile-time pre-processing
 // (injecting #defines and #pragma blocks into shaders), etc.
@@ -192,7 +193,10 @@ export default class ShaderProgram {
         // Build & inject extensions & defines
         // This is done *after* code injection so that we can add defines for which code points were injected
         let precision = '';
-        let high = this.gl.getShaderPrecisionFormat(this.gl.FRAGMENT_SHADER, this.gl.HIGH_FLOAT);
+        // Device compilation targets WebGL 2, where highp float is required.
+        // Only the standalone legacy path needs a raw WebGL 1 precision query.
+        let high = this.device_shader_compilation ? {precision: 1} :
+            this.gl.getShaderPrecisionFormat(this.gl.FRAGMENT_SHADER, this.gl.HIGH_FLOAT);
         if (high && high.precision > 0) {
             precision = 'precision highp float;\n';
         }

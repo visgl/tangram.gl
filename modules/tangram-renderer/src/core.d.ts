@@ -4,6 +4,8 @@
 
 export {ClassicWebGLRenderer as Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from '@vis.gl/tangram-renderer';
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';
+export {PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition} from './scene/projection_math';
+export type {GeographicProjectionPosition} from './scene/projection_math';
 export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
 export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,

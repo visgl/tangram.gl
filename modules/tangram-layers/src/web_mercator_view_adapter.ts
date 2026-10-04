@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {PROJECTION_CONSTANTS} from '@vis.gl/tangram-renderer/core';
+
 const DECK_TO_TANGRAM_ZOOM_OFFSET = 1;
 const DECK_WORLD_SIZE = 512;
-const TANGRAM_HALF_WORLD_METERS = 20037508.342789244;
+const TANGRAM_HALF_WORLD_METERS = Math.PI * PROJECTION_CONSTANTS.mercatorRadius;
 
 type Matrix = ArrayLike<number>;
 

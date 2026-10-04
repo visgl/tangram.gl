@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Line rendering style
 
@@ -22,6 +23,7 @@ import hashString from '../../utils/hash';
 import polygons_vs from '../polygons/polygons_vertex.glsl';
 import polygons_fs from '../polygons/polygons_fragment.glsl';
 import {buildLinesWGSL} from './lines_wgsl';
+import {GLOBE_PROJECTION_GLSL} from '../../scene/projection_shaders';
 
 export const Lines = Object.create(Style);
 
@@ -30,7 +32,7 @@ const DASH_SCALE = 20; // adjustment factor for UV scale to for line dash patter
 Object.assign(Lines, {
     name: 'lines',
     built_in: true,
-    vertex_shader_src: polygons_vs,
+    vertex_shader_src: polygons_vs.replace('#pragma tangram: projection', GLOBE_PROJECTION_GLSL),
     fragment_shader_src: polygons_fs,
     selection: true, // enable feature selection
 

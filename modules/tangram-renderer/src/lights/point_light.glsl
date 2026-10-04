@@ -73,8 +73,7 @@ void calculateLight(in PointLight _light, in vec3 _eyeToPoint, in vec3 _normal) 
     }
 
     if (_light.useLumaAttenuation > 0.5) {
-        vec3 coefficients = _light.attenuationCoefficients;
-        attenuation /= max(coefficients.x + coefficients.y * dist + coefficients.z * dist * dist, 0.0001);
+        attenuation /= tangramNativeDistanceDenominator(_light.attenuationCoefficients, dist);
     }
 
     // Computer accumulators

@@ -6,6 +6,7 @@ import Geo, {type Bounds, type Meters, type Tile} from '../utils/geo';
 import {TileID, type TileCoordinate} from '../tile/tile_id';
 import type {HostCamera} from '../types';
 import {Matrix4} from '@math.gl/core';
+import {PROJECTION_CONSTANTS, projectGeographicVector} from './projection_math';
 
 /** State consumed by a renderer-owned visibility and LOD adapter. */
 export interface VisibilityViewState {
@@ -235,9 +236,9 @@ function getGlobeTileRanges(view: GlobeVisibilityViewState): number[][] {
     ]);
 }
 
-const GLOBE_RADIUS = 256;
+const GLOBE_RADIUS = PROJECTION_CONSTANTS.globeRadius;
 // Must match the geographic altitude scale used by deck.gl and Tangram's globe shaders.
-const GLOBE_EARTH_RADIUS = 6370972;
+const GLOBE_EARTH_RADIUS = PROJECTION_CONSTANTS.earthRadius;
 
 function isTileVisibleFromCamera(
     x: number,
@@ -279,14 +280,7 @@ function isTileVisibleFromCamera(
 }
 
 function geographicUnitVector(longitude: number, latitude: number): [number, number, number] {
-    const longitudeRadians = longitude * Math.PI / 180;
-    const latitudeRadians = latitude * Math.PI / 180;
-    const latitudeCosine = Math.cos(latitudeRadians);
-    return [
-        Math.sin(longitudeRadians) * latitudeCosine,
-        -Math.cos(longitudeRadians) * latitudeCosine,
-        Math.sin(latitudeRadians)
-    ];
+    return projectGeographicVector([longitude, latitude, 0], [0, 0, 1], 'globe');
 }
 
 function tileYToLatitude(y: number, zoom: number): number {

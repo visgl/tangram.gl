@@ -200,6 +200,24 @@ visibility without rebuilding scene styles or cached geometry.
 
 ### Coordinates and matrices
 
+The `@vis.gl/tangram-renderer/core` entry exports shared, deck-independent
+projection helpers: `PROJECTION_CONSTANTS`, `projectGeographicPosition`,
+`projectGeographicVector`, and `unprojectGlobePosition`.
+Positions are `[longitude, latitude, altitude]` in degrees/degrees/meters;
+`projectGeographicPosition(position, 'web-mercator', anchorLongitude?)`
+returns absolute EPSG:3857 meters, choosing the nearest unwrapped world copy
+when an anchor is supplied. The `'globe'` variant returns radius-256 common
+coordinates. `projectGeographicVector(position, direction, projection)` rotates
+east/north/up vectors into those globe axes without changing their length.
+`unprojectGlobePosition` performs the inverse for picking and rejects the sphere
+center. These helpers do not apply eye, room-placement, or clip-space transforms.
+
+CPU lighting, surface LOD, globe visibility, and XR picking share these units.
+GLSL/WGSL projection and normal functions are generated from the same constants.
+Public deck viewport projection conformance covers map, first-person, globe,
+and stereo; no private deck projection uniforms are used. Tangram still keeps
+tile-local packed vertices and its camera-relative meter transforms for precision.
+
 Viewport dimensions and top-left `x/y` origins use CSS pixels. The host owns
 render-target placement and render passes; Tangram derives device-pixel uniforms
 from the device pixel ratio.

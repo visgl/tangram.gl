@@ -69,29 +69,7 @@ vec2 rotate2D(vec2 _st, float _angle) {
                 sin(_angle),cos(_angle)) * _st;
 }
 
-vec3 tangramGlobePosition(vec3 mercator_position) {
-    const float TANGRAM_MERCATOR_RADIUS = 6378137.;
-    const float TANGRAM_GLOBE_EARTH_RADIUS = 6370972.;
-    const float TANGRAM_GLOBE_RADIUS = 256.;
-    const float TANGRAM_GLOBE_HALF_PI = 1.5707963;
-    float longitude = mercator_position.x / TANGRAM_MERCATOR_RADIUS;
-    float latitude = 2. * atan(exp(mercator_position.y / TANGRAM_MERCATOR_RADIUS)) - TANGRAM_GLOBE_HALF_PI;
-    float radius = (mercator_position.z / TANGRAM_GLOBE_EARTH_RADIUS + 1.) * TANGRAM_GLOBE_RADIUS;
-    float latitude_cosine = cos(latitude);
-    return vec3(
-        sin(longitude) * latitude_cosine,
-        -cos(longitude) * latitude_cosine,
-        sin(latitude)
-    ) * radius;
-}
-
-vec4 tangramModelView(vec4 local_position, out vec4 world_position) {
-    world_position = u_model * local_position;
-    if (u_projection_mode == 1) {
-        return vec4(tangramGlobePosition(world_position.xyz), 1.);
-    }
-    return u_modelView * local_position;
-}
+#pragma tangram: projection
 
 // Segment/sphere occlusion for billboard anchors in radius-256 common space.
 bool tangramGlobeOccluded(vec3 position, float altitude, vec3 eye) {

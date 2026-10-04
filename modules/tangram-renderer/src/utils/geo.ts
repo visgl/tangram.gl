@@ -9,6 +9,7 @@ import {
     projectLngLatToMetersWithMath,
     unprojectMetersToLngLatWithMath
 } from '../procedures/web-mercator-math';
+import {PROJECTION_CONSTANTS, getMercatorMetersPerPixel} from '../scene/projection_math';
 
 export type Coordinate = number[];
 export type Meters = {x: number; y: number};
@@ -58,14 +59,14 @@ export default Geo;
 Geo.default_source_max_zoom = 18;
 Geo.default_view_max_zoom = 20;
 Geo.max_style_zoom = 25; // max zoom at which styles will be evaluated
-Geo.tile_size = 256;
-Geo.half_circumference_meters = 20037508.342789244;
+Geo.tile_size = PROJECTION_CONSTANTS.tileSize;
+Geo.half_circumference_meters = Math.PI * PROJECTION_CONSTANTS.mercatorRadius;
 Geo.circumference_meters = Geo.half_circumference_meters * 2;
 Geo.min_zoom_meters_per_pixel = Geo.circumference_meters / Geo.tile_size; // min zoom draws world as 2 tiles wide
 
 const meters_per_pixel: number[] = [];
 Geo.metersPerPixel = function (z: number): number {
-    meters_per_pixel[z] = meters_per_pixel[z] || Geo.min_zoom_meters_per_pixel / Math.pow(2, z);
+    meters_per_pixel[z] = meters_per_pixel[z] || getMercatorMetersPerPixel(z);
     return meters_per_pixel[z];
 };
 

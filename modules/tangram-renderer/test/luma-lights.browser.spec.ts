@@ -11,6 +11,7 @@ import ShaderProgram from '../src/gl/shader_program';
 import ExternalCamera from '../src/scene/external_camera';
 import {Style} from '../src/styles/style';
 import {StyleManager} from '../src/styles/style_manager';
+import {buildNativeFalloff} from '../src/lights/native-falloff';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -81,6 +82,13 @@ describe('native luma lights drive Tangram uniforms', () => {
         try {
             Light.inject({legacy: Light.create(view, {name: 'legacy', type: 'point', attenuation: 2, radius: [1, 10]}),
                 native: Light.create(view, {name: 'native', luma: {type: 'point', position: [1, 2, 3]}})});
+            const injected = vi.mocked(ShaderProgram.addBlock).mock.calls.map(call => call[1]).join('\n');
+            expect(injected.match(/float tangramNativeDistanceDenominator\(/g)).toHaveLength(1);
+            expect(injected).toContain('coefficients.x + coefficients.y * distance + coefficients.z * distance * distance');
+            const wgsl = buildNativeFalloff('wgsl');
+            expect(wgsl).toContain('coefficients.x + coefficients.y * distance + coefficients.z * distance * distance');
+            expect(wgsl).toContain('step(cone.y, cosine)');
+            expect(wgsl).toContain('smoothstep(cone.y, cone.x, cosine)');
             expect(ShaderProgram.defines).toMatchObject({TANGRAM_POINTLIGHT_ATTENUATION_EXPONENT: true,
                 TANGRAM_POINTLIGHT_ATTENUATION_INNER_RADIUS: true, TANGRAM_POINTLIGHT_ATTENUATION_OUTER_RADIUS: true});
             const native = Light.create(view, {name: 'native', luma: {type: 'point', position: [1, 2, 3]}});

@@ -87,14 +87,9 @@ void calculateLight(in SpotLight _light, in vec3 _eyeToPoint, in vec3 _normal) {
         spotAttenuation = pow(spotDot, _light.spotExponent);
     }
     if (_light.useLumaAttenuation > 0.5) {
-        vec3 coefficients = _light.attenuationCoefficients;
-        float distanceAttenuation = coefficients.x + coefficients.y * dist + coefficients.z * dist * dist;
-        float coneFactor = _light.lumaConeCos.x == _light.lumaConeCos.y
-            ? step(_light.lumaConeCos.y, spotDot)
-            : smoothstep(_light.lumaConeCos.y, _light.lumaConeCos.x, spotDot);
         // Match luma.gl's minimum cone factor, including its small outside-cone contribution.
-        attenuation /= max(distanceAttenuation, 0.0001);
-        spotAttenuation = max(coneFactor, 0.0001) * pow(spotDot, _light.spotExponent);
+        attenuation /= tangramNativeDistanceDenominator(_light.attenuationCoefficients, dist);
+        spotAttenuation = tangramNativeConeFactor(_light.lumaConeCos, spotDot) * pow(spotDot, _light.spotExponent);
     }
 
     light_accumulator_ambient.rgb += _light.ambient * attenuation * spotAttenuation;

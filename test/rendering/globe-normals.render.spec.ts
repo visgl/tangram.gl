@@ -6,8 +6,7 @@ import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {_GlobeViewport as GlobeViewport} from '@deck.gl/core';
 import {Vector3} from '@math.gl/core';
-import polygonVertexGLSL from '../../modules/tangram-renderer/src/styles/polygons/polygons_vertex.glsl?raw';
-import {GLOBE_NORMAL_WGSL} from '../../modules/tangram-renderer/src/styles/globe_normal_wgsl';
+import {GLOBE_NORMAL_WGSL, GLOBE_PROJECTION_GLSL} from '../../modules/tangram-renderer/src/scene/projection_shaders';
 import {RenderingHarness, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';
 
@@ -70,7 +69,7 @@ test(`${DEVICE_TYPE}: globe normals agree with geographic tangents on the actual
   ]);
   const length = samples.length;
   // Compile the actual production helper, without the rest of the tile shader.
-  const globeNormalGLSL = polygonVertexGLSL.match(/vec3 tangramGlobeNormal\([^]*?\n\}/)?.[0];
+  const globeNormalGLSL = GLOBE_PROJECTION_GLSL.match(/vec3 tangramGlobeNormal\([^]*?\n\}/)?.[0];
   expect(globeNormalGLSL).toBeDefined();
   const source = DEVICE_TYPE === 'webgl' ? `#version 300 es
 precision highp float;

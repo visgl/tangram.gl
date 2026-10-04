@@ -294,6 +294,20 @@ The shadertools dependency is used only for public TypeScript light
 definitions; this does not import its shader assembler or material modules into
 the renderer bundle.
 
+Native point/spot attenuation shares one GLSL/WGSL source boundary: the
+polynomial distance denominator and cosine-cone transition follow luma.gl's
+lighting convention. Tangram retains its denominator floor, explicit equal-cone
+limit, independent material contributions and multiplicative legacy radius/exponent
+falloff. This is not a wholesale replacement with luma's lighting uniform block:
+that would change Tangram's light layout, supported count and legacy semantics.
+
+The portable WebGL 2 shader compiler no longer queries raw shader precision;
+high precision is required by WebGL 2. Classic WebGL 1 retains its capability
+query and precision fallback. Legacy program/resource wrappers and selection
+readback still contain raw WebGL operations; they have not been removed by this
+projection/lighting consolidation. Device-owned render passes and resources remain
+the preferred portable path, without a luma.gl engine dependency.
+
 ## TypeScript contracts
 
 The package root exports the runtime classes together with `RendererOptions`,
@@ -360,6 +374,7 @@ renderer.render({
 });
 ```
 
-This first contract shares one geographic anchor and LOD decision across the
-views, which matches a stereoscopic pair. Frustum-union tile selection and
-WebXR render-pass orchestration remain future adapter work.
+The frame shares one scene/style anchor across eyes and selects the union of
+their tile footprints. Prepare the complete frame before submitting either eye.
+The experimental WebXR presentation adapter composes room placement and per-eye
+matrices without introducing deck.gl or XR state into this renderer contract.

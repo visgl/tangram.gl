@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Point + text label rendering style
 
@@ -24,6 +25,7 @@ import debugSettings from '../../utils/debug_settings';
 import points_vs from './points_vertex.glsl';
 import points_fs from './points_fragment.glsl';
 import {buildPointsWGSL} from './points_wgsl';
+import {GLOBE_PROJECTION_GLSL} from '../../scene/projection_shaders';
 
 const PLACEMENT = LabelPoint.PLACEMENT;
 
@@ -45,7 +47,7 @@ Object.assign(Points, TextLabels);
 Object.assign(Points, {
     name: 'points',
     built_in: true,
-    vertex_shader_src: points_vs,
+    vertex_shader_src: points_vs.replace('#pragma tangram: projection', GLOBE_PROJECTION_GLSL),
     fragment_shader_src: points_fs,
     selection: true,  // enable feature selection
     collision: true,  // style includes a collision pass

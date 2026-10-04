@@ -6,6 +6,7 @@ import {Matrix4} from '@math.gl/core';
 import Geo, {type Bounds} from '../utils/geo';
 import type {HostCamera, HostProjection, Viewport} from '../types';
 import type HostFrame from './host_frame';
+import {getProjectionSurface} from './projection_math';
 
 /** One eye's surface footprint and projection, independent of the embedding library. */
 export interface ProjectedLODEye {
@@ -120,19 +121,5 @@ function getSurface(x: number, y: number, projection: HostProjection): {
     if (projection.type === 'web-mercator') {
         return {position: [x, y, 0], derivativeX: [1, 0, 0], derivativeY: [0, 1, 0]};
     }
-    const mercatorRadius = Geo.circumference_meters / (2 * Math.PI);
-    const longitude = x / mercatorRadius;
-    const latitude = Math.atan(Math.sinh(y / mercatorRadius));
-    const cosine = Math.cos(latitude);
-    const sine = Math.sin(latitude);
-    const sineLongitude = Math.sin(longitude);
-    const cosineLongitude = Math.cos(longitude);
-    const radius = 256;
-    const derivativeScale = radius / mercatorRadius;
-    return {
-        position: [radius * sineLongitude * cosine, -radius * cosineLongitude * cosine, radius * sine],
-        derivativeX: [derivativeScale * cosineLongitude * cosine, derivativeScale * sineLongitude * cosine, 0],
-        derivativeY: [-derivativeScale * sineLongitude * sine * cosine,
-            derivativeScale * cosineLongitude * sine * cosine, derivativeScale * cosine ** 2]
-    };
+    return getProjectionSurface(x, y, projection.type);
 }

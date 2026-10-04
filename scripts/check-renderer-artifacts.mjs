@@ -91,6 +91,11 @@ for (const bundlePath of ['dist/tangram.debug.mjs', 'dist/tangram.min.mjs', 'dis
       throw new Error(`${bundlePath} is missing export: ${exportName}`);
     }
   }
+  if (bundlePath === 'dist/core.js') {
+    for (const exportName of ['PROJECTION_CONSTANTS', 'projectGeographicPosition', 'projectGeographicVector', 'unprojectGlobePosition']) {
+      if (!bundleExportNames.has(exportName)) throw new Error(`${bundlePath} is missing export: ${exportName}`);
+    }
+  }
 }
 
 for (const bundlePath of ['dist/tangram.debug.mjs']) {

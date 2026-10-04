@@ -17,6 +17,7 @@ import ambient_source from './ambient_light.glsl';
 import directional_source from './directional_light.glsl';
 import point_source from './point_light.glsl';
 import spot_source from './spot_light.glsl';
+import {buildNativeFalloff} from './native-falloff';
 
 // Abstract light
 export default class Light {
@@ -87,6 +88,9 @@ export default class Light {
             for (let light_name in lights) {
                 types[lights[light_name].type] = true;
             }
+
+            // Native falloff is shared across point/spot structs without replacing Tangram materials.
+            if (types.point || types.spotlight) ShaderProgram.addBlock(Light.block, buildNativeFalloff('glsl'));
 
             // Inject each type of light
             for (let type in types) {
