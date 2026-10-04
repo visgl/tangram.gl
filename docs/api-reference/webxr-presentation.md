@@ -161,7 +161,7 @@ for (const intent of inputAdapter.update(inputStates, elapsedSeconds)) {
   const update = grabber.dispatchInteractionIntent(intent, context);
   if (update) presentation.setPlacement(update);
 }
-// On session end, reference-space reset or application teardown:
+// On session end or application teardown:
 grabber.reset();
 inputAdapter.reset();
 ```
@@ -178,9 +178,11 @@ Release or cancel ends the gesture without rolling back its last accepted placem
 Disconnects and missing/non-finite controller rays emit cancellation. Tracking
 recovery with squeeze still held does not silently reacquire the object. A missed
 globe ray or parallel/behind-map ray pauses movement until the pointer returns.
-Finite map bounds gate acquisition, not later dragging. Applications must reset
-both handlers when ending a session, changing reference space, or replacing the
-logical view/placement externally during a gesture.
+Finite map bounds gate acquisition, not later dragging. Reset both handlers when
+ending a session. On a reference-space reset or external view/placement change,
+reset the grabber and invalidate the picking snapshot, but retain activation history
+until buttons are released (or explicitly suppress held activations). This prevents
+an already held squeeze from immediately acquiring content in the new space.
 
 This is ray-driven surface manipulation, not six-degree-of-freedom grip-pose grabbing,
 two-handed scaling, terrain/feature picking, or collision-constrained locomotion.
