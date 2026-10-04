@@ -2,11 +2,37 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-// @ts-nocheck
-
 import {Matrix4} from '@math.gl/core';
 import {DoubleClickDrag, EventManager, Pan, Pinch, Tap} from 'mjolnir.js';
-import {createXRPlacementMatrix, getXRGlobeVisibleBounds} from './projection.ts';
+import {createXRPlacementMatrix, getXRGlobeVisibleBounds} from './projection.js';
+import type {MapController, InteractionState, ViewStateChangeParameters} from '@deck.gl/core';
+import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
+import type {XRDeckController, XRDeckView, XRFrameState, XRInteractionIntent, XRPlacement,
+  XRHostFrameFields, XRPresentationFrame, XRPresentationMode, XRPresentationRenderView, XRViewState,
+  XRViewportSize, XRVector3} from './types.js';
+
+/** Initialization of the shared navigation state and independent room placement. */
+export type WebXRPresentationOptions = {
+  view: XRDeckView;
+  viewState: XRViewState;
+  placement?: XRPlacement;
+  mode?: XRPresentationMode;
+};
+
+/** Host input and callbacks passed to deck.gl's controller. */
+export type WebXRControllerOptions = {
+  element: HTMLElement;
+  timeline: ConstructorParameters<typeof MapController>[0]['timeline'];
+  onViewStateChange?: (parameters: ViewStateChangeParameters<XRViewState>) => void;
+  onStateChange?: (state: InteractionState) => void;
+};
+
+/** Input needed to prepare the next logical, stereo, or immersive frame. */
+export type WebXRFrameOptions = XRViewportSize & {
+  frameState?: XRFrameState;
+  mode?: XRPresentationMode;
+  interpupillaryDistance?: number;
+};
 
 /** Default human interpupillary distance used by desktop stereo preview, in meters. */
 export const DEFAULT_INTERPUPILLARY_DISTANCE = 0.064;
@@ -18,7 +44,29 @@ export const DEFAULT_INTERPUPILLARY_DISTANCE = 0.064;
  * eye is routed through a controller for that screen region and updates one shared view state.
  */
 export class WebXRPresentation {
-  constructor({view, viewState, placement, mode = 'auto'}) {
+  /** Logical view shared by every eye. */
+  declare readonly view: XRDeckView;
+  /** Shared geographic state, updated by either controller. */
+  declare viewState: XRViewState;
+  /** Content pose in the independent room reference space. */
+  declare placement: XRPlacement;
+  /** Requested presentation mode. */
+  declare mode: XRPresentationMode;
+  /** Resolved mode used to size controller hit regions. */
+  declare controllerMode: XRPresentationMode;
+  /** Mono or left-eye controller. */
+  declare controller: XRDeckController | null;
+  /** Right-eye controller, present only during stereo preview. */
+  declare rightController: XRDeckController | null;
+  /** Shared desktop input manager. */
+  declare eventManager: EventManager | null;
+  /** Last rendered canvas dimensions. */
+  declare controllerSize: XRViewportSize;
+  /** Callbacks installed before either controller is created. */
+  declare controllerCallbacks: Required<Omit<WebXRControllerOptions, 'element'>>;
+
+  /** Initialize one logical view without allocating controllers or GPU resources. */
+  constructor({view, viewState, placement, mode = 'auto'}: WebXRPresentationOptions) {
     this.view = view;
     this.viewState = {...viewState};
     this.placement = placement || createDefaultPlacement(view, viewState);
@@ -30,27 +78,32 @@ export class WebXRPresentation {
     this.controllerSize = {width: 1, height: 1};
   }
 
+  /** Read the shared state used by mono and both stereo eyes. */
   getViewState() {
     return this.viewState;
   }
 
-  setViewState(update) {
+  /** Apply a logical navigation patch and synchronize desktop controllers. */
+  setViewState(update: Partial<XRViewState> | ((state: XRViewState) => Partial<XRViewState>)) {
     const patch = typeof update === 'function' ? update(this.viewState) : update;
     this.viewState = {...this.viewState, ...patch};
     this.updateController(this.controllerSize);
     return this.viewState;
   }
 
-  setPlacement(placement) {
+  /** Replace the room placement without changing geographic navigation. */
+  setPlacement(placement: XRPlacement) {
     this.placement = placement;
   }
 
-  setMode(mode) {
+  /** Change the requested presentation mode and desktop hit regions. */
+  setMode(mode: XRPresentationMode) {
     this.mode = mode;
     this.updateController(this.controllerSize);
   }
 
-  attachController({element, timeline, onViewStateChange = () => {}, onStateChange = () => {}}) {
+  /** Install deck.gl gestures backed by the shared logical navigation state. */
+  attachController({element, timeline, onViewStateChange = () => {}, onStateChange = () => {}}: WebXRControllerOptions) {
     const controllerOptions = this.view.controller;
     if (!controllerOptions) return null;
     // Match deck.gl's gesture setup: mjolnir does not register recognizers by default.
@@ -78,18 +131,21 @@ export class WebXRPresentation {
   /** Create a controller for one screen region backed by the shared view state. */
   createController() {
     const controllerOptions = this.view.controller;
+    if (!controllerOptions || !this.eventManager) {
+      throw new Error('Attach a controller before creating an eye controller');
+    }
     const {timeline, onViewStateChange, onStateChange} = this.controllerCallbacks;
     const Controller = controllerOptions.type;
     return new Controller({
       timeline,
       eventManager: this.eventManager,
-      makeViewport: (viewState) => this.view.makeViewport({
+      makeViewport: (viewState: XRViewState) => requireViewport(this.view.makeViewport({
         ...this.controllerSize,
         width: this.controllerMode === 'stereo-preview'
           ? this.controllerSize.width / 2 : this.controllerSize.width,
         viewState
-      }),
-      onViewStateChange: (parameters) => {
+      })),
+      onViewStateChange: (parameters: ViewStateChangeParameters<XRViewState>) => {
         this.viewState = {...parameters.viewState};
         this.updateController(this.controllerSize);
         onViewStateChange({...parameters, viewState: this.viewState});
@@ -98,7 +154,8 @@ export class WebXRPresentation {
     });
   }
 
-  updateController({width, height}, mode = this.mode) {
+  /** Match controller rectangles to the current mono or stereo dimensions. */
+  updateController({width, height}: XRViewportSize, mode = this.mode) {
     this.controllerSize = {width, height};
     this.controllerMode = mode;
     if (!this.controller) return;
@@ -141,6 +198,7 @@ export class WebXRPresentation {
     this.rightController?.updateTransition();
   }
 
+  /** Release desktop input resources without taking ownership of the host view. */
   finalize() {
     this.controller?.finalize();
     this.rightController?.finalize();
@@ -150,7 +208,10 @@ export class WebXRPresentation {
     this.eventManager = null;
   }
 
-  makeRenderView({id, width, height, eyeOffset = 0, viewportX = 0}) {
+  /** Derive one eye viewport and its matching Tangram camera contract. */
+  makeRenderView({id, width, height, eyeOffset = 0, viewportX = 0}: XRViewportSize & {
+    id: string; eyeOffset?: number; viewportX?: number;
+  }): XRPresentationRenderView & {hostFrame: XRHostFrameFields} {
     const deckViewport = this.view.makeEyeViewport({
       width,
       height,
@@ -170,7 +231,10 @@ export class WebXRPresentation {
     };
   }
 
-  makeStereoRenderViews({width, height, interpupillaryDistance = DEFAULT_INTERPUPILLARY_DISTANCE}) {
+  /** Derive parallel off-axis desktop eyes with one shared geographic anchor. */
+  makeStereoRenderViews({width, height, interpupillaryDistance = DEFAULT_INTERPUPILLARY_DISTANCE}: XRViewportSize & {
+    interpupillaryDistance?: number;
+  }): XRPresentationRenderView[] {
     // Translate along camera-right, not geographic east or globe longitude.
     // The off-axis projections keep the geographic anchor on the same screen
     // position in both eyes, while nearer/farther geometry gains stereo depth.
@@ -204,7 +268,7 @@ export class WebXRPresentation {
         view: viewMatrix,
         projection: this.view.getXRProjectionMatrix({projectionMatrix, viewMatrix}),
         position: this.placement.type === 'globe'
-          ? new Matrix4(viewMatrix).invert().transformAsPoint([0, 0, 0])
+          ? getCameraPosition(viewMatrix)
           : renderView.camera.position
       };
       renderView.hostFrame = {...renderView.hostFrame, camera: renderView.camera};
@@ -215,24 +279,25 @@ export class WebXRPresentation {
     });
   }
 
-  makeXRRenderViews({frameState, placementMatrix}) {
-    const logicalViewport = this.view.makeViewport({
+  /** Compose native XR eye matrices with content placement. */
+  makeXRRenderViews({frameState, placementMatrix}: {frameState: XRFrameState; placementMatrix: Matrix4}): XRPresentationRenderView[] {
+    const logicalViewport = requireViewport(this.view.makeViewport({
       width: Math.max(...frameState.views.map((view) => view.viewport[0] + view.viewport[2])),
       height: Math.max(...frameState.views.map((view) => view.viewport[1] + view.viewport[3])),
       viewState: this.viewState
-    });
+    }));
     return frameState.views.map((xrView) => {
       const [x, y, width, height] = xrView.viewport;
       const viewMatrix = new Matrix4().copy(xrView.viewMatrix).multiplyRight(placementMatrix);
       const projectionMatrix = new Matrix4().copy(xrView.projectionMatrix);
-      const renderView = {
+      const renderView: XRPresentationRenderView = {
         id: xrView.eye || `eye-${xrView.index}`,
         viewport: {x, y, width, height},
         camera: {
           view: viewMatrix,
           projection: this.view.getXRProjectionMatrix({projectionMatrix, viewMatrix}),
           position: this.placement.type === 'globe'
-            ? new Matrix4(viewMatrix).invert().transformAsPoint([0, 0, 0])
+            ? getCameraPosition(viewMatrix)
             : [0, 0, 0]
         },
         deckViewport: logicalViewport,
@@ -247,7 +312,8 @@ export class WebXRPresentation {
     });
   }
 
-  createFrame({width, height, frameState, mode = this.mode, interpupillaryDistance}) {
+  /** Prepare a presentation snapshot and renderer-independent host frame. */
+  createFrame({width, height, frameState, mode = this.mode, interpupillaryDistance}: WebXRFrameOptions): XRPresentationFrame {
     const resolvedMode = resolveMode(mode, frameState);
     // A caller may select a presentation mode per frame without calling setMode.
     // Keep controller hit regions and gesture viewport dimensions in lockstep.
@@ -277,10 +343,13 @@ export class WebXRPresentation {
     };
   }
 
-  createHostFrame({width, height, renderViews, frameState}) {
+  /** Union per-eye visibility while preserving camera-independent host metadata. */
+  createHostFrame({width, height, renderViews, frameState}: XRViewportSize & {
+    renderViews: XRPresentationRenderView[]; frameState?: XRFrameState;
+  }): HostFrameOptions {
     const fields = renderViews.find((renderView) => renderView.hostFrame)?.hostFrame;
     const fallback = this.view.getHostFrame(
-      this.view.makeViewport({width, height, viewState: this.viewState})
+      requireViewport(this.view.makeViewport({width, height, viewState: this.viewState}))
     );
     const frameFields = fields || fallback;
     let projection = frameFields.projection;
@@ -312,7 +381,8 @@ export class WebXRPresentation {
     };
   }
 
-  dispatchInteractionIntent(intent) {
+  /** Apply navigation intents; non-navigation signals remain owned by the caller. */
+  dispatchInteractionIntent(intent: XRInteractionIntent) {
     if (intent.type !== 'navigate') return this.viewState;
     const [horizontal = 0, vertical = 0] = intent.delta;
     if (intent.action === 'turn' || intent.action === 'rotate') {
@@ -342,14 +412,16 @@ export class WebXRPresentation {
 /** Backward-compatible name used by the first WebXR example iteration. */
 export class WebXRViewManager extends WebXRPresentation {}
 
-function resolveMode(mode, frameState) {
+/** Resolve unavailable immersive modes to explicit stereo preview. */
+function resolveMode(mode: XRPresentationMode, frameState?: XRFrameState): Exclude<XRPresentationMode, 'auto'> {
   if (mode === 'auto') return frameState?.views?.length ? 'immersive-vr' : 'mono';
   if (mode === 'immersive-vr' && !frameState?.views?.length) return 'stereo-preview';
   return mode;
 }
 
-function createDefaultPlacement(view, viewState) {
-  const anchor = [viewState.longitude || 0, viewState.latitude || 0, 0];
+/** Choose the existing room presentation defaults for each geographic view. */
+function createDefaultPlacement(view: XRDeckView, viewState: XRViewState): XRPlacement {
+  const anchor: XRVector3 = [viewState.longitude || 0, viewState.latitude || 0, 0];
   if (view.constructor.displayName === 'WebXRGlobeView') {
     return {type: 'globe', anchor, pose: {position: [0, 1.35, -2.35]}, radius: 0.72};
   }
@@ -363,4 +435,17 @@ function createDefaultPlacement(view, viewState) {
     metersPerXRUnit: 2500,
     surface: {type: 'unbounded'}
   };
+}
+
+/** Preserve the fixed-size camera position required by the renderer contract. */
+function getCameraPosition(matrix: Matrix4): [number, number, number] {
+  const position: [number, number, number] = [0, 0, 0];
+  new Matrix4(matrix).invert().transformAsPoint([0, 0, 0], position);
+  return position;
+}
+
+/** Reject a hidden logical view before using its camera or controller dimensions. */
+function requireViewport(viewport: import('./types.js').XRDeckViewport | null) {
+  if (!viewport) throw new Error('The logical deck.gl view produced an empty viewport');
+  return viewport;
 }

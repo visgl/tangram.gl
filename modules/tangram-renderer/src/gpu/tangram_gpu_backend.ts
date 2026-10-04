@@ -4,12 +4,16 @@
 
 import type {
   Buffer,
+  BufferLayout,
+  Bindings,
   Device,
   ExternalImage,
   RenderPass,
   RenderPipelineParameters,
+  PrimitiveTopology,
   Shader,
-  Texture
+  Texture,
+  UniformValue
 } from '@luma.gl/core';
 
 /** Shader languages supported by Tangram's portable GPU backend. */
@@ -60,11 +64,52 @@ export type TangramTextureOptions = {
 
 /** Portable mesh submission passed from Tangram scene traversal to a GPU backend. */
 export type TangramMeshDrawOptions = {
-  mesh: object;
-  program: object;
+  mesh: TangramDrawableMesh;
+  program: TangramDrawableProgram;
   renderPass: RenderPass;
   renderState?: RenderPipelineParameters;
   visibleTime: number;
+};
+
+/** GPU resources and layout needed to submit one portable mesh. */
+export type TangramMeshDrawDescriptor = {
+  topology: PrimitiveTopology;
+  vertexCount: number;
+  indexCount: number;
+  vertexBuffer: Buffer;
+  indexBuffer: Buffer | null;
+  bufferLayout: BufferLayout & {attributes: NonNullable<BufferLayout['attributes']>};
+  staticAttributes: {attribute: string; value: readonly number[]}[];
+};
+
+/** Scene-owned mesh state consumed by the device backend. */
+export type TangramDrawableMesh = {
+  id: string | number;
+  vertex_layout: object;
+  uniforms?: Record<string, unknown>;
+  getDrawDescriptor(): TangramMeshDrawDescriptor;
+};
+
+/** Mutable uniform block whose contents can be snapshotted per encoded draw. */
+export type TangramDrawableUniformBlock = {
+  snapshot_per_mesh: boolean;
+  data: ArrayBuffer | null;
+  byteLength: number;
+};
+
+/** Shader and uniform operations required by the device submission path. */
+export type TangramDrawableProgram = {
+  id: string | number;
+  name?: string;
+  vertex_shader_resource: Shader;
+  fragment_shader_resource: Shader;
+  uniform_blocks?: Record<string, TangramDrawableUniformBlock>;
+  saveUniforms(uniforms: Record<string, unknown>): void;
+  setUniforms(uniforms: Record<string, unknown>, resetTextureUnit: boolean): void;
+  restoreUniforms(uniforms: Record<string, unknown>): void;
+  uniform(method: string, name: string, value: number): void;
+  getBindings(): Bindings;
+  getUniformValues(): Record<string, UniformValue>;
 };
 
 /** Tangram blend modes accepted by the portable renderer. */

@@ -25,23 +25,23 @@ Tangram library, written in C++.
 
 ## Getting Started
 
-Tangram is published as an ES module and a classic-script bundle. Both builds
-target current browsers and use modern JavaScript and web platform features.
+This vis.gl renderer workspace is private and unpublished. Build it from the
+repository root with `yarn build:modules`. The build produces debug and minified
+browser ES modules, a package entry, a host-only core entry, schemas, and embedded
+workers. It no longer produces classic-script `tangram.debug.js` or
+`tangram.min.js` bundles.
 
-```html
-<!-- Load the ES module build from a module-aware application. -->
-<script type="module" src="https://unpkg.com/tangram/dist/tangram.min.mjs"></script>
-<!-- Load the classic-script build from a classic application instead. -->
-<script src="https://unpkg.com/tangram/dist/tangram.min.js"></script>
+```js
+// Use the built workspace package from a module-aware application.
+import Tangram from '@vis.gl/tangram-renderer';
+
+// Or import its standalone ES module from a repository-served example.
+// import Tangram from '../../modules/tangram-renderer/dist/tangram.debug.mjs';
 ```
 
-**Note:** Because scripts with the `module` type automatically load in ["deferred" mode](https://flaviocopes.com/javascript-async-defer/), you must make sure to **include the `defer` keyword** for any scripts you load that depend on Tangram (so that they won't run until Tangram is finished loading). For example, if your app code is in `index.js`, load it like this (anywhere after the Tangram `<script>` tag):
-
-`<script defer src="index.js"></script>`
-
-Specific Tangram library versions can also be loaded with `@version` syntax(see [unpkg](https://unpkg.com/) for details). Versions earlier than v0.16.0 do not use the `module` syntax; use a single script tag to load them instead: `<script src="https://unpkg.com/tangram@0.15.5/dist/tangram.min.js"></script>`.
-
-Tangram is [published on NPM](https://www.npmjs.com/package/tangram) and can be [bundled using `import` or `require`](https://github.com/tangrams/tangram-play/wiki/Using-Tangram-with-Bundlers-&-Frameworks).
+The original [`tangram` npm package](https://www.npmjs.com/package/tangram) is a
+separate upstream release, not a published version of this workspace. For current
+integration guidance, see the [tangram.gl documentation](https://vis.gl/tangram.gl/).
 
 Data sources, layers, and styling rules are written in a *scene file* ([here's an example](https://github.com/tangrams/simple-demo/blob/master/scene.yaml)). The renderer can load a scene directly:
 

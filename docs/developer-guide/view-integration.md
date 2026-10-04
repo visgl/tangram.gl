@@ -370,7 +370,7 @@ upstream parser gaps in their owning repositories.
 - **Builds:** audit the remaining renderer-specific esbuild orchestration before
   consolidating it into dev-tools/ocular. Direct Rollup dependencies are already
   absent from the package manifests inspected for this roadmap; custom worker,
-  legacy bundle, watch, and schema steps still need explicit output contracts.
+  embedded-worker, watch, and schema steps still need explicit output contracts.
 - **Coverage:** target the authored renderer and layer code, including currently
   suppressed frame/view logic. Raise coverage toward greater than 90% with
   meaningful boundary and lifecycle tests; retain valid denominators and separate

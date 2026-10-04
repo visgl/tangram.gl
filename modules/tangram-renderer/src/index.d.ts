@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {Buffer, Device, RenderPass, Shader, Texture} from '@luma.gl/core';
 import type {
   HostFrameOptions,
   HostRenderView,
@@ -19,11 +18,15 @@ import type {
   SceneUpdateOptions,
   Viewport
 } from './types.js';
-import type {
+export type {
   TangramGPUBackend,
   TangramGPUSceneOptions,
   TangramMeshBufferOptions,
   TangramMeshDrawOptions,
+  TangramMeshDrawDescriptor,
+  TangramDrawableMesh,
+  TangramDrawableProgram,
+  TangramDrawableUniformBlock,
   TangramRenderStateOptions,
   TangramShaderLanguage,
   TangramShaderOptions,
@@ -46,7 +49,9 @@ export type {
 } from './scene/visibility_adapter.js';
 
 import HostFrame from './scene/host_frame';
+import LumaDeviceRenderer from './gpu/luma_device_renderer.js';
 export {HostFrame};
+export {LumaDeviceRenderer};
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
 export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
@@ -89,22 +94,6 @@ export declare class ClassicWebGLRenderer {
   getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   subscribe(listeners: SceneListeners): void;
   destroy(): unknown;
-}
-
-export declare class LumaDeviceRenderer implements TangramGPUBackend {
-  constructor(device: Device);
-  readonly device: Device;
-  readonly shaderLanguage: TangramShaderLanguage;
-  readonly maxTextureSize?: number;
-  getSceneOptions(): TangramGPUSceneOptions;
-  createUniformBuffer(options: TangramUniformBufferOptions): Buffer;
-  createMeshBuffer(options: TangramMeshBufferOptions): Buffer;
-  createShader(options: TangramShaderOptions): Shader;
-  validateShaderProgram(options: TangramShaderProgramOptions): void;
-  createTexture(options: TangramTextureOptions): Texture;
-  drawMesh(options: TangramMeshDrawOptions): boolean;
-  getRenderPipelineParameters(options: TangramRenderStateOptions): import('@luma.gl/core').RenderPipelineParameters;
-  destroy(): void;
 }
 
 export declare const Renderer: typeof ClassicWebGLRenderer;

@@ -2,10 +2,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-// @ts-nocheck
-
 import { Buffer, Texture } from '@luma.gl/core';
-import type {Device} from '@luma.gl/core';
+import type {Bindings, BufferProps, Device, PrimitiveTopology, RenderPipeline, RenderPipelineParameters,
+    RenderPipelineProps, ShaderProps, VertexArray} from '@luma.gl/core';
+import type {TangramDrawableMesh, TangramDrawableProgram, TangramGPUBackend, TangramGPUSceneOptions,
+    TangramDrawableUniformBlock, TangramMeshBufferOptions, TangramMeshDrawDescriptor, TangramMeshDrawOptions, TangramRenderStateOptions,
+    TangramShaderOptions, TangramShaderProgramOptions, TangramTextureOptions, TangramUniformBufferOptions} from './tangram_gpu_backend';
+
+/** Per-topology pipelines indexed by normalized render state. */
+type PipelineStates = Map<PrimitiveTopology, Map<string, RenderPipeline>>;
 
 /**
  * Portable Tangram GPU backend implemented exclusively with the luma.gl Device API.
@@ -15,10 +20,22 @@ import type {Device} from '@luma.gl/core';
  *
  * @implements {import('./tangram_gpu_backend').TangramGPUBackend}
  */
-export default class LumaDeviceRenderer {
+export default class LumaDeviceRenderer implements TangramGPUBackend {
     declare readonly device: Device;
+    /** Shader/layout/state cache; keys do not keep scene programs alive. */
+    declare private pipeline_cache: WeakMap<TangramDrawableProgram, WeakMap<object, PipelineStates>>;
+    /** Mesh/pipeline vertex-array cache. */
+    declare private vertex_array_cache: WeakMap<TangramDrawableMesh, WeakMap<RenderPipeline, VertexArray>>;
+    /** Uniform snapshots owned by each encoded mesh. */
+    declare private mesh_uniform_buffer_cache: WeakMap<TangramDrawableMesh, Map<string, Buffer>>;
+    /** Pipelines owned by this backend, not the host device. */
+    declare private pipelines: Set<RenderPipeline>;
+    /** Vertex arrays owned by this backend. */
+    declare private vertex_arrays: Set<VertexArray>;
+    /** Per-mesh uniform buffers owned by this backend. */
+    declare private mesh_uniform_buffers: Set<Buffer>;
 
-    constructor(device) {
+    constructor(device: Device) {
         validateDevice(device);
         this.device = device;
         this.pipeline_cache = new WeakMap();
@@ -42,7 +59,7 @@ export default class LumaDeviceRenderer {
     /**
      * Returns the resource factories consumed by Tangram Scene and Style objects.
      */
-    getSceneOptions() {
+    getSceneOptions(): TangramGPUSceneOptions {
         return {
             enableUniformBuffers: true,
             deviceShaderCompilation: true,
@@ -58,7 +75,7 @@ export default class LumaDeviceRenderer {
     }
 
     /** Creates a luma.gl uniform buffer. */
-    createUniformBuffer(options) {
+    createUniformBuffer(options: TangramUniformBufferOptions) {
         if (options.usage !== 'uniform') {
             throw new Error(`unsupported Tangram buffer usage '${options.usage}'`);
         }
@@ -70,8 +87,8 @@ export default class LumaDeviceRenderer {
     }
 
     /** Creates a shader in the language supported by the active device. */
-    createShader(options) {
-        const shader_options = {
+    createShader(options: TangramShaderOptions) {
+        const shader_options: ShaderProps = {
             id: `tangram-${options.id}`,
             language: options.language || this.device.info.shadingLanguage,
             stage: options.stage,
@@ -84,7 +101,7 @@ export default class LumaDeviceRenderer {
     }
 
     /** Validates a device-owned shader pair when the backend supports layout-free linking. */
-    validateShaderProgram({ id, vertexShader, fragmentShader }) {
+    validateShaderProgram({ id, vertexShader, fragmentShader }: TangramShaderProgramOptions) {
         // A WebGL program can only be linked against its concrete vertex
         // layout. Tangram does not know that layout until the first mesh draw,
         // where getPipeline() creates the real pipeline with the required
@@ -112,13 +129,13 @@ export default class LumaDeviceRenderer {
     }
 
     /** Creates a luma.gl vertex or index buffer. */
-    createMeshBuffer(options) {
+    createMeshBuffer(options: TangramMeshBufferOptions) {
         const usage = options.usage === 'vertex' ? Buffer.VERTEX :
             options.usage === 'index' ? Buffer.INDEX : null;
         if (usage == null) {
             throw new Error(`unsupported Tangram mesh buffer usage '${options.usage}'`);
         }
-        const props = {
+        const props: BufferProps = {
             id: `tangram-${options.id}`,
             usage: usage | Buffer.COPY_DST,
             data: options.data
@@ -130,7 +147,7 @@ export default class LumaDeviceRenderer {
     }
 
     /** Creates and initializes a luma.gl texture. */
-    createTexture(options) {
+    createTexture(options: TangramTextureOptions) {
         const mipmapped = options.filtering === 'mipmap' && this.device.type === 'webgl';
         const filter = options.filtering === 'nearest' ? 'nearest' : 'linear';
         const texture = this.device.createTexture({
@@ -180,8 +197,8 @@ export default class LumaDeviceRenderer {
     }
 
     /** Translates normalized Tangram state into luma.gl pipeline parameters. */
-    getRenderPipelineParameters({ depthTest, depthWrite, cullFace, blend }) {
-        const parameters = {
+    getRenderPipelineParameters({ depthTest, depthWrite, cullFace, blend }: TangramRenderStateOptions) {
+        const parameters: RenderPipelineParameters = {
             cullMode: cullFace ? 'back' : 'none',
             depthCompare: depthTest ? 'less' : 'always',
             depthWriteEnabled: depthWrite,
@@ -223,7 +240,7 @@ export default class LumaDeviceRenderer {
     }
 
     /** Draws one Tangram mesh into a host-provided luma.gl RenderPass. */
-    drawMesh({ mesh, program, renderPass, renderState, visibleTime }) {
+    drawMesh({ mesh, program, renderPass, renderState, visibleTime }: TangramMeshDrawOptions) {
         if (!renderPass || !program || !program.vertex_shader_resource ||
             !program.fragment_shader_resource) {
             throw new Error('Tangram luma renderer requires an active render pass and shader resources');
@@ -278,11 +295,11 @@ export default class LumaDeviceRenderer {
     }
 
     /** Copies mutable uniform blocks into storage unique to the encoded mesh draw. */
-    snapshotMeshUniformBindings(mesh, program, bindings) {
+    snapshotMeshUniformBindings(mesh: TangramDrawableMesh, program: TangramDrawableProgram, bindings: Bindings) {
         const uniform_blocks = program.uniform_blocks || {};
         const snapshot_blocks = Object.entries(uniform_blocks)
-            .filter(([, uniform_buffer]) =>
-                uniform_buffer.snapshot_per_mesh && uniform_buffer.data
+            .filter((entry): entry is [string, TangramDrawableUniformBlock & {data: ArrayBuffer}] =>
+                entry[1].snapshot_per_mesh && Boolean(entry[1].data)
             );
         if (snapshot_blocks.length === 0) {
             return;
@@ -309,7 +326,8 @@ export default class LumaDeviceRenderer {
         }
     }
 
-    getPipeline(program, vertex_layout, descriptor, render_state) {
+    getPipeline(program: TangramDrawableProgram, vertex_layout: object, descriptor: TangramMeshDrawDescriptor,
+        render_state?: RenderPipelineParameters) {
         let layouts = this.pipeline_cache.get(program);
         if (!layouts) {
             layouts = new WeakMap();
@@ -328,7 +346,7 @@ export default class LumaDeviceRenderer {
         const state_key = JSON.stringify(render_state || {});
         let pipeline = states.get(state_key);
         if (!pipeline) {
-            const pipeline_options = {
+            const pipeline_options: RenderPipelineProps = {
                 id: `tangram-${program.name || program.id}-${descriptor.topology}-${states.size}`,
                 vs: program.vertex_shader_resource,
                 fs: program.fragment_shader_resource,
@@ -346,7 +364,7 @@ export default class LumaDeviceRenderer {
         return pipeline;
     }
 
-    getVertexArray(mesh, pipeline, descriptor) {
+    getVertexArray(mesh: TangramDrawableMesh, pipeline: RenderPipeline, descriptor: TangramMeshDrawDescriptor) {
         let pipelines_for_mesh = this.vertex_array_cache.get(mesh);
         if (!pipelines_for_mesh) {
             pipelines_for_mesh = new WeakMap();
@@ -395,7 +413,7 @@ export default class LumaDeviceRenderer {
     }
 }
 
-function validateDevice(device) {
+function validateDevice(device: Device) {
     if (!device || !device.info ||
         typeof device.createBuffer !== 'function' ||
         typeof device.createShader !== 'function' ||
@@ -406,7 +424,7 @@ function validateDevice(device) {
     }
 }
 
-function assertPipelineBindings(pipeline, bindings) {
+function assertPipelineBindings(pipeline: RenderPipeline, bindings: Bindings) {
     for (const binding of pipeline.shaderLayout.bindings) {
         if (binding.type === 'sampler' && binding.name.endsWith('Sampler')) {
             const texture_name = binding.name.slice(0, -'Sampler'.length);
