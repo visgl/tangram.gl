@@ -228,7 +228,8 @@ body.tangram-webxr-standalone {
   cursor: pointer;
 }
 
-#webxr-status {
+#webxr-status,
+#webxr-pick-status {
   color: #a8c0d4;
   font-size: 0.8rem;
 }

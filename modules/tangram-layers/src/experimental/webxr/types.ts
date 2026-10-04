@@ -121,6 +121,8 @@ export type XRDeckViewport = {
   latitude?: number;
   zoom?: number;
   pitch?: number;
+  /** Logical camera/body heading in degrees, when supplied by the deck viewport. */
+  bearing?: number;
   position?: number[];
   viewMatrix: readonly number[];
   projectionMatrix: readonly number[];
@@ -174,11 +176,35 @@ export type XRSpatialRay = {
   handedness?: string;
 };
 
-/** Pointer expressed in canvas pixels. */
+/** Top-origin canvas pointer in frame viewport units: CSS pixels for desktop, framebuffer pixels for XR. */
 export type XRScreenPointer = {
   x: number;
   y: number;
   eye?: 'left' | 'right' | 'center';
+};
+
+/** Geographic zero-altitude surface hit, not a rendered feature selection. */
+export type XRSurfaceHit = {
+  /** Longitude and latitude in degrees, with zero geographic altitude. */
+  coordinate: readonly [number, number, number];
+  /** EPSG:3857 meters for planar content, or radius-256 globe common coordinates. */
+  position: XRVector3;
+  /** Rendered eye used by a screen pointer; absent for room rays and logical center-eye picks. */
+  renderViewId?: string;
+};
+
+/** Snapshot used to resolve a screen pointer or XR reference-space ray. */
+export type XRSurfacePickingOptions = {
+  /** Top-origin canvas pointer in frame viewport units, or reference-space ray. */
+  pointer: XRScreenPointer | XRSpatialRay;
+  /** Content placement and optional finite map interaction boundary. */
+  placement: XRPlacement;
+  /** Actual rendered frame; required for screen pointers. */
+  frame?: XRPresentationFrame;
+  /** Logical geographic state at the time the frame was rendered. */
+  viewState?: Record<string, unknown>;
+  /** Actual room placement matrix, including application animation; used only for room rays. */
+  placementMatrix?: HostRenderView['camera']['view'];
 };
 
 /** Input-independent navigation, pointing, and signal contract. */

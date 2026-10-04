@@ -24,7 +24,9 @@ export type {
   XRPresentationFrame,
   XRSpatialRay,
   XRScreenPointer,
-  XRInteractionIntent
+  XRInteractionIntent,
+  XRSurfaceHit,
+  XRSurfacePickingOptions
 } from './types.js';
 export type {
   WebXRInputSnapshot,
@@ -47,6 +49,7 @@ export {
   getXRGlobeVisibleBounds,
   unionGeographicBounds
 } from './projection.js';
+export {pickXRSurface} from './picking.js';
 
 import {MapView, MapController, FirstPersonView, FirstPersonController,
   _GlobeView as GlobeView, _GlobeController as GlobeController} from '@deck.gl/core';

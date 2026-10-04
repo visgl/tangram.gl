@@ -35,8 +35,9 @@ Call `updateTransitions()` once per animation frame to advance controller zoom a
 `attachController` registers deck.gl-compatible mouse and touch gesture recognizers, so drag
 and double-click input work in both Mono and Stereo Preview.
 
-Pass CSS pixel dimensions to `createFrame` and `updateController`. Scale the returned viewport
-rectangles to drawing-buffer pixels when setting GPU render-pass viewports and scissors.
+On desktop, pass CSS pixel dimensions to `createFrame` and `updateController`. Scale the returned
+viewport rectangles to drawing-buffer pixels when setting GPU render-pass viewports and scissors.
+For immersive frames, pass the full XR framebuffer dimensions matching the native eye rectangles.
 
 The presentation returns a matching Tangram `HostFrame` for each frame. Immersive cameras compose
 the XR eye matrices and the geospatial placement as:
@@ -77,6 +78,59 @@ axis, with north toward positive Y.
 
 `createXRPlacementMatrix`, `intersectXRMap`, and `intersectXRGlobe` are exported for applications
 that need custom placement or spatial picking.
+
+## Geographic surface picking
+
+`pickXRSurface` resolves screen pointers or XR room rays against the zero-altitude map plane,
+first-person ground plane, or globe sphere. It is CPU-based and works with either rendering
+backend. It does **not** select features, intersect terrain/buildings, or account for occlusion.
+
+```ts
+import {pickXRSurface} from '@vis.gl/tangram-layers/experimental/webxr';
+
+const frame = presentation.createFrame({width, height});
+const hit = pickXRSurface({
+  pointer: {x: canvasX, y: canvasY},
+  placement: presentation.placement,
+  frame
+});
+if (hit) {
+  const [longitude, latitude, altitude] = hit.coordinate; // degrees, degrees, meters (0)
+}
+```
+
+Use top-origin canvas-relative pixels, matching the dimensions passed to `createFrame`:
+CSS pixels for desktop, XR framebuffer pixels for immersive screen pointers. The picker converts
+native XR's bottom-origin eye rectangles without modifying the frame. It selects the actual rendered eye from its viewport rectangle,
+including off-axis stereo and immersive matrices. An optional `eye: 'left' | 'right'` restricts
+that selection. `eye: 'center'` explicitly uses the full-canvas logical desktop viewport for
+gaze-style input; it returns `null` in immersive mode rather than inventing a headset camera.
+Screen hits outside the viewport or finite camera clipping range return `null`.
+
+Room rays use the same placement snapshot as rendering:
+
+```ts
+if (intent.type === 'point' && intent.action === 'select') {
+  const hit = pickXRSurface({
+    pointer: intent.pointer, // XR reference-space origin and direction
+    placement: presentation.placement,
+    viewState,
+    placementMatrix // supply the actual matrix when room placement is animated
+  });
+}
+```
+
+Omit `placementMatrix` to derive it from the placement and logical view state. Room rays do not
+need a frame and are not clipped to an eye camera. A bounded map rejects hits outside its physical
+tabletop dimensions; this interaction boundary does not itself clip rendered geometry.
+
+The result contains `coordinate`, `position` (EPSG:3857 meters for planar views, radius-256 common
+coordinates for the globe), and `renderViewId` for picks through an actual screen eye. Misses,
+parallel/invalid rays, and singular transforms return `null`. Neither the frame nor input arrays
+are modified. Keep the frame, view state, and placement matrix from the same rendered snapshot.
+
+The WebXR examples display geographic coordinates on canvas click or XR controller select.
+This readout is separate from renderer feature selection and does not intercept navigation.
 
 ## Input
 
