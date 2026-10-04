@@ -17,6 +17,7 @@ import Collision from '../labels/collision';
 import WorkerBroker from '../utils/worker_broker';
 import Task from '../utils/task';
 import Texture from '../gl/texture';
+import {getTileSourceRequest, updateTileSourceRequest} from '../sources/tile_source_state';
 
 import {Matrix4} from '@math.gl/core';
 
@@ -171,9 +172,10 @@ export default class Tile {
     static cancel(tile) {
         if (tile) {
             tile.canceled = true;
-            if (tile.source_data && tile.source_data.request_id) {
-                Utils.cancelRequest(tile.source_data.request_id); // cancel pending tile network request
-                tile.source_data.request_id = null;
+            const request = getTileSourceRequest(tile);
+            if (request.requestId) {
+                Utils.cancelRequest(request.requestId); // cancel pending tile network request
+                updateTileSourceRequest(tile, {requestId: null});
             }
 
             Tile.abortBuild(tile);

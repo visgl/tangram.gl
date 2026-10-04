@@ -99,7 +99,7 @@ describe('scene worker lifecycle', () => {
     test('loads source data, reuses matching tiles, and handles missing sources', async () => {
         const source = {
             copyTileData: vi.fn((reference, tile) => ({reference, tile})),
-            load: vi.fn().mockResolvedValue('loaded')
+            load: vi.fn(async tile => tile)
         };
         worker.sources.osm = source;
         const reference = {source: 'osm', coords: {key: '1/2/3'}, loaded: true};
@@ -109,7 +109,8 @@ describe('scene worker lifecycle', () => {
         expect(source.copyTileData).toHaveBeenCalledWith(reference, reused);
 
         worker.tiles = {};
-        await expect(worker.loadTileSourceData({source: 'osm', coords: {key: 'new'}})).resolves.toBe('loaded');
+        const loaded = {source: 'osm', coords: {key: 'new'}};
+        await expect(worker.loadTileSourceData(loaded)).resolves.toBe(loaded);
         const missing = {source: 'missing'};
         await expect(worker.loadTileSourceData(missing)).resolves.toBe(missing);
         expect(missing.source_data).toEqual({});

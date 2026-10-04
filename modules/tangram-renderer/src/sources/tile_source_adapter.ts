@@ -4,17 +4,17 @@
 // Copyright (c) 2026 vis.gl contributors
 
 import type {TileCoordinates} from '../tile/tile_id';
+import {captureTilePayload} from './tile_source_state';
+import type {TileDataContext} from './tile_source_state';
 
 /** Worker-side request context; contains source data, never main-thread GPU meshes. */
-export interface TileSourceContext {
+export interface TileSourceContext extends TileDataContext {
     /** Scene source identity, kept distinct from data and style tile identity. */
     source: string;
     /** Source-normalized data coordinates; style zoom must not enter data-reuse matching. */
     coords: TileCoordinates & {key: string};
     /** Whether source data is available for reuse. */
     loaded?: boolean;
-    /** Legacy decoded data and request bookkeeping, mutated in place for cancellation. */
-    source_data?: unknown;
 }
 
 /** Existing source procedures, preserved until individual loaders.gl switches pass conformance. */
@@ -47,7 +47,8 @@ export function* iterateSourceTiles<TileT>(tiles: Readonly<Record<string, TileT>
  * Data acquisition/reuse seam with no renderer, traversal, or GPU dependency.
  *
  * Keep the mutable context and resolved-versus-rejected error behavior intact.
- * Metadata, AbortSignal translation, and detached decoded payloads are later steps.
+ * Publish a decoded payload record while retaining the legacy context facade.
+ * The separate aligned source bridge supplies metadata and AbortSignal translation.
  */
 export default class TangramTileSourceAdapter<TileT extends TileSourceContext> {
     /** Current legacy source; undefined preserves the missing-source worker behavior. */
@@ -66,12 +67,18 @@ export default class TangramTileSourceAdapter<TileT extends TileSourceContext> {
         if (this.source) {
             for (const reference of this.getRetainedTiles()) {
                 if (reference.source === context.source && reference.coords.key === context.coords.key && reference.loaded) {
-                    return Promise.resolve(this.source.copyTileData(reference, context));
+                    const destination = this.source.copyTileData(reference, context);
+                    captureTilePayload(destination);
+                    return Promise.resolve(destination);
                 }
             }
-            return this.source.load(context);
+            return this.source.load(context).then(destination => {
+                captureTilePayload(destination);
+                return destination;
+            });
         }
         context.source_data = {};
+        captureTilePayload(context);
         return Promise.resolve(context);
     }
 }

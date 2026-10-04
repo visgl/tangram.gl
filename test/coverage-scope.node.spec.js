@@ -46,7 +46,7 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(130);
+    expect(sourceFiles).toHaveLength(134);
     expect(sourceFiles.some(filePath => filePath.endsWith('sources/tile_source_adapter.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('tile/tangram_tileset_2d.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('tile/tile_build_queue.ts'))).toBe(true);
