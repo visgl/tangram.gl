@@ -9,6 +9,7 @@ import log from '../utils/log';
 import Texture from '../gl/texture';
 import WorkerBroker from '../utils/worker_broker';
 import type {Device} from '@luma.gl/core';
+import {findSelectionKey, readSelectionPixels} from './selection_pixels';
 
 export default class FeatureSelection {
 
@@ -21,6 +22,7 @@ export default class FeatureSelection {
     }
 
     init() {
+        this.destroyed = false;
         // Selection state tracking
         this.requests = {}; // pending selection requests
         this.feature = null; // currently selected feature
@@ -39,7 +41,6 @@ export default class FeatureSelection {
                 colorAttachments: ['rgba8unorm'],
                 depthStencilAttachment: 'depth16unorm'
             });
-            this.fbo = this.framebuffer.handle; // legacy WebGL readPixels path
             return;
         }
 
@@ -63,6 +64,12 @@ export default class FeatureSelection {
     }
 
     destroy() {
+        if (this.destroyed) return;
+        this.destroyed = true;
+        clearTimeout(this.read_delay_timer);
+        this.read_delay_timer = null;
+        for (const request of Object.values(this.requests)) request.reject(new Error('Feature selection destroyed'));
+        this.requests = {};
         if (this.framebuffer) {
             this.framebuffer.destroy();
             this.framebuffer = null;
@@ -84,6 +91,7 @@ export default class FeatureSelection {
     }
 
     bind() {
+        if (this.device) throw new Error('Device selection must use a luma render pass');
         // Switch to FBO
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.fbo);
         this.gl.viewport(0, 0, this.fbo_size.width, this.fbo_size.height);
@@ -93,6 +101,7 @@ export default class FeatureSelection {
     // Request feature selection
     // Runs asynchronously, schedules selection buffer to be updated
     getFeatureAt(point, { radius }) {
+        if (this.destroyed) return Promise.reject(new Error('Feature selection destroyed'));
         // ensure requested point is in canvas bounds
         if (!point || point.x < 0 || point.y < 0 || point.x > 1 || point.y > 1) {
             return Promise.resolve({ feature: null, changed: false });
@@ -145,7 +154,12 @@ export default class FeatureSelection {
             clearTimeout(this.read_delay_timer);
         }
         this.read_delay_timer = setTimeout(() => {
-            if (this.locked) {
+            this.read_delay_timer = null;
+            if (this.locked || this.destroyed) {
+                return;
+            }
+            if (this.device) {
+                void this.readDeviceRequests();
                 return;
             }
 
@@ -251,6 +265,33 @@ export default class FeatureSelection {
             gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
         }, this.read_delay);
+    }
+
+    /** Read each request without raw GL handles; late/canceled reads cannot update selection state. */
+    async readDeviceRequests() {
+        for (const request of Object.values(this.requests)) {
+            if (this.destroyed || this.requests[request.id] !== request || request.sent || request.reading) continue;
+            request.reading = true;
+            try {
+                const texture = this.framebuffer.colorAttachments[0].texture;
+                const {pixels, width, height} = await readSelectionPixels(this.device, texture, request.point, request.radius);
+                if (this.destroyed || this.requests[request.id] !== request) continue;
+                const hit = findSelectionKey(pixels, width, height);
+                if (hit && hit.workerId !== 255 && this.workers[hit.workerId]) {
+                    request.sent = true;
+                    const message = await WorkerBroker.postMessage(this.workers[hit.workerId], 'self.getFeatureSelection',
+                        {id: request.id, key: hit.key});
+                    if (!this.destroyed && this.requests[request.id] === request) this.finishRead(message);
+                } else {
+                    this.finishRead({id: request.id});
+                }
+            } catch (error) {
+                if (this.requests[request.id] === request) {
+                    request.reject(error);
+                    delete this.requests[request.id];
+                }
+            }
+        }
     }
 
     // Called on main thread when a web worker finds a feature in the selection buffer

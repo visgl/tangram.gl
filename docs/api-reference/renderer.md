@@ -303,9 +303,20 @@ that would change Tangram's light layout, supported count and legacy semantics.
 
 The portable WebGL 2 shader compiler no longer queries raw shader precision;
 high precision is required by WebGL 2. Classic WebGL 1 retains its capability
-query and precision fallback. Legacy program/resource wrappers and selection
-readback still contain raw WebGL operations; they have not been removed by this
-projection/lighting consolidation. Device-owned render passes and resources remain
+query and precision fallback. Device-backed feature selection uses a luma-owned
+render pass and public command encoder to copy RGBA8 pixels into an owned staging
+buffer, then `Buffer.readAsync()` to retrieve them. It does not access framebuffer
+handles or call raw WebGL readback/state methods. Clipped radius queries retain
+transparent edge padding; canceled or destroyed requests ignore late GPU/worker
+results, and readback/worker failures reject internal requests instead of leaving
+them pending. `Scene.getFeatureAt()` retains its existing `{error}` result on failure.
+The staging buffer is released on success and failure. This does not guarantee
+stall-free WebGL picking: luma's WebGL `readAsync()` may still synchronize with
+the GPU. WebGPU row padding is supported by the internal pixel-copy boundary,
+but feature selection itself remains unsupported on the configured WGSL path.
+
+Legacy program/resource wrappers and classic non-device selection still contain
+raw WebGL operations. Device-owned render passes and resources remain
 the preferred portable path, without a luma.gl engine dependency.
 
 ## TypeScript contracts
