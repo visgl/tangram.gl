@@ -209,7 +209,8 @@ export class ZipSceneBundle extends SceneBundle {
 
 }
 
-export function createSceneBundle (url: any, path: any, parent: SceneBundleParent, type: string | null = null): SceneBundle | ZipSceneBundle {
+/** Create a scene or zip bundle, inferring its path and parent when omitted. */
+export function createSceneBundle (url: any, path?: any, parent: SceneBundleParent = null, type: string | null = null): SceneBundle | ZipSceneBundle {
     if ((type != null && type === 'zip') ||
         (typeof url === 'string' && !URLs.isLocalURL(url) && URLs.extensionForURL(url) === 'zip')) {
         return new ZipSceneBundle(url, path, parent);

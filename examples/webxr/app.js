@@ -398,13 +398,13 @@ function renderXRFrame(time, xrFrame) {
     webXRManager.getInputState(xrFrame) || [],
     elapsedSeconds
   );
-  for (const intent of inputIntents) {
-    if (!surfaceGrabControls.isGrabbing()) viewManager.dispatchInteractionIntent(intent);
-  }
   let placement = createPlacement({immersive: true, time});
-  const viewState = viewManager.getViewState();
+  let viewState = viewManager.getViewState();
   let placementMatrix = createXRPlacementMatrix(placement, viewState);
-  surfaceGrabControls.update(inputIntents, {placement, viewState, placementMatrix});
+  surfaceGrabControls.update(inputIntents, {placement, viewState, placementMatrix}, intent =>
+    viewManager.dispatchInteractionIntent(intent));
+  // Navigation may have changed the logical anchor when no grab acquired the surface.
+  viewState = viewManager.getViewState();
   placement = createPlacement({immersive: true, time});
   placementMatrix = createXRPlacementMatrix(placement, viewState);
   const clearedFramebuffers = new Set();

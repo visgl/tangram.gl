@@ -42,8 +42,10 @@ explicit `tileZoom` can reduce data detail without changing the style zoom.
 
 ### `projection`
 
-The deck-independent geographic projection contract. It defaults to
-`{type: 'web-mercator'}` for backward compatibility and also recognizes
+The deck-independent geographic projection contract. When omitted, it defaults to
+`{type: 'web-mercator'}` for backward compatibility. An explicit projection must
+include a valid `type`; empty objects and missing, null, or empty types are rejected.
+It also recognizes
 `{type: 'globe', visibleBounds: [west, south, east, north]}` so host adapters
 can describe spherical frames without importing deck.gl classes into the
 renderer package.

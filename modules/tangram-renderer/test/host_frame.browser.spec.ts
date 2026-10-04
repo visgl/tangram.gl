@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, test} from 'vitest';
 import HostFrame from '../src/scene/host_frame';
 
 import type {HostCamera} from '../src/types';
@@ -25,6 +25,21 @@ function createCamera(offset = 0): HostCamera {
 }
 
 describe('HostFrame', function () {
+    test.each([{}, {type: ''}, {type: null}, {type: undefined}, 'globe', null])(
+        'rejects an explicit malformed projection %j in modern, legacy, and per-eye frames', projection => {
+            const base = {
+                viewport: {width: 800, height: 600},
+                geographicAnchor: {longitude: 0, latitude: 0, zoom: 4},
+                renderViews: [{camera: createCamera()}]
+            };
+            expect(() => HostFrame.from({...base, projection})).toThrow(/projection/);
+            expect(() => HostFrame.from({viewport: base.viewport, view: base.geographicAnchor,
+                camera: createCamera(), projection})).toThrow(/projection/);
+            expect(() => HostFrame.from({...base,
+                renderViews: [{camera: createCamera(), projection}]})).toThrow(/projection/);
+            expect(HostFrame.from(base).projection).toEqual({type: 'web-mercator'});
+        }
+    );
     it.each([undefined, 0, 3, 4])('normalizes data LOD %s in modern and legacy frames', tileZoom => {
         const frame = HostFrame.from({viewport: {width: 800, height: 600},
             view: {longitude: 0, latitude: 0, zoom: 4.5}, camera: createCamera(), tileZoom});

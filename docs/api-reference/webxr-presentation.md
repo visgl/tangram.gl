@@ -173,6 +173,10 @@ so applying its output does not accumulate translation or rotation feedback.
 Only one `inputId` owns a gesture; a second controller cannot steal it. Without IDs,
 all pointers share one implicit owner. `WebXRInputAdapter` supplies IDs and activation
 `button` values so releasing select does not terminate an independent squeeze grab.
+Process all grab intents before navigation: a successful acquisition must suppress
+thumbstick movement in that same frame, not just subsequent frames. A missed grab
+leaves navigation enabled; release or cancellation restores it. After navigation,
+refresh the logical view state and placement matrix before rendering or picking.
 
 Release or cancel ends the gesture without rolling back its last accepted placement.
 Disconnects and missing/non-finite controller rays emit cancellation. Tracking

@@ -200,7 +200,7 @@ function normalizeAnchor(value: unknown): Required<GeographicAnchor> {
 
 function normalizeProjection(value: unknown): HostProjection {
     const record = value === undefined ? {} : requireRecord(value, 'HostFrame projection');
-    const type = record.type ?? 'web-mercator';
+    const type = value === undefined ? 'web-mercator' : record.type;
     if (type === 'web-mercator') {
         if (record.visibleBounds === undefined) return {type};
         if (record.visibleBounds === null) return {type, visibleBounds: null};
