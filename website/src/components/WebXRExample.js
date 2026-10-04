@@ -127,6 +127,7 @@ export default function WebXRExample({viewMode = 'globe'}) {
           </p>
           <p id="webxr-pick-status" role="status">
             Click a view to read the basemap surface. In VR, select with a controller.
+            Squeeze to slide the map or rotate the globe; release to keep its placement.
           </p>
           <div className="webxr-actions">
             <button id="webxr-mono" type="button">

@@ -11,6 +11,7 @@ import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import {createStereoControls} from './stereo-controls.js';
 import {submitEyeRenderPass} from './submit-eye.js';
 import {createSurfacePicker} from './surface-picking.js';
+import {createSurfaceGrabControls, bindReferenceSpaceReset} from './surface-grabbing.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {
@@ -87,6 +88,7 @@ const requestedViewMode = window.tangramWebXRViewMode || query.get('view');
 const viewMode = VIEW_MODES[requestedViewMode] || VIEW_MODES.globe;
 const viewManager = createWebXRViewManager(viewMode.id);
 const webXRInputAdapter = new WebXRInputAdapter();
+const surfaceGrabControls = createSurfaceGrabControls();
 
 if (thorButton && viewMode.id === 'thor') {
   thorButton.hidden = false;
@@ -183,6 +185,7 @@ let destroyed = false;
 let thorController = null;
 let lastXRFrameTime = null;
 let lastPickingContext = null;
+let removeReferenceSpaceReset = () => {};
 const surfacePicker = createSurfacePicker({canvas,
   output: document.getElementById('webxr-pick-status'), getContext: () => lastPickingContext});
 const stereoControls = createStereoControls({
@@ -247,36 +250,31 @@ function resizePreviewCanvas() {
   };
 }
 
-function createPlacementMatrix({immersive, time}) {
+function createPlacement({immersive, time}) {
+  if (immersive && surfaceGrabControls.getPlacement()) return surfaceGrabControls.getPlacement();
   const viewState = viewManager.getViewState();
   if (viewMode.id === 'globe') {
-    return createXRPlacementMatrix(
-      {
-        type: 'globe',
-        anchor: [viewState.longitude, viewState.latitude, 0],
-        pose: {position: immersive ? [0, 1.35, -2.35] : [0.5, 0, -2.6]},
-        radius: viewManager.placement.radius,
-        rotation: (-time * 0.00004 * 180) / Math.PI
-      },
-      viewState
-    );
+    return {
+      type: 'globe',
+      anchor: [viewState.longitude, viewState.latitude, 0],
+      pose: {position: immersive ? [0, 1.35, -2.35] : [0.5, 0, -2.6]},
+      radius: viewManager.placement.radius,
+      rotation: (-time * 0.00004 * 180) / Math.PI
+    };
   }
 
   if (viewMode.id === 'map' || viewMode.id === 'thor') {
     const extraAngle = immersive ? 0 : Math.PI * 0.14;
-    return createXRPlacementMatrix(
-      {
-        type: 'map',
-        anchor: [viewState.longitude, viewState.latitude, 0],
-        pose: {
-          position: immersive ? [0, 0.72, -1.8] : [0.25, -0.48, -2.4],
-          orientation: [Math.sin(extraAngle / 2), 0, 0, Math.cos(extraAngle / 2)]
-        },
-        metersPerXRUnit: viewManager.placement.metersPerXRUnit,
-        surface: {type: 'unbounded'}
+    return {
+      type: 'map',
+      anchor: [viewState.longitude, viewState.latitude, 0],
+      pose: {
+        position: immersive ? [0, 0.72, -1.8] : [0.25, -0.48, -2.4],
+        orientation: [Math.sin(extraAngle / 2), 0, 0, Math.cos(extraAngle / 2)]
       },
-      viewState
-    );
+      metersPerXRUnit: viewManager.placement.metersPerXRUnit,
+      surface: {type: 'unbounded'}
+    };
   }
 
   const groundY = immersive
@@ -284,16 +282,13 @@ function createPlacementMatrix({immersive, time}) {
       ? 0
       : -1.6
     : 0;
-  return createXRPlacementMatrix(
-    {
-      type: 'first-person',
-      origin: [viewState.longitude, viewState.latitude, 0],
-      pose: {position: [0, groundY, 0]},
-      position: viewManager.placement.position || [0, 0, 0],
-      bearing: viewState.bearing || 0
-    },
-    viewState
-  );
+  return {
+    type: 'first-person',
+    origin: [viewState.longitude, viewState.latitude, 0],
+    pose: {position: [0, groundY, 0]},
+    position: viewManager.placement.position || [0, 0, 0],
+    bearing: viewState.bearing || 0
+  };
 }
 
 function createHostFrame({viewport, renderViews, activeRenderViewId}) {
@@ -326,11 +321,11 @@ function renderTangram({frame, renderPass, renderViewId}) {
 }
 
 /** Keep interaction on the same eye/placement snapshot that is submitted for rendering. */
-function rememberPickingContext(mode, hostFrame, renderViews, placementMatrix) {
+function rememberPickingContext(mode, hostFrame, renderViews, placementMatrix, placement = viewManager.placement) {
   const viewState = {...viewManager.getViewState()};
   const logicalViewport = viewManager.view.makeViewport({
     width: hostFrame.viewport.width, height: hostFrame.viewport.height, viewState});
-  lastPickingContext = {placement: viewManager.placement, viewState, placementMatrix,
+  lastPickingContext = {placement, viewState, placementMatrix,
     frame: {mode, logicalViewport, renderViews, hostFrame}};
 }
 
@@ -404,9 +399,14 @@ function renderXRFrame(time, xrFrame) {
     elapsedSeconds
   );
   for (const intent of inputIntents) {
-    viewManager.dispatchInteractionIntent(intent);
+    if (!surfaceGrabControls.isGrabbing()) viewManager.dispatchInteractionIntent(intent);
   }
-  const placementMatrix = createPlacementMatrix({immersive: true, time});
+  let placement = createPlacement({immersive: true, time});
+  const viewState = viewManager.getViewState();
+  let placementMatrix = createXRPlacementMatrix(placement, viewState);
+  surfaceGrabControls.update(inputIntents, {placement, viewState, placementMatrix});
+  placement = createPlacement({immersive: true, time});
+  placementMatrix = createXRPlacementMatrix(placement, viewState);
   const clearedFramebuffers = new Set();
   const renderViews = viewManager.makeXRRenderViews({frameState, placementMatrix});
   const fullViewport = renderViews.reduce(
@@ -423,7 +423,7 @@ function renderXRFrame(time, xrFrame) {
     renderViews,
     activeRenderViewId: renderViews[0].id
   });
-  rememberPickingContext('immersive-vr', hostFrame, renderViews, placementMatrix);
+  rememberPickingContext('immersive-vr', hostFrame, renderViews, placementMatrix, placement);
   for (const intent of inputIntents) {
     if (intent.type === 'point' && intent.action === 'select') surfacePicker.select(intent.pointer);
   }
@@ -452,6 +452,12 @@ function renderXRFrame(time, xrFrame) {
 
 async function setXRSession(session) {
   xrReferenceSpaceType = await setWebXRSessionWithFallback(webXRManager, session);
+  removeReferenceSpaceReset();
+  removeReferenceSpaceReset = bindReferenceSpaceReset(webXRManager.referenceSpace, () => {
+    surfaceGrabControls.reset();
+    // Keep activation history until release, avoiding reacquisition while squeeze is held.
+    lastPickingContext = null;
+  });
 }
 
 async function enterVR() {
@@ -524,6 +530,8 @@ async function exitVR() {
 }
 
 function clearXRSession() {
+  removeReferenceSpaceReset();
+  removeReferenceSpaceReset = () => {};
   xrSession = null;
   lastXRFrameTime = null;
   stereoPreview = false;
@@ -532,6 +540,8 @@ function clearXRSession() {
   container.classList.remove('is-stereo');
   webXRManager?.clearSession();
   webXRInputAdapter.reset();
+  surfaceGrabControls.reset();
+  lastPickingContext = null;
   if (!destroyed) {
     animationLoop.setProps({animationFrameProvider: undefined});
     enterButton.hidden = false;
@@ -680,6 +690,7 @@ function destroy() {
   }
   destroyed = true;
   surfacePicker.destroy();
+  surfaceGrabControls.reset();
   lastPickingContext = null;
   void exitVR();
   animationLoop?.stop();

@@ -138,6 +138,57 @@ This readout is separate from renderer feature selection and does not intercept 
 navigation, spatial pointers, selection, grabbing, and application signals. `WebXRPresentation`
 accepts those intents without placing WebXR state in `HostFrame`.
 
+### Room-space surface grabbing
+
+`WebXRSurfaceGrabber` is an optional gesture handler separate from navigation and
+rendering. A controller squeeze starts a grab at a valid zero-altitude surface hit.
+Subsequent hover rays slide a map in its initial room-space plane, or rotate a globe
+around its fixed room-space center. Scale, geographic anchor and logical deck view
+state are unchanged. First-person ground and screen-pointer grabs are deliberately
+unsupported; desktop mono/stereo retains its normal deck.gl controls.
+
+```ts
+import {WebXRSurfaceGrabber, createXRPlacementMatrix}
+  from '@vis.gl/tangram-layers/experimental/webxr';
+
+const grabber = new WebXRSurfaceGrabber();
+// Process one input frame before creating the render frame for either eye.
+const viewState = presentation.getViewState();
+const placement = presentation.placement;
+const context = {placement, viewState,
+  placementMatrix: createXRPlacementMatrix(placement, viewState)};
+for (const intent of inputAdapter.update(inputStates, elapsedSeconds)) {
+  const update = grabber.dispatchInteractionIntent(intent, context);
+  if (update) presentation.setPlacement(update);
+}
+// On session end or application teardown:
+grabber.reset();
+inputAdapter.reset();
+```
+
+The starting context must describe the actual rendered pose, including any room
+animation. Freeze that animation when a grab begins (`isGrabbing()`), and render
+both eyes from the accepted updated placement. The handler snapshots the baseline
+so applying its output does not accumulate translation or rotation feedback.
+Only one `inputId` owns a gesture; a second controller cannot steal it. Without IDs,
+all pointers share one implicit owner. `WebXRInputAdapter` supplies IDs and activation
+`button` values so releasing select does not terminate an independent squeeze grab.
+
+Release or cancel ends the gesture without rolling back its last accepted placement.
+Disconnects and missing/non-finite controller rays emit cancellation. Tracking
+recovery with squeeze still held does not silently reacquire the object. A missed
+globe ray or parallel/behind-map ray pauses movement until the pointer returns.
+Finite map bounds gate acquisition, not later dragging. Reset both handlers when
+ending a session. On a reference-space reset or external view/placement change,
+reset the grabber and invalidate the picking snapshot, but retain activation history
+until buttons are released (or explicitly suppress held activations). This prevents
+an already held squeeze from immediately acquiring content in the new space.
+
+This is ray-driven surface manipulation, not six-degree-of-freedom grip-pose grabbing,
+two-handed scaling, terrain/feature picking, or collision-constrained locomotion.
+The examples freeze the globe's automatic spin at acquisition and retain the
+accepted pose until VR ends; shader animation continues independently.
+
 The Thor gestures website example is intentionally example-local. It maps webcam and MediaPipe
 navigation into the same logical deck.gl controller, but it is not native WebXR hand tracking and
 does not add Thor, React, or MediaPipe to the package entry.

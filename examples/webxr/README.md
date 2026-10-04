@@ -42,6 +42,13 @@ do not override headset tracking.
 Drag on either half to update the shared camera. Controls and VR setup instructions
 are available in a collapsible panel below the main viewing area.
 
+In immersive VR, squeeze while pointing at a map to slide it in its plane, or at
+a globe to rotate it around its center. Only one controller owns the gesture;
+release keeps the pose, while disconnect or lost tracking cancels the gesture.
+Globe auto-spin stops when acquired; TRON shader animation continues. Ending VR
+resets the room placement. First-person mode retains navigation rather than
+grabbing its ground. Desktop mono/stereo retains normal deck controls.
+
 Click either preview eye, or select with an XR controller, to display a geographic
 surface coordinate. Picking uses the last rendered eye and room-placement matrices.
 It intersects the zero-altitude ground plane or globe sphere, not buildings or terrain;

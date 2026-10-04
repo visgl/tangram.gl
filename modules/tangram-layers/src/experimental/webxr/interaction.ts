@@ -46,6 +46,7 @@ export class WebXRInputAdapter {
   readonly options: Required<WebXRInputAdapterOptions>;
   private readonly previousSelect = new Map<string, boolean>();
   private readonly previousSqueeze = new Map<string, boolean>();
+  private readonly previousPointers = new Map<string, XRSpatialRay>();
 
   constructor(options: WebXRInputAdapterOptions = {}) {
     this.options = {
@@ -69,20 +70,23 @@ export class WebXRInputAdapter {
       const ray = getWebXRInputRay(
         inputState as unknown as Parameters<typeof getWebXRInputRay>[0]
       );
-      if (ray) {
+      if (ray && ray.origin.every(Number.isFinite) && ray.direction.every(Number.isFinite) &&
+        Math.hypot(...ray.direction) > 0) {
         const pointer: XRSpatialRay = {
-          origin: [...ray.origin] as XRSpatialRay['origin'],
-          direction: [...ray.direction] as XRSpatialRay['direction'],
+          origin: [ray.origin[0], ray.origin[1], ray.origin[2]],
+          direction: [ray.direction[0], ray.direction[1], ray.direction[2]],
           handedness: inputState.handedness
         };
-        intents.push({type: 'point', pointer, action: 'hover'});
+        this.previousPointers.set(key, pointer);
+        intents.push({type: 'point', pointer, action: 'hover', inputId: key});
         appendActivationIntent({
           intents,
           active: Boolean(inputState.selectActive),
           previous: this.previousSelect.get(key) || false,
           pointer,
           pressedAction: 'select',
-          releasedAction: 'release'
+          releasedAction: 'release',
+          inputId: key, button: 'select'
         });
         appendActivationIntent({
           intents,
@@ -90,8 +94,15 @@ export class WebXRInputAdapter {
           previous: this.previousSqueeze.get(key) || false,
           pointer,
           pressedAction: 'grab',
-          releasedAction: 'release'
+          releasedAction: 'release',
+          inputId: key, button: 'squeeze'
         });
+      } else {
+        const pointer = this.previousPointers.get(key);
+        if (pointer && (this.previousSelect.get(key) || this.previousSqueeze.get(key))) {
+          intents.push({type: 'point', pointer, action: 'cancel', inputId: key});
+        }
+        this.previousPointers.delete(key);
       }
       this.previousSelect.set(key, Boolean(inputState.selectActive));
       this.previousSqueeze.set(key, Boolean(inputState.squeezeActive));
@@ -99,8 +110,13 @@ export class WebXRInputAdapter {
     }
     for (const key of this.previousSelect.keys()) {
       if (!activeKeys.has(key)) {
+        const pointer = this.previousPointers.get(key);
+        if (pointer && (this.previousSelect.get(key) || this.previousSqueeze.get(key))) {
+          intents.push({type: 'point', pointer, action: 'cancel', inputId: key});
+        }
         this.previousSelect.delete(key);
         this.previousSqueeze.delete(key);
+        this.previousPointers.delete(key);
       }
     }
     return intents;
@@ -110,6 +126,7 @@ export class WebXRInputAdapter {
   reset(): void {
     this.previousSelect.clear();
     this.previousSqueeze.clear();
+    this.previousPointers.clear();
   }
 
   private appendGamepadIntents(
@@ -180,7 +197,8 @@ function appendActivationIntent({
   previous,
   pointer,
   pressedAction,
-  releasedAction
+  releasedAction,
+  inputId, button
 }: {
   intents: XRInteractionIntent[];
   active: boolean;
@@ -188,11 +206,13 @@ function appendActivationIntent({
   pointer: XRSpatialRay;
   pressedAction: 'select' | 'grab';
   releasedAction: 'release';
+  inputId: string;
+  button: 'select' | 'squeeze';
 }): void {
   if (active && !previous) {
-    intents.push({type: 'point', pointer, action: pressedAction});
+    intents.push({type: 'point', pointer, action: pressedAction, inputId, button});
   } else if (!active && previous) {
-    intents.push({type: 'point', pointer, action: releasedAction});
+    intents.push({type: 'point', pointer, action: releasedAction, inputId, button});
   }
 }
 

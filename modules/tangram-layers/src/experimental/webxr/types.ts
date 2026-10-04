@@ -218,7 +218,11 @@ export type XRInteractionIntent =
   | {
       type: 'point';
       pointer: XRSpatialRay | XRScreenPointer;
-      action?: 'hover' | 'select' | 'grab' | 'release';
+      action?: 'hover' | 'select' | 'grab' | 'release' | 'cancel';
+      /** Stable controller/pointer owner during a gesture; omitted for single-pointer clients. */
+      inputId?: string;
+      /** Activation source, so select release cannot end an independent squeeze grab. */
+      button?: 'select' | 'squeeze';
     }
   | {
       type: 'signal';

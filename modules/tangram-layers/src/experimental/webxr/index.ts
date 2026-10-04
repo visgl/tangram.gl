@@ -29,6 +29,8 @@ export {
   unionGeographicBounds
 } from './projection';
 export {pickXRSurface} from './picking';
+export {WebXRSurfaceGrabber} from './grabbing';
+export type {XRSurfaceGrabContext} from './grabbing';
 export {
   WebXRMapView,
   WebXRMapController,

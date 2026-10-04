@@ -12,7 +12,7 @@ import type {Scene, SceneDefinition} from '@vis.gl/tangram-renderer';
 import {Timeline} from '@luma.gl/engine';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
   WebXRMapController, WebXRGlobeController, WebXRFirstPersonController,
-  type XRPresentationMode} from '@vis.gl/tangram-layers/experimental/webxr';
+  type XRPresentationMode, type XRFrameState} from '@vis.gl/tangram-layers/experimental/webxr';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';
 import {createScene, createFixture} from './scene';
 
@@ -75,6 +75,8 @@ export class RenderingHarness {
   tileZoom?: number;
   /** Optional projected-scale data LOD for the shared logical frame. */
   tileLOD?: HostTileLODOptions;
+  /** Optional mocked headset frame submitted through the real immersive rendering path. */
+  frameState?: XRFrameState;
   device!: Device;
   renderer!: ClassicWebGLRenderer;
 
@@ -140,7 +142,8 @@ export class RenderingHarness {
     this.timeline.setTime(performance.now());
     this.presentation.updateTransitions();
     const frame = this.presentation.createFrame({width: this.canvas.width, height: this.canvas.height,
-      interpupillaryDistance: this.interpupillaryDistance});
+      interpupillaryDistance: this.interpupillaryDistance, frameState: this.frameState,
+      ...(this.frameState ? {mode: 'immersive-vr'} : {})});
     const hostFrame = new HostFrame({...frame.hostFrame, tileZoom: this.tileZoom, tileLOD: this.tileLOD});
     for (const [index, view] of frame.renderViews.entries()) {
       this.renderer.setFrame(hostFrame, {renderViewId: view.id});
