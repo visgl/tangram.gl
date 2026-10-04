@@ -5,6 +5,7 @@
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {Style, addLayerDebugEntry} from '../src/styles/style';
 import StyleParser from '../src/styles/style_parser';
+import {getFeatureRenderedGeneration} from '../src/styles/feature_annotations';
 import FeatureSelection from '../src/selection/selection';
 import {RasterTileSource} from '../src/sources/raster';
 import WorkerBroker from '../src/utils/worker_broker';
@@ -95,7 +96,8 @@ describe('generic style data lifecycle', () => {
         style.buildGeometry = vi.fn(() => 1);
         const feature = {geometry: {type: 'Point', coordinates: [0, 0]}};
         style.addFeature(feature, {}, context);
-        expect(feature.generation).toBe(4);
+        expect(getFeatureRenderedGeneration(feature)).toBe(4);
+        expect(feature).not.toHaveProperty('generation');
         style.addFeature({}, {}, {...context, tile: {...context.tile, generation: 3}});
         style.parseFeature.mockReturnValue(null);
         style.addFeature(feature, {}, context);
