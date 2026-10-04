@@ -10,6 +10,7 @@ import SceneLoader from '../src/scene/scene_loader';
 import ShaderProgram from '../src/gl/shader_program';
 import ExternalCamera from '../src/scene/external_camera';
 import {Style} from '../src/styles/style';
+import {StyleManager} from '../src/styles/style_manager';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -113,6 +114,52 @@ describe('native luma lights drive Tangram uniforms', () => {
 });
 
 describe('scene light integration', () => {
+    test('rebuilding derived styles releases each material and program exactly once, preserving base resources', () => {
+        const manager = new StyleManager();
+        const definitions = {surface: {base: 'polygons', lighting: 'fragment'},
+            road: {base: 'lines', lighting: 'vertex'}, terrain: {base: 'raster', lighting: 'fragment'}};
+        const buffers: {destroy: ReturnType<typeof vi.fn>}[] = [];
+        const factory = vi.fn(() => {
+            const buffer = {destroy: vi.fn()};
+            buffers.push(buffer);
+            return buffer;
+        });
+        const programs: {destroy: ReturnType<typeof vi.fn>}[] = [];
+        const resourceContext = {};
+        const options = {portableLighting: true, portableLightCount: 1,
+            uniformBlockFactory: factory, maxTextureSize: 1024, resourceContext};
+        let styles = manager.build(definitions);
+        manager.initStyles({generation: 1});
+        const base = styles.polygons;
+        const baseBuffer = {destroy: vi.fn()};
+        const baseProgram = {destroy: vi.fn()};
+        base.portable_material_buffer = baseBuffer;
+        base.program = baseProgram;
+        base.resource_context = resourceContext;
+        for (let generation = 1; generation <= 3; generation++) {
+            for (const name of Object.keys(definitions)) {
+                const style = styles[name];
+                style.setGL(null, {}, options);
+                style.program = {destroy: vi.fn()};
+                style.selection_program = {destroy: vi.fn()};
+                programs.push(style.program, style.selection_program);
+            }
+            styles = manager.build(definitions);
+            expect(styles.polygons).toBe(base);
+            expect(baseBuffer.destroy).not.toHaveBeenCalled();
+            expect(baseProgram.destroy).not.toHaveBeenCalled();
+            for (const buffer of buffers) expect(buffer.destroy).toHaveBeenCalledTimes(1);
+            for (const program of programs) expect(program.destroy).toHaveBeenCalledTimes(1);
+            // These newly constructed styles have not been initialized: they
+            // inherit base resources, but do not own them and must not free them.
+        }
+        manager.destroy(resourceContext);
+        expect(baseBuffer.destroy).toHaveBeenCalledTimes(1);
+        expect(baseProgram.destroy).toHaveBeenCalledTimes(1);
+        for (const buffer of buffers) expect(buffer.destroy).toHaveBeenCalledTimes(1);
+        for (const program of programs) expect(program.destroy).toHaveBeenCalledTimes(1);
+    });
+
     test('rejects light overflow before creating a GPU lighting resource', () => {
         const scene = Object.create(Scene.prototype);
         scene.config = {scene: {}, lights: Array.from({length: 17}, () => ({type: 'ambient', color: [255, 255, 255]}))};

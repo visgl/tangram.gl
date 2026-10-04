@@ -99,12 +99,12 @@ export var Style = {
             this.portable_material_buffer?.destroy();
         }
         this.portable_material_buffer = null;
-        if (this.program) {
+        if (Object.prototype.hasOwnProperty.call(this, 'program') && this.program) {
             this.program.destroy();
             this.program = null;
         }
 
-        if (this.selection_program) {
+        if (Object.prototype.hasOwnProperty.call(this, 'selection_program') && this.selection_program) {
             this.selection_program.destroy();
             this.selection_program = null;
         }
