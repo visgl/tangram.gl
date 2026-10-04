@@ -307,6 +307,7 @@ function createHostFrame({viewport, renderViews, activeRenderViewId}) {
     projection: hostFrame?.projection || viewMode.projection,
     renderViews,
     activeRenderViewId,
+    globePreloadZoom: viewMode.id === 'globe' ? 2 : undefined,
     tileBuffer: hostFrame?.tileBuffer ?? viewMode.tileBuffer
   };
 }

@@ -5,6 +5,8 @@
 import {Matrix4} from '@math.gl/core';
 import {describe, expect, it} from 'vitest';
 import {
+  WebXRGlobeView,
+  WebXRPresentation,
   WebXRInputAdapter,
   createXRPlacementMatrix,
   intersectXRGlobe,
@@ -15,6 +17,17 @@ import {
 } from '../src/experimental/webxr/index.js';
 
 describe('experimental WebXR geospatial presentation', () => {
+  it.each(['mono', 'stereo-preview'] as const)('forwards shared globe preload policy in %s', mode => {
+    const presentation = new WebXRPresentation({view: new WebXRGlobeView({id: 'globe', globePreloadZoom: 2}),
+      viewState: {longitude: 0, latitude: 0, zoom: 5}, placement: undefined, mode});
+    try {
+      const frame = presentation.createFrame({width: 800, height: 400, frameState: undefined,
+        interpupillaryDistance: undefined});
+      expect(frame.hostFrame.globePreloadZoom).toBe(2);
+      expect(frame.hostFrame.renderViews).toHaveLength(mode === 'mono' ? 1 : 2);
+    } finally { presentation.finalize(); }
+  });
+
   it('round-trips Web Mercator coordinates at the equator and high latitudes', () => {
     for (const [longitude, latitude] of [[0, 0], [-74.009, 40.705], [179.9, 84.5]]) {
       const [x, y] = longitudeLatitudeToMeters(longitude, latitude);

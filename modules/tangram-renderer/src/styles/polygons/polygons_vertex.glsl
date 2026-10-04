@@ -51,6 +51,7 @@ varying vec4 v_position;
 varying vec3 v_normal;
 varying vec4 v_color;
 varying vec4 v_world_position;
+varying vec2 v_tile_position;
 
 // Optional texture UVs
 #if defined(TANGRAM_TEXTURE_COORDS) || defined(TANGRAM_EXTRUDE_LINES)
@@ -171,6 +172,7 @@ void main() {
     #endif
 
     // World coordinates for 3d procedural textures
+    v_tile_position = position.xy;
     position = tangramModelView(position, v_world_position);
     // Geographic orientation requires absolute meters, before the procedural
     // texture precision wrap changes v_world_position's origin.

@@ -13,6 +13,8 @@ export type GlobeViewAdapterOptions = {
   maxElevation?: number;
   /** Optional host-supplied footprint enclosing ground AND elevated content. */
   visibleBounds?: readonly [number, number, number, number];
+  /** Globally resident loading fallback level, integer 0–3; omit to disable. */
+  preloadZoom?: number;
 };
 
 /** Typed globe projection and visibility boundary for deck.gl. */
@@ -78,7 +80,8 @@ function getFrame(viewport: GlobeViewport, options: GlobeViewAdapterOptions = {}
       ),
       position: [viewport.cameraPosition[0], viewport.cameraPosition[1], viewport.cameraPosition[2]]
     },
-    tileBuffer: 0
+    tileBuffer: 0,
+    globePreloadZoom: options.preloadZoom
   };
 }
 

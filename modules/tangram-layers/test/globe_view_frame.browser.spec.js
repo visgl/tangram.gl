@@ -13,6 +13,15 @@ const IDENTITY_MATRIX = [
 ];
 
 describe('getGlobeViewFrame', () => {
+  it('forwards an optional global preload level without changing style zoom', () => {
+    const ordinary = getGlobeViewFrame(createViewport(0));
+    const preloaded = getGlobeViewFrame(createViewport(0), {preloadZoom: 2});
+    expect(ordinary.globePreloadZoom).toBeUndefined();
+    expect(preloaded.globePreloadZoom).toBe(2);
+    expect(preloaded.view).toEqual(ordinary.view);
+    expect(preloaded.camera).toEqual(ordinary.camera);
+  });
+
   it('copies host elevation bounds without replacing the camera altitude', () => {
     const visibleBounds = [-170, -80, 170, 80];
     const frame = getGlobeViewFrame(createViewport(0), {maxElevation: 3000, visibleBounds});

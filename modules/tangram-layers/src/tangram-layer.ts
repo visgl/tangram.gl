@@ -317,7 +317,8 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
         : [viewport];
       const globeOptions = {
         maxElevation: this.props.globeMaxElevation ?? undefined,
-        visibleBounds: this.props.globeVisibleBounds ?? undefined
+        visibleBounds: this.props.globeVisibleBounds ?? undefined,
+        preloadZoom: this.props.globePreloadZoom ?? undefined
       };
       const firstPersonOptions = {maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined};
       const viewportError = validateViewport(viewport, viewports, globeOptions, firstPersonOptions);
@@ -429,6 +430,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
     apiKey: null,
     globeMaxElevation: null,
     globeVisibleBounds: null,
+    globePreloadZoom: null,
     firstPersonMaxGroundExtent: 20000,
     onSceneLoad: () => {},
     onAttributionChange: () => {},

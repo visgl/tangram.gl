@@ -27,6 +27,7 @@ import Light from '../lights/light';
 import {normalizeSceneLights} from '../lights/light-definitions';
 import {PORTABLE_LIGHT_UNIFORMS, getPortableLightUniforms} from '../lights/lighting-uniforms';
 import TileManager from '../tile/tile_manager';
+import {isGlobeFallbackStyle} from '../tile/globe_tile_preload';
 import DataSource, {NetworkSource} from '../sources/data_source';
 import '../sources/sources';
 import FeatureSelection from '../selection/selection';
@@ -389,6 +390,7 @@ export default class Scene {
             uniforms: {
                 u_tile_origin: 'vec4',
                 u_tile_proxy_order_offset: 'float',
+                u_tile_clip_bounds: 'vec4',
                 u_model: 'mat4',
                 u_modelView: 'mat4',
                 u_normalMatrix: 'mat3',
@@ -858,15 +860,22 @@ export default class Scene {
         let renderable_tiles = this.tile_manager.getRenderableTiles();
 
         // For each tile, only include meshes for the blend order currently being rendered
-        // Builds an array tiles and their associated meshes, each as a [tile, meshes] 2-element array
+        // Each draw groups a tile, its meshes and optional missing-detail clip bounds.
         let tile_meshes = renderable_tiles
             .filter(t => typeof proxy_level !== 'number' || t.proxy_level === proxy_level) // optional filter by proxy level
-            .map(t => {
+            .flatMap(t => {
                 if (t.meshes[style_name]) {
-                    return [t, t.meshes[style_name].filter(m => m.variant.blend_order === blend_order)];
+                    const meshes = t.meshes[style_name].filter(m => m.variant.blend_order === blend_order);
+                    if (t.fallback_for) {
+                        // Do not duplicate labels or report placeholder feature picks.
+                        if (program_key === 'selection_program' ||
+                            !isGlobeFallbackStyle(style.name, style.base)) return [];
+                        return Array.from(t.fallback_for.values(), clip => [t, meshes, clip]);
+                    }
+                    return [[t, meshes, undefined]];
                 }
-            })
-            .filter(x => x); // skip tiles with no meshes for this blend order
+                return [];
+            });
 
         // Mesh variants must be rendered in requested order across tiles, to prevent labels that cross
         // tile boundaries from rendering over adjacent tile features meant to be underneath
@@ -878,7 +887,7 @@ export default class Scene {
         // One pass per mesh variant order (loop goes to max value +1 because 0 is a valid order value)
         for (let mo=0; mo < max_mesh_order + 1; mo++) {
             // Loop over tiles, with meshes pre-filtered by current blend order
-            for (let [tile, meshes] of tile_meshes) {
+            for (let [tile, meshes, clip] of tile_meshes) {
                 let first_for_tile = true;
 
                 // Skip proxy tiles if new tiles have finished loading this style
@@ -910,7 +919,7 @@ export default class Scene {
                     // Tile-specific state
                     if (first_for_tile === true) {
                         first_for_tile = false;
-                        this.view.setupTile(tile, program);
+                        this.view.setupTile(tile, program, clip);
                     }
 
                     // Render this mesh variant

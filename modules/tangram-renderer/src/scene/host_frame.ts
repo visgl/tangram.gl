@@ -31,6 +31,8 @@ export default class HostFrame {
     readonly tileZoom?: number;
     /** Validated projected-scale LOD settings, when enabled. */
     readonly tileLOD?: Readonly<Required<HostTileLODOptions>>;
+    /** Optional globally resident globe fallback level, capped at 64 coordinates per source. */
+    readonly globePreloadZoom?: number;
     /** Shared elapsed scene animation time in seconds, when supplied. */
     readonly animationTime?: number;
 
@@ -43,6 +45,10 @@ export default class HostFrame {
         this.tileBuffer = normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer');
         this.tileZoom = normalizeTileZoom(record.tileZoom, this.geographicAnchor.zoom);
         this.tileLOD = normalizeTileLOD(record.tileLOD);
+        this.globePreloadZoom = normalizeGlobePreloadZoom(record.globePreloadZoom);
+        if (this.globePreloadZoom !== undefined && this.projection.type !== 'globe') {
+            throw new Error('HostFrame globePreloadZoom requires a globe projection');
+        }
         if (this.tileZoom !== undefined && this.tileLOD !== undefined) {
             throw new Error('HostFrame tileZoom and tileLOD are mutually exclusive');
         }
@@ -140,9 +146,19 @@ export default class HostFrame {
             tileBuffer: normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer'),
             tileZoom: normalizeTileZoom(record.tileZoom, normalizeAnchor(record.geographicAnchor).zoom),
             tileLOD: normalizeTileLOD(record.tileLOD),
+            globePreloadZoom: normalizeGlobePreloadZoom(record.globePreloadZoom),
             animationTime: record.animationTime === undefined ? undefined : normalizeNonNegative(record.animationTime, 'animationTime')
         });
     }
+}
+
+/** Bound global residency before any tile enumeration or scene mutation. */
+function normalizeGlobePreloadZoom(value: unknown): number | undefined {
+    if (value === undefined) return undefined;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 3) {
+        throw new Error('HostFrame globePreloadZoom must be an integer from 0 to 3');
+    }
+    return value;
 }
 
 /** Copy and validate all policy inputs before camera or scene state is touched. */

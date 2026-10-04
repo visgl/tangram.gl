@@ -13,6 +13,7 @@ import mainThreadLabelCollisionPass from '../labels/main_pass';
 import log from '../utils/log';
 import WorkerBroker from '../utils/worker_broker';
 import Task from '../utils/task';
+import {getGlobePreloadKey, getGlobeFallbackClipBounds, isGlobeFallbackStyle} from './globe_tile_preload';
 
 export default class TileManager {
 
@@ -22,6 +23,8 @@ export default class TileManager {
         this.pyramid = new TilePyramid();
         this.visible_coords = {};
         this.queued_coords = [];
+        this.preloaded_keys = new Set();
+        this.preload_zoom = undefined;
         this.building_tiles = null;
         this.renderable_tiles = [];
         this.collision = {
@@ -42,6 +45,7 @@ export default class TileManager {
         this.pyramid = null;
         this.visible_coords = {};
         this.queued_coords = [];
+        this.preloaded_keys.clear();
         this.scene = null;
         WorkerBroker.removeTarget(this.main_thread_target);
     }
@@ -119,7 +123,26 @@ export default class TileManager {
             this.visible_coords[coords.key] = coords;
         }
 
+        this.preloaded_keys.clear();
+        const preloaded = this.view.findPreloadedTileCoordinates?.() || [];
+        this.preloaded_coords = preloaded;
+        this.preload_zoom = preloaded[0]?.z;
+        for (const coords of preloaded) {
+            for (const source of Object.values(this.scene.sources || {})) {
+                if (!source.builds_geometry_tiles || !source.includesTile(coords, this.view.tile_zoom)) continue;
+                const key = getGlobePreloadKey(coords, source, this.view.tile_zoom, coords.z);
+                if (key) this.preloaded_keys.add(key);
+            }
+        }
+
+        // Prioritize visible detail before the bounded background preload batch.
+        this.loadQueuedCoordinates();
         this.updateTileStates();
+    }
+
+    /** Keep only the current source/style generation's global coarse tiles resident. */
+    isTilePreloaded(key) {
+        return this.preloaded_keys.has(key);
     }
 
     updateTileStates () {
@@ -129,6 +152,8 @@ export default class TileManager {
 
         this.loadQueuedCoordinates();
         this.updateProxyTiles();
+        for (const coords of this.preloaded_coords || []) this.loadCoordinate(coords, true);
+        this.updateGlobeFallbackTiles();
         this.view.pruneTilesForView();
         this.updateRenderableTiles();
         this.style_manager.updateActiveStyles(this.renderable_tiles);
@@ -144,6 +169,7 @@ export default class TileManager {
 
         // get current visible tiles and sort by key for consistency collision order
         const tiles = this.renderable_tiles
+            .filter(t => !t.fallback_for)
             .filter(t => t.valid)
             .filter(t => t.built);
 
@@ -201,6 +227,10 @@ export default class TileManager {
     }
 
     updateProxyTiles () {
+        if (this.preload_zoom !== undefined) {
+            this.forEachTile(tile => tile.setProxyFor(null));
+            return;
+        }
         if (this.view.zoom_direction === 0) {
             return;
         }
@@ -249,6 +279,28 @@ export default class TileManager {
         }
     }
 
+    /** Fill missing visible detail, even when rotation does not change the zoom. */
+    updateGlobeFallbackTiles() {
+        this.forEachTile(tile => { tile.fallback_for = null; tile.fallback_pending = false; });
+        if (this.preload_zoom === undefined) return;
+        for (const coords of Object.values(this.visible_coords)) {
+            for (const source of Object.values(this.scene.sources || {})) {
+                const key = TileID.normalizedKey(coords, source, this.view.tile_zoom);
+                const detail = this.tiles[key];
+                if (!detail || detail.built) continue;
+                const fallbackKey = getGlobePreloadKey(detail.coords, source, this.view.tile_zoom, this.preload_zoom);
+                const fallback = this.tiles[fallbackKey];
+                if (!fallback || fallback === detail || !fallback.built) continue;
+                if (!Object.keys(fallback.meshes || {}).some(name => fallback.meshes[name]?.length &&
+                    isGlobeFallbackStyle(name, this.scene.styles?.[name]?.base))) continue;
+                fallback.visible = true;
+                fallback.fallback_for = fallback.fallback_for || new Map();
+                fallback.fallback_for.set(detail.key, getGlobeFallbackClipBounds(fallback.coords, detail.coords));
+                detail.fallback_pending = true;
+            }
+        }
+    }
+
     // Remove tiles that aren't visible, and flag remaining visible ones to be updated (for loading, proxy, etc.)
     pruneToVisibleTiles () {
         this.removeTiles(tile => !tile.visible);
@@ -262,7 +314,7 @@ export default class TileManager {
         this.renderable_tiles = [];
         for (let t in this.tiles) {
             let tile = this.tiles[t];
-            if (tile.visible && tile.loaded) {
+            if (tile.visible && tile.loaded && !tile.fallback_pending) {
                 this.renderable_tiles.push(tile);
             }
         }
@@ -314,9 +366,9 @@ export default class TileManager {
     }
 
     // Load all tiles to cover a given logical tile coordinate
-    loadCoordinate(coords) {
+    loadCoordinate(coords, preload = false) {
         // Skip if not at current scene zoom
-        if (coords.z !== this.view.center.tile.z) {
+        if (!preload && coords.z !== this.view.center.tile.z) {
             return;
         }
 
@@ -329,6 +381,7 @@ export default class TileManager {
             }
 
             let key = TileID.normalizedKey(coords, source, this.view.tile_zoom);
+            if (preload && !this.preloaded_keys.has(key)) continue;
             if (key && !this.hasTile(key)) {
                 log('trace', `load tile ${key}, distance from view center: ${coords.center_dist}`);
                 let tile = new Tile({
