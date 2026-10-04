@@ -16,13 +16,14 @@ import Geo from '../../utils/geo';
 import polygons_vs from './polygons_vertex.glsl';
 import polygons_fs from './polygons_fragment.glsl';
 import {buildPolygonsWGSL} from './polygons_wgsl';
+import {GLOBE_PROJECTION_GLSL} from '../../scene/projection_shaders';
 
 export const Polygons = Object.create(Style);
 
 Object.assign(Polygons, {
     name: 'polygons',
     built_in: true,
-    vertex_shader_src: polygons_vs,
+    vertex_shader_src: polygons_vs.replace('#pragma tangram: projection', GLOBE_PROJECTION_GLSL),
     fragment_shader_src: polygons_fs,
     selection: true, // enable feature selection
 

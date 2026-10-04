@@ -73,6 +73,7 @@ const TANGRAM_RENDERER_FILES = new Set([
   'modules/tangram-renderer/src/scene/camera.ts',
   'modules/tangram-renderer/src/scene/camera_base.ts',
   'modules/tangram-renderer/src/scene/external_camera.ts',
+  'modules/tangram-renderer/src/scene/projection_shaders.ts',
   'modules/tangram-renderer/src/scene/globals.ts',
   'modules/tangram-renderer/src/scene/scene.ts',
   'modules/tangram-renderer/src/scene/scene_bundle.ts',

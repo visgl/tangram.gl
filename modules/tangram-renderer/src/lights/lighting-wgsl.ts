@@ -4,6 +4,7 @@
 // Copyright (c) 2026 vis.gl contributors
 
 import {MAX_PORTABLE_LIGHTS} from './lighting-uniforms';
+import {buildNativeFalloff} from './native-falloff';
 
 /** Specialize Tangram's constant-material equations to the bounded active scene light count. */
 export function buildLightingWGSL(lightCount = MAX_PORTABLE_LIGHTS): string {
@@ -11,6 +12,7 @@ export function buildLightingWGSL(lightCount = MAX_PORTABLE_LIGHTS): string {
         throw new Error(`Portable lighting supports 0 to ${MAX_PORTABLE_LIGHTS} visible lights`);
     }
     return `
+${buildNativeFalloff('wgsl')}
 struct TangramSurfaceLight {
     ambient: vec4<f32>, diffuse: vec4<f32>, specular: vec4<f32>,
     position: vec4<f32>, direction: vec4<f32>, falloff: vec4<f32>,
@@ -50,7 +52,7 @@ fn tangramDistanceFalloff(distance: f32, light: TangramSurfaceLight) -> f32 {
         attenuation = 1.0 - d * d;
     }
     if (light.coefficients.w > 0.5) {
-        attenuation /= max(light.coefficients.x + light.coefficients.y * distance + light.coefficients.z * distance * distance, 0.0001);
+        attenuation /= tangramNativeDistanceDenominator(light.coefficients.xyz, distance);
     }
     return attenuation;
 }
@@ -74,12 +76,7 @@ fn tangramCalculateLighting(eye_to_point: vec3<f32>, normal: vec3<f32>, base_col
                 let cosine = clamp(dot(-direction, light.direction.xyz), 0.0, 1.0);
                 var cone_factor = select(0.0, pow(cosine, light.falloff.w), cosine >= light.cone.z);
                 if (light.coefficients.w > 0.5) {
-                    if (light.cone.x == light.cone.y) {
-                        cone_factor = step(light.cone.y, cosine);
-                    } else {
-                        cone_factor = smoothstep(light.cone.y, light.cone.x, cosine);
-                    }
-                    cone_factor = max(cone_factor, 0.0001) * pow(cosine, light.falloff.w);
+                    cone_factor = tangramNativeConeFactor(light.cone.xy, cosine) * pow(cosine, light.falloff.w);
                 }
                 attenuation *= cone_factor;
             }

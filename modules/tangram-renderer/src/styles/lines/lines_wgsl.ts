@@ -3,8 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import Geo from '../../utils/geo';
-import {GLOBE_PROJECTION_WGSL} from '../globe_projection_wgsl';
-import {GLOBE_NORMAL_WGSL} from '../globe_normal_wgsl';
+import {GLOBE_PROJECTION_WGSL, GLOBE_NORMAL_WGSL} from '../../scene/projection_shaders';
 import {buildLightingWGSL} from '../../lights/lighting-wgsl';
 
 const LAYER_DELTA = 1 / (1 << 14);

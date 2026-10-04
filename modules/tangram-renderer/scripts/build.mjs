@@ -177,7 +177,8 @@ function getCoreBuildOptions() {
         import {setWorkerURL} from ${JSON.stringify(resolve(sourceDirectory, 'scene/worker_url.ts'))};
         import workerSource from 'tangram-worker';
         setWorkerURL(URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'})));
-        export {Renderer, HostFrame, LumaDeviceRenderer, calculatePlanarGroundBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
+        export {Renderer, HostFrame, LumaDeviceRenderer, calculatePlanarGroundBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter,
+          PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition}
           from ${JSON.stringify(resolve(sourceDirectory, 'core.ts'))};
       `
     },

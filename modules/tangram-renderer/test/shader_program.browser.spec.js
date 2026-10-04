@@ -69,7 +69,7 @@ describe('ShaderProgram portable compilation', function () {
             FRAGMENT_SHADER: 0x8B30,
             HIGH_FLOAT: 0x8DF2,
             createProgram: create_program,
-            getShaderPrecisionFormat: () => ({precision: 23})
+            getShaderPrecisionFormat: () => { throw new Error('device shaders must not query raw precision'); }
         };
         const vertex_source = 'attribute vec2 a_position; void main() { gl_Position = vec4(a_position, 0., 1.); }';
         const fragment_source = 'void main() { gl_FragColor = vec4(1.); }';

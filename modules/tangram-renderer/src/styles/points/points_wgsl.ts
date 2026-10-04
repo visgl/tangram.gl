@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {GLOBE_PROJECTION_WGSL} from '../globe_projection_wgsl';
+import {GLOBE_PROJECTION_WGSL} from '../../scene/projection_shaders';
 import {GLOBE_VISIBILITY_WGSL} from '../globe_visibility_wgsl';
 
 /**

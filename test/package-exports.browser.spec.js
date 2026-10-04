@@ -28,6 +28,7 @@ import {TangramStyleSheetSchema} from '@vis.gl/tangram-renderer/style-schema';
 import tangramStyleJsonSchema from '@vis.gl/tangram-renderer/tangram-style.schema.json';
 import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
   calculatePlanarGroundBounds as coreGroundBounds,
+  PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition,
   convertLumaLight as coreConvertLumaLight} from '@vis.gl/tangram-renderer/core';
 import {
   WebXRMapView,
@@ -35,6 +36,12 @@ import {
 } from '@vis.gl/tangram-layers/experimental/webxr';
 
 describe('published package entrypoints', () => {
+  it('exports neutral projection helpers from the built core entry', () => {
+    const point = projectGeographicPosition([0, 0, 100], 'globe');
+    expect(point[1]).toBeLessThan(-PROJECTION_CONSTANTS.globeRadius);
+    expect(projectGeographicVector([0, 0, 0], [0, 0, 1], 'globe')).toEqual([0, -1, 0]);
+    expect(unprojectGlobePosition(point)[2]).toBeCloseTo(100, 6);
+  });
   it('exposes a working host-only core while preserving the classic root', () => {
     const renderer = new CoreRenderer({});
     expect(renderer.scene.view.camera_mode).toBe('external');

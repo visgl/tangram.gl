@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
+import {PROJECTION_CONSTANTS, unprojectGlobePosition} from '@vis.gl/tangram-renderer/core';
 import type {
   XRGeographicPosition,
   XRGlobePlacement,
@@ -15,8 +16,7 @@ import type {
 } from './types.ts';
 
 const TANGRAM_HALF_WORLD_METERS = 20037508.342789244;
-const EARTH_RADIUS = 6370972;
-const GLOBE_RADIUS = 256;
+const GLOBE_RADIUS = PROJECTION_CONSTANTS.globeRadius;
 const MAX_MERCATOR_LATITUDE = 85.05112878;
 const DEGREES_TO_RADIANS = Math.PI / 180;
 const RADIANS_TO_DEGREES = 180 / Math.PI;
@@ -293,12 +293,7 @@ function intersectSphereDistance(
 }
 
 function globePositionToLongitudeLatitude(point: XRVector3): [number, number, number] {
-  const radius = Math.hypot(point[0], point[1], point[2]);
-  return [
-    Math.atan2(point[0], -point[1]) * RADIANS_TO_DEGREES,
-    Math.asin(point[2] / radius) * RADIANS_TO_DEGREES,
-    (radius / GLOBE_RADIUS - 1) * EARTH_RADIUS
-  ];
+  return unprojectGlobePosition(point);
 }
 
 function transformPoint(matrix: readonly number[], point: XRVector3): XRVector3 {

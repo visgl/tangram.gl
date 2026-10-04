@@ -69,6 +69,29 @@ test.each(lights)('native $type light renders through the packaged renderer and 
 });
 
 test.each([
+    {name: 'linear distance', type: 'point', attenuation: [1, 1 / 44, 0], angle: 0, inner: 0.2, outer: 0.4, expected: 127.5},
+    {name: 'quadratic distance', type: 'point', attenuation: [1, 0, 1 / (44 * 44)], angle: 0, inner: 0.2, outer: 0.4, expected: 127.5},
+    {name: 'equal cone inside', type: 'spot', attenuation: [2, 0, 0], angle: 0, inner: 0.2, outer: 0.2, expected: 127.5},
+    {name: 'equal cone outside', type: 'spot', attenuation: [2, 0, 0], angle: 0.6, inner: 0.2, outer: 0.2, expected: 0},
+    {name: 'outside cone floor', type: 'spot', attenuation: [2, 0, 0], angle: 0.6, inner: 0.2, outer: 0.4, expected: 0}
+] as const)('native attenuation boundary: $name', async sample => {
+    harness = new RenderingHarness('globe');
+    harness.presentation.setViewState({zoom: 0});
+    const common = {color: [255, 0, 0], position: [0, -300, 0], attenuation: sample.attenuation} as const;
+    const light: Light = sample.type === 'point' ? {type: 'point', ...common} : {
+        type: 'spot', ...common, direction: [Math.sin(sample.angle), Math.cos(sample.angle), 0],
+        innerConeAngle: sample.inner, outerConeAngle: sample.outer
+    };
+    await harness.initialize(createSurfaceScene([light]));
+    await harness.settle();
+    const image = await harness.pixels();
+    const pixel = (Math.floor(image.height / 2) * image.width + Math.floor(image.width / 2)) * 4;
+    expect(Math.abs(image.data[pixel] - sample.expected)).toBeLessThan(3);
+    expect(image.data[pixel + 1]).toBe(0);
+    expect(image.data[pixel + 2]).toBe(0);
+});
+
+test.each([
     {view: 'flat', type: 'point'}, {view: 'flat', type: 'spot'},
     {view: 'globe', type: 'point'}, {view: 'globe', type: 'spot'}
 ] as const)('geographic $type illuminates $view surfaces in both preview eyes', async ({view, type}) => {
