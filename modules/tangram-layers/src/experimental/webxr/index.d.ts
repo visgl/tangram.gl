@@ -50,6 +50,8 @@ export {
   unionGeographicBounds
 } from './projection.js';
 export {pickXRSurface} from './picking.js';
+export {WebXRSurfaceGrabber} from './grabbing.js';
+export type {XRSurfaceGrabContext} from './grabbing.js';
 
 import {MapView, MapController, FirstPersonView, FirstPersonController,
   _GlobeView as GlobeView, _GlobeController as GlobeController} from '@deck.gl/core';

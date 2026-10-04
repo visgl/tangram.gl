@@ -323,6 +323,17 @@ FirstPersonView, including the antimeridian and stereo views.
 
 ### 7. Finish WebXR placement and interaction
 
+Implemented surface-interaction slice: actual-eye and room-ray geographic picking,
+plus single-owner squeeze grabs that translate maps in their initial plane and
+rotate globes about their room-space center. Disconnect/tracking-loss cancellation
+and select/squeeze ownership remain separate from navigation. Both immersive eyes
+receive the same accepted placement; desktop controls and first-person locomotion
+are unchanged. See [surface grabbing](../api-reference/webxr-presentation.md#room-space-surface-grabbing).
+
+Remaining: native/emulated headset validation, grip-pose and two-handed manipulation,
+terrain/feature-aware spatial picking and richer locomotion policies. The room-ray
+tests and mocked immersive GPU frames do not substitute for headset validation.
+
 Build on the typed host-frame and projection contracts. Verify room-meter
 placement for tabletop maps and physical-radius globes, and one geographic meter
 per XR meter for first-person rendering. Feed real XR eye matrices and viewport

@@ -16,6 +16,7 @@ export {
   intersectXRMap,
   intersectXRGlobe,
   pickXRSurface,
+  WebXRSurfaceGrabber,
   getXRGlobeVisibleBounds,
   unionGeographicBounds,
   WebXRMapView,
