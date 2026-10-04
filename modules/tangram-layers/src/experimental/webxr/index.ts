@@ -28,6 +28,7 @@ export {
   getXRGlobeVisibleBounds,
   unionGeographicBounds
 } from './projection';
+export {pickXRSurface} from './picking';
 export {
   WebXRMapView,
   WebXRMapController,
@@ -58,5 +59,7 @@ export type {
   XRPresentationFrame,
   XRSpatialRay,
   XRScreenPointer,
-  XRInteractionIntent
+  XRInteractionIntent,
+  XRSurfaceHit,
+  XRSurfacePickingOptions
 } from './types';

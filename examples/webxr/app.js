@@ -10,6 +10,7 @@ import {webgpuAdapter} from '@luma.gl/webgpu';
 import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import {createStereoControls} from './stereo-controls.js';
 import {submitEyeRenderPass} from './submit-eye.js';
+import {createSurfacePicker} from './surface-picking.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {
@@ -181,6 +182,9 @@ let xrReferenceSpaceType = 'local-floor';
 let destroyed = false;
 let thorController = null;
 let lastXRFrameTime = null;
+let lastPickingContext = null;
+const surfacePicker = createSurfacePicker({canvas,
+  output: document.getElementById('webxr-pick-status'), getContext: () => lastPickingContext});
 const stereoControls = createStereoControls({
   element: document.getElementById('webxr-stereo-settings'),
   presentation: viewManager,
@@ -321,11 +325,22 @@ function renderTangram({frame, renderPass, renderViewId}) {
   }
 }
 
+/** Keep interaction on the same eye/placement snapshot that is submitted for rendering. */
+function rememberPickingContext(mode, hostFrame, renderViews, placementMatrix) {
+  const viewState = {...viewManager.getViewState()};
+  const logicalViewport = viewManager.view.makeViewport({
+    width: hostFrame.viewport.width, height: hostFrame.viewport.height, viewState});
+  lastPickingContext = {placement: viewManager.placement, viewState, placementMatrix,
+    frame: {mode, logicalViewport, renderViews, hostFrame}};
+}
+
 function renderPreview() {
   const {width, height, bufferWidth, bufferHeight} = resizePreviewCanvas();
   viewManager.updateController({width, height});
   const viewport = {x: 0, y: 0, width, height};
   const renderView = viewManager.makeRenderView({id: 'preview', width, height});
+  const frame = createHostFrame({viewport, renderViews: [renderView], activeRenderViewId: renderView.id});
+  rememberPickingContext('mono', frame, [renderView]);
   const renderPass = device.beginRenderPass({
     clearColor: [0.006, 0.014, 0.04, 1],
     clearDepth: 1,
@@ -333,11 +348,7 @@ function renderPreview() {
   });
   renderPass.setParameters({viewport: [0, 0, bufferWidth, bufferHeight]});
   renderTangram({
-    frame: createHostFrame({
-      viewport,
-      renderViews: [renderView],
-      activeRenderViewId: renderView.id
-    }),
+    frame,
     renderPass,
     renderViewId: renderView.id
   });
@@ -354,11 +365,13 @@ function renderStereoPreview() {
     height,
     interpupillaryDistance: stereoControls.getInterpupillaryDistance()
   });
+  renderViews[1].viewport.x = eyeWidth;
   const hostFrame = createHostFrame({
     viewport: {x: 0, y: 0, width, height},
     renderViews,
     activeRenderViewId: renderViews[0].id
   });
+  rememberPickingContext('stereo-preview', hostFrame, renderViews);
   for (let index = 0; index < renderViews.length; index++) {
     const renderView = renderViews[index];
     const renderPass = device.beginRenderPass({
@@ -386,10 +399,11 @@ function renderXRFrame(time, xrFrame) {
   const elapsedSeconds =
     lastXRFrameTime === null ? 0 : clamp((time - lastXRFrameTime) / 1000, 0, 0.1);
   lastXRFrameTime = time;
-  for (const intent of webXRInputAdapter.update(
+  const inputIntents = webXRInputAdapter.update(
     webXRManager.getInputState(xrFrame) || [],
     elapsedSeconds
-  )) {
+  );
+  for (const intent of inputIntents) {
     viewManager.dispatchInteractionIntent(intent);
   }
   const placementMatrix = createPlacementMatrix({immersive: true, time});
@@ -409,6 +423,10 @@ function renderXRFrame(time, xrFrame) {
     renderViews,
     activeRenderViewId: renderViews[0].id
   });
+  rememberPickingContext('immersive-vr', hostFrame, renderViews, placementMatrix);
+  for (const intent of inputIntents) {
+    if (intent.type === 'point' && intent.action === 'select') surfacePicker.select(intent.pointer);
+  }
 
   for (let index = 0; index < frameState.views.length; index++) {
     const view = frameState.views[index];
@@ -661,6 +679,8 @@ function destroy() {
     return;
   }
   destroyed = true;
+  surfacePicker.destroy();
+  lastPickingContext = null;
   void exitVR();
   animationLoop?.stop();
   thorController?.stop();

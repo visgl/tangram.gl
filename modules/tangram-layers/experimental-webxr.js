@@ -15,6 +15,7 @@ export {
   transformXRRayToContent,
   intersectXRMap,
   intersectXRGlobe,
+  pickXRSurface,
   getXRGlobeVisibleBounds,
   unionGeographicBounds,
   WebXRMapView,

@@ -10,6 +10,7 @@ import type {
   XRPlacement,
   XRPlacementPose,
   XRSpatialRay,
+  XRSurfaceHit,
   XRVector3
 } from './types.ts';
 
@@ -101,8 +102,8 @@ export function createXRPlacementMatrix(
 }
 
 /** Transform an XR-space ray back into the content coordinate system. */
-export function transformXRRayToContent(ray: XRSpatialRay, placementMatrix: readonly number[]) {
-  const inverse = new Matrix4(placementMatrix).invert();
+export function transformXRRayToContent(ray: XRSpatialRay, placementMatrix: readonly number[] | Float32Array | Float64Array) {
+  const inverse = new Matrix4().copy(placementMatrix).invert();
   const origin = transformPoint(inverse, ray.origin);
   const farPoint = transformPoint(inverse, [
     ray.origin[0] + ray.direction[0],
@@ -127,6 +128,27 @@ export function intersectXRMap(
 ): XRGeographicPosition | null {
   const placementMatrix = createXRPlacementMatrix(placement, viewState);
   const localRay = transformXRRayToContent(ray, placementMatrix);
+  return intersectContentSurface(localRay, placement, viewState)?.coordinate || null;
+}
+
+/** Shared ground/sphere intersection in the renderer's projected content space. */
+export function intersectContentSurface(
+  localRay: XRSpatialRay,
+  placement: XRPlacement,
+  viewState: Record<string, unknown> = {}
+): XRSurfaceHit | null {
+  if (placement.type === 'globe') {
+    const distance = intersectSphereDistance(localRay.origin, localRay.direction, GLOBE_RADIUS);
+    if (distance === null) return null;
+    const point: XRVector3 = [
+      localRay.origin[0] + localRay.direction[0] * distance,
+      localRay.origin[1] + localRay.direction[1] * distance,
+      localRay.origin[2] + localRay.direction[2] * distance
+    ];
+    const coordinate = globePositionToLongitudeLatitude(point);
+    coordinate[2] = 0;
+    return {coordinate, position: point};
+  }
   const distance = intersectPlaneDistance(localRay.origin, localRay.direction, 0);
   if (distance === null) {
     return null;
@@ -136,7 +158,7 @@ export function intersectXRMap(
     localRay.origin[1] + localRay.direction[1] * distance,
     0
   ];
-  if (placement.surface?.type === 'bounded') {
+  if (placement.type === 'map' && placement.surface?.type === 'bounded') {
     const longitude = finiteNumber(viewState.longitude, placement.anchor[0]);
     const latitude = finiteNumber(viewState.latitude, placement.anchor[1]);
     const [centerX, centerY] = longitudeLatitudeToMeters(longitude, latitude);
@@ -150,7 +172,7 @@ export function intersectXRMap(
       return null;
     }
   }
-  return metersToLongitudeLatitude(hit[0], hit[1]);
+  return {coordinate: metersToLongitudeLatitude(hit[0], hit[1]), position: hit};
 }
 
 /** Intersect an XR-space ray with a placed deck.gl-compatible globe. */
@@ -161,16 +183,7 @@ export function intersectXRGlobe(
 ): XRGeographicPosition | null {
   const placementMatrix = createXRPlacementMatrix(placement, viewState);
   const localRay = transformXRRayToContent(ray, placementMatrix);
-  const distance = intersectSphereDistance(localRay.origin, localRay.direction, GLOBE_RADIUS);
-  if (distance === null) {
-    return null;
-  }
-  const point: XRVector3 = [
-    localRay.origin[0] + localRay.direction[0] * distance,
-    localRay.origin[1] + localRay.direction[1] * distance,
-    localRay.origin[2] + localRay.direction[2] * distance
-  ];
-  return globePositionToLongitudeLatitude(point);
+  return intersectContentSurface(localRay, placement, viewState)?.coordinate || null;
 }
 
 /** Derive geographic bounds from the union of XR eye frusta intersecting a globe. */

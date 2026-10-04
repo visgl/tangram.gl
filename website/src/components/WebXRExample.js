@@ -125,6 +125,9 @@ export default function WebXRExample({viewMode = 'globe'}) {
           <p id="webxr-status" role="status">
             Preparing the renderer…
           </p>
+          <p id="webxr-pick-status" role="status">
+            Click a view to read the basemap surface. In VR, select with a controller.
+          </p>
           <div className="webxr-actions">
             <button id="webxr-mono" type="button">
               Mono

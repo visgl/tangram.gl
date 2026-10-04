@@ -42,6 +42,11 @@ do not override headset tracking.
 Drag on either half to update the shared camera. Controls and VR setup instructions
 are available in a collapsible panel below the main viewing area.
 
+Click either preview eye, or select with an XR controller, to display a geographic
+surface coordinate. Picking uses the last rendered eye and room-placement matrices.
+It intersects the zero-altitude ground plane or globe sphere, not buildings or terrain;
+the readout does not intercept the existing navigation controls.
+
 The **Vector provider** selector defaults to OpenFreeMap; `?provider=carto`
 selects the CARTO alternative. Sources resolve TileJSON credits and tile URLs
 from the stable planet endpoint, with data zoom capped at 14. Browser credits
