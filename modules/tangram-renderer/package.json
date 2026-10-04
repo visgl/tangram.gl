@@ -43,7 +43,7 @@
     "build": "node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:size",
     "build:entry": "node scripts/write-package-entry.mjs",
     "build:style-schema": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/styles/style-schema.ts --env=dev --format=esm --output=modules/tangram-renderer/dist/style-schema.js --externals=zod --sourcemap=true --sourcesContent=false",
-    "build:loaders-gl-worker": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/experimental/loaders-gl-worker.ts --format=iife --globalName=TangramLoadersGL --output=modules/tangram-renderer/dist/loaders-gl-worker.js --sourcemap=true --sourcesContent=false",
+    "build:loaders-gl-worker": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/experimental/loaders-gl-worker.ts --format=iife --globalName=TangramLoadersGL --output=modules/tangram-renderer/dist/loaders-gl-worker.js --externals=@vis.gl/tangram-layers --sourcemap=true --sourcesContent=false",
     "generate-style-schema": "node scripts/generate-style-schema.mjs",
     "build:size": "gzip dist/tangram.min.mjs -c | wc -c | awk '{kb=$1/1000; print kb}' OFMT='Renderer ESM:\\t%.0f KB (min/gzip)'",
     "prepack": "yarn build",

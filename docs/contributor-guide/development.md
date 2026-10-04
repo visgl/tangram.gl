@@ -50,6 +50,12 @@ GLSL text, embedded worker source, core-isolation checks,
 and multi-output development watching; these output contracts are not yet a
 single standard Ocular bundle invocation.
 
+The loaders.gl worker excludes the deck-dependent `@vis.gl/tangram-layers`
+workspace from Ocular's production aliases. Build the renderer before the layer
+package: the worker must not require layer output to exist. A Node regression
+test runs the actual worker bundle command in an isolated workspace without
+layer artifacts, matching a fresh checkout rather than a previously built tree.
+
 The renderer is private and unpublished. Its debug and minified browser outputs
 are ES modules only; the unused classic-script `tangram.debug.js` and
 `tangram.min.js` builds have been removed. Classic playground and Leaflet examples
