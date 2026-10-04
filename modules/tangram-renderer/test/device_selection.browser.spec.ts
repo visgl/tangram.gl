@@ -8,7 +8,7 @@ import FeatureSelection from '../src/selection/selection';
 import Scene from '../src/scene/classic_scene';
 
 test('device selection owns and releases its framebuffer without raw texture attachment', () => {
-  const framebuffer = {handle: {}, destroy: vi.fn()};
+  const framebuffer = {get handle() { throw new Error('Raw handle accessed'); }, destroy: vi.fn()};
   const createFramebuffer = vi.fn(() => framebuffer);
   const device = {createFramebuffer} as unknown as Device;
   const gl = {FRAMEBUFFER: 0, createFramebuffer: vi.fn(), framebufferTexture2D: vi.fn(),
@@ -18,8 +18,8 @@ test('device selection owns and releases its framebuffer without raw texture att
     id: 'tangram-selection', width: 256, height: 256,
     colorAttachments: ['rgba8unorm'], depthStencilAttachment: 'depth16unorm'
   });
-  selection.bind();
-  expect(gl.bindFramebuffer).toHaveBeenCalledWith(gl.FRAMEBUFFER, framebuffer.handle);
+  expect(() => selection.bind()).toThrow('Device selection must use a luma render pass');
+  expect(gl.bindFramebuffer).not.toHaveBeenCalled();
   expect(gl.createFramebuffer).not.toHaveBeenCalled();
   expect(gl.framebufferTexture2D).not.toHaveBeenCalled();
   selection.destroy();
@@ -54,4 +54,7 @@ test.each([false, true])('selection ends its device pass even when drawing fails
   });
   expect(renderSelection).toHaveBeenCalledWith('selection_program', {allow_blend: false, renderPass});
   expect(renderPass.end).toHaveBeenCalledTimes(1);
+  expect(scene.gl.bindFramebuffer).not.toHaveBeenCalled();
+  expect(scene.gl.viewport).not.toHaveBeenCalled();
+  expect(scene.gl.clearColor).not.toHaveBeenCalled();
 });

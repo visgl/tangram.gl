@@ -717,10 +717,12 @@ export default class Scene {
                         { allow_blend: false });
                 }
 
-                // Reset to screen buffer
-                gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-                gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-                gl.clearColor(...this.background.computed_color); // restore scene background color
+                // Device render passes own state restoration; only classic rendering binds raw targets.
+                if (!this.selection.framebuffer) {
+                    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+                    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+                    gl.clearColor(...this.background.computed_color);
+                }
                 this.last_selection_render = this.frame;
             }
 

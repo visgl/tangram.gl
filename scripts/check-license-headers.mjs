@@ -84,6 +84,7 @@ const TANGRAM_RENDERER_FILES = new Set([
   'modules/tangram-renderer/src/tile/tile_traversal_adapter.ts',
   'modules/tangram-renderer/src/scene/view.ts',
   'modules/tangram-renderer/src/selection/selection.ts',
+  'modules/tangram-renderer/src/selection/selection_pixels.ts',
   'modules/tangram-renderer/src/selection/selection_fragment.glsl',
   'modules/tangram-renderer/src/selection/selection_globals.glsl',
   'modules/tangram-renderer/src/selection/selection_vertex.glsl',
@@ -161,6 +162,7 @@ const TANGRAM_RENDERER_FILES = new Set([
 // Tangram-derived files that have received substantive vis.gl modifications.
 // Keep the original Tangram notice and append the vis.gl modification notice.
 const VISGL_MODIFIED_TANGRAM_FILES = new Set([
+  'modules/tangram-renderer/src/selection/selection_pixels.ts',
   'modules/tangram-renderer/src/scene/projection_shaders.ts',
   'modules/tangram-renderer/src/gl/shader_program.ts',
   'modules/tangram-renderer/src/styles/lines/lines.ts',
