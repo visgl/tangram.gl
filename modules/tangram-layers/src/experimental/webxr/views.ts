@@ -12,6 +12,7 @@ import {
   MapView,
   _GlobeView as GlobeView
 } from '@deck.gl/core';
+import type {GlobeViewProps} from '@deck.gl/core';
 import {getExternalCameraFrame, getFirstPersonViewFrame, getGlobeViewFrame} from '../../index.ts';
 import {getFirstPersonFrameForCamera} from '../../first_person_view_adapter';
 
@@ -137,6 +138,11 @@ export class WebXRFirstPersonView extends FirstPersonView {
 export class WebXRGlobeView extends GlobeView {
   static displayName = 'WebXRGlobeView';
 
+  /** Configure a globe view and its optional globally resident loading fallback. */
+  constructor(props: GlobeViewProps & {globeMaxElevation?: number; globePreloadZoom?: number} = {}) {
+    super(props);
+  }
+
   makeEyeViewport({width, height, viewState, eyeOffset = 0}) {
     return this.makeViewport({
       width,
@@ -146,12 +152,14 @@ export class WebXRGlobeView extends GlobeView {
   }
 
   getHostFrame(viewport) {
-    const frame = getGlobeViewFrame(viewport, {maxElevation: this.props.globeMaxElevation ?? undefined});
+    const frame = getGlobeViewFrame(viewport, {maxElevation: this.props.globeMaxElevation ?? undefined,
+      preloadZoom: this.props.globePreloadZoom ?? undefined});
     return {
       view: frame.view,
       projection: frame.projection,
       camera: frame.camera,
-      tileBuffer: frame.tileBuffer
+      tileBuffer: frame.tileBuffer,
+      globePreloadZoom: frame.globePreloadZoom
     };
   }
 

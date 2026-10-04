@@ -302,6 +302,21 @@ See [attribution requirements and safe presentation](../developer-guide/tile-pro
 
 ### Globe visibility
 
+#### `globePreloadZoom` (number, optional) {/* #globepreloadzoom */}
+
+- Default: `null` (disabled)
+
+Globally preload and retain a coarse data level for GlobeView rotation. Use `2`
+for up to 16 coordinates per geometry source, or `3` for up to 64. Values must be
+integers from `0` to `3`; the actual preload level cannot exceed current data detail.
+The GlobeView and WebXR globe examples enable level `2`.
+
+Ready coarse geometry fills clipped regions while visible detail loads, preserving
+the scene's style zoom. Fallback labels and feature picks are suppressed. This
+does not fetch high-resolution tiles for the entire world, and sources without a
+supported coarse level are skipped. See [HostFrame](./host-frame.md#globepreloadzoom)
+for lifecycle and resource limits. This prop is ignored outside GlobeView.
+
 #### `globeMaxElevation` (number, optional) {/* #globemaxelevation */}
 
 * Default: `null` (unknown)

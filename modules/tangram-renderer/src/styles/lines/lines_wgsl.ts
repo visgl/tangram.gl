@@ -98,6 +98,7 @@ struct LineVaryings {
     @builtin(position) position: vec4<f32>,
     @location(0) color: vec4<f32>,
     @location(1) texcoord: vec2<f32>,
+    @location(5) tile_position: vec2<f32>,
     ${configured ? '@location(2) normal: vec3<f32>, @location(3) eye_position: vec3<f32>, @location(4) lighting: vec4<f32>,' : ''}
 };
 
@@ -145,6 +146,7 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
     clip_position.z -= layer * ${LAYER_DELTA} * clip_position.w;
 
     output.position = clip_position;
+    output.tile_position = local_position.xy;
     output.color = attributes.a_color;
     output.texcoord = attributes.a_texcoord / 65535.0;
     output.texcoord.y *= TangramLine.u_v_scale_adjust;
@@ -162,6 +164,9 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
 
 @fragment
 fn fragmentMain(input: LineVaryings) -> @location(0) vec4<f32> {
+    if (TangramTile.u_tile_clip_bounds.z > TangramTile.u_tile_clip_bounds.x &&
+        (any(input.tile_position < TangramTile.u_tile_clip_bounds.xy) ||
+         any(input.tile_position >= TangramTile.u_tile_clip_bounds.zw))) { discard; }
     var color = input.color;
     if (TangramLine.u_has_line_texture != 0u) {
         let line_texcoord = vec2<f32>(

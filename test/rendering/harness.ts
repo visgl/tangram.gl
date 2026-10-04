@@ -50,9 +50,11 @@ type RuntimeScene = Scene & {
   building: boolean;
   updating: number;
   tile_manager: {
+    isTilePreloaded(key: string): boolean;
     isLoadingVisibleTiles(): boolean;
     allVisibleTilesLabeled(): boolean;
-    tiles: Record<string, {visible: boolean; style_z: number; coords: {z: number}; meshes: Record<string, {
+    tiles: Record<string, {key: string; built: boolean; visible: boolean; fallback_for?: Map<string, number[]> | null;
+      style_z: number; coords: {z: number}; meshes: Record<string, {
       id: number;
       geometry_count: number;
       globe_mesh?: {id: number; geometry_count: number; buffer_size: number} | null;
@@ -75,6 +77,8 @@ export class RenderingHarness {
   tileZoom?: number;
   /** Optional projected-scale data LOD for the shared logical frame. */
   tileLOD?: HostTileLODOptions;
+  /** Optional globally retained globe loading fallback. */
+  globePreloadZoom?: number;
   /** Optional mocked headset frame submitted through the real immersive rendering path. */
   frameState?: XRFrameState;
   device!: Device;
@@ -104,6 +108,14 @@ export class RenderingHarness {
   getTileLods() {
     return Object.values((this.renderer.scene as RuntimeScene).tile_manager.tiles)
       .filter(tile => tile.visible).map(tile => ({dataZoom: tile.coords.z, styleZoom: tile.style_z}));
+  }
+
+  /** Inspect bounded residency and active clipped fallback draws for regression assertions. */
+  getGlobePreloadState() {
+    const manager = (this.renderer.scene as RuntimeScene).tile_manager;
+    return Object.values(manager.tiles).map(tile => ({key: tile.key,
+      pinned: manager.isTilePreloaded(tile.key), built: tile.built,
+      clips: tile.fallback_for?.size || 0}));
   }
 
   /** Create a real device and load the fixture through Tangram's scene worker. */
@@ -144,7 +156,8 @@ export class RenderingHarness {
     const frame = this.presentation.createFrame({width: this.canvas.width, height: this.canvas.height,
       interpupillaryDistance: this.interpupillaryDistance, frameState: this.frameState,
       ...(this.frameState ? {mode: 'immersive-vr'} : {})});
-    const hostFrame = new HostFrame({...frame.hostFrame, tileZoom: this.tileZoom, tileLOD: this.tileLOD});
+    const hostFrame = new HostFrame({...frame.hostFrame, tileZoom: this.tileZoom, tileLOD: this.tileLOD,
+      globePreloadZoom: this.globePreloadZoom});
     for (const [index, view] of frame.renderViews.entries()) {
       this.renderer.setFrame(hostFrame, {renderViewId: view.id});
       const renderPass = this.device.beginRenderPass({

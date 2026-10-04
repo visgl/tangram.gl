@@ -220,6 +220,7 @@ export function initializeDeckExample({
           scene: basemap.scene,
           apiKey,
           visible: basemapVisible,
+          globePreloadZoom: usesGlobeOverlay ? 2 : null,
           onAttributionChange: credits => {
             if (basemapId === attributionBasemapId) updateAttribution(attributionElement, credits);
           },

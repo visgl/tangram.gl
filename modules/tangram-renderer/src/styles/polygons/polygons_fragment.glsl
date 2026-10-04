@@ -19,6 +19,8 @@ varying vec4 v_position;
 varying vec3 v_normal;
 varying vec4 v_color;
 varying vec4 v_world_position;
+varying vec2 v_tile_position;
+uniform vec4 u_tile_clip_bounds;
 
 #ifdef TANGRAM_EXTRUDE_LINES
     uniform bool u_has_line_texture;
@@ -50,6 +52,9 @@ varying vec4 v_world_position;
 #pragma tangram: global
 
 void main (void) {
+    if (u_tile_clip_bounds.z > u_tile_clip_bounds.x &&
+        (any(lessThan(v_tile_position, u_tile_clip_bounds.xy)) ||
+         any(greaterThanEqual(v_tile_position, u_tile_clip_bounds.zw)))) discard;
     // Initialize globals
     #pragma tangram: setup
 

@@ -307,7 +307,8 @@ export class WebXRPresentation {
           ? undefined : renderView.hostFrame?.projection
       })),
       activeRenderViewId: renderViews[0].id,
-      tileBuffer: frameFields.tileBuffer
+      tileBuffer: frameFields.tileBuffer,
+      globePreloadZoom: frameFields.globePreloadZoom
     };
   }
 

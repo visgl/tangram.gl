@@ -84,6 +84,8 @@ export type HostFrameOptions = {
   tileZoom?: number;
   /** Automatic shared data LOD; mutually exclusive with tileZoom. */
   tileLOD?: HostTileLODOptions;
+  /** Retain a global coarse level for globe loading gaps; integer 0–3, omitted disables preloading. */
+  globePreloadZoom?: number;
   /** Shared elapsed scene animation time in seconds. */
   animationTime?: number;
 };
@@ -98,6 +100,8 @@ export type LegacyHostFrame = {
   tileZoom?: number;
   /** Opt-in projected-scale data LOD. */
   tileLOD?: HostTileLODOptions;
+  /** Optional bounded global globe fallback level, integer 0–3. */
+  globePreloadZoom?: number;
   /** Shared elapsed scene animation time in seconds. */
   animationTime?: number;
 };

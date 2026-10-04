@@ -5,6 +5,7 @@
 
 import Geo from '../utils/geo';
 import {TileID} from '../tile/tile_id';
+import {createGlobePreloadCoordinates} from '../tile/globe_tile_preload';
 import ExternalCamera from './external_camera';
 import type Camera from './camera_base';
 import type {CameraView, CameraConfiguration, MatrixSet, Program, UniformBuffer} from './camera_base';
@@ -64,6 +65,8 @@ export interface ViewScene {
     tile_manager: {
         updateTilesForView(): void;
         removeTiles(predicate: (tile: ViewTile) => boolean): void;
+        /** Report tiles pinned by the current bounded globe preload policy. */
+        isTilePreloaded?(key: string): boolean;
     };
     updateConfig(options: {rebuild: boolean; normalize: boolean}): unknown;
     requestRedraw(): void;
@@ -188,7 +191,7 @@ export default class View {
         });
         const key = JSON.stringify({
             anchor: frame.geographicAnchor, projection: frame.projection, buffer: frame.tileBuffer, tileZoom: dataTileZoom,
-            tileLOD: frame.tileLOD,
+            tileLOD: frame.tileLOD, globePreloadZoom: frame.globePreloadZoom,
             views: frame.renderViews.map(view => ({
                 viewport: view.viewport, anchor: view.geographicAnchor, projection: view.projection,
                 camera: {view: Array.from(view.camera.view), projection: Array.from(view.camera.projection), position: view.camera.position}
@@ -514,6 +517,13 @@ export default class View {
         return Array.from(coordinates.values());
     }
 
+    /** Global coarse coordinates at no finer a data level than the current view. */
+    findPreloadedTileCoordinates(): TileCoordinate[] {
+        const zoom = this.hostFrame?.globePreloadZoom;
+        if (this.projection.type !== 'globe' || zoom === undefined || !this.center?.tile) return [];
+        return createGlobePreloadCoordinates(Math.min(zoom, this.center.tile.z));
+    }
+
     // Remove tiles too far outside of view
     pruneTilesForView () {
         // TODO: will this function ever be called when view isn't ready?
@@ -528,7 +538,7 @@ export default class View {
 
         this.scene.tile_manager.removeTiles(tile => {
             // Ignore visible tiles
-            if (tile.visible || tile.isProxy()) {
+            if (tile.visible || tile.isProxy() || this.scene.tile_manager.isTilePreloaded?.(tile.key)) {
                 return false;
             }
 
@@ -588,12 +598,15 @@ export default class View {
     }
 
     // Calculate and set model/view and normal matrices for a tile
-    setupTile (tile: ViewTile, program: ViewProgram) {
+    setupTile (tile: ViewTile, program: ViewProgram, clipBounds?: number[]) {
         const uniform_buffer = this.scene.uniform_buffers && this.scene.uniform_buffers.TangramTile;
 
         // Tile-specific state
         // TODO: calc these once per tile (currently being needlessly re-calculated per-tile-per-style)
         tile.setupProgram(this.matrices, program, uniform_buffer);
+        const bounds = clipBounds || [0, 0, 0, 0];
+        if (uniform_buffer) uniform_buffer.setUniforms({u_tile_clip_bounds: bounds});
+        else program.uniform('4fv', 'u_tile_clip_bounds', bounds);
 
         // Model-view and normal matrices
         this.camera?.setupMatrices(this.matrices, program, uniform_buffer);

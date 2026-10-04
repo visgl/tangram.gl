@@ -56,6 +56,7 @@ struct PolygonVaryings {
     @location(2) normal: vec3<f32>,
     @location(3) eye_position: vec3<f32>,
     @location(4) lighting: vec4<f32>,
+    @location(5) tile_position: vec2<f32>,
 };
 
 @vertex
@@ -86,6 +87,7 @@ fn vertexMain(attributes: PolygonAttributes) -> PolygonVaryings {
     let light = mix(1.0, 0.58 + 0.52 * diffuse, side_amount);
 
     output.position = clip_position;
+    output.tile_position = local_position.xy;
     output.normal = surface_normal;
     output.eye_position = eye_position.xyz - TangramCamera.u_eye;
     output.lighting = ${lighting === 'vertex' ? 'tangramCalculateLighting(output.eye_position, surface_normal, vec4<f32>(1.0))' : 'vec4<f32>(1.0)'};
@@ -99,6 +101,9 @@ fn vertexMain(attributes: PolygonAttributes) -> PolygonVaryings {
 
 @fragment
 fn fragmentMain(input: PolygonVaryings) -> @location(0) vec4<f32> {
+    if (TangramTile.u_tile_clip_bounds.z > TangramTile.u_tile_clip_bounds.x &&
+        (any(input.tile_position < TangramTile.u_tile_clip_bounds.xy) ||
+         any(input.tile_position >= TangramTile.u_tile_clip_bounds.zw))) { discard; }
 ${raster_fragment}
     ${shade}
     return color;

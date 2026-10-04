@@ -98,6 +98,28 @@ projection: {
 }
 ```
 
+### `globePreloadZoom`
+
+Optional integer from `0` to `3`; only supported with a globe projection.
+Omitted disables global preloading. A value of `2` keeps up to 16 coarse
+coordinates per geometry source resident across globe rotation (`3` allows 64).
+The actual level is capped by current data detail. Source zoom normalization may
+reduce requests; sources whose minimum zoom is above this level are skipped,
+so a source cannot silently expand the global request budget.
+
+Visible detail is queued first. While a detail tile is incomplete, a ready resident
+ancestor fills only that tile's region, using fragment clipping on WebGL 2 and WebGPU.
+Clipping prevents overlap with completed neighbors, including translucent styles.
+Fallbacks use the current style zoom, do not participate in label collision, and do
+not draw point/text labels or feature-selection colors. Completed detail replaces
+the placeholder. Changing style zoom rebuilds the small coarse set, and disabling
+preloading or switching projections releases off-screen residents normally.
+
+This is a loading fallback, not permanent whole-world high-resolution rendering:
+cold-start loads still take time, tiles do not cover Mercator's polar caps, and missing
+data in a provider's coarse level cannot be invented. Global residency is separate
+from `tileLOD.maxTiles`, which still bounds active detailed footprint traversal.
+
 ### `renderViews`
 
 A non-empty array of named render views:

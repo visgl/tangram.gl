@@ -132,6 +132,13 @@ are modified. Keep the frame, view state, and placement matrix from the same ren
 The WebXR examples display geographic coordinates on canvas click or XR controller select.
 This readout is separate from renderer feature selection and does not intercept navigation.
 
+## Globe loading fallback
+
+`new WebXRGlobeView({globePreloadZoom: 2})` opts into a globally resident coarse
+loading fallback. The WebXR globe example enables this for both immersive eyes;
+both share the same resident tiles and clipped missing-detail regions. See
+[HostFrame](./host-frame.md#globepreloadzoom) for bounds and cold-start limitations.
+
 ## Input
 
 `WebXRInputAdapter` translates luma.gl controller snapshots into `XRInteractionIntent` values for
