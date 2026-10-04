@@ -19,6 +19,7 @@ export default getVitestConfig({
       'sinon', '@luma.gl/experimental',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
       '@loaders.gl/pmtiles', '@loaders.gl/mvt/mvt-geojson-loader',
+      '@loaders.gl/tiles',
       '@deck.gl-community/panels',
       'monaco-editor',
       // Eagerly optimize Monaco's lazy JSON runtime so first use cannot reload

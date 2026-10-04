@@ -162,6 +162,11 @@ are enforced during tile/visibility updates, not by a separate background timer.
 See [`renderer.getTileResourceStatistics()`](./renderer.md#renderergettileresourcestatistics)
 for protected/cache residency and shared build-queue diagnostics.
 
+Decoded source procedures have a separate, worker-local creation option,
+[`maxConcurrentTileLoadsPerWorker`](./renderer.md#maxconcurrenttileloadsperworker).
+Mesh-build slots remain held through final mesh batches even after a decoded
+source slot is released. Neither setting limits metadata or texture requests.
+
 ### `renderViews`
 
 A non-empty array of named render views:

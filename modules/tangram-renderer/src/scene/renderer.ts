@@ -6,9 +6,10 @@ import Scene from './scene';
 import HostFrame from './host_frame';
 import LumaDeviceRenderer from '../gpu/luma_device_renderer';
 import type View from './view';
-import type {RendererOptions, RenderOptions, SceneDefinition, SceneListeners, SceneLoadOptions, TileResourceStatistics} from '../types';
+import type {RendererOptions, RenderOptions, SceneDefinition, SceneListeners, SceneLoadOptions, TileResourceStatistics, TileSourceStatistics} from '../types';
 import type {TangramLightMapping} from '../lights/light-definitions';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
+import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 
 
 interface FrameOptions {renderViewId?: string}
@@ -29,6 +30,8 @@ interface RendererScene {
     getAttributions(): Promise<string[]>;
     /** Normalized source capabilities, including worker-owned archive metadata. */
     getSourceMetadata(): Promise<Record<string, TangramTileSourceMetadata>>;
+    /** Shared built-in load queue diagnostics from each worker, independent of mesh builds. */
+    getTileSourceStatistics(): Promise<TileSourceStatistics[]>;
     /** Returns detached lighting descriptors for the currently active eye. */
     getLumaLightDefinitions(): TangramLightMapping[];
     resizeMap(width: number, height: number): void;
@@ -57,6 +60,7 @@ export default class Renderer {
     private readonly submittedViews = new Set<string>();
 
     constructor(config: SceneDefinition, options: RendererOptions = {}) {
+        validateConcurrentTileLoads(options.maxConcurrentTileLoadsPerWorker);
         this.gpuBackend = options.device ? new LumaDeviceRenderer(options.device) : null;
         // Retain the historical field while integrations migrate to gpuBackend.
         this.device_renderer = this.gpuBackend;
@@ -90,6 +94,11 @@ export default class Renderer {
     /** Resolve source capabilities without publishing archive handles or changing source policy. */
     getSourceMetadata(): Promise<Record<string, TangramTileSourceMetadata>> {
         return this.scene.getSourceMetadata();
+    }
+
+    /** Inspect source procedures without confusing their slots with renderer mesh-build slots. */
+    getTileSourceStatistics(): Promise<TileSourceStatistics[]> {
+        return this.scene.getTileSourceStatistics();
     }
 
     /** Resolve Tangram lights into luma.gl definitions, retaining non-equivalent Tangram extensions. */

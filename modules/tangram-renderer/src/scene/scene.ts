@@ -38,7 +38,8 @@ import MediaCapture from '../utils/media_capture';
 import setupSceneDebug from './scene_debug';
 import {getWorkerURL} from './worker_url';
 import type {ViewScene} from './view';
-import type {SceneListeners, SceneDefinition, SceneLoadOptions} from '../types';
+import type {SceneListeners, SceneDefinition, SceneLoadOptions, TileSourceStatistics} from '../types';
+import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 import type {RenderPass} from '@luma.gl/core';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
 
@@ -54,9 +55,12 @@ export default class Scene {
     declare dirty: boolean;
     declare start_time: number;
     declare host_animation_time: number | null;
+    /** Shared source-procedure limit applies independently to each worker, not to mesh builds. */
+    readonly maxConcurrentTileLoadsPerWorker: number | undefined;
 
     constructor(config_source, options) {
         options = options || {};
+        this.maxConcurrentTileLoadsPerWorker = validateConcurrentTileLoads(options.maxConcurrentTileLoadsPerWorker);
         subscribeMixin(this);
 
         this.id = Scene.id++;
@@ -479,7 +483,7 @@ export default class Scene {
 
             log('debug', `Scene.makeWorkers: initializing worker ${id}`);
             let _id = id;
-            queue.push(WorkerBroker.postMessage(worker, 'self.init', this.id, id, this.num_workers, this.log_level, Utils.device_pixel_ratio, has_element_index_uint, this.external_scripts).then(
+            queue.push(WorkerBroker.postMessage(worker, 'self.init', this.id, id, this.num_workers, this.log_level, Utils.device_pixel_ratio, has_element_index_uint, this.external_scripts, this.maxConcurrentTileLoadsPerWorker).then(
                 (id) => {
                     log('debug', `Scene.makeWorkers: initialized worker ${id}`);
                     return id;
@@ -1573,6 +1577,17 @@ export default class Scene {
             throw new Error('Sources changed during metadata loading');
         }
         return metadata;
+    }
+
+    /** Return detached per-worker load diagnostics; worker-pool replacement invalidates a snapshot. */
+    async getTileSourceStatistics(): Promise<TileSourceStatistics[]> {
+        const workers = this.workers?.slice() ?? [];
+        if (workers.length === 0) return [];
+        const statistics = await WorkerBroker.postMessage(workers, 'self.getTileSourceStatistics');
+        if (workers.length !== this.workers?.length || workers.some((worker, index) => worker !== this.workers[index])) {
+            throw new Error('Workers changed during tile-source statistics loading');
+        }
+        return statistics.map((value, workerId) => ({...value, workerId}));
     }
 
     // Update scene config, and optionally rebuild geometry

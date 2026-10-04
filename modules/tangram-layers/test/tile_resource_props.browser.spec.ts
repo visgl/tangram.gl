@@ -38,6 +38,41 @@ test.each([
   expect(setFrame).toHaveBeenCalledTimes(3);
 });
 
+test('worker load capacity is passed at renderer creation and changes replace the immutable worker pool', async () => {
+  class BaseLayer {}
+  const createRenderer = vi.fn((_scene: unknown, _options: Record<string, unknown>) =>
+    ({scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined), destroy: vi.fn()}));
+  const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create: createRenderer}, Renderer: undefined});
+  const layer = new Layer();
+  const synchronize = vi.spyOn(layer, '_synchronizeTangramScene').mockImplementation(() => {});
+  layer.raiseError = vi.fn();
+  layer.setState = (state: Record<string, unknown>) => { Object.assign(layer.state, state); };
+  layer.props = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
+    maxConcurrentTileLoadsPerWorker: 2, onSceneLoad: vi.fn(), onSceneError: vi.fn()};
+  layer.state = {tangramRecord: null};
+  const device = {type: 'webgpu', createBuffer: vi.fn(), createShader: vi.fn(), createTexture: vi.fn(),
+    createRenderPipeline: vi.fn(), createVertexArray: vi.fn()};
+  layer.context = {device, deck: {getCanvas: () => document.createElement('canvas')}};
+  try {
+    layer.updateState({props: layer.props});
+    const first = layer.state.tangramRecord;
+    await first.loadPromise;
+    expect(createRenderer.mock.calls[0][1].maxConcurrentTileLoadsPerWorker).toBe(2);
+    layer.updateState({props: layer.props});
+    expect(layer.state.tangramRecord).toBe(first);
+    layer.props = {...layer.props, maxConcurrentTileLoadsPerWorker: null};
+    layer.updateState({props: layer.props});
+    const second = layer.state.tangramRecord;
+    await second.loadPromise;
+    expect(first.disposed).toBe(true);
+    expect(createRenderer.mock.calls[1][1].maxConcurrentTileLoadsPerWorker).toBeUndefined();
+    layer.updateState({props: layer.props});
+    expect(layer.state.tangramRecord).toBe(second);
+    expect(createRenderer).toHaveBeenCalledTimes(2);
+    expect(layer.raiseError).not.toHaveBeenCalled();
+  } finally { layer.finalizeState(); synchronize.mockRestore(); }
+});
+
 test.each([
   new WebXRMapView({id: 'map'}),
   new WebXRGlobeView({id: 'globe'}),

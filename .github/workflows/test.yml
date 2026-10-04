@@ -94,6 +94,8 @@ jobs:
         run: yarn test-node
       - name: Verify lightweight parser dependency graphs and report sizes
         run: yarn bundle-size:parsers
+      - name: Verify candidate tileset dependency graphs and report sizes
+        run: yarn bundle-size:tilesets
 
   test-headless:
     runs-on: ubuntu-22.04

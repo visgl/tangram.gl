@@ -79,6 +79,8 @@ export class RenderingHarness {
   tileLOD?: HostTileLODOptions;
   /** Shared scheduling and completed-cache limits across all rendered eyes. */
   tileResources?: HostTileResourceOptions;
+  /** Optional worker-local shared source capacity, independent of styled mesh builds. */
+  maxConcurrentTileLoadsPerWorker?: number;
   /** Optional globally retained globe loading fallback. */
   globePreloadZoom?: number;
   /** Optional mocked headset frame submitted through the real immersive rendering path. */
@@ -126,6 +128,7 @@ export class RenderingHarness {
     this.presentation.attachController({element: this.canvas, timeline: this.timeline});
     this.renderer = ClassicWebGLRenderer.create(scene, {
       device: this.device, canvas: this.canvas, numWorkers: 1,
+      maxConcurrentTileLoadsPerWorker: this.maxConcurrentTileLoadsPerWorker,
       continuousZoom: true, highDensityDisplay: false, logLevel: 'warn',
       ...(this.device.type === 'webgl' ? {webGLContext: this.device.handle} : {})
     });

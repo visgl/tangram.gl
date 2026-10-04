@@ -46,9 +46,10 @@ const SceneWorker = Object.assign(self, {
     sharedTileSources: new SharedTileSourceAdapter(),
 
     // Initialize worker
-    init (scene_id, worker_id, num_workers, log_level, device_pixel_ratio, has_element_index_unit, external_scripts) {
+    init (scene_id, worker_id, num_workers, log_level, device_pixel_ratio, has_element_index_unit, external_scripts, maxConcurrentLoads) {
+        const sharedTileSources = new SharedTileSourceAdapter(external_scripts.length === 0, {maxConcurrentLoads});
         this.finalizeTileSources();
-        this.sharedTileSources = new SharedTileSourceAdapter(external_scripts.length === 0);
+        this.sharedTileSources = sharedTileSources;
         this.scene_id = scene_id;
         this._worker_id = worker_id;
         this.num_workers = num_workers;
@@ -253,7 +254,7 @@ const SceneWorker = Object.assign(self, {
 
     /** Internal diagnostics distinguish decoded acquisition from styled mesh/build residency. */
     getTileSourceStatistics() {
-        return this.sharedTileSources.store.getStatistics();
+        return {...this.sharedTileSources.store.getStatistics(), sharingEnabled: this.sharedTileSources.sharingEnabled};
     },
 
     /** Return current source capabilities; external provider factories are registered only in workers. */
