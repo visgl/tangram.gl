@@ -6,6 +6,8 @@
 import Geo from '../utils/geo';
 import {TileID} from '../tile/tile_id';
 import {createGlobePreloadCoordinates} from '../tile/globe_tile_preload';
+import TangramTileTraversalAdapter from '../tile/tile_traversal_adapter';
+import type {TangramTraversalState} from '../tile/tile_traversal_adapter';
 import ExternalCamera from './external_camera';
 import type Camera from './camera_base';
 import type {CameraView, CameraConfiguration, MatrixSet, Program, UniformBuffer} from './camera_base';
@@ -85,6 +87,8 @@ export default class View {
     readonly scene: ViewScene;
     readonly visibility_adapter: VisibilityLODAdapter;
     readonly globe_visibility_adapter: GlobeVisibilityLODAdapter;
+    /** Shared traversal/bounds contract, independent of host viewport classes. */
+    readonly traversal_adapter: TangramTileTraversalAdapter;
     private readonly cameraFactory?: CameraFactory;
     private hostFrame: HostFrame | null = null;
     private readonly projectedTileLOD = new ProjectedTileLOD();
@@ -124,6 +128,7 @@ export default class View {
         this.cameraFactory = options.cameraFactory;
         this.visibility_adapter = options.visibilityAdapter || new WebMercatorVisibilityAdapter();
         this.globe_visibility_adapter = options.globeVisibilityAdapter || new WebMercatorGlobeVisibilityAdapter();
+        this.traversal_adapter = new TangramTileTraversalAdapter(this.visibility_adapter, this.globe_visibility_adapter);
 
         this.zoom = null;
         this.center = null;
@@ -277,28 +282,6 @@ export default class View {
             get meters_per_pixel() { return view.getReadyState().metersPerPixel; },
             get center() { return {meters: view.getReadyState().centerMeters}; }
         };
-    }
-
-    private findCoordinates(state: VisibilityViewState, projection: HostProjection, position?: ArrayLike<number>): TileCoordinate[] {
-        if (projection.type === 'globe') {
-            return this.globe_visibility_adapter.findVisibleTileCoordinates({
-                tile_zoom: state.tile_zoom, buffer: state.buffer, visibleBounds: projection.visibleBounds,
-                ...(projection.maxElevation === undefined ? {} : {maxElevation: projection.maxElevation}),
-                cameraPosition: position ? [position[0], position[1], position[2]] : undefined
-            });
-        }
-        if (projection.visibleBounds !== undefined) {
-            const bounds = projection.visibleBounds;
-            if (bounds === null) return [];
-            const southwest = Geo.latLngToMeters([bounds[0], bounds[1]]);
-            const northeast = Geo.latLngToMeters([bounds[2], bounds[3]]);
-            if (!southwest.every(Number.isFinite) || !northeast.every(Number.isFinite)) {
-                throw new Error('HostFrame planar visibleBounds must project to finite meters');
-            }
-            return this.visibility_adapter.findVisibleTileCoordinates({...state,
-                bounds: {sw: {x: southwest[0], y: southwest[1]}, ne: {x: northeast[0], y: northeast[1]}}});
-        }
-        return this.visibility_adapter.findVisibleTileCoordinates(state);
     }
 
     // Reset state before scene config is updated
@@ -489,35 +472,31 @@ export default class View {
     }
 
     findVisibleTileCoordinates (): TileCoordinate[] {
+        return this.traversal_adapter.getTileIndices({viewState: this.getTileTraversalState()});
+    }
+
+    /** Snapshot the logical/eye traversal inputs without exposing a View or Scene to a tileset. */
+    getTileTraversalState(): TangramTraversalState {
         if (!this.bounds) {
-            return [];
+            return {eyes: []};
         }
 
 
         const state = this.getVisibilityState();
         if (!state) {
-            return [];
+            return {eyes: []};
         }
         const hostFrame = this.hostFrame;
         const views = hostFrame?.renderViews;
         if (!views) {
-            return this.findCoordinates(state, this.projection, this.camera?.position_meters);
+            return {eyes: [{view: state, projection: this.projection, position: this.camera?.position_meters}]};
         }
-        const coordinates = new Map<string, TileCoordinate>();
-        for (const eye of views) {
-            const projection = eye.projection ?? this.projection;
-            const eyeState = this.getHostEyeState(hostFrame, eye,
-                this.dataTileZoom ?? this.baseZoom((eye.geographicAnchor ?? hostFrame.geographicAnchor).zoom));
-            const bounds = this.visibility_adapter.calculateBounds(eyeState);
-            const visible = this.findCoordinates(
-                {...eyeState, bounds: bounds.bounds, tile_zoom: this.dataTileZoom ?? bounds.tileZoom},
-                projection, eye.camera.position
-            );
-            for (const coordinate of visible) {
-                coordinates.set(coordinate.key ?? `${coordinate.x}/${coordinate.y}/${coordinate.z}`, coordinate);
-            }
-        }
-        return Array.from(coordinates.values());
+        return {union: true, eyes: views.map(eye => ({
+            view: this.getHostEyeState(hostFrame, eye,
+                this.dataTileZoom ?? this.baseZoom((eye.geographicAnchor ?? hostFrame.geographicAnchor).zoom)),
+            projection: eye.projection ?? this.projection, position: eye.camera.position,
+            calculateBounds: true, dataZoom: this.dataTileZoom
+        }))};
     }
 
     /** Global coarse coordinates at no finer a data level than the current view. */

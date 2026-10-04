@@ -10,6 +10,9 @@ import Utils from '../utils/utils';
 import sliceObject from '../utils/slice';
 import * as URLs from '../utils/urls';
 import log from '../utils/log';
+import {createTileSourceMetadata} from './tile_source_metadata';
+import type {TangramTileSourceMetadata} from './tile_source_metadata';
+import {applyTilePayload, captureTilePayload, updateTileSourceRequest} from './tile_source_state';
 
 type SourceConfig = Record<string, any>;
 type Tile = any;
@@ -101,6 +104,11 @@ export default class DataSource {
         const values: unknown[] = [this.config.attribution, this.metadata_attribution];
         return [...new Set(values.filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
             .map(value => value.trim()))];
+    }
+
+    /** Metadata for aligned source consumers; does not alter the legacy source zoom/bounds policy. */
+    getMetadata(): Promise<TangramTileSourceMetadata> {
+        return Promise.resolve(createTileSourceMetadata(this));
     }
 
     // Register a new data source type name, providing a function that returns the class name
@@ -213,6 +221,7 @@ export default class DataSource {
             }
 
             dest.default_winding = this.default_winding || 'CCW';
+            captureTilePayload(dest);
             return dest;
         });
     }
@@ -225,10 +234,8 @@ export default class DataSource {
     // Copy source data from another tile (so we can reuse source data for overzoomed tiles)
     copyTileData (source: Tile, dest: Tile): Tile {
         log('trace', `Copy tile data from ${source.key} to ${dest.key}`);
-        dest.source_data = { layers: source.source_data.layers };
-        dest.rasters = [...source.rasters];
-        dest.pad_scale = source.pad_scale;
-        dest.default_winding = source.default_winding;
+        applyTilePayload(dest, {layers: source.source_data.layers, rasters: [...source.rasters],
+            padScale: source.pad_scale, defaultWinding: source.default_winding});
         return dest;
     }
 
@@ -316,6 +323,8 @@ export class NetworkSource extends DataSource {
     url: string | null;
     request_headers?: Record<string, string>;
     tilejson_promise?: Promise<string>;
+    /** Discovered TileJSON metadata for aligned consumers, separate from layout policy. */
+    protected tile_metadata?: Record<string, unknown>;
 
     constructor (source: SourceConfig, sources?: Record<string, any>) {
         super(source, sources);
@@ -333,7 +342,7 @@ export class NetworkSource extends DataSource {
 
     _load (dest?: Tile): Promise<Tile> {
         return this.resolveURL().then(url => this.loadURL(dest, url)).catch(error => {
-            dest.source_data.error = error.stack;
+            updateTileSourceRequest(dest, {error: error.stack});
             return dest;
         });
     }
@@ -352,10 +361,17 @@ export class NetworkSource extends DataSource {
                     }
                     this.url = this.addURLParams(URLs.addBaseURL(metadata.tiles[0], this.tilejson));
                     this.metadata_attribution = typeof metadata.attribution === 'string' ? metadata.attribution : undefined;
+                    this.tile_metadata = metadata;
                     return this.url;
                 });
         }
         return this.tilejson_promise;
+    }
+
+    /** Resolve TileJSON before exposing metadata while preserving explicit scene options. */
+    async getMetadata(): Promise<TangramTileSourceMetadata> {
+        await this.resolveURL();
+        return createTileSourceMetadata(this, this.tile_metadata);
     }
 
     addURLParams (url: string): string {
@@ -372,7 +388,7 @@ export class NetworkSource extends DataSource {
         let url = this.formatURL(url_template, dest) as string;
 
         let source_data = dest.source_data;
-        source_data.url = url;
+        updateTileSourceRequest(dest, {url});
         dest.debug = dest.debug || {};
         dest.debug.network = +new Date();
 
@@ -387,8 +403,7 @@ export class NetworkSource extends DataSource {
                 request_id
             ) as Promise<any>;
 
-            source_data.request_id = request_id;
-            source_data.error = null;
+            updateTileSourceRequest(dest, {requestId: request_id, error: null});
 
             promise.then(({ body }) => {
                 dest.debug.response_size = body && (body.length || body.byteLength);
@@ -413,7 +428,7 @@ export class NetworkSource extends DataSource {
                     resolve(dest);
                 });
             }).catch((error) => {
-                source_data.error = error.stack;
+                updateTileSourceRequest(dest, {error: error.stack});
                 resolve(dest); // resolve request but pass along error
             });
         });
