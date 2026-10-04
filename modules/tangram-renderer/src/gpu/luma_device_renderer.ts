@@ -8,9 +8,26 @@ import type {Bindings, BufferProps, Device, PrimitiveTopology, RenderPipeline, R
 import type {TangramDrawableMesh, TangramDrawableProgram, TangramGPUBackend, TangramGPUSceneOptions,
     TangramDrawableUniformBlock, TangramMeshBufferOptions, TangramMeshDrawDescriptor, TangramMeshDrawOptions, TangramRenderStateOptions,
     TangramShaderOptions, TangramShaderProgramOptions, TangramTextureOptions, TangramUniformBufferOptions} from './tangram_gpu_backend';
+import {observeGPUResourceDisposal} from './resource_lifecycle';
 
 /** Per-topology pipelines indexed by normalized render state. */
 type PipelineStates = Map<PrimitiveTopology, Map<string, RenderPipeline>>;
+
+/** Resource record deliberately contains no reference to its shader-program owner. */
+type ProgramResources = {
+    layouts: WeakMap<object, PipelineStates>;
+    pipelines: Set<RenderPipeline>;
+    disposed: boolean;
+    unsubscribe: () => void;
+};
+
+/** Cached draw resources, without a strong reference to their mesh owner. */
+type MeshResources = {
+    vertexArrays: Map<RenderPipeline, VertexArray>;
+    uniformBuffers: Map<string, {buffer: Buffer; byteLength: number}>;
+    disposed: boolean;
+    unsubscribe: () => void;
+};
 
 /**
  * Portable Tangram GPU backend implemented exclusively with the luma.gl Device API.
@@ -23,27 +40,24 @@ type PipelineStates = Map<PrimitiveTopology, Map<string, RenderPipeline>>;
 export default class LumaDeviceRenderer implements TangramGPUBackend {
     declare readonly device: Device;
     /** Shader/layout/state cache; keys do not keep scene programs alive. */
-    declare private pipeline_cache: WeakMap<TangramDrawableProgram, WeakMap<object, PipelineStates>>;
+    declare private pipeline_cache: WeakMap<TangramDrawableProgram, ProgramResources>;
     /** Mesh/pipeline vertex-array cache. */
-    declare private vertex_array_cache: WeakMap<TangramDrawableMesh, WeakMap<RenderPipeline, VertexArray>>;
-    /** Uniform snapshots owned by each encoded mesh. */
-    declare private mesh_uniform_buffer_cache: WeakMap<TangramDrawableMesh, Map<string, Buffer>>;
-    /** Pipelines owned by this backend, not the host device. */
-    declare private pipelines: Set<RenderPipeline>;
-    /** Vertex arrays owned by this backend. */
-    declare private vertex_arrays: Set<VertexArray>;
-    /** Per-mesh uniform buffers owned by this backend. */
-    declare private mesh_uniform_buffers: Set<Buffer>;
+    declare private mesh_resource_cache: WeakMap<TangramDrawableMesh, MeshResources>;
+    /** Live program generations; released on recompilation/destruction or backend teardown. */
+    declare private program_resources: Set<ProgramResources>;
+    /** Live mesh resources; released on tile eviction or backend teardown. */
+    declare private mesh_resources: Set<MeshResources>;
+    /** A destroyed backend cannot reuse cached or host resources. */
+    declare private destroyed: boolean;
 
     constructor(device: Device) {
         validateDevice(device);
         this.device = device;
         this.pipeline_cache = new WeakMap();
-        this.vertex_array_cache = new WeakMap();
-        this.mesh_uniform_buffer_cache = new WeakMap();
-        this.pipelines = new Set();
-        this.vertex_arrays = new Set();
-        this.mesh_uniform_buffers = new Set();
+        this.mesh_resource_cache = new WeakMap();
+        this.program_resources = new Set();
+        this.mesh_resources = new Set();
+        this.destroyed = false;
     }
 
     /** Shader language selected by the host device. */
@@ -60,6 +74,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
      * Returns the resource factories consumed by Tangram Scene and Style objects.
      */
     getSceneOptions(): TangramGPUSceneOptions {
+        this.assertAlive();
         return {
             enableUniformBuffers: true,
             deviceShaderCompilation: true,
@@ -76,6 +91,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
 
     /** Creates a luma.gl uniform buffer. */
     createUniformBuffer(options: TangramUniformBufferOptions) {
+        this.assertAlive();
         if (options.usage !== 'uniform') {
             throw new Error(`unsupported Tangram buffer usage '${options.usage}'`);
         }
@@ -88,6 +104,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
 
     /** Creates a shader in the language supported by the active device. */
     createShader(options: TangramShaderOptions) {
+        this.assertAlive();
         const shader_options: ShaderProps = {
             id: `tangram-${options.id}`,
             language: options.language || this.device.info.shadingLanguage,
@@ -102,6 +119,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
 
     /** Validates a device-owned shader pair when the backend supports layout-free linking. */
     validateShaderProgram({ id, vertexShader, fragmentShader }: TangramShaderProgramOptions) {
+        this.assertAlive();
         // A WebGL program can only be linked against its concrete vertex
         // layout. Tangram does not know that layout until the first mesh draw,
         // where getPipeline() creates the real pipeline with the required
@@ -130,6 +148,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
 
     /** Creates a luma.gl vertex or index buffer. */
     createMeshBuffer(options: TangramMeshBufferOptions) {
+        this.assertAlive();
         const usage = options.usage === 'vertex' ? Buffer.VERTEX :
             options.usage === 'index' ? Buffer.INDEX : null;
         if (usage == null) {
@@ -148,6 +167,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
 
     /** Creates and initializes a luma.gl texture. */
     createTexture(options: TangramTextureOptions) {
+        this.assertAlive();
         const mipmapped = options.filtering === 'mipmap' && this.device.type === 'webgl';
         const filter = options.filtering === 'nearest' ? 'nearest' : 'linear';
         const texture = this.device.createTexture({
@@ -241,6 +261,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
 
     /** Draws one Tangram mesh into a host-provided luma.gl RenderPass. */
     drawMesh({ mesh, program, renderPass, renderState, visibleTime }: TangramMeshDrawOptions) {
+        this.assertAlive();
         if (!renderPass || !program || !program.vertex_shader_resource ||
             !program.fragment_shader_resource) {
             throw new Error('Tangram luma renderer requires an active render pass and shader resources');
@@ -278,20 +299,14 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
         }
     }
 
-    /** Destroys cached luma.gl pipelines and vertex arrays. */
+    /** Destroys cached pipelines, vertex arrays and uniform snapshots, not the host device. */
     destroy() {
-        for (const uniform_buffer of this.mesh_uniform_buffers) {
-            uniform_buffer.destroy();
-        }
-        for (const vertex_array of this.vertex_arrays) {
-            vertex_array.destroy();
-        }
-        for (const pipeline of this.pipelines) {
-            pipeline.destroy();
-        }
-        this.mesh_uniform_buffers.clear();
-        this.vertex_arrays.clear();
-        this.pipelines.clear();
+        if (this.destroyed) return;
+        this.destroyed = true;
+        for (const resources of this.mesh_resources) this.disposeMeshResources(resources);
+        for (const resources of this.program_resources) this.disposeProgramResources(resources);
+        this.pipeline_cache = new WeakMap();
+        this.mesh_resource_cache = new WeakMap();
     }
 
     /** Copies mutable uniform blocks into storage unique to the encoded mesh draw. */
@@ -305,34 +320,29 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
             return;
         }
 
-        let mesh_buffers = this.mesh_uniform_buffer_cache.get(mesh);
-        if (!mesh_buffers) {
-            mesh_buffers = new Map();
-            this.mesh_uniform_buffer_cache.set(mesh, mesh_buffers);
-        }
+        const mesh_buffers = this.getMeshResources(mesh).uniformBuffers;
         for (const [name, uniform_buffer] of snapshot_blocks) {
-            let buffer = mesh_buffers.get(name);
-            if (!buffer) {
-                buffer = this.device.createBuffer({
+            let snapshot = mesh_buffers.get(name);
+            if (!snapshot || snapshot.byteLength !== uniform_buffer.byteLength) {
+                const buffer = this.device.createBuffer({
                     id: `tangram-mesh-${mesh.id}-${name}-uniforms`,
                     byteLength: uniform_buffer.byteLength,
                     usage: Buffer.UNIFORM | Buffer.COPY_DST
                 });
-                mesh_buffers.set(name, buffer);
-                this.mesh_uniform_buffers.add(buffer);
+                snapshot?.buffer.destroy();
+                snapshot = {buffer, byteLength: uniform_buffer.byteLength};
+                mesh_buffers.set(name, snapshot);
             }
-            buffer.write(new Uint8Array(uniform_buffer.data));
-            bindings[name] = buffer;
+            snapshot.buffer.write(new Uint8Array(uniform_buffer.data));
+            bindings[name] = snapshot.buffer;
         }
     }
 
     getPipeline(program: TangramDrawableProgram, vertex_layout: object, descriptor: TangramMeshDrawDescriptor,
         render_state?: RenderPipelineParameters) {
-        let layouts = this.pipeline_cache.get(program);
-        if (!layouts) {
-            layouts = new WeakMap();
-            this.pipeline_cache.set(program, layouts);
-        }
+        this.assertAlive();
+        const resources = this.getProgramResources(program);
+        const layouts = resources.layouts;
         let topologies = layouts.get(vertex_layout);
         if (!topologies) {
             topologies = new Map();
@@ -359,17 +369,14 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
             }
             pipeline = this.device.createRenderPipeline(pipeline_options);
             states.set(state_key, pipeline);
-            this.pipelines.add(pipeline);
+            resources.pipelines.add(pipeline);
         }
         return pipeline;
     }
 
     getVertexArray(mesh: TangramDrawableMesh, pipeline: RenderPipeline, descriptor: TangramMeshDrawDescriptor) {
-        let pipelines_for_mesh = this.vertex_array_cache.get(mesh);
-        if (!pipelines_for_mesh) {
-            pipelines_for_mesh = new WeakMap();
-            this.vertex_array_cache.set(mesh, pipelines_for_mesh);
-        }
+        this.assertAlive();
+        const pipelines_for_mesh = this.getMeshResources(mesh).vertexArrays;
         let vertex_array = pipelines_for_mesh.get(pipeline);
         if (vertex_array) {
             return vertex_array;
@@ -380,36 +387,104 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
             shaderLayout: pipeline.shaderLayout,
             bufferLayout: pipeline.bufferLayout
         });
-        const attributes = new Map(
-            pipeline.shaderLayout.attributes.map(attribute => [attribute.name, attribute])
-        );
-        for (const attribute of descriptor.bufferLayout.attributes) {
-            const shader_attribute = attributes.get(attribute.attribute);
-            if (shader_attribute) {
-                vertex_array.setBuffer(shader_attribute.location, descriptor.vertexBuffer);
+        try {
+            const attributes = new Map(
+                pipeline.shaderLayout.attributes.map(attribute => [attribute.name, attribute])
+            );
+            for (const attribute of descriptor.bufferLayout.attributes) {
+                const shader_attribute = attributes.get(attribute.attribute);
+                if (shader_attribute) {
+                    vertex_array.setBuffer(shader_attribute.location, descriptor.vertexBuffer);
+                }
             }
-        }
-        for (const attribute of descriptor.staticAttributes) {
-            const shader_attribute = attributes.get(attribute.attribute);
-            if (shader_attribute) {
-                if (this.device.type === 'webgpu') {
-                    throw new Error(
-                        `Tangram WebGPU renderer requires '${attribute.attribute}' in a vertex buffer`
+            for (const attribute of descriptor.staticAttributes) {
+                const shader_attribute = attributes.get(attribute.attribute);
+                if (shader_attribute) {
+                    if (this.device.type === 'webgpu') {
+                        throw new Error(
+                            `Tangram WebGPU renderer requires '${attribute.attribute}' in a vertex buffer`
+                        );
+                    }
+                    vertex_array.setConstantWebGL(
+                        shader_attribute.location,
+                        new Float32Array(attribute.value)
                     );
                 }
-                vertex_array.setConstantWebGL(
-                    shader_attribute.location,
-                    new Float32Array(attribute.value)
-                );
+            }
+            if (descriptor.indexBuffer) {
+                vertex_array.setIndexBuffer(descriptor.indexBuffer);
             }
         }
-        if (descriptor.indexBuffer) {
-            vertex_array.setIndexBuffer(descriptor.indexBuffer);
+        catch (error) {
+            vertex_array.destroy();
+            throw error;
         }
 
         pipelines_for_mesh.set(pipeline, vertex_array);
-        this.vertex_arrays.add(vertex_array);
         return vertex_array;
+    }
+
+    /** Create one cleanup generation per program without retaining the owner in a callback. */
+    private getProgramResources(program: TangramDrawableProgram): ProgramResources {
+        let resources = this.pipeline_cache.get(program);
+        if (!resources || resources.disposed) {
+            resources = {layouts: new WeakMap(), pipelines: new Set(), disposed: false, unsubscribe: () => {}};
+            const owned = resources;
+            resources.unsubscribe = observeGPUResourceDisposal(program, () => this.disposeProgramResources(owned));
+            this.pipeline_cache.set(program, resources);
+            this.program_resources.add(resources);
+        }
+        return resources;
+    }
+
+    /** Reuse live mesh storage, and observe only the resources belonging to that mesh. */
+    private getMeshResources(mesh: TangramDrawableMesh): MeshResources {
+        this.assertAlive();
+        let resources = this.mesh_resource_cache.get(mesh);
+        if (!resources || resources.disposed) {
+            resources = {vertexArrays: new Map(), uniformBuffers: new Map(), disposed: false, unsubscribe: () => {}};
+            const owned = resources;
+            resources.unsubscribe = observeGPUResourceDisposal(mesh, () => this.disposeMeshResources(owned));
+            this.mesh_resource_cache.set(mesh, resources);
+            this.mesh_resources.add(resources);
+        }
+        return resources;
+    }
+
+    /** Release a mesh's cached draw resources, leaving shared program pipelines alive. */
+    private disposeMeshResources(resources: MeshResources): void {
+        if (resources.disposed) return;
+        resources.disposed = true;
+        resources.unsubscribe();
+        this.mesh_resources.delete(resources);
+        for (const vertexArray of resources.vertexArrays.values()) vertexArray.destroy();
+        for (const snapshot of resources.uniformBuffers.values()) snapshot.buffer.destroy();
+        resources.vertexArrays.clear();
+        resources.uniformBuffers.clear();
+    }
+
+    /** Invalidate dependent vertex arrays before retiring one program generation's pipelines. */
+    private disposeProgramResources(resources: ProgramResources): void {
+        if (resources.disposed) return;
+        resources.disposed = true;
+        resources.unsubscribe();
+        this.program_resources.delete(resources);
+        for (const mesh of this.mesh_resources) {
+            for (const [pipeline, vertexArray] of mesh.vertexArrays) {
+                if (resources.pipelines.has(pipeline)) {
+                    vertexArray.destroy();
+                    mesh.vertexArrays.delete(pipeline);
+                }
+            }
+        }
+        for (const pipeline of resources.pipelines) pipeline.destroy();
+        resources.pipelines.clear();
+        resources.layouts = new WeakMap();
+    }
+
+    /** Prevent draw-time reuse after final backend teardown. */
+    private assertAlive(): void {
+        if (this.destroyed) throw new Error('Tangram GPU backend has been destroyed');
     }
 }
 

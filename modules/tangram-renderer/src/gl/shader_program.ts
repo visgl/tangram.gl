@@ -13,6 +13,7 @@ import GLSL from './glsl';
 import Texture from './texture';
 import getExtension from './extensions';
 import hashString from '../utils/hash';
+import {notifyGPUResourceDisposal} from '../gpu/resource_lifecycle';
 
 import parseShaderErrors from 'gl-shader-errors';
 
@@ -355,10 +356,15 @@ export default class ShaderProgram {
     }
 
     destroyShaderResources() {
-        destroyShaderResource(this.vertex_shader_resource);
-        destroyShaderResource(this.fragment_shader_resource);
-        this.vertex_shader_resource = null;
-        this.fragment_shader_resource = null;
+        try {
+            notifyGPUResourceDisposal(this);
+        }
+        finally {
+            destroyShaderResource(this.vertex_shader_resource);
+            destroyShaderResource(this.fragment_shader_resource);
+            this.vertex_shader_resource = null;
+            this.fragment_shader_resource = null;
+        }
     }
 
     // Compile a non-GLSL program without creating or linking a raw WebGL program.

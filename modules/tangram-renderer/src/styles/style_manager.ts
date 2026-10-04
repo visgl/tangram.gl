@@ -383,6 +383,9 @@ export class StyleManager {
                 delete this.styles[sname];
             }
             else {
+                // Base styles are reused, but initStyles() replaces their
+                // program references. Retire owned GPU resources first.
+                this.styles[sname].destroy();
                 this.styles[sname].reset();
             }
         }

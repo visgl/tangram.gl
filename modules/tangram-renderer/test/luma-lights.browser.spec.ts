@@ -122,7 +122,7 @@ describe('native luma lights drive Tangram uniforms', () => {
 });
 
 describe('scene light integration', () => {
-    test('rebuilding derived styles releases each material and program exactly once, preserving base resources', () => {
+    test('rebuilding styles releases each material and program exactly once, preserving base objects', () => {
         const manager = new StyleManager();
         const definitions = {surface: {base: 'polygons', lighting: 'fragment'},
             road: {base: 'lines', lighting: 'vertex'}, terrain: {base: 'raster', lighting: 'fragment'}};
@@ -154,12 +154,12 @@ describe('scene light integration', () => {
             }
             styles = manager.build(definitions);
             expect(styles.polygons).toBe(base);
-            expect(baseBuffer.destroy).not.toHaveBeenCalled();
-            expect(baseProgram.destroy).not.toHaveBeenCalled();
+            expect(baseBuffer.destroy).toHaveBeenCalledTimes(1);
+            expect(baseProgram.destroy).toHaveBeenCalledTimes(1);
             for (const buffer of buffers) expect(buffer.destroy).toHaveBeenCalledTimes(1);
             for (const program of programs) expect(program.destroy).toHaveBeenCalledTimes(1);
-            // These newly constructed styles have not been initialized: they
-            // inherit base resources, but do not own them and must not free them.
+            // Reused base objects no longer carry the retired generation's
+            // resources; uninitialized descendants must not release them twice.
         }
         manager.destroy(resourceContext);
         expect(baseBuffer.destroy).toHaveBeenCalledTimes(1);

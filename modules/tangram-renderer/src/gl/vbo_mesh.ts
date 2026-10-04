@@ -10,6 +10,7 @@ import ShaderProgram from './shader_program';
 import VertexArrayObject from './vao';
 import Texture from './texture';
 import {refineGlobeMesh, type GlobeMeshOptions} from './globe_mesh';
+import {notifyGPUResourceDisposal} from '../gpu/resource_lifecycle';
 
 // A single mesh/VBO, described by a vertex layout, that can be drawn with one or more programs
 export default class VBOMesh  {
@@ -233,39 +234,44 @@ export default class VBOMesh  {
             return false;
         }
         this.valid = false;
-        this.globe_mesh?.destroy();
-        this.globe_mesh = null;
-        delete this.globe_source;
-
-        for (let v in this.vaos) {
-            VertexArrayObject.destroy(this.gl, this.vaos[v]);
+        try {
+            notifyGPUResourceDisposal(this);
         }
+        finally {
+            this.globe_mesh?.destroy();
+            this.globe_mesh = null;
+            delete this.globe_source;
 
-        if (this.vertex_buffer_resource) {
-            this.vertex_buffer_resource.destroy();
-            this.vertex_buffer_resource = null;
-        }
-        else {
-            this.gl.deleteBuffer(this.vertex_buffer);
-        }
-        this.vertex_buffer = null;
+            for (let v in this.vaos) {
+                VertexArrayObject.destroy(this.gl, this.vaos[v]);
+            }
 
-        if (this.element_buffer) {
-            if (this.element_buffer_resource) {
-                this.element_buffer_resource.destroy();
-                this.element_buffer_resource = null;
+            if (this.vertex_buffer_resource) {
+                this.vertex_buffer_resource.destroy();
+                this.vertex_buffer_resource = null;
             }
             else {
-                this.gl.deleteBuffer(this.element_buffer);
+                this.gl.deleteBuffer(this.vertex_buffer);
             }
-            this.element_buffer = null;
-        }
+            this.vertex_buffer = null;
 
-        delete this.vertex_data;
-        delete this.element_data;
+            if (this.element_buffer) {
+                if (this.element_buffer_resource) {
+                    this.element_buffer_resource.destroy();
+                    this.element_buffer_resource = null;
+                }
+                else {
+                    this.gl.deleteBuffer(this.element_buffer);
+                }
+                this.element_buffer = null;
+            }
 
-        if (this.textures) {
-            this.textures.forEach(t => Texture.release(t));
+            delete this.vertex_data;
+            delete this.element_data;
+
+            if (this.textures) {
+                this.textures.forEach(t => Texture.release(t));
+            }
         }
 
         return true;

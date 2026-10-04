@@ -40,10 +40,22 @@ renderer does not depend on deck.gl and does not create a second host device.
 
 ### GPU backend ownership
 
-Passing `device` creates one renderer-owned `LumaDeviceRenderer`. It owns the
-Tangram buffers, textures, shaders, pipelines, vertex arrays, and draw submission
-and is released by `renderer.destroy()`. The embedding application continues to
-own the luma.gl `Device` and each `RenderPass`; Tangram never destroys them.
+Passing `device` creates one renderer-owned `LumaDeviceRenderer` for draw
+submission and GPU caches. `renderer.destroy()` releases scene-owned buffers,
+textures and shader stages, then the remaining backend caches. The embedding
+application continues to own the luma.gl `Device` and each `RenderPass`; Tangram
+never destroys them.
+
+Cached vertex arrays and per-mesh uniform snapshots are released when a mesh
+retires (including a globe-refined child). Shader replacement or destruction
+invalidates that program's pipelines and dependent vertex arrays, while other
+programs and meshes keep their reusable resources. Renderer destruction releases
+the remaining caches once. Repeated draws with unchanged layouts reuse the same
+resources. Scene wrappers retain ownership of their buffers, textures and shader
+stages; cache cleanup does not destroy those shared resources.
+
+As with other luma.gl resources, retire meshes and shaders only after submitting
+render passes that reference them, not between encoding and submission.
 
 `TangramGPUBackend` documents this deck-independent internal boundary so legacy
 resource wrappers can migrate incrementally. It does not introduce a second
