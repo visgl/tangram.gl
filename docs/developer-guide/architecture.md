@@ -22,6 +22,12 @@ The split is a foundation for future shared-device and WebGPU work. It avoids
 making the standalone Tangram renderer know about deck.gl while allowing a
 deck.gl application to compose Tangram basemaps with ordinary overlay layers.
 
+Tile acquisition/reuse and resident scheduling/cache policy now have separate
+internal source and tileset boundaries. Renderer-specific traversal, refinement,
+styles and GPU content remain in Tangram adapters. See
+[tile loading and tileset alignment](./tile-loading.md) for the loaders.gl
+pre-alignment and the remaining compatibility work.
+
 ## Camera ownership
 
 The host-driven renderer uses `cameraMode: 'external'`. In this mode the host

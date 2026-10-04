@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // @ts-nocheck
 
@@ -15,6 +16,7 @@ import WorkerBroker from '../utils/worker_broker'; // jshint ignore:line
 import Tile from '../tile/tile';
 import Geo from '../utils/geo';
 import DataSource from '../sources/data_source';
+import TangramTileSourceAdapter, {iterateSourceTiles} from '../sources/tile_source_adapter';
 import {registerMvtDecoder} from '../procedures/mvt-parser';
 import {registerMvtTileProvider} from '../procedures/mvt-tile-provider';
 import '../sources/sources';
@@ -228,25 +230,8 @@ const SceneWorker = Object.assign(self, {
 
     // Load this tile's data source, or copy from an existing tile's data
     loadTileSourceData (tile) {
-        const source = this.sources[tile.source];
-        if (source) {
-            // Search existing tiles to see if we can reuse existing source data for this coordinate
-            for (const t in this.tiles) {
-                const ref = this.tiles[t];
-                if (ref.source === tile.source &&
-                    ref.coords.key === tile.coords.key &&
-                    ref.loaded) {
-                    return Promise.resolve(source.copyTileData(ref, tile));
-                }
-            }
-
-            // Load new tile data (no existing data found)
-            return source.load(tile);
-        }
-        else {
-            tile.source_data = {};
-            return Promise.resolve(tile);
-        }
+        const source = new TangramTileSourceAdapter(this.sources[tile.source], () => iterateSourceTiles(this.tiles));
+        return source.getTileData({index: tile.coords, id: tile.key, context: tile});
     },
 
     getTile(key) {
