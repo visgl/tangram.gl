@@ -3,19 +3,21 @@
 // Copyright (c) vis.gl contributors
 
 import {createReadStream} from 'node:fs';
-import {mkdir, realpath, stat} from 'node:fs/promises';
+import {mkdir, realpath, rm, stat} from 'node:fs/promises';
 import {createServer} from 'node:http';
 import {dirname, extname, resolve} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import esbuild from 'esbuild';
+import {getOcularConfig} from '@vis.gl/dev-tools';
 
 const packageDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const sourceDirectory = resolve(packageDirectory, 'src');
 const outputDirectory = resolve(packageDirectory, 'dist');
 const repositoryDirectory = resolve(packageDirectory, '../..');
 const workerEntry = resolve(sourceDirectory, 'scene/scene_worker.ts');
-const targets = ['chrome110', 'firefox110', 'safari15'];
+const ocularConfig = await getOcularConfig({root: repositoryDirectory});
+const targets = ocularConfig.bundle.target;
 const gitSha = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: repositoryDirectory, encoding: 'utf8'}).trim();
 const licenseBanner = `// Tangram\n// SPDX-License-Identifier: MIT\n// Copyright (c) 2013-2016 Brett Camper and Mapzen`;
 
@@ -55,18 +57,17 @@ function createWorkerPlugin(minified) {
 }
 
 /** Returns the generated renderer entry that assigns its embedded worker URL. */
-function createEntry(format) {
-  const exportAssignment = format === 'esm' ? `
+function createEntry() {
+  const exportAssignment = `
     export default Tangram;
     export {calculatePlanarGroundBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
       from ${JSON.stringify(resolve(sourceDirectory, 'index.ts'))};
-  ` : '';
-  const isEsm = format === 'esm';
+  `;
   return `
     import Tangram from ${JSON.stringify(resolve(sourceDirectory, 'index.ts'))};
     import workerSource from 'tangram-worker';
     Tangram.workerURL = URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'}));
-    Tangram.debug.ESM = ${isEsm};
+    Tangram.debug.ESM = true;
     Tangram.debug.SHA = ${JSON.stringify(gitSha)};
     globalThis.Tangram = Tangram;
     ${exportAssignment}
@@ -135,20 +136,19 @@ async function startRepositoryServer() {
   return server;
 }
 
-/** Builds a browser artifact in either ESM or classic-script format. */
-function getRendererBuildOptions(format, minified) {
-  const extension = format === 'esm' ? 'mjs' : 'js';
-  const outputName = `tangram.${minified ? 'min' : 'debug'}.${extension}`;
+/** Builds the debug or minified browser ES module. */
+function getRendererBuildOptions(minified) {
+  const outputName = `tangram.${minified ? 'min' : 'debug'}.mjs`;
   return {
     stdin: {
-      contents: createEntry(format),
+      contents: createEntry(),
       resolveDir: packageDirectory,
-      sourcefile: `src/tangram-entry.${extension}`,
+      sourcefile: 'src/tangram-entry.mjs',
       loader: 'ts'
     },
     outfile: resolve(outputDirectory, outputName),
     bundle: true,
-    format,
+    format: 'esm',
     platform: 'browser',
     target: targets,
     loader: {'.glsl': 'text'},
@@ -162,13 +162,13 @@ function getRendererBuildOptions(format, minified) {
 }
 
 /** Builds one renderer bundle variant. */
-async function buildRenderer(format, minified) {
-  await esbuild.build(getRendererBuildOptions(format, minified));
+async function buildRenderer(minified) {
+  await esbuild.build(getRendererBuildOptions(minified));
 }
 
 /** Returns options shared by one-shot and watch builds of the host-only entry. */
 function getCoreBuildOptions() {
-  const options = getRendererBuildOptions('esm', false);
+  const options = getRendererBuildOptions(false);
   return {
     ...options,
     stdin: {
@@ -196,17 +196,17 @@ async function buildCore() {
   }
 }
 
-/** Keeps the host-only entry fresh alongside the legacy browser bundles. */
+/** Keeps the host-only entry fresh alongside the full browser ES modules. */
 async function watchCore() {
   const context = await esbuild.context(getCoreBuildOptions());
   await context.watch();
 }
 
 /** Creates a watch context for one renderer bundle variant. */
-async function watchRenderer(format, minified) {
-  const context = await esbuild.context(getRendererBuildOptions(format, minified));
+async function watchRenderer(minified) {
+  const context = await esbuild.context(getRendererBuildOptions(minified));
   await context.watch();
-  console.log(`Watching ${format} ${minified ? 'minified' : 'debug'} renderer bundle`);
+  console.log(`Watching ESM ${minified ? 'minified' : 'debug'} renderer bundle`);
 }
 
 /** Builds the worker fixture used by browser tests. */
@@ -230,27 +230,22 @@ await mkdir(outputDirectory, {recursive: true});
 if (process.argv.includes('--test-worker')) {
   await buildTestWorker();
 } else {
-  const buildAll = async () => {
-    await buildRenderer('iife', false);
-    await buildRenderer('iife', true);
-    await buildRenderer('esm', false);
-    await buildRenderer('esm', true);
-  };
+  // Remove obsolete outputs from incremental builds as well as clean builds.
+  // These private-package artifacts have no application or website consumers.
+  for (const obsoleteOutput of ['tangram.debug.js', 'tangram.debug.js.map', 'tangram.min.js']) {
+    await rm(resolve(outputDirectory, obsoleteOutput), {force: true});
+  }
 
   if (process.argv.includes('--watch')) {
     await startRepositoryServer();
     await Promise.all([
-      watchRenderer('iife', false),
-      watchRenderer('iife', true),
-      watchRenderer('esm', false),
-      watchRenderer('esm', true),
+      watchRenderer(false),
+      watchRenderer(true),
       watchCore()
     ]);
   } else {
-    await buildRenderer('iife', false);
-    await buildRenderer('iife', true);
-    await buildRenderer('esm', false);
-    await buildRenderer('esm', true);
+    await buildRenderer(false);
+    await buildRenderer(true);
     await buildCore();
   }
 }

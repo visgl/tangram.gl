@@ -17,6 +17,7 @@ export {
   WebXRPresentation,
   WebXRViewManager
 } from './presentation';
+export type {WebXRPresentationOptions, WebXRControllerOptions, WebXRFrameOptions} from './presentation';
 export {
   longitudeLatitudeToMeters,
   metersToLongitudeLatitude,
@@ -40,6 +41,10 @@ export {
   WebXRGlobeView
 } from './views';
 export type {
+  XRViewState,
+  XRViewportSize,
+  XREyeViewportOptions,
+  XRProjectionOptions,
   XRVector3,
   XRQuaternion,
   XRGeographicPosition,

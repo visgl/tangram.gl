@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {readFileSync, statSync} from 'node:fs';
+import {existsSync, readFileSync, statSync} from 'node:fs';
 import {resolve} from 'node:path';
 
 const repositoryRoot = resolve(import.meta.dirname, '..');
@@ -13,14 +13,19 @@ const requiredArtifacts = [
   'dist/core.js',
   'dist/core.js.map',
   'dist/style-schema.js',
+  'dist/loaders-gl-worker.js',
+  'dist/loaders-gl-worker.js.map',
   'dist/tangram-style.schema.json',
-  'dist/tangram.debug.js',
-  'dist/tangram.debug.js.map',
   'dist/tangram.debug.mjs',
   'dist/tangram.debug.mjs.map',
-  'dist/tangram.min.js',
   'dist/tangram.min.mjs'
 ];
+
+for (const obsoleteOutput of ['tangram.debug.js', 'tangram.debug.js.map', 'tangram.min.js']) {
+  if (existsSync(resolve(rendererDirectory, 'dist', obsoleteOutput))) {
+    throw new Error(`Obsolete classic-script renderer output remains: ${obsoleteOutput}`);
+  }
+}
 
 for (const artifactPath of requiredArtifacts) {
   const absolutePath = resolve(rendererDirectory, artifactPath);
@@ -88,7 +93,7 @@ for (const bundlePath of ['dist/tangram.debug.mjs', 'dist/tangram.min.mjs', 'dis
   }
 }
 
-for (const bundlePath of ['dist/tangram.debug.js', 'dist/tangram.debug.mjs']) {
+for (const bundlePath of ['dist/tangram.debug.mjs']) {
   const bundle = readFileSync(resolve(rendererDirectory, bundlePath), 'utf8');
   if (!/workerURL\s*=\s*(?:window\.)?URL\.createObjectURL/.test(bundle)) {
     throw new Error(`${bundlePath} does not assemble a worker URL`);

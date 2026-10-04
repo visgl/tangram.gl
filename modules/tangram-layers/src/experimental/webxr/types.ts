@@ -3,6 +3,20 @@
 // Copyright (c) vis.gl contributors
 
 import type {HostFrameOptions, HostRenderView} from '@vis.gl/tangram-renderer';
+import type {Controller, FirstPersonViewState, MapViewState, View, Viewport} from '@deck.gl/core';
+import type {Matrix4} from '@math.gl/core';
+
+/** Shared geographic navigation state, independent of the rendered eye. */
+export type XRViewState = Omit<MapViewState, 'zoom'> & FirstPersonViewState & {zoom?: number};
+
+/** Canvas dimensions used to create a logical or per-eye viewport. */
+export type XRViewportSize = {width: number; height: number};
+
+/** Parameters used to derive an eye from the shared logical navigation state. */
+export type XREyeViewportOptions<State = XRViewState> = XRViewportSize & {viewState: State; eyeOffset?: number};
+
+/** Matrices supplied to a view-specific projection adapter. */
+export type XRProjectionOptions = {projectionMatrix: Matrix4; viewMatrix: Matrix4};
 
 /** Three-dimensional coordinate expressed in meters unless documented otherwise. */
 export type XRVector3 = readonly [number, number, number];
@@ -86,59 +100,22 @@ export type XRFrameState = {
 /** Deck view contract required by {@link WebXRPresentation}. */
 export type XRDeckView = {
   id: string;
-  constructor: {name: string; displayName?: string};
-  controller: ({type: new (properties: Record<string, unknown>) => XRDeckController} &
-    Record<string, unknown>) | null;
-  makeViewport(options: {
-    width: number;
-    height: number;
-    viewState: Record<string, unknown>;
-  }): XRDeckViewport | null;
-  makeEyeViewport?(options: {
-    width: number;
-    height: number;
-    viewState: Record<string, unknown>;
-    eyeOffset?: number;
-  }): XRDeckViewport | null;
-  getHostFrame?(viewport: XRDeckViewport): XRHostFrameFields;
+  constructor: Function & {displayName?: string};
+  controller: View['controller'];
+  makeViewport: View['makeViewport'];
+  makeEyeViewport(options: XREyeViewportOptions<Parameters<View['makeViewport']>[0]['viewState']>): XRDeckViewport | null;
+  getHostFrame(viewport: XRDeckViewport): XRHostFrameFields;
   /** Optional visibility recalculation after actual per-eye camera transforms. */
   getHostFrameForCamera?(viewport: XRDeckViewport, camera: HostRenderView['camera'],
     options?: {width?: number; height?: number}): XRHostFrameFields;
-  getXRProjectionMatrix?(options: {
-    projectionMatrix: readonly number[];
-    viewMatrix: readonly number[];
-  }): readonly number[];
+  getXRProjectionMatrix(options: XRProjectionOptions): Matrix4;
 };
 
 /** Deck viewport surface used by the package without importing private deck internals. */
-export type XRDeckViewport = {
-  id?: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  longitude?: number;
-  latitude?: number;
-  zoom?: number;
-  pitch?: number;
-  /** Logical camera/body heading in degrees, when supplied by the deck viewport. */
-  bearing?: number;
-  position?: number[];
-  viewMatrix: readonly number[];
-  projectionMatrix: readonly number[];
-  viewMatrixInverse?: readonly number[];
-  distanceScales?: {
-    unitsPerMeter: readonly number[];
-    metersPerUnit?: readonly number[];
-  };
-  getBounds?(options?: {z?: number}): [number, number, number, number];
-};
+export type XRDeckViewport = Viewport & {longitude?: number; latitude?: number; pitch?: number; bearing?: number};
 
 /** Deck controller methods used by the shared logical view. */
-export type XRDeckController = {
-  setProps(properties: Record<string, unknown>): void;
-  finalize(): void;
-};
+export type XRDeckController = Pick<Controller<never>, 'setProps' | 'finalize' | 'updateTransition'>;
 
 /** Host-frame fields derived from one logical deck viewport. */
 export type XRHostFrameFields = {
@@ -148,17 +125,25 @@ export type XRHostFrameFields = {
     altitude?: number;
     zoom: number;
   };
-  projection: HostFrameOptions['projection'];
+  projection?: HostFrameOptions['projection'];
   camera: HostRenderView['camera'];
-  tileBuffer: number;
+  tileBuffer?: number;
+  /** Optional globally resident coarse globe fallback level. */
+  globePreloadZoom?: number;
 };
 
 /** One rendered eye or mono view and its corresponding deck viewport. */
 export type XRPresentationRenderView = HostRenderView & {
   id: string;
+  /** Eye rectangle is always defined by a prepared presentation. */
+  viewport: HostFrameOptions['viewport'];
   hostFrame?: XRHostFrameFields;
   deckViewport: XRDeckViewport;
   xrView?: XRFrameView;
+  /** Logical view attached to native XR eyes for host integration. */
+  view?: XRDeckView;
+  /** Shared navigation snapshot attached to native XR eyes. */
+  viewState?: XRViewState;
 };
 
 /** Result of preparing one mono, stereo-preview, or immersive frame. */

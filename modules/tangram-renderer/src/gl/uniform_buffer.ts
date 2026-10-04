@@ -3,13 +3,49 @@
 // Copyright (c) vis.gl contributors
 
 // WebGL2 uniform buffer wrapper with std140-compatible CPU-side packing.
+import type {UniformBufferBindingLayout} from '@luma.gl/core';
+import type {TangramUniformBufferOptions} from '../gpu/tangram_gpu_backend';
 
-// @ts-nocheck
+/** Numeric scalar or vector accepted by std140 packing. */
+export type UniformBufferValue = number | boolean | ArrayLike<number | boolean>;
+
+/** Portable uniform resource; independent of a concrete backend implementation. */
+export type UniformBufferResource = {
+    write(data: Uint8Array): unknown;
+    destroy(): unknown;
+};
+
+/** Allocation and layout of a scene-owned uniform block. */
+export type UniformBufferOptions = {
+    id?: string;
+    name?: string;
+    binding?: number;
+    snapshotPerMesh?: boolean;
+    usage?: number;
+    uniforms?: Record<string, string>;
+    bufferFactory?: (options: TangramUniformBufferOptions) => UniformBufferResource;
+};
+
+/** Supported std140 element layout and corresponding shader declarations. */
+type UniformTypeInfo = {
+    alignment: number;
+    size: number;
+    kind: 'float' | 'int';
+    glsl?: string;
+    wgsl: string;
+} & ({components: number; columns?: undefined; rows?: undefined} |
+    {columns: 3 | 4; rows: 3 | 4; components?: undefined});
+
+/** Byte location of one named member within a uniform block. */
+type UniformLayoutMember = UniformTypeInfo & {name: string; type: string; offset: number};
+
+/** Packed block size and ordered named members. */
+type UniformLayout = {byte_length: number; uniforms: Record<string, UniformLayoutMember>};
 
 const BLOCK_ALIGNMENT = 16;
 const INVALID_INDEX = 0xFFFFFFFF;
 
-const TYPES = {
+const TYPES: Readonly<Record<string, UniformTypeInfo>> = {
     float: { alignment: 4, size: 4, components: 1, kind: 'float', wgsl: 'f32' },
     int: { alignment: 4, size: 4, components: 1, kind: 'int', glsl: 'highp int', wgsl: 'i32' },
     bool: { alignment: 4, size: 4, components: 1, kind: 'int', wgsl: 'u32' },
@@ -24,8 +60,34 @@ const TYPES = {
 };
 
 export default class UniformBuffer {
+    /** Legacy context, absent for portable resources and after destruction. */
+    declare gl: WebGL2RenderingContext | null;
+    /** Stable block identity. */
+    declare readonly id: string;
+    /** Shader block name. */
+    declare readonly name: string;
+    /** Shader binding location. */
+    declare readonly binding: number;
+    /** Whether encoded mesh draws need immutable copies of this block. */
+    declare readonly snapshot_per_mesh: boolean;
+    /** Legacy allocation hint, absent for portable buffers. */
+    declare readonly usage: number | null;
+    /** Immutable std140 layout. */
+    declare readonly layout: UniformLayout;
+    /** CPU storage, released during destruction. */
+    declare data: ArrayBuffer | null;
+    /** CPU packing view, released during destruction. */
+    declare data_view: DataView | null;
+    /** Portable resource, or false when the legacy allocation path was used. */
+    declare buffer_resource: UniformBufferResource | false | null;
+    /** Active portable resource or legacy WebGL handle. */
+    declare buffer: UniformBufferResource | WebGLBuffer | false | null;
+    /** Program block indices; a null entry means that block is inactive. */
+    declare program_indices: WeakMap<WebGLProgram, {index: number} | null> | null;
+    /** Whether CPU writes need uploading. */
+    declare dirty: boolean;
 
-    static isSupported(gl) {
+    static isSupported(gl: WebGL2RenderingContext | null | undefined): gl is WebGL2RenderingContext {
         return Boolean(gl &&
             gl.UNIFORM_BUFFER != null &&
             typeof gl.bindBufferBase === 'function' &&
@@ -33,9 +95,9 @@ export default class UniformBuffer {
             typeof gl.uniformBlockBinding === 'function');
     }
 
-    static createLayout(uniforms) {
+    static createLayout(uniforms: Record<string, string>): UniformLayout {
         let offset = 0;
-        const layout = {};
+        const layout: Record<string, UniformLayoutMember> = {};
 
         for (const [name, type] of Object.entries(uniforms)) {
             const type_info = TYPES[type];
@@ -54,8 +116,9 @@ export default class UniformBuffer {
         };
     }
 
-    constructor(gl, options = {}) {
-        const has_buffer_factory = typeof options.bufferFactory === 'function';
+    constructor(gl: WebGL2RenderingContext | null, options: UniformBufferOptions = {}) {
+        const bufferFactory = options.bufferFactory;
+        const has_buffer_factory = typeof bufferFactory === 'function';
         if (!UniformBuffer.isSupported(gl) && !has_buffer_factory) {
             throw new Error('UniformBuffer requires a WebGL2 context');
         }
@@ -68,16 +131,16 @@ export default class UniformBuffer {
         this.name = options.name;
         this.binding = options.binding || 0;
         this.snapshot_per_mesh = options.snapshotPerMesh === true;
-        this.usage = options.usage || (has_buffer_factory ? null : gl.DYNAMIC_DRAW);
+        this.usage = options.usage || (has_buffer_factory ? null : requireContext(gl).DYNAMIC_DRAW);
         this.layout = UniformBuffer.createLayout(options.uniforms || {});
         this.data = new ArrayBuffer(this.layout.byte_length);
         this.data_view = new DataView(this.data);
-        this.buffer_resource = has_buffer_factory && options.bufferFactory({
+        this.buffer_resource = has_buffer_factory && bufferFactory({
             id: this.id,
             byteLength: this.layout.byte_length,
             usage: 'uniform'
         });
-        this.buffer = has_buffer_factory ? this.buffer_resource : gl.createBuffer();
+        this.buffer = has_buffer_factory ? this.buffer_resource : requireContext(gl).createBuffer();
         this.program_indices = new WeakMap();
         this.dirty = false;
 
@@ -92,7 +155,8 @@ export default class UniformBuffer {
         }
         else {
             this.withBufferBinding(() => {
-                gl.bufferData(gl.UNIFORM_BUFFER, this.layout.byte_length, this.usage);
+                const context = requireContext(gl);
+                context.bufferData(context.UNIFORM_BUFFER, this.layout.byte_length, this.usage ?? context.DYNAMIC_DRAW);
             });
         }
     }
@@ -101,7 +165,7 @@ export default class UniformBuffer {
         return this.layout.byte_length;
     }
 
-    getDeclaration({ language = 'glsl', group = 0, variableName } = {}) {
+    getDeclaration({ language = 'glsl', group = 0, variableName }: {language?: string; group?: number; variableName?: string} = {}) {
         if (language === 'wgsl') {
             return this.getWGSLDeclaration({ group, variableName });
         }
@@ -114,7 +178,7 @@ export default class UniformBuffer {
         return `layout(std140) uniform ${this.name} {\n${declarations}\n};`;
     }
 
-    getWGSLDeclaration({ group = 0, variableName } = {}) {
+    getWGSLDeclaration({ group = 0, variableName }: {group?: number; variableName?: string} = {}) {
         variableName = variableName || this.name;
         const struct_name = `${this.name}Uniforms`;
         const declarations = Object.values(this.layout.uniforms)
@@ -128,7 +192,7 @@ export default class UniformBuffer {
         ].join('\n');
     }
 
-    getBindingLayout({ group = 0 } = {}) {
+    getBindingLayout({ group = 0 } = {}): UniformBufferBindingLayout {
         return {
             type: 'uniform',
             name: this.name,
@@ -138,11 +202,13 @@ export default class UniformBuffer {
         };
     }
 
-    setUniform(name, value) {
+    setUniform(name: string, value: UniformBufferValue) {
         const uniform = this.layout.uniforms[name];
         if (!uniform) {
             throw new Error(`UniformBuffer '${this.name}' has no uniform '${name}'`);
         }
+        const dataView = this.data_view;
+        if (!dataView) throw new Error(`UniformBuffer '${this.name}' has been destroyed`);
 
         const values = (typeof value === 'number' || typeof value === 'boolean') ? [value] : value;
         const required = uniform.columns ? uniform.columns * uniform.rows : uniform.components;
@@ -154,7 +220,7 @@ export default class UniformBuffer {
             for (let column = 0; column < uniform.columns; column++) {
                 for (let row = 0; row < uniform.rows; row++) {
                     const index = column * uniform.rows + row;
-                    this.data_view.setFloat32(uniform.offset + column * BLOCK_ALIGNMENT + row * 4, values[index], true);
+                    dataView.setFloat32(uniform.offset + column * BLOCK_ALIGNMENT + row * 4, Number(values[index]), true);
                 }
             }
         }
@@ -162,10 +228,10 @@ export default class UniformBuffer {
             for (let component = 0; component < uniform.components; component++) {
                 const offset = uniform.offset + component * 4;
                 if (uniform.kind === 'int') {
-                    this.data_view.setInt32(offset, values[component], true);
+                    dataView.setInt32(offset, Number(values[component]), true);
                 }
                 else {
-                    this.data_view.setFloat32(offset, values[component], true);
+                    dataView.setFloat32(offset, Number(values[component]), true);
                 }
             }
         }
@@ -174,7 +240,7 @@ export default class UniformBuffer {
         return this;
     }
 
-    setUniforms(uniforms) {
+    setUniforms(uniforms: Record<string, UniformBufferValue>) {
         for (const [name, value] of Object.entries(uniforms)) {
             this.setUniform(name, value);
         }
@@ -182,7 +248,7 @@ export default class UniformBuffer {
     }
 
     upload() {
-        if (!this.buffer || !this.dirty) {
+        if (!this.buffer || !this.dirty || !this.data) {
             return false;
         }
 
@@ -192,15 +258,16 @@ export default class UniformBuffer {
         }
         else {
             this.withBufferBinding(() => {
-                this.gl.bufferSubData(this.gl.UNIFORM_BUFFER, 0, data);
+                const gl = requireContext(this.gl);
+                gl.bufferSubData(gl.UNIFORM_BUFFER, 0, data);
             });
         }
         this.dirty = false;
         return true;
     }
 
-    bind(program) {
-        if (!this.buffer || !program || !UniformBuffer.isSupported(this.gl)) {
+    bind(program: WebGLProgram | null | undefined) {
+        if (!this.buffer || !program || !this.program_indices || !UniformBuffer.isSupported(this.gl)) {
             return false;
         }
 
@@ -225,7 +292,7 @@ export default class UniformBuffer {
         return true;
     }
 
-    invalidateProgram(program) {
+    invalidateProgram(program: WebGLProgram | null | undefined) {
         if (this.program_indices && program) {
             this.program_indices.delete(program);
         }
@@ -237,7 +304,7 @@ export default class UniformBuffer {
                 this.buffer_resource.destroy();
             }
             else {
-                this.gl.deleteBuffer(this.buffer);
+                requireContext(this.gl).deleteBuffer(this.buffer);
             }
             this.buffer = null;
         }
@@ -248,8 +315,8 @@ export default class UniformBuffer {
         this.program_indices = null;
     }
 
-    withBufferBinding(callback) {
-        const gl = this.gl;
+    withBufferBinding<Result>(callback: () => Result): Result {
+        const gl = requireContext(this.gl);
         const previous = typeof gl.getParameter === 'function' && gl.UNIFORM_BUFFER_BINDING != null ?
             gl.getParameter(gl.UNIFORM_BUFFER_BINDING) : null;
         gl.bindBuffer(gl.UNIFORM_BUFFER, this.buffer);
@@ -262,6 +329,12 @@ export default class UniformBuffer {
     }
 }
 
-function align(value, alignment) {
+function align(value: number, alignment: number) {
     return Math.ceil(value / alignment) * alignment;
+}
+
+/** Require the legacy context only when no portable resource owns the operation. */
+function requireContext(gl: WebGL2RenderingContext | null): WebGL2RenderingContext {
+    if (!gl) throw new Error('UniformBuffer requires a WebGL2 context');
+    return gl;
 }
