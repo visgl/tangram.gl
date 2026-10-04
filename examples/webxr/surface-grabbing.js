@@ -11,12 +11,21 @@ export function createSurfaceGrabControls() {
   return {
     getPlacement: () => placement,
     isGrabbing: () => grabber.isGrabbing(),
-    update(intents, context) {
+    /**
+     * Process the entire grab frame before allowing thumbstick navigation.
+     * @param {(intent: import('@vis.gl/tangram-layers/experimental/webxr').XRInteractionIntent) => void} [dispatchNavigation] Apply navigation only when no grab owns this frame.
+     */
+    update(intents, context, dispatchNavigation) {
       for (const intent of intents) {
         const wasGrabbing = grabber.isGrabbing();
         const update = grabber.dispatchInteractionIntent(intent, context);
         if (update) placement = update;
         else if (!wasGrabbing && grabber.isGrabbing()) placement = context.placement;
+      }
+      if (!grabber.isGrabbing() && dispatchNavigation) {
+        for (const intent of intents) {
+          if (intent.type === 'navigate') dispatchNavigation(intent);
+        }
       }
       return placement;
     },

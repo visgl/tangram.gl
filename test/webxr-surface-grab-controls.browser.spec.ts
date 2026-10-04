@@ -2,11 +2,71 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
-import {WebXRInputAdapter, createXRPlacementMatrix,
-  type XRMapPlacement} from '@vis.gl/tangram-layers/experimental/webxr';
+import {WebXRInputAdapter, WebXRViewManager, WebXRMapView, WebXRGlobeView, createXRPlacementMatrix,
+  type XRMapPlacement, type XRPlacement} from '@vis.gl/tangram-layers/experimental/webxr';
 import {createSurfaceGrabControls, bindReferenceSpaceReset} from '../examples/webxr/surface-grabbing.js';
+
+test.each(['map', 'globe'] as const)('%s grab acquisition suppresses the entire frame of thumbstick navigation', type => {
+  const controls = createSurfaceGrabControls();
+  const adapter = new WebXRInputAdapter();
+  const placement: XRPlacement = type === 'map'
+    ? {type, anchor: [0, 0], metersPerXRUnit: 1000, pose: {position: [0, 0, -2]}}
+    : {type, anchor: [0, 0], radius: 0.5, pose: {position: [0, 0, -2]}};
+  const initialViewState = {longitude: 0, latitude: 0, zoom: 14, bearing: 0};
+  const presentation = new WebXRViewManager({
+    view: type === 'map' ? new WebXRMapView() : new WebXRGlobeView(),
+    placement, viewState: initialViewState
+  });
+  const dispatchNavigation = vi.fn(intent => presentation.dispatchInteractionIntent(intent));
+  const ray = type === 'map'
+    ? new Matrix4().translate([0, 1, -2]).rotateX(-Math.PI / 2)
+    : new Matrix4();
+  const snapshot = (active: boolean, targetRayMatrix = ray) => ({
+    index: 0, handedness: 'left', squeezeActive: active, targetRayMatrix,
+    gamepad: {axes: [0.8, 0.6]}
+  });
+  const processFrame = (inputs: Parameters<typeof adapter.update>[0], reverse = false) => {
+    const viewState = presentation.getViewState();
+    const intents = adapter.update(inputs, 0.1);
+    // A second controller's navigation can precede the acquiring controller's grab.
+    controls.update(reverse ? [...intents].reverse() : intents,
+      {placement, viewState, placementMatrix: createXRPlacementMatrix(placement, viewState)}, dispatchNavigation);
+  };
+
+  processFrame([snapshot(true)], true);
+  expect(controls.isGrabbing()).toBe(true);
+  expect(dispatchNavigation).not.toHaveBeenCalled();
+  expect(presentation.getViewState()).toEqual(initialViewState);
+  processFrame([snapshot(true)]);
+  expect(dispatchNavigation).not.toHaveBeenCalled();
+  expect(presentation.getViewState()).toEqual(initialViewState);
+
+  processFrame([snapshot(false)]);
+  expect(controls.isGrabbing()).toBe(false);
+  expect(dispatchNavigation).toHaveBeenCalledTimes(1);
+  expect(presentation.getViewState().longitude).toBeCloseTo(0.08);
+  expect(presentation.getViewState().latitude).toBeCloseTo(-0.06);
+
+  // A ray missing either surface does not consume navigation on a new squeeze.
+  dispatchNavigation.mockClear();
+  processFrame([snapshot(true, new Matrix4().translate([100, 0, 0]))]);
+  expect(controls.isGrabbing()).toBe(false);
+  expect(dispatchNavigation).toHaveBeenCalledTimes(1);
+  expect(presentation.getViewState().longitude).toBeCloseTo(0.16);
+
+  processFrame([snapshot(false)]);
+  processFrame([snapshot(true)]);
+  expect(controls.isGrabbing()).toBe(true);
+  dispatchNavigation.mockClear();
+  // Losing the owner cancels its grab; another controller may then navigate.
+  processFrame([{...snapshot(false), index: 1}]);
+  expect(controls.isGrabbing()).toBe(false);
+  expect(dispatchNavigation).toHaveBeenCalledTimes(1);
+  expect(presentation.getViewState().longitude).toBeCloseTo(0.32);
+  presentation.finalize();
+});
 
 test('mocked controller frames preserve accepted room placement through release and clear it at session teardown', () => {
   const controls = createSurfaceGrabControls();
