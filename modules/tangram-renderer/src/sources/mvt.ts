@@ -14,7 +14,11 @@ import {
 } from '../procedures/mvt-legacy';
 import {parseMvt, registerMvtDecoder} from '../procedures/mvt-parser';
 import {getMvtTileProvider} from '../procedures/mvt-tile-provider';
+import type {MvtTileProviderSource} from '../procedures/mvt-tile-provider';
 import {parseMvtJsonProperties} from '../procedures/mvt-properties';
+import {createTileSourceMetadata} from './tile_source_metadata';
+import type {TangramTileSourceMetadata} from './tile_source_metadata';
+import {updateTileSourceRequest} from './tile_source_state';
 
 const PARSE_JSON_TYPE = {
     NONE: 0,
@@ -31,6 +35,8 @@ type MvtSourceConfig = {
 };
 
 type TileData = {
+    /** Worker cancellation may precede deferred TileJSON URL resolution. */
+    canceled?: boolean;
     min: Record<string, unknown>;
     max: Record<string, unknown>;
     coords: Record<string, unknown> & {x: number; y: number; z: number};
@@ -54,6 +60,52 @@ export class MVTSource extends NetworkTileSource {
     tile_provider?: string;
     parse_json_type!: number;
     parse_json_prop_list?: readonly string[];
+    /** Archive handles belong to this source instance, never a global URL cache. */
+    private providerSources = new Map<string, MvtTileProviderSource>();
+    /** Source replacement cancels every live tile request, including custom function providers. */
+    private providerRequests = new Set<AbortController>();
+    /** Additional archive credits are retained separately from scene-authored attribution. */
+    private providerAttributions: string[] = [];
+    /** Disposed instances cannot reopen an archive after asynchronous URL resolution. */
+    private disposed = false;
+
+    /** Resolve a factory once per effective URL; stateless registered functions stay unchanged. */
+    private getProviderSource(url: string): MvtTileProviderSource | undefined {
+        if (this.disposed) throw new Error('MVT source is disposed');
+        const provider = this.tile_provider && getMvtTileProvider(this.tile_provider);
+        if (!provider) throw new Error(`MVT tile provider '${this.tile_provider}' is not registered in this worker`);
+        if (typeof provider === 'function') return undefined;
+        let source = this.providerSources.get(url);
+        if (!source) {
+            source = provider.createSource(url, {headers: this.request_headers});
+            this.providerSources.set(url, source);
+        }
+        return source;
+    }
+
+    /** Include provider credits alongside authored and TileJSON attribution. */
+    getAttributions(): string[] { return [...new Set([...super.getAttributions(), ...this.providerAttributions])]; }
+
+    /** Normalize TileJSON and archive capabilities without changing authored layout or decoder choice. */
+    async getMetadata(): Promise<TangramTileSourceMetadata> {
+        if (!this.tile_provider) return super.getMetadata();
+        const url = await this.resolveURL();
+        const provider = this.getProviderSource(url);
+        const metadata = await provider?.getMetadata?.();
+        if (this.disposed) throw new Error('MVT source is disposed');
+        this.providerAttributions = (metadata?.attributions ?? []).filter(value => typeof value === 'string' && value.trim()).map(value => value.trim());
+        return createTileSourceMetadata(this, {...this.tile_metadata, ...metadata});
+    }
+
+    /** Dispose source-owned archive resources and cancel requests on replacement/removal/worker reset. */
+    dispose(): void {
+        super.dispose();
+        this.disposed = true;
+        for (const controller of this.providerRequests) controller.abort();
+        this.providerRequests.clear();
+        for (const provider of this.providerSources.values()) provider.dispose();
+        this.providerSources.clear();
+    }
 
     constructor (source: MvtSourceConfig, sources?: Record<string, unknown>) {
         super(source, sources);
@@ -106,13 +158,30 @@ export class MVTSource extends NetworkTileSource {
             providerTileIndex.y = Math.pow(2, providerTileIndex.z) - 1 - providerTileIndex.y;
         }
 
-        return Promise.resolve().then(() => tileProvider(url, providerTileIndex)).then(response => {
+        const controller = new AbortController();
+        if (dest.canceled) controller.abort();
+        this.providerRequests.add(controller);
+        updateTileSourceRequest(dest, {cancel: () => controller.abort()});
+        const checkActive = (): void => {
+            if (controller.signal.aborted || this.disposed) {
+                const error = new Error('MVT provider request aborted');
+                error.name = 'AbortError';
+                throw error;
+            }
+        };
+        return Promise.resolve().then(() => {
+            checkActive();
+            return typeof tileProvider === 'function' ? tileProvider(url, providerTileIndex) :
+                this.getProviderSource(url)?.getTile(providerTileIndex, controller.signal);
+        }).then(response => {
+            checkActive();
             debug.network = +new Date() - debug.network;
             debug.parsing = +new Date();
             const preprocessedResponse = response != null && typeof this.preprocess === 'function'
                 ? this.preprocess(response)
                 : response;
             return Promise.resolve(preprocessedResponse).then(processedResponse => {
+                checkActive();
                 if (processedResponse != null) {
                     this.parseSourceData(dest, sourceData, processedResponse);
                 }
@@ -125,6 +194,9 @@ export class MVTSource extends NetworkTileSource {
         }).catch(error => {
             sourceData.error = error instanceof Error ? error.stack || error.message : String(error);
             return dest;
+        }).finally(() => {
+            this.providerRequests.delete(controller);
+            updateTileSourceRequest(dest, {cancel: undefined});
         });
     }
 

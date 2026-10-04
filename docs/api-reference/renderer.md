@@ -62,7 +62,8 @@ state through its existing WebGL state manager.
 
 Returns `Promise<string[]>` containing deduplicated credit HTML from every
 current scene source, including attribution discovered when resolving TileJSON.
-Call after `load()` completes, and refresh after scene updates or source changes.
+This includes registered archive providers as well as TileJSON. Call after
+`load()` completes, and refresh after scene updates or source changes.
 The method delegates to `scene.getAttributions()` and adds no DOM or widget
 dependency. It resolves/caches TileJSON metadata but never fetches tile payloads
 just to obtain credits. Metadata failures reject; do not silently omit required
@@ -77,6 +78,18 @@ source filter.
 See [tile providers and attribution](../developer-guide/tile-providers.md) for
 OpenFreeMap compatibility and headset presentation requirements. Deck hosts can
 use [`onAttributionChange`](./tangram-layer.md#onattributionchange).
+
+### `renderer.getSourceMetadata()`
+
+Returns `Promise<Record<string, TangramTileSourceMetadata>>` keyed by scene source
+name. Each entry can contain `name`, `format`, `tileMIMEType`, `attributions`,
+`minZoom`, `maxZoom`, and `boundingBox: [[west, south], [east, north]]`.
+Archive providers are queried in their worker; no archive handle crosses this API.
+Authored bounds, sparse levels and maximum zoom override discovered values.
+Capabilities are advisory: they do not change tile traversal or select a decoder.
+Call after loading; metadata failures or source replacement during discovery reject.
+
+See [tile loading](../developer-guide/tile-loading.md#archive-capabilities-and-lifetime).
 
 ## Tile resources
 

@@ -21,6 +21,7 @@ import SharedTileSourceAdapter from '../sources/shared_tile_source_adapter';
 import {getFeatureRenderedGeneration} from '../styles/feature_annotations';
 import {registerMvtDecoder} from '../procedures/mvt-parser';
 import {registerMvtTileProvider} from '../procedures/mvt-tile-provider';
+import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
 import '../sources/sources';
 import FeatureSelection from '../selection/selection';
 import StyleParser from '../styles/style_parser';
@@ -171,6 +172,9 @@ const SceneWorker = Object.assign(self, {
                 }
             }
         });
+        for (const name in last_sources) {
+            if (this.sources[name] !== last_sources[name]) last_sources[name].dispose?.();
+        }
     },
 
     // Returns a promise that fulfills when config refresh is finished
@@ -252,10 +256,28 @@ const SceneWorker = Object.assign(self, {
         return this.sharedTileSources.store.getStatistics();
     },
 
+    /** Return current source capabilities; external provider factories are registered only in workers. */
+    async getSourceMetadata(names: readonly string[], generation = this.generation): Promise<Record<string, TangramTileSourceMetadata>> {
+        await this.awaitConfiguration();
+        if (generation !== this.generation) throw new Error('Worker configuration changed during metadata loading');
+        const sources = names.map(name => [name, this.sources[name]]);
+        return Object.fromEntries(await Promise.all(sources.map(async ([name, source]) => {
+            if (!source) throw new Error(`Source '${name}' is unavailable in this worker`);
+            const metadata = await source.getMetadata();
+            if (this.sources[name] !== source) throw new Error(`Source '${name}' changed during metadata loading`);
+            if (generation !== this.generation) throw new Error('Worker configuration changed during metadata loading');
+            return [name, metadata];
+        })));
+    },
+
     /** Explicit cleanup for worker reset; native worker termination also releases its isolated heap. */
     finalizeTileSources() {
         for (const key in this.tiles) this.removeTile(key);
         this.sharedTileSources.finalize();
+        for (const source of Object.values(this.sources)) source.dispose?.();
+        this.sources = {};
+        this.config_sources = {};
+        this.last_config_sources = {};
     },
 
     getTile(key) {

@@ -173,6 +173,7 @@ export default class Tile {
         if (tile) {
             tile.canceled = true;
             const request = getTileSourceRequest(tile);
+            request.cancel?.();
             if (request.requestId) {
                 Utils.cancelRequest(request.requestId); // cancel pending tile network request
                 updateTileSourceRequest(tile, {requestId: null});

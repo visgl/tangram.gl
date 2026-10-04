@@ -92,6 +92,8 @@ jobs:
         run: yarn build
       - name: Run dev-tools Node tests
         run: yarn test-node
+      - name: Verify lightweight parser dependency graphs and report sizes
+        run: yarn bundle-size:parsers
 
   test-headless:
     runs-on: ubuntu-22.04

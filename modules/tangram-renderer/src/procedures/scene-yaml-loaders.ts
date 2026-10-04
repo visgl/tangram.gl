@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {parseSync} from '@loaders.gl/core';
-import {YAMLLoader} from '@loaders.gl/config/bundled';
+import {YAMLLoaderWithParser} from '@loaders.gl/config/yaml-loader';
 
 /** Parse a Tangram scene with the candidate loaders.gl YAML implementation. */
 export function parseSceneYamlWithLoaders(source: string): unknown {
-  return parseSync(source, YAMLLoader, {yaml: {uniqueKeys: false}});
+  return YAMLLoaderWithParser.parseTextSync(source, {yaml: {uniqueKeys: false}});
 }

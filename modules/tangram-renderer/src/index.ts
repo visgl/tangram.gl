@@ -88,6 +88,7 @@ export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmb
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
     TangramPositionalLightExtensions, TangramLightColor} from './lights/light-definitions';
 export type {Light as LumaLight} from '@luma.gl/shadertools';
+export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
 export type {
     CalculatedViewBounds,
     GlobeVisibilityLODAdapter,

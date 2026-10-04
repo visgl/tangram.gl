@@ -27,6 +27,7 @@
     "build:artifacts": "node scripts/check-renderer-artifacts.mjs",
     "build:packages": "yarn build",
     "bundle-size": "yarn build:modules && node scripts/report-bundle-size.mjs",
+    "bundle-size:parsers": "node scripts/report-parser-bundle-size.mjs",
     "coverage:scope": "node scripts/check-coverage-scope.mjs",
     "lint": "yarn lint:licenses && ocular-lint && yarn typescript:scope",
     "lint:fix": "yarn lint:licenses:fix && ocular-lint fix",

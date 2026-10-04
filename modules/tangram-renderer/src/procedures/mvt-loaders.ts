@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {MVTLoader} from '@loaders.gl/mvt/bundled';
+import {MVTGeoJSONLoaderWithParser} from '@loaders.gl/mvt/mvt-geojson-loader';
 import Geo from '../utils/geo';
 import {parseMvtJsonProperties, type ParseJsonOption} from './mvt-properties';
 
@@ -24,8 +24,8 @@ export function parseMvtWithLoaders(
   const tileBuffer: ArrayBuffer = response instanceof Uint8Array
     ? Uint8Array.from(response).buffer as ArrayBuffer
     : response;
-  const parsed = MVTLoader.parseSync!(tileBuffer, {
-    mvt: {shape: 'geojson-table', coordinates: 'local', layerProperty: LAYER_PROPERTY}
+  const parsed = MVTGeoJSONLoaderWithParser.parseSync(tileBuffer, {
+    mvt: {coordinates: 'local', layerProperty: LAYER_PROPERTY}
   }) as GeoJsonFeatureCollection;
 
   const layers: Record<string, GeoJsonFeatureCollection> = {};
