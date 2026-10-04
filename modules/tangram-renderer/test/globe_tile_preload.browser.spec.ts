@@ -8,6 +8,7 @@ import Renderer from '../src/scene/renderer';
 import HostFrame from '../src/scene/host_frame';
 import TileManager from '../src/tile/tile_manager';
 import type {TileReference} from '../src/tile/tile_id';
+import type {ResourceTile} from '../src/tile/tile_resource_cache';
 import {TileID} from '../src/tile/tile_id';
 import {createGlobePreloadCoordinates, getGlobePreloadKey, getGlobeFallbackClipBounds} from '../src/tile/globe_tile_preload';
 
@@ -91,21 +92,23 @@ test('globe pruning retains only pinned global tiles and releases them when prel
 
 test('rotation uses pinned coarse tiles for pending detail and drops clips as detail completes', () => {
     const source = {id: 0, name: 'world', zooms: [0, 1, 2, 3, 4, 5]};
-    type CachedTile = TileReference & {key: string; loaded: boolean; built: boolean; visible: boolean;
-        meshes: Record<string, unknown[]>; fallback_for: Map<string, number[]> | null;
+    type CachedTile = TileReference & ResourceTile & {loaded: boolean;
+        fallback_for: Map<string, number[]> | null;
         fallback_pending: boolean; setProxyFor: ReturnType<typeof vi.fn>};
     const scene = {id: 'globe-preload-test', sources: {world: source}, view: {tile_zoom: 5}};
     const tiles: Record<string, CachedTile> = {};
     const visibleCoordinates: Record<string, ReturnType<typeof TileID.coord>> = {};
     const preloadState: {preload_zoom: number | undefined} = {preload_zoom: 1};
-    const manager = Object.assign(new TileManager({scene}), {scene, tiles, ...preloadState,
+    const manager = Object.assign(new TileManager<CachedTile>({scene}), {scene, tiles, ...preloadState,
         preloaded_keys: new Set<string>(), visible_coords: visibleCoordinates});
     const coarse: CachedTile = {key: 'world/0/0/1/5', coords: {x: 0, y: 0, z: 1}, source, style_z: 5,
         fallback_for: null, fallback_pending: false,
-        loaded: true, built: true, visible: false, meshes: {polygons: [{}]}, setProxyFor: vi.fn()};
+        loaded: true, loading: false, built: true, visible: false, meshes: {polygons: [{}]},
+        isProxy: () => false, setProxyFor: vi.fn()};
     const detail: CachedTile = {key: 'world/0/0/2/5', coords: {x: 0, y: 0, z: 2}, source, style_z: 5,
         fallback_pending: false, fallback_for: null,
-        loaded: true, built: false, visible: true, meshes: {polygons: [{}]}, setProxyFor: vi.fn()};
+        loaded: true, loading: false, built: false, visible: true, meshes: {polygons: [{}]},
+        isProxy: () => false, setProxyFor: vi.fn()};
     // Exercise production state transitions without a network source or worker timing.
     manager.tiles = {[coarse.key]: coarse, [detail.key]: detail};
     manager.preload_zoom = 1;
@@ -118,7 +121,7 @@ test('rotation uses pinned coarse tiles for pending detail and drops clips as de
     expect(detail.fallback_pending).toBe(true);
     expect(manager.isTilePreloaded(coarse.key)).toBe(true);
     // Empty and label-only ancestors must not hide partially built detail.
-    const unsupportedMeshes: Record<string, unknown[]>[] = [{polygons: []}, {text: [{}]}, {points: [{}]}];
+    const unsupportedMeshes: ResourceTile['meshes'][] = [{polygons: []}, {text: [{}]}, {points: [{}]}];
     for (const meshes of unsupportedMeshes) {
         coarse.meshes = meshes;
         coarse.visible = false;

@@ -22,6 +22,7 @@ module.exports = {
         'developer-guide/view-integration',
         'developer-guide/visgl-conformance',
         'developer-guide/tile-providers',
+        'developer-guide/tile-loading',
         'developer-guide/bundling',
         {type: 'doc', id: 'developer-guide/legacy-concepts', label: 'Tangram concepts'}
       ]

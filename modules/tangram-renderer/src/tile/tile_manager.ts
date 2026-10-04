@@ -14,29 +14,29 @@ import log from '../utils/log';
 import WorkerBroker from '../utils/worker_broker';
 import Task from '../utils/task';
 import {getGlobePreloadKey, getGlobeFallbackClipBounds, isGlobeFallbackStyle} from './globe_tile_preload';
-import TileBuildQueue from './tile_build_queue';
-import TileResourceCache from './tile_resource_cache';
+import TangramTileset2D from './tangram_tileset_2d';
+import type {ResourceTile} from './tile_resource_cache';
 import type {TileCoordinate} from './tile_id';
 import type {HostTileResourceOptions, TileResourceStatistics} from '../types';
 
-export default class TileManager {
+export default class TileManager<TileT extends ResourceTile = Tile> {
     /** Current eye-union logical coordinates. */
     declare visible_coords: Record<string, TileCoordinate>;
     /** Coarse source/style tiles pinned by the current globe preload policy. */
     declare preloaded_keys: Set<string>;
-    /** Shared tile worker scheduling. */
-    declare build_queue: TileBuildQueue;
-    /** Completed off-screen residency policy and diagnostics. */
-    declare resource_cache: TileResourceCache;
-    /** Opt-in limits copied and validated by HostFrame. */
-    declare resource_limits: Readonly<HostTileResourceOptions> | undefined;
+    /** Resident metadata and shared resource policy; renderer work stays in this adapter. */
+    declare tileset: TangramTileset2D<TileT>;
+
+    /** Temporary keyed-table compatibility for existing renderer and test adapters. */
+    get tiles() { return this.tileset.tileRecords; }
+    set tiles(records) { this.tileset.tileRecords = records; }
+
+    /** Worker reply/cancellation bridge into the shared scheduler. */
+    get build_queue() { return this.tileset.buildQueue; }
 
     constructor({ scene }) {
         this.scene = scene;
-        this.build_queue = new TileBuildQueue();
-        this.resource_cache = new TileResourceCache();
-        this.resource_limits = undefined;
-        this.tiles = {};
+        this.tileset = new TangramTileset2D();
         this.pyramid = new TilePyramid();
         this.visible_coords = {};
         this.queued_coords = [];
@@ -57,10 +57,7 @@ export default class TileManager {
     }
 
     destroy() {
-        this.build_queue.clear();
-        this.resource_cache.clear();
-        this.forEachTile(tile => tile.destroy());
-        this.tiles = {};
+        this.tileset.finalize(tile => tile.destroy());
         this.pyramid = null;
         this.visible_coords = {};
         this.queued_coords = [];
@@ -78,24 +75,16 @@ export default class TileManager {
     }
 
     keepTile(tile) {
-        this.tiles[tile.key] = tile;
-        this.resource_cache.touch(tile.key);
+        this.tileset.setTile(tile);
         this.pyramid.addTile(tile);
     }
 
     hasTile(key) {
-        return this.tiles[key] !== undefined;
+        return this.tileset.getTile(key) !== undefined;
     }
 
     forgetTile(key) {
-        this.build_queue.cancel(key);
-        this.resource_cache.forget(key);
-        if (this.hasTile(key)) {
-            let tile = this.tiles[key];
-            this.pyramid.removeTile(tile);
-        }
-
-        delete this.tiles[key];
+        this.tileset.forgetTile(key, tile => this.pyramid.removeTile(tile));
         this.tileBuildStop(key);
     }
 
@@ -197,8 +186,7 @@ export default class TileManager {
 
     /** Configure shared limits without starting old queued work before the new eye union is installed. */
     setResourceLimits(options: Readonly<HostTileResourceOptions> | undefined): void {
-        this.resource_limits = options;
-        this.build_queue.setLimit(options?.maxConcurrentBuilds);
+        this.tileset.setOptions(options);
     }
 
     /** Visible detail precedes global fallback, which precedes retained off-screen builds. */
@@ -208,18 +196,12 @@ export default class TileManager {
 
     /** Evict only completed unneeded tiles; visible/proxy/preload residency is reported separately. */
     enforceCacheLimits(): void {
-        const tiles = Object.values(this.tiles);
-        const isPreloaded = key => this.isTilePreloaded(key) || this.build_queue.has(key);
-        for (const tile of tiles) {
-            if (this.resource_cache.isProtected(tile, isPreloaded)) this.resource_cache.touch(tile.key);
-        }
-        for (const key of this.resource_cache.selectEvictions(tiles, this.resource_limits, isPreloaded)) this.removeTile(key);
+        for (const key of this.tileset.getEvictionKeys(key => this.isTilePreloaded(key))) this.removeTile(key);
     }
 
     /** Detached worker and mesh residency diagnostics, suitable for host UI or tests. */
     getResourceStatistics(): TileResourceStatistics {
-        return this.resource_cache.getStatistics(Object.values(this.tiles),
-            key => this.isTilePreloaded(key) || this.build_queue.has(key), this.build_queue.getCounts());
+        return this.tileset.getStatistics(key => this.isTilePreloaded(key));
     }
 
     updateLabels () {
