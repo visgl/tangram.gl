@@ -102,8 +102,11 @@ test('metadata failures reject rather than silently report incomplete attributio
     await expect(scene.getAttributions()).rejects.toThrow('TileJSON unavailable');
 });
 
-test('the host renderer delegates credits to its scene without adding a UI dependency', async () => {
+test('the host renderer delegates credits and capabilities to its scene without adding a UI dependency', async () => {
     const renderer = new Renderer({});
     vi.spyOn(renderer.scene, 'getAttributions').mockResolvedValue(['© Provider']);
     expect(await renderer.getAttributions()).toEqual(['© Provider']);
+    const metadata = {world: {format: 'pmtiles', minZoom: 0, maxZoom: 14, attributions: ['© Provider']}};
+    vi.spyOn(renderer.scene, 'getSourceMetadata').mockResolvedValue(metadata);
+    expect(await renderer.getSourceMetadata()).toEqual(metadata);
 });

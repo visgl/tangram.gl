@@ -71,11 +71,51 @@ adapters pass `userData.styleZoom` when applying Tangram's display-zoom policy;
 otherwise the bridge uses request `zoom`, then index zoom. Do not infer style
 zoom from a shared XYZ content key.
 
-Source `getMetadata()` resolves TileJSON and exposes normalized bounds, levels
-and authored/discovered credits. Explicit scene bounds and sparse levels take
-precedence. This does **not** change the legacy layout policy or automatically
-discover PMTiles/MLT archive metadata: those providers still use configured
-capabilities until their metadata interface is wired in.
+Source `getMetadata()` resolves TileJSON or registered archive metadata and
+exposes normalized bounds, levels, container format, encoded tile MIME type and
+authored/discovered credits. Explicit scene bounds, maximum zoom and sparse
+levels take precedence. Invalid advertised levels/bounds are not exposed.
+Antimeridian bounds retain their original west/east ordering. This does **not**
+change the legacy layout policy or choose a decoder automatically.
+
+`scene.getSourceMetadata()` and `renderer.getSourceMetadata()` return a record
+keyed by logical source name. Archive metadata is queried in the worker where
+its provider is registered, without importing loaders.gl into the core bundle.
+`getAttributions()` includes those archive credits. Call after `load()` resolves;
+metadata failures or a source replaced during discovery reject instead of
+returning incomplete/stale credits. URL-only sources still need explicit credits.
+
+## Archive capabilities and lifetime
+
+The existing `registerMvtTileProvider(name, function)` contract remains valid.
+A factory registration additionally supports source-owned handles:
+
+```ts
+registerMvtTileProvider('archive', {
+  createSource(url, {headers}) {
+    return {
+      async getTile(index, signal) { /* encoded MVT or MLT bytes */ },
+      async getMetadata() { /* format, tileMIMEType, bounds, levels, credits */ },
+      dispose() { /* abort requests and release archive references */ }
+    };
+  }
+});
+```
+
+The opt-in `loaders-pmtiles` worker now uses this factory. Each source instance
+owns its archive handle; no global URL cache survives source removal. Request
+headers are forwarded to byte-range requests. Cancellation remains active
+through response body completion. Metadata requests, live tile requests and
+archive references are released on replacement/removal, scene destruction or
+worker reset. Cancelled tile/preprocessor results cannot publish late geometry.
+Legacy function providers need not support transport cancellation, but their late
+results are likewise ignored. Source metadata failures remain explicit rejections.
+
+Published loaders.gl alpha.8 drops archive attribution from normalized metadata.
+The Tangram adapter also reads and caches raw archive JSON and combines its
+credits with any normalized credits until that upstream gap is fixed. Encoded
+`tileMIMEType` is distinct from the `pmtiles` container format; authored `decoder`
+remains authoritative.
 
 ## Data identity is not mesh identity
 

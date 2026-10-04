@@ -156,6 +156,16 @@ The renderer never mounts a control or trusts this HTML. The displaying host
 must sanitize it and keep the required links readable. See
 [tile providers and attribution](../developer-guide/tile-providers.md).
 
+### `getSourceMetadata()`
+
+Returns normalized TileJSON/archive capabilities keyed by logical source name.
+It is the source of the renderer's
+[`getSourceMetadata()`](./renderer.md#renderergetsourcemetadata) result and
+`getAttributions()` credits. Worker-owned providers must be initialized before
+calling it. Discovery errors and retired-source snapshots reject rather than
+returning incomplete metadata. The method does not change scene-authored layout
+or parser options.
+
 ## Media capture
 
 ### `screenshot({background = 'white'})`

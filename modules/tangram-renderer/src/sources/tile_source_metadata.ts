@@ -4,8 +4,10 @@
 
 /** Source metadata subset structurally compatible with loaders.gl TileSourceMetadata. */
 export interface TangramTileSourceMetadata {
-    /** Decoder format, not a promise to select a different parser. */
+    /** Source/container format, not a promise to select a different parser. */
     format?: string;
+    /** Encoded tile MIME type, separate from archive format and decoder selection. */
+    tileMIMEType?: string;
     /** Human-readable source name. */
     name?: string;
     /** Provider credits; consumers must sanitize before rendering HTML. */
@@ -35,15 +37,29 @@ export interface SourceMetadataInput {
 /** Normalize metadata for new consumers without changing legacy source layout or URL resolution. */
 export function createTileSourceMetadata(source: SourceMetadataInput, discovered: Record<string, unknown> = {}): TangramTileSourceMetadata {
     const config = source.config;
-    const bounds = config.bounds ?? discovered.bounds;
-    const metadata: TangramTileSourceMetadata = {name: source.name, attributions: source.getAttributions(),
+    const bounds = config.bounds ?? discovered.bounds ?? discovered.boundingBox;
+    const metadata: TangramTileSourceMetadata = {name: typeof discovered.name === 'string' ? discovered.name : source.name, attributions: source.getAttributions(),
         minZoom: source.zooms[0], maxZoom: source.max_zoom};
-    const format = config.type ?? discovered.format;
+    const format = discovered.format ?? config.type;
     if (typeof format === 'string') metadata.format = format;
-    if (config.zooms === undefined && config.max_zoom === undefined && typeof discovered.maxzoom === 'number') metadata.maxZoom = discovered.maxzoom;
-    if (config.zooms === undefined && typeof discovered.minzoom === 'number') metadata.minZoom = discovered.minzoom;
-    if (Array.isArray(bounds) && bounds.length === 4 && bounds.every(value => typeof value === 'number' && Number.isFinite(value))) {
-        metadata.boundingBox = [[bounds[0], bounds[1]], [bounds[2], bounds[3]]];
+    if (typeof discovered.tileMIMEType === 'string') metadata.tileMIMEType = discovered.tileMIMEType;
+    const maximum = discovered.maxzoom ?? discovered.maxZoom;
+    const minimum = discovered.minzoom ?? discovered.minZoom;
+    if (config.zooms === undefined && config.max_zoom === undefined && validZoom(maximum)) metadata.maxZoom = maximum;
+    if (config.zooms === undefined && validZoom(minimum)) metadata.minZoom = minimum;
+    if (metadata.minZoom !== undefined && metadata.maxZoom !== undefined && metadata.minZoom > metadata.maxZoom) {
+        metadata.minZoom = source.zooms[0];
+        metadata.maxZoom = source.max_zoom;
+    }
+    const flattened = Array.isArray(bounds) && bounds.length === 2 && bounds.every(value => Array.isArray(value) && value.length === 2) ? bounds.flat() : bounds;
+    if (Array.isArray(flattened) && flattened.length === 4 && flattened.every(value => typeof value === 'number' && Number.isFinite(value)) &&
+        Math.abs(flattened[0]) <= 180 && Math.abs(flattened[2]) <= 180 && flattened[1] >= -90 && flattened[3] <= 90 && flattened[1] <= flattened[3]) {
+        metadata.boundingBox = [[flattened[0], flattened[1]], [flattened[2], flattened[3]]];
     }
     return metadata;
+}
+
+/** Reject unusable advertised levels rather than passing NaN or infinite values to traversal. */
+function validZoom(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 30;
 }

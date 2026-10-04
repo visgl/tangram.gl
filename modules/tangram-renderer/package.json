@@ -51,13 +51,13 @@
     "test-build-worker": "node scripts/build.mjs --test-worker"
   },
   "devDependencies": {
-    "@loaders.gl/config": "5.0.0-alpha.4",
-    "@loaders.gl/core": "5.0.0-alpha.4",
-    "@loaders.gl/loader-utils": "5.0.0-alpha.6",
-    "@loaders.gl/mlt": "5.0.0-alpha.6",
-    "@loaders.gl/mvt": "5.0.0-alpha.4",
-    "@loaders.gl/pmtiles": "5.0.0-alpha.6",
-    "@loaders.gl/tiles": "5.0.0-alpha.6",
+    "@loaders.gl/config": "5.0.0-alpha.8",
+    "@loaders.gl/core": "5.0.0-alpha.8",
+    "@loaders.gl/loader-utils": "5.0.0-alpha.8",
+    "@loaders.gl/mlt": "5.0.0-alpha.8",
+    "@loaders.gl/mvt": "5.0.0-alpha.8",
+    "@loaders.gl/pmtiles": "5.0.0-alpha.8",
+    "@loaders.gl/tiles": "5.0.0-alpha.8",
     "esbuild": "^0.28.1"
   },
   "dependencies": {

@@ -21,10 +21,6 @@ import {
 import Geo from '../modules/tangram-renderer/src/utils/geo.js';
 
 const CLASSIC_EXAMPLES_DIRECTORY = join(process.cwd(), 'examples/classic');
-const EXPECTED_YAML_GAPS = new Map<string, RegExp>([
-  ['scene.yaml', /Unexpected trailing content/i],
-  ['openmaptiles-mapzen-compat.yaml', /alias/i]
-]);
 
 function listYamlFiles(directory: string): string[] {
   return readdirSync(directory, {withFileTypes: true}).flatMap(entry => {
@@ -43,28 +39,41 @@ describe('vis.gl procedure conformance', () => {
       filePath => {
         const source = readFileSync(filePath, 'utf8');
         const legacyResult = parseSceneYamlLegacy(source);
-        const expectedGap = EXPECTED_YAML_GAPS.get(filePath.split('/').at(-1) || '');
-        if (expectedGap) {
-          expect(() => parseSceneYamlWithLoaders(source)).toThrow(expectedGap);
-        } else {
-          expect(parseSceneYamlWithLoaders(source)).toEqual(legacyResult);
-        }
+        expect(parseSceneYamlWithLoaders(source)).toEqual(legacyResult);
       }
     );
 
-    it('documents the loaders.gl anchor and alias compatibility gap', () => {
+    it('preserves anchors and aliases', () => {
       const source = 'palette: &palette\n  road: cyan\ncopy: *palette\n';
       expect(parseSceneYamlLegacy(source)).toEqual({
         palette: {road: 'cyan'},
         copy: {road: 'cyan'}
       });
-      expect(() => parseSceneYamlWithLoaders(source)).toThrow(/alias/i);
+      expect(parseSceneYamlWithLoaders(source)).toEqual(parseSceneYamlLegacy(source));
     });
 
-    it('documents the loaders.gl comma-containing plain scalar compatibility gap', () => {
+    it('preserves comma-containing plain scalars', () => {
       const source = 'fill: rgba(136, 45, 23, 0.9)\n';
       expect(parseSceneYamlLegacy(source)).toEqual({fill: 'rgba(136, 45, 23, 0.9)'});
-      expect(() => parseSceneYamlWithLoaders(source)).toThrow(/trailing content/i);
+      expect(parseSceneYamlWithLoaders(source)).toEqual(parseSceneYamlLegacy(source));
+    });
+    it.each([
+      'defaults: &defaults\n  width: 2\n  color: cyan\nroads:\n  <<: *defaults\n  width: 4\n',
+      'width: 2\nwidth: 4\n',
+      'function: |\n  function() { return global.color; }\nurl: ../tiles/{z}/{x}/{y}.mvt\n',
+      'values: [true, false, null, 1, -2, 0.25, 0x10]\n',
+      'defaults: &defaults [1, 2]\nfirst: *defaults\nsecond: *defaults\n'
+    ])('preserves scene scalar and merge semantics: %s', source => {
+      expect(parseSceneYamlWithLoaders(source)).toEqual(parseSceneYamlLegacy(source));
+    });
+    it('keeps production YAML on the legacy parser while published scalar/flow-merge gaps remain', () => {
+      const flowMerge = 'defaults: &defaults {width: 2, color: cyan}\nroads: {<<: *defaults, width: 4}\n';
+      expect(parseSceneYamlLegacy(flowMerge)).toEqual({defaults: {width: 2, color: 'cyan'}, roads: {width: 4, color: 'cyan'}});
+      expect(parseSceneYamlWithLoaders(flowMerge)).toEqual({defaults: {width: 2, color: 'cyan'}, roads: {'<<': {width: 2, color: 'cyan'}, width: 4}});
+      expect(parseSceneYamlLegacy('value: 1e3\n')).toEqual({value: '1e3'});
+      expect(parseSceneYamlWithLoaders('value: 1e3\n')).toEqual({value: 1000});
+      expect(parseSceneYamlLegacy('date: 2026-10-04\n')).toEqual({date: new Date('2026-10-04')});
+      expect(parseSceneYamlWithLoaders('date: 2026-10-04\n')).toEqual({date: '2026-10-04'});
     });
   });
 
@@ -122,6 +131,19 @@ describe('vis.gl procedure conformance', () => {
       expect(parseMvtWithLoaders(tile, {parseJson: ['metadata']})).toEqual(
         parseMvtWithLegacy(tile, {parseJson: ['metadata']})
       );
+    });
+    it.each([256, 4096, 8192])('matches non-default extent %d and offset byte views', extent => {
+      const encoded = new Uint8Array(MVTWriter.encodeSync(source, {mvt: {layerName: 'roads', extent}}));
+      const padded = new Uint8Array(encoded.length + 4);
+      padded.set(encoded, 2);
+      const view = padded.subarray(2, 2 + encoded.length);
+      expect(parseMvtWithLoaders(view)).toEqual(parseMvtWithLegacy(view));
+    });
+    it('records the reserved layer-property collision that still blocks a default MVT switch', () => {
+      const encoded = MVTWriter.encodeSync({...source, features: [{...source.features[0],
+        properties: {__tangram_layer: 'authored value'}}]}, {mvt: {layerName: 'roads', extent: 4096}});
+      expect(parseMvtWithLegacy(encoded).roads.features[0].properties).toEqual({__tangram_layer: 'authored value'});
+      expect(parseMvtWithLoaders(encoded).roads.features[0].properties).toEqual({});
     });
   });
 

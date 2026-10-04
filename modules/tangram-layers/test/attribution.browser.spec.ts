@@ -80,13 +80,13 @@ test('an existing source replacement reaches the layer attribution callback thro
             const record = layer._createTangramRecord(layer.props);
             if (!record) throw new Error('Expected a valid attribution layer record');
             await record.loadPromise;
-            await flushCredits();
-            expect(onAttributionChange).toHaveBeenLastCalledWith(['© Old provider'], scene);
+            await vi.waitFor(() => expect(onAttributionChange).toHaveBeenLastCalledWith(['© Old provider'], scene));
 
             await scene.setDataSource('basemap', {...source, url: 'https://new.example/{z}/{x}/{y}.pbf', attribution: '© New provider'});
-            await flushCredits();
-            expect(onAttributionChange).toHaveBeenCalledTimes(2);
-            expect(onAttributionChange).toHaveBeenLastCalledWith(['© New provider'], scene);
+            await vi.waitFor(() => {
+                expect(onAttributionChange).toHaveBeenCalledTimes(2);
+                expect(onAttributionChange).toHaveBeenLastCalledWith(['© New provider'], scene);
+            });
         } finally {
             synchronize.mockRestore();
         }

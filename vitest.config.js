@@ -17,6 +17,8 @@ export default getVitestConfig({
   overrides: {
     optimizeDeps: {include: [
       'sinon', '@luma.gl/experimental',
+      // Archive/parser conformance imports must not reload unrelated tests mid-run.
+      '@loaders.gl/pmtiles', '@loaders.gl/mvt/mvt-geojson-loader',
       '@deck.gl-community/panels',
       'monaco-editor',
       // Eagerly optimize Monaco's lazy JSON runtime so first use cannot reload

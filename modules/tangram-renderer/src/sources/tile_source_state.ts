@@ -42,6 +42,8 @@ export interface DecodedTilePayload {
 
 /** Per-request mutable state, never shared with an overzoom payload. */
 export interface TileSourceRequestState {
+    /** Source-owned cancellation hook for providers that do not use legacy XHR request IDs. */
+    cancel?: () => void;
     /** Legacy cancellation identity, when a provider exposes one. */
     requestId?: string | null;
     /** Resolved provider error, distinct from a thrown/rejected load. */
@@ -76,7 +78,7 @@ export function updateTileSourceRequest(context: TileDataContext, changes: Parti
     if ('requestId' in changes) legacy.request_id = changes.requestId;
     if ('error' in changes) legacy.error = changes.error;
     if ('url' in changes) legacy.url = changes.url;
-    if (changes.requestId) cancellationListeners.get(context)?.();
+    if (changes.requestId || changes.cancel) cancellationListeners.get(context)?.();
 }
 
 /** Keep a cancellation hook attached until the legacy load settles, including late request IDs. */

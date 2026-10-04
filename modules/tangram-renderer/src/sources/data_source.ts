@@ -111,6 +111,10 @@ export default class DataSource {
         return Promise.resolve(createTileSourceMetadata(this));
     }
 
+    /** Release source-owned resources. Stateless sources intentionally have nothing to release. */
+    dispose(): void {
+    }
+
     // Register a new data source type name, providing a function that returns the class name
     // to instantiate based on the source definition in the scene
     static register (type_name: string, type_func: DataSourceFactory): void {
@@ -325,6 +329,10 @@ export class NetworkSource extends DataSource {
     tilejson_promise?: Promise<string>;
     /** Discovered TileJSON metadata for aligned consumers, separate from layout policy. */
     protected tile_metadata?: Record<string, unknown>;
+    /** TileJSON request identity belongs to the source, not to any individual tile consumer. */
+    private metadata_request_id?: string;
+    /** Source replacement must not allow late metadata to initialize a retired source. */
+    protected source_disposed = false;
 
     constructor (source: SourceConfig, sources?: Record<string, any>) {
         super(source, sources);
@@ -348,13 +356,16 @@ export class NetworkSource extends DataSource {
     }
 
     resolveURL (): Promise<string> {
+        if (this.source_disposed) return Promise.reject(new Error('Network source is disposed'));
         if (this.url) {
             return Promise.resolve(this.url);
         }
 
         if (!this.tilejson_promise) {
-            this.tilejson_promise = Utils.io(this.tilejson, 60 * 1000, 'text', 'GET', this.request_headers)
+            this.metadata_request_id = `metadata-${network_request_id++}-${this.tilejson}`;
+            this.tilejson_promise = Utils.io(this.tilejson, 60 * 1000, 'text', 'GET', this.request_headers, this.metadata_request_id)
                 .then(({ body }) => {
+                    if (this.source_disposed) throw new Error('Network source is disposed');
                     const metadata = (typeof body === 'string') ? JSON.parse(body) : body;
                     if (!metadata || !Array.isArray(metadata.tiles) || typeof metadata.tiles[0] !== 'string') {
                         throw Error(`Data source '${this.name}': TileJSON must provide at least one tile URL`);
@@ -363,7 +374,7 @@ export class NetworkSource extends DataSource {
                     this.metadata_attribution = typeof metadata.attribution === 'string' ? metadata.attribution : undefined;
                     this.tile_metadata = metadata;
                     return this.url;
-                });
+                }).finally(() => { this.metadata_request_id = undefined; });
         }
         return this.tilejson_promise;
     }
@@ -372,6 +383,13 @@ export class NetworkSource extends DataSource {
     async getMetadata(): Promise<TangramTileSourceMetadata> {
         await this.resolveURL();
         return createTileSourceMetadata(this, this.tile_metadata);
+    }
+
+    /** Cancel metadata initialization and prevent deferred URL resolution after removal. */
+    dispose(): void {
+        this.source_disposed = true;
+        if (this.metadata_request_id) Utils.cancelRequest(this.metadata_request_id);
+        this.metadata_request_id = undefined;
     }
 
     addURLParams (url: string): string {

@@ -28,7 +28,7 @@ import {normalizeSceneLights} from '../lights/light-definitions';
 import {PORTABLE_LIGHT_UNIFORMS, getPortableLightUniforms} from '../lights/lighting-uniforms';
 import TileManager from '../tile/tile_manager';
 import {isGlobeFallbackStyle} from '../tile/globe_tile_preload';
-import DataSource, {NetworkSource} from '../sources/data_source';
+import DataSource from '../sources/data_source';
 import '../sources/sources';
 import FeatureSelection from '../selection/selection';
 import RenderStateManager from '../gl/render_state';
@@ -40,6 +40,7 @@ import {getWorkerURL} from './worker_url';
 import type {ViewScene} from './view';
 import type {SceneListeners, SceneDefinition, SceneLoadOptions} from '../types';
 import type {RenderPass} from '@luma.gl/core';
+import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
@@ -291,6 +292,7 @@ export default class Scene {
         }
         this.resources_initialized = false;
 
+        for (const source of Object.values(this.sources)) source.dispose?.();
         this.sources = {};
 
         this.destroyWorkers();
@@ -1349,11 +1351,13 @@ export default class Scene {
             if (rebuild_all || DataSource.tileLayoutChanged(this.sources[name], prev_source)) {
                 reset.push(name);
             }
+            if (this.sources[name] !== prev_source) prev_source?.dispose?.();
         }
 
         // Sources that were removed
         prev_source_names.forEach(s => {
             if (!this.config.sources[s]) {
+                this.sources[s]?.dispose?.();
                 delete this.sources[s]; // TODO: remove from workers too?
                 reset.push(s);
             }
@@ -1547,10 +1551,28 @@ export default class Scene {
      * Metadata loading is cached by each source; failures reject instead of silently dropping credits.
      */
     async getAttributions(): Promise<string[]> {
-        const sources: DataSource[] = Object.values(this.sources);
-        await Promise.all(sources.map(source => source instanceof NetworkSource && source.tilejson
-            ? source.resolveURL() : undefined));
-        return [...new Set(sources.flatMap(source => source.getAttributions()))];
+        const metadata = await this.getSourceMetadata();
+        return [...new Set(Object.values(metadata).flatMap(source => source.attributions ?? []))];
+    }
+
+    /** Resolve unified source capabilities; archive providers remain isolated in their worker. */
+    async getSourceMetadata(): Promise<Record<string, TangramTileSourceMetadata>> {
+        const sources = {...this.sources};
+        const providerNames = Object.keys(sources).filter(name => sources[name].tile_provider);
+        const metadata = Object.fromEntries(await Promise.all(Object.entries(sources)
+            .filter(([name]) => !providerNames.includes(name))
+            .map(async ([name, source]) => [name, await source.getMetadata()])));
+        if (providerNames.length > 0) {
+            if (!this.workers?.length) throw new Error('Provider metadata requires an initialized scene worker');
+            const generation = this.generation;
+            Object.assign(metadata, await WorkerBroker.postMessage(this.workers[0], 'self.getSourceMetadata', providerNames, generation));
+            if (generation !== this.generation) throw new Error('Scene changed during metadata loading');
+        }
+        if (Object.keys(sources).length !== Object.keys(this.sources).length ||
+            Object.keys(sources).some(name => sources[name] !== this.sources[name])) {
+            throw new Error('Sources changed during metadata loading');
+        }
+        return metadata;
     }
 
     // Update scene config, and optionally rebuild geometry

@@ -18,15 +18,22 @@ This structure lets us measure compatibility before changing runtime behavior:
 
 | Procedure | Production implementation | Candidate | Current result |
 | --- | --- | --- | --- |
-| Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/config` | 21 of 23 classic scenes match exactly |
-| Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/mvt` | Generated point, line, and polygon fixtures match exactly |
+| Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/config/yaml-loader` alpha.8 | All 26 classic scene files match; flow merges, timestamps and scientific scalar syntax still differ |
+| Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/mvt/mvt-geojson-loader` alpha.8 | Points, lines, polygons, extents, IDs and `parse_json` match; an authored `__tangram_layer` property is still overwritten by the candidate |
+| Archive loading | Optional worker provider | `@loaders.gl/pmtiles` alpha.8 | Hermetic 16 KB PMTiles v3 fixture checks range requests, raw bytes, metadata, credits and both MVT decoders |
 | Web Mercator | `@math.gl/web-mercator` plus Tangram meter adapter | Tangram projection formulas | Edge-domain round trips and tile selection match within numeric tolerance |
 | Matrix operations | `@math.gl/core` `Matrix3`/`Matrix4` in camera and tile paths | Golden outputs captured from `gl-mat3@1.0.0` and `gl-mat4@1.1.4` | Identity, transforms, projection, look-at, inversion, and singular-matrix behavior match in conformance tests |
 
-The loaders.gl YAML parser currently cannot parse YAML anchors and aliases. It
-also rejects an unquoted `rgba(...)` expression accepted by the legacy parser.
-Both gaps are recorded as expected incompatibilities in the corpus test rather
-than hidden by normalizing or editing the source scenes.
+The published YAML parser now supports anchors, aliases, block merge keys and
+unquoted `rgba(...)`. The complete classic corpus is compared directly, without
+expected failures or edits to scene fixtures. Additional semantic checks expose
+remaining gaps: flow-style `<<` remains a literal property, timestamps remain
+strings instead of `Date`, and `1e3` becomes a number instead of Tangram's string.
+These are explicit incompatibility tests, not a claim that the default parser
+can safely change. MVT also retains its legacy default until the injected
+layer-property collision can be eliminated without losing authored properties.
+MLT remains an explicitly selected worker decoder; there is no legacy MLT parser
+to replace or basis for claiming a full MVT/MLT conformance corpus.
 
 The projection adapter converts math.gl's 512-unit world coordinates to
 EPSG:3857 meters using Tangram's circumference constant. Tangram's projected Y
@@ -38,8 +45,9 @@ the same `Math.floor` behavior as before.
 
 ## Candidate dependency policy
 
-The YAML and MVT candidates are not imported by package entrypoints or the
-production renderer graph. Keeping them in `devDependencies` prevents those
+The YAML and MVT candidates are not imported by normal package entrypoints or the
+production renderer graph. The opt-in `loaders-gl-worker.js` bundles MVT, MLT and
+PMTiles integrations separately. Keeping them in `devDependencies` prevents those
 evaluations from changing application bundle size or requiring applications to
 install both implementations. The exact loaders.gl alpha is pinned while its
 new config loader is evaluated. The math.gl projection and matrix classes are
@@ -64,10 +72,10 @@ directly while preserving Tangram's caller-owned typed-array boundaries. The
 legacy projection formula remains in tests, and captured matrix outputs preserve
 the matrix comparison after the legacy packages are removed.
 
-## Bundle-size baseline
+## Historical matrix-migration baseline
 
-The following compares current `master` against this tranche using
-`yarn bundle-size`. These figures include the full renderer dependency graph;
+The following records the matrix-migration tranche and its preceding `master`,
+using `yarn bundle-size`. These figures include the full renderer dependency graph;
 they are not an isolated measurement of `@math.gl/core`:
 
 | Production artifact | `master` raw / gzip | Native matrix calls raw / gzip | Difference |
@@ -76,17 +84,39 @@ they are not an isolated measurement of `@math.gl/core`:
 | Renderer debug ESM | 1,796.4 / 394.9 KB | 1,867.2 / 409.1 KB | +70.8 / +14.2 KB |
 | TangramLayer + renderer minified ESM (additive upper bound) | 949.4 / 281.4 KB | 980.9 / 290.5 KB | +31.5 / +9.1 KB |
 
-Standalone minified candidate probes provide an early upper-bound for a future
-switch: loaders.gl YAML is approximately 54,880 raw / 17,811 gzip bytes,
-loaders.gl MVT is 339,709 / 88,905 bytes, and the math.gl Web Mercator helpers
-are 476 / 337 bytes. Native matrix calls reduce the renderer artifact by 1.3 KB
-raw / 0.4 KB gzip compared with the preceding compatibility-adapter tranche.
-The MVT result identifies an upstream optimization target:
-a GeoJSON-only parser entry should not pull in Arrow and binary-geometry
-conversion support. MVT remains opt-in until the lightweight parser is
-published and Tangram's worker integration is validated against it. The matrix
-math.gl matrix migration raises the measured renderer bundle by about 9.0 KB gzip; this full
-dependency-graph change should be reviewed against the compatibility and
-maintenance benefits. The legacy matrix packages have now been removed from
+Native matrix calls reduced the renderer artifact by 1.3 KB raw / 0.4 KB gzip
+compared with the preceding compatibility-adapter tranche. The overall matrix
+migration raised the measured renderer bundle by about 9.0 KB gzip. Older
+broad-import parser probes are superseded by the lightweight probes below.
+The legacy matrix packages have been removed from
 development dependencies while golden output fixtures retain the conformance
 coverage.
+
+## Current parser probes and rollout gate
+
+Run `yarn bundle-size:parsers` to reproduce minified browser probes including
+the Tangram normalization adapter. The script also rejects accidental Arrow/GIS
+conversion imports in the lightweight MVT graph. Measurements use decimal KB:
+
+| Parser with adapter | Minified | Gzip |
+| --- | ---: | ---: |
+| Legacy YAML | 32.4 KB | 10.6 KB |
+| loaders.gl YAML alpha.8 | 9.6 KB | 3.1 KB |
+| Legacy MVT | 22.7 KB | 7.3 KB |
+| loaders.gl lightweight MVT alpha.8 | 25.4 KB | 8.4 KB |
+
+These supersede historical broad-import parser estimates, not the matrix
+migration numbers. Both default parser switches remain blocked by the semantic
+gaps above. No legacy dependency is removed while production still imports it.
+Published PMTiles drops attribution while normalizing archive metadata; the
+source adapter additionally reads raw archive JSON and caches the combined
+credits until upstream fixes that behavior. Its native Node import reaches an
+extensionless `@maplibre/mlt` import; archive integration therefore runs in Chromium, its
+intended worker runtime, while transport lifecycle is tested separately in Node.
+
+The source-capability tranche adds 6.5 KB minified / 1.9 KB gzip to the complete
+renderer (1,068.6 / 316.1 KB becomes 1,075.2 / 318.0 KB); that is lifecycle/API
+code, not a new runtime loaders.gl import. The opt-in worker decreases from
+988.0 / 236.6 KB to 929.2 / 221.5 KB. The TangramLayer root and experimental
+WebXR entries remain unchanged. Renderer totals include both the main code and
+its embedded worker and are not isolated parser measurements.

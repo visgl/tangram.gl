@@ -58,6 +58,7 @@ export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmb
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
     TangramPositionalLightExtensions, TangramLightColor} from './lights/light-definitions';
 export type {Light as LumaLight} from '@luma.gl/shadertools';
+export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
 
 export declare class Scene {
   static create(config: SceneDefinition, options?: RendererOptions): Scene;
@@ -67,6 +68,8 @@ export declare class Scene {
   updateConfig(options?: SceneUpdateOptions): Promise<void>;
   /** Deduplicated source/TileJSON credits; HTML must be sanitized by the displaying host. */
   getAttributions(): Promise<string[]>;
+  /** Normalized TileJSON/archive capabilities, preserving authored source overrides. */
+  getSourceMetadata(): Promise<Record<string, import('./sources/tile_source_metadata').TangramTileSourceMetadata>>;
   /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
   getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   setDataSource(name: string, config: SceneDataSource): Promise<unknown> | undefined;
@@ -90,6 +93,8 @@ export declare class ClassicWebGLRenderer {
   load(config?: SceneDefinition | null, options?: SceneLoadOptions): Promise<unknown>;
   /** Current source/TileJSON credits for the host's attribution UI. */
   getAttributions(): Promise<string[]>;
+  /** Current source capabilities without exposing worker/archive ownership. */
+  getSourceMetadata(): Promise<Record<string, import('./sources/tile_source_metadata').TangramTileSourceMetadata>>;
   /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
   getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   subscribe(listeners: SceneListeners): void;
