@@ -18,7 +18,8 @@ sources:
       function(data) {
           return transformOpenMapTilesToMapzen(data);
       }
-    attribution: |
+    # Match the TileJSON credit string so explicit and discovered credits deduplicate.
+    attribution: >-
       <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a>
       <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a>
       Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>

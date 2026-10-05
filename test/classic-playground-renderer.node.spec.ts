@@ -6,10 +6,10 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {createClassicPlaygroundRenderer} from '../examples/classic/app/playground-renderer.js';
 
 /** Create a scene loader with no browser or GPU dependencies. */
-function createHarness() {
+function createHarness(onSceneLoaded?: () => void | Promise<void>) {
   const scene = {load: vi.fn(async (_value: object, _options: object) => {}), subscribe: vi.fn(), unsubscribe: vi.fn()};
   const renderer = createClassicPlaygroundRenderer({scene,
-    resolveSceneUrl: (name: string) => new URL(name, 'https://example.test/classic/').href});
+    resolveSceneUrl: (name: string) => new URL(name, 'https://example.test/classic/').href, onSceneLoaded});
   const update = (value: object, controller = new AbortController()) => ({
     promise: renderer.update(null, value, '', {signal: controller.signal, templateId: 'styles/tron.yaml'}), controller
   });
@@ -69,4 +69,21 @@ test('finalization settles the pending update without loading or leaving a timer
   await vi.advanceTimersByTimeAsync(400);
   expect(scene.load).not.toHaveBeenCalled();
   expect(vi.getTimerCount()).toBe(0);
+});
+
+test('refreshes credits after the accepted scene, not after a superseded in-flight load', async () => {
+  const refresh = vi.fn(async () => {});
+  const {scene, update} = createHarness(refresh);
+  let release!: () => void;
+  scene.load.mockImplementationOnce(() => new Promise(resolve => {release = resolve;}));
+  const obsolete = update({old: true});
+  await vi.advanceTimersByTimeAsync(400);
+  obsolete.controller.abort();
+  release();
+  await obsolete.promise;
+  expect(refresh).not.toHaveBeenCalled();
+  const current = update({current: true});
+  await vi.advanceTimersByTimeAsync(400);
+  await current.promise;
+  expect(refresh).toHaveBeenCalledExactlyOnceWith();
 });

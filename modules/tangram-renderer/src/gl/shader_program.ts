@@ -23,8 +23,18 @@ const re_continue_line = /\\\s*\n/mg;   // for removing backslash line continuat
 const re_fragment_color = /\bgl_FragColor\b/g;
 const re_texture_2d = /\btexture2D\b/g;
 const re_texture_cube = /\btextureCube\b/g;
+/** Wrapper ownership of cached raw programs; device-owned shaders use their own lifecycle. */
+const programReferences = new WeakMap<WebGLProgram, number>();
 
 export default class ShaderProgram {
+    /** Linked raw program owned by this wrapper, or null for device compilation. */
+    declare program: WebGLProgram | null;
+    /** Authored fragment source, before Tangram shader block composition. */
+    declare fragment_source: string;
+    /** Raw programs shared by exact source and context identity. */
+    declare static programs_by_source: Record<string, WebGLProgram>;
+    /** Clear source lookup caches without changing ownership of live programs. */
+    declare static reset: () => void;
     /** Global shader defines shared by the Tangram block composer. */
     declare static defines: Record<string, unknown>;
     /** Append named GLSL blocks; implemented below for legacy compatibility. */
@@ -82,7 +92,8 @@ export default class ShaderProgram {
     destroy() {
         if (this.shader_language === 'glsl' && !this.device_shader_compilation) {
             this.gl.useProgram(null);
-            this.gl.deleteProgram(this.program);
+            ShaderProgram.current = null;
+            ShaderProgram.releaseProgram(this.gl, this.program);
         }
         this.destroyShaderResources();
         this.program = null;
@@ -950,6 +961,23 @@ ShaderProgram.resetCurrent = function () {
     ShaderProgram.current = null;
 };
 
+/** Release one wrapper's program and evict it only when its last owner retires. */
+ShaderProgram.releaseProgram = function (gl, program) {
+    if (!program) return;
+    const references = programReferences.get(program) || 1;
+    if (references > 1) {
+        programReferences.set(program, references - 1);
+        return;
+    }
+    programReferences.delete(program);
+    for (const key of Object.keys(ShaderProgram.programs_by_source)) {
+        if (ShaderProgram.programs_by_source[key] === program) {
+            delete ShaderProgram.programs_by_source[key];
+        }
+    }
+    gl.deleteProgram(program);
+};
+
 // Upgrade the subset of GLSL ES 1.00 syntax emitted by Tangram to GLSL ES 3.00.
 ShaderProgram.convertToWebGL2 = function (source, type) {
     source = source
@@ -1044,7 +1072,12 @@ ShaderProgram.updateProgram = function (gl, program, vertex_shader_source, fragm
     let key = hashString(gl._tangram_id + '::' + vertex_shader_source + '::' + fragment_shader_source);
     if (!use_shader_resources && ShaderProgram.programs_by_source[key]) {
         log('trace', 'Reusing identical source GL program object');
-        return ShaderProgram.programs_by_source[key];
+        const cached = ShaderProgram.programs_by_source[key];
+        if (cached !== program) {
+            ShaderProgram.releaseProgram(gl, program);
+            programReferences.set(cached, (programReferences.get(cached) || 0) + 1);
+        }
+        return cached;
     }
 
     var vertex_shader = use_shader_resources ? shader_resources.vertex_shader.handle :
@@ -1053,14 +1086,10 @@ ShaderProgram.updateProgram = function (gl, program, vertex_shader_source, fragm
         ShaderProgram.createShader(gl, fragment_shader_source, gl.FRAGMENT_SHADER);
 
     gl.useProgram(null);
-    if (program != null) {
-        var old_shaders = gl.getAttachedShaders(program);
-        for(var i = 0; i < old_shaders.length; i++) {
-            gl.detachShader(program, old_shaders[i]);
-        }
-    } else {
-        program = gl.createProgram();
-    }
+    // Relinking a shared program would also change every other wrapper using it.
+    ShaderProgram.releaseProgram(gl, program);
+    program = gl.createProgram();
+    programReferences.set(program, 1);
 
     if (vertex_shader == null || fragment_shader == null) {
         return program;
@@ -1094,6 +1123,7 @@ ShaderProgram.updateProgram = function (gl, program, vertex_shader_source, fragm
             --- Fragment Shader ---
             ${fragment_shader_source}`);
 
+        ShaderProgram.releaseProgram(gl, program);
         throw Object.assign(new Error(message), { type: 'program' });
     }
 

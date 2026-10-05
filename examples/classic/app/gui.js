@@ -79,7 +79,6 @@ export function initializeClassicGui({
         gui.add(gui, 'scene', scenes).onChange(function(value) {
             sceneKey = Object.keys(scenes).filter(function(s){ return scenes[s] === value })[0]; // find scene from sample list
             value = JSON.parse(value); // need to stringify JSON for dat.gui :(
-            window.tangramUpdateCartoBasemap?.(value);
             scene.load(value);
         });
     }

@@ -2,19 +2,5 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) vis.gl contributors
 
-scene:
-  background:
-    color: '#f5f3ef'
-
-sources:
-  basemap:
-    type: Raster
-    url: https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png
-    max_zoom: 20
-
-layers:
-  basemap:
-    data: {source: basemap}
-    draw:
-      raster:
-        order: 0
+# Compatibility for existing links; OpenFreeMap serves vector, not raster tiles.
+import: open-light-vector.yaml

@@ -67,8 +67,12 @@ reloads the example with the same style selection. This is a selectable
 alternative, not a silent automatic failover. The Positron raster alternative
 remains on CARTO; the Nextzen style still requires its existing key.
 
-The classic OpenMapTiles compatibility scenes already use OpenFreeMap. Offline
-GeoJSON previews and their CARTO raster context are intentionally unchanged.
+All tiled styles in the classic playground use OpenFreeMap through the
+OpenMapTiles compatibility transform. Light and street comparisons are vector
+styles rather than raster basemaps. The local GeoJSON previews overlay their
+bundled fixtures on these live vector scenes, without a second Leaflet raster
+layer. The Albers morph is a standalone bundled GeoJSON example, while terrain
+shading retains its separate elevation source.
 
 The shared source factory uses TileJSON rather than a hard-coded dated URL,
 clears inherited `url`/URL parameters, sets maximum data zoom 14 and tile size

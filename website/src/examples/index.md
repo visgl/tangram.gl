@@ -97,25 +97,25 @@ page, so the examples sidebar stays visible while you move between demos.
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-local-streets.webp" alt="" loading="lazy" />
     <span className="example-tile__eyebrow">Local data preview</span>
     <strong>Local streets</strong>
-    <span>A keyless local vector-tile preview for quick renderer experiments.</span>
+    <span>Bundled Manhattan features over a live OpenFreeMap vector basemap.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/local-tron.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-local-tron.webp" alt="" loading="lazy" />
     <span className="example-tile__eyebrow">Local data preview</span>
     <strong>TRON preview</strong>
-    <span>A small local-data neon preview, separate from the full animated TRON style.</span>
+    <span>Bundled neon features over the full animated TRON style on OpenFreeMap.</span>
   </a>
-  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/open-light-raster.yaml">
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/open-light-vector.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-open-light.webp" alt="" loading="lazy" />
-    <span className="example-tile__eyebrow">Raster</span>
+    <span className="example-tile__eyebrow">Live vector · OpenFreeMap</span>
     <strong>Open light map</strong>
-    <span>A light raster backdrop for comparing scene composition and overlays.</span>
+    <span>A light vector basemap with live streets, buildings and labels.</span>
   </a>
-  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/open-streets-raster.yaml">
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/open-streets-vector.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-open-streets.webp" alt="" loading="lazy" />
-    <span className="example-tile__eyebrow">Raster</span>
+    <span className="example-tile__eyebrow">Live vector · OpenFreeMap</span>
     <strong>Open street map</strong>
-    <span>A street-map raster alternative for testing the renderer without vector data.</span>
+    <span>An OpenFreeMap street map with vector labels and landmarks.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/projection-morph.yaml#4/39/-96">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-projection-morph.webp" alt="" loading="lazy" />
@@ -157,7 +157,7 @@ page, so the examples sidebar stays visible while you move between demos.
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-crosshatch-preview.webp" alt="" loading="lazy" />
     <span className="example-tile__eyebrow">Local data preview</span>
     <strong>Crosshatch preview</strong>
-    <span>A local preview of texture and fragment-shader styling.</span>
+    <span>Bundled hatched features over the live OpenFreeMap crosshatch basemap.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/rainbow-buildings.yaml">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-rainbow-buildings.webp" alt="" loading="lazy" />

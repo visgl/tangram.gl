@@ -2,19 +2,5 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) vis.gl contributors
 
-scene:
-  background:
-    color: '#e8e5df'
-
-sources:
-  basemap:
-    type: Raster
-    url: https://tile.openstreetmap.org/{z}/{x}/{y}.png
-    max_zoom: 19
-
-layers:
-  basemap:
-    data: {source: basemap}
-    draw:
-      raster:
-        order: 0
+# Compatibility for existing links; OpenFreeMap serves vector, not raster tiles.
+import: open-streets-vector.yaml

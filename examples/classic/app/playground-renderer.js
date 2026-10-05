@@ -5,7 +5,7 @@
 import {loadClassicEditorScene} from './scene-editor.js';
 
 /** Adapt community's cancellable updates to Tangram's serialized scene loader. */
-export function createClassicPlaygroundRenderer({scene, resolveSceneUrl, mapElement = null, debounceMs = 400}) {
+export function createClassicPlaygroundRenderer({scene, resolveSceneUrl, mapElement = null, debounceMs = 400, onSceneLoaded}) {
   let disposed = false;
   let loadQueue = Promise.resolve();
   let cancelDelay;
@@ -38,6 +38,7 @@ export function createClassicPlaygroundRenderer({scene, resolveSceneUrl, mapElem
         await loadClassicEditorScene(scene, value, {
           base_path: new URL('.', resolveSceneUrl(templateId)).href
         }, isObsolete);
+        if (!isObsolete()) await onSceneLoaded?.();
       });
       // A rejection belongs to that update, but must not poison the next edit.
       loadQueue = loading.catch(() => {});

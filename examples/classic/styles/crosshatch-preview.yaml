@@ -2,10 +2,14 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) vis.gl contributors
 
+# Import the archive directly so its inline textures retain their ZIP resource base.
+import:
+  - crosshatch.zip
+  - openmaptiles-mapzen-compat.yaml
+
 scene:
   background:
-    # Let the Leaflet CARTO layer show through outside the preview geometry.
-    color: [0.204, 0.204, 0.22, 0]
+    color: '#343438'
 
 cameras:
   perspective:
@@ -13,8 +17,9 @@ cameras:
     active: true
 
 styles:
-  crosshatch:
+  preview-crosshatch:
     base: polygons
+    blend: overlay
     lighting: false
     shaders:
       blocks:
@@ -26,14 +31,14 @@ styles:
           color.rgb = mix(vec3(0.20, 0.20, 0.22), vec3(0.88, 0.84, 0.76), hatch);
           color.a *= 0.42;
 
-  building-crosshatch:
-    mix: crosshatch
+  preview-building-crosshatch:
+    mix: preview-crosshatch
     shaders:
       blocks:
         position: |
           position.z *= 1.0 + (u_map_position.z - 14.0) * 0.06;
 
-  ink-lines:
+  preview-ink-lines:
     base: lines
     lighting: false
     shaders:
@@ -47,25 +52,25 @@ sources:
     url: ../data/crosshatch-preview.geojson
 
 layers:
-  land:
+  preview-land:
     data: {source: preview}
     filter: {kind: land}
     draw:
-      crosshatch:
-        order: 0
+      preview-crosshatch:
+        order: 10000
 
-  buildings:
+  preview-buildings:
     data: {source: preview}
     filter: {kind: building}
     draw:
-      building-crosshatch:
-        order: 1
+      preview-building-crosshatch:
+        order: 10001
         extrude: true
 
-  roads:
+  preview-roads:
     data: {source: preview}
     filter: {kind: road}
     draw:
-      ink-lines:
-        order: 2
+      preview-ink-lines:
+        order: 10002
         width: 8px

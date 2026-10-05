@@ -7,7 +7,7 @@ import Tangram from '../../modules/tangram-renderer/dist/tangram.debug.mjs';
 import {leafletLayer} from './leaflet-layer.js';
 import {initializeApiKey} from './app/key.js';
 import {initializeUrlSync} from './app/url.js';
-import {DEFAULT_SCENE, getPreviewBasemapUrl} from './app/scene-catalog.js';
+import {DEFAULT_SCENE} from './app/scene-catalog.js';
 
 /*
     Hello source-viewers!
@@ -73,34 +73,6 @@ export function createClassicDemo() {
         zoomSnap: 0,
         keyboard: false
     });
-
-    // The local style previews intentionally contain only a small amount of
-    // GeoJSON. Give them a real CARTO context in the Leaflet pane underneath
-    // Tangram so the examples remain useful when the preview geometry does
-    // not cover the viewport.
-    var cartoBasemap;
-    function updateCartoBasemap(scene) {
-        var tileUrl = getPreviewBasemapUrl(scene);
-        if (cartoBasemap && cartoBasemap._url === tileUrl) {
-            return;
-        }
-        if (cartoBasemap) {
-            cartoBasemap.remove();
-            cartoBasemap = null;
-        }
-        if (!tileUrl) {
-            return;
-        }
-        cartoBasemap = L.tileLayer(tileUrl, {
-            maxZoom: 22,
-            attribution:
-                '© <a href="https://carto.com/attributions" target="_blank">CARTO</a> ' +
-                '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
-        });
-        cartoBasemap.addTo(map);
-    }
-
-    updateCartoBasemap(scene_url);
 
     // Useful events to subscribe to
     layer.scene.subscribe({
@@ -235,7 +207,6 @@ export function createClassicDemo() {
     window.layer = layer;
     window.scene = layer.scene;
     window.Tangram = Tangram;
-    window.tangramUpdateCartoBasemap = updateCartoBasemap;
 
     const destroyApiKey = initializeApiKey({scene: layer.scene});
     const destroyUrlSync = initializeUrlSync({map, layer, sceneUrl: scene_url});
@@ -260,8 +231,6 @@ export function createClassicDemo() {
         window.map = null;
         window.layer = null;
         window.scene = null;
-        cartoBasemap = null;
-        window.tangramUpdateCartoBasemap = null;
         window.tangramClassicDestroy = null;
     }
 
