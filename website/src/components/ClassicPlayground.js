@@ -49,6 +49,7 @@ export default function ClassicPlayground() {
     document.body.classList.add('tangram-classic-embedded');
     stylesheetElements.current = [
       appendStylesheet(`${classicBaseUrl}css/main.css`),
+      appendStylesheet(`${classicBaseUrl}app/settings-panel.css`),
       appendStylesheet('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.2.0/leaflet.css'),
       appendStylesheet(
         'https://cdnjs.cloudflare.com/ajax/libs/leaflet-geocoder-mapzen/1.9.4/leaflet-geocoder-mapzen.css'

@@ -39,9 +39,8 @@ div > .leaflet-pelias-control {
     padding: 2px 4px;
 }
 
-/* The deck.gl-community panel host overlays the map without blocking map input. */
+/* The shared Playground owns the full-height editor and tab layout. */
 .classic-settings-host {
-    position: absolute;
     z-index: 10000;
     inset: 0;
     width: 100%;
@@ -49,111 +48,74 @@ div > .leaflet-pelias-control {
     pointer-events: none;
 }
 
-.classic-settings-host .top-left,
-.classic-settings-host .bottom-left {
+.classic-settings-host .deckgl-playground-preview {
+    /* Contain Leaflet pane z-indices below the shared panel surface. */
+    z-index: 0;
     pointer-events: auto;
 }
 
-/* PanelManager creates a root placement container before its first redraw.
-   Give that container a viewport-sized fallback for the standalone demo. */
-.classic-settings-host > div {
-    width: 100%;
-    height: 100%;
-}
-
-/* Give the sidebar and its accordion the full canvas height so the editor can
-   use the remaining space instead of being constrained by its content. */
-.classic-settings-host [data-sidebar-shell] {
-    height: 100%;
-    align-items: stretch;
-}
-
+/* These public panel markers make the editor fill the canvas instead of
+   retaining TextEditorPanel's 280px content-sized default. */
+.classic-settings-host [data-sidebar-shell],
 .classic-settings-host [data-sidebar-shell] > [role="dialog"] {
     height: 100%;
     max-height: none;
 }
 
-.classic-settings-host [data-sidebar-shell] > [role="dialog"] > div:nth-child(2),
-.classic-settings-host [data-sidebar-shell] > [role="dialog"] > div:nth-child(2) > div,
-.classic-settings-host [data-sidebar-shell] > [role="dialog"] > div:nth-child(2) > div > div {
-    min-height: 0;
+.classic-settings-host [role="dialog"] > div:last-child,
+.classic-settings-host [data-panel-theme-mode]:has(> div > [data-panel-tabs]),
+.classic-settings-host [data-panel-tabs] + div > div > [data-panel-theme-mode] {
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
 }
 
-.classic-settings-host [data-sidebar-shell] > [role="dialog"] > div:nth-child(2) > div,
-.classic-settings-host [data-sidebar-shell] > [role="dialog"] > div:nth-child(2) > div > div {
-    display: flex;
+.classic-settings-host [role="dialog"] > div:last-child,
+.classic-settings-host [data-panel-theme-mode]:has(> div > [data-panel-tabs]),
+.classic-settings-host div:has(> [data-panel-tabs]),
+.classic-settings-host [data-panel-tabs] + div,
+.classic-settings-host [data-panel-tabs] + div > div,
+.classic-settings-host [data-panel-tabs] + div > div > [data-panel-theme-mode],
+.classic-settings-host [data-text-editor-root],
+.classic-settings-host [data-text-editor-root] > div {
+    min-height: 0;
     flex: 1;
+}
+
+.classic-settings-host [data-panel-tabs] + div {
+    align-items: stretch !important;
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.classic-settings-host [data-panel-tabs] + div > div {
+    display: flex;
     flex-direction: column;
     overflow: hidden;
 }
 
-.classic-settings-host [data-sidebar-shell] section:last-child:has(.tangram-scene-editor) {
-    display: flex;
-    min-height: 0;
-    flex: 1;
-    flex-direction: column;
-}
-
-.classic-settings-host [data-sidebar-shell] section:last-child:has(.tangram-scene-editor) > div {
-    min-height: 0;
-    flex: 1;
-    overflow: hidden;
-}
-
-.classic-settings-host .tangram-scene-editor,
-.classic-settings-host .tangram-scene-editor > div,
-.classic-settings-host .tangram-scene-editor [data-text-editor-host] {
+.classic-settings-host [data-text-editor-root] > div,
+.classic-settings-host [data-text-editor-host] {
     min-height: 0 !important;
-    flex: 1;
 }
 
-.classic-settings-host .tangram-scene-editor,
-.classic-settings-host .tangram-scene-editor > div,
-.classic-settings-host .tangram-scene-editor [data-text-editor-host],
-.classic-settings-host .tangram-scene-editor .monaco-editor,
-.classic-settings-host .tangram-scene-editor .monaco-editor .overflow-guard {
-    width: 100% !important;
+.classic-settings-host [data-text-editor-host] {
     height: 100% !important;
 }
 
-.classic-settings-host .tangram-scene-editor {
-    overflow: hidden;
-}
-
-.classic-settings-host .top-left [class~="deck-widget-panel"] {
-    width: min(360px, calc(100vw - 24px));
-}
-
-.classic-settings-host .bottom-left [class~="deck-widget-panel"] {
-    width: min(560px, calc(100vw - 24px));
-    max-height: min(360px, 48vh);
-}
-
-/* The standalone host does not inherit Deck's widget surface, so provide the
-   same readable floating treatment while retaining the community theme vars. */
-.classic-settings-host [class~="deck-widget-panel"] {
-    box-sizing: border-box;
-    border: 1px solid var(--menu-border, rgba(148, 163, 184, 0.35));
-    border-radius: var(--button-corner-radius, 8px);
-    background: var(--menu-background, rgba(255, 255, 255, 0.96));
-    color: var(--menu-text, #18181b);
-    box-shadow: var(--menu-shadow, 0 2px 12px rgba(0, 0, 0, 0.22));
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    overflow: hidden;
-}
-
-/* Monaco's current native-edit-context runtime leaves its hidden IME
-   textarea visible when the legacy editor stylesheet is loaded from the CDN.
-   It is an accessibility/input bridge, not the rendered document surface. */
-.classic-settings-host .monaco-editor .ime-text-area {
+.classic-playground-status {
     position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    opacity: 0;
-    overflow: hidden;
+    bottom: 12px;
+    left: 12px;
+    z-index: 2;
+    max-width: calc(100% - 24px);
+    padding: 6px 10px;
+    background: rgba(15, 23, 42, 0.9);
+    color: #fff;
+    border-radius: 4px;
+    font: 12px system-ui, sans-serif;
     pointer-events: none;
-    resize: none;
+}
+
+.classic-playground-status[data-status="error"] {
+    color: #fecaca;
 }
