@@ -11,7 +11,7 @@ const packageDirectory = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const repositoryDirectory = resolve(packageDirectory, '../..');
 const outputDirectory = resolve(packageDirectory, 'dist');
 const rendererDirectory = resolve(repositoryDirectory, 'modules/tangram-renderer/dist');
-const contentTypes = {'.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.yaml': 'text/yaml', '.zip': 'application/zip'};
+const contentTypes = {'.css': 'text/css', '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json', '.ttf': 'font/ttf', '.yaml': 'text/yaml', '.zip': 'application/zip'};
 
 createServer((request, response) => {
   const requestedPath = normalize(request.url?.split('?')[0] || '/').replace(/^\.\.(?:\/|\\|$)/, '');

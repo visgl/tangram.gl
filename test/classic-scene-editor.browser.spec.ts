@@ -3,13 +3,17 @@
 // Copyright (c) vis.gl contributors
 
 import {afterAll, afterEach, beforeEach, expect, test, vi} from 'vitest';
-import * as panels from '@deck.gl-community/panels';
+import {createCommunityPlayground, createCommunitySettingsPanel} from '../examples/classic/app/community-playground.js';
 import * as monaco from 'monaco-editor';
 import {createMonacoEnvironment} from '../examples/classic/app/monaco-workers.js';
 import {startSettingsPanel} from '../examples/classic/app/settings-panel-runtime.js';
+import '../examples/classic/css/main.css';
 
 const runtime = globalThis as typeof globalThis & {tangramClassicSettingsCleanup?: (() => void) | null};
-const modelUri = monaco.Uri.parse('inmemory://deck-gl-community/panels/tangram-scene-editor');
+/** The shared Playground owns a unique editor ID per mount. */
+function getPlaygroundModel() {
+  return monaco.editor.getModels().find(model => model.uri.toString().includes('/panels/playground-editor-')) ?? null;
+}
 const workers: Worker[] = [];
 let frame: HTMLDivElement;
 let originalUrl: string;
@@ -21,8 +25,11 @@ beforeEach(() => {
   originalUrl = window.location.href;
   frame = document.createElement('div');
   frame.id = 'classic-playground-frame';
-  frame.style.cssText = 'position:relative;width:1100px;height:650px';
+  frame.style.cssText = 'position:relative;width:min(1100px, 100%);height:650px';
   document.body.append(frame);
+  const mapElement = document.createElement('div');
+  mapElement.id = 'map';
+  frame.append(mapElement);
   const factory = createMonacoEnvironment(new URL('/examples/classic/dist/', window.location.href).href);
   vi.stubGlobal('MonacoEnvironment', {
     getWorker(id: string, label: string) {
@@ -61,7 +68,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   runtime.tangramClassicSettingsCleanup?.();
-  await expect.poll(() => monaco.editor.getModel(modelUri), {timeout: 10000}).toBeNull();
+  await expect.poll(() => getPlaygroundModel(), {timeout: 10000}).toBeNull();
   frame.remove();
   window.history.replaceState(null, '', originalUrl);
   vi.restoreAllMocks();
@@ -72,16 +79,33 @@ afterAll(() => {for (const worker of workers.splice(0)) worker.terminate();});
 
 /** Mount the production composition with the real community panels and wait for its model. */
 async function mountPanels() {
-  await startSettingsPanel(panels);
+  await startSettingsPanel({createCommunityPlayground, createCommunitySettingsPanel});
   const model = await vi.waitFor(() => {
-    const model = monaco.editor.getModel(modelUri);
+    const model = getPlaygroundModel();
     expect(model).not.toBeNull();
     return model!;
   }, {timeout: 15000});
   // The tests exercise controlled text and lifecycle, not Monaco's unrelated
   // word-highlighter provider, whose pending Delayer rejects on immediate disposal.
   for (const editor of monaco.editor.getEditors()) editor.updateOptions({occurrencesHighlight: 'off'});
+  await expect.poll(() => frame.querySelector('.classic-playground-status')?.textContent).toBe('Style applied');
+  loadScene.mockClear();
+  setView.mockClear();
   return model;
+}
+
+/** Select a scene through the actual community card picker. */
+async function selectStyle(title: string) {
+  const tab = [...frame.querySelectorAll<HTMLButtonElement>('[data-panel-tabs] button')]
+    .find(element => element.textContent === 'Select Style')!;
+  tab.click();
+  const card = await vi.waitFor(() => {
+    const card = [...frame.querySelectorAll<HTMLButtonElement>('[data-template]')]
+      .find(element => element.textContent?.includes(title));
+    expect(card).toBeDefined();
+    return card!;
+  });
+  card.click();
 }
 
 test('selecting a style updates the actual nested community editor without replacing its model', async () => {
@@ -89,26 +113,18 @@ test('selecting a style updates the actual nested community editor without repla
   expect(JSON.parse(model.getValue())).toEqual({scene: {style: 'tron'}});
   const editorElement = frame.querySelector('.monaco-editor');
   expect(editorElement).not.toBeNull();
-  const selector = frame.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')!;
-  selector.click();
-  const option = await vi.waitFor(() => {
-    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
-      .find(element => element.textContent?.includes('Crosshatch (OpenFreeMap)'));
-    expect(option).toBeDefined();
-    return option!;
-  });
-  option.click();
+  await selectStyle('Crosshatch (OpenFreeMap)');
   await expect.poll(() => JSON.parse(model.getValue()).scene.style, {timeout: 10000}).toBe('crosshatch');
-  expect(monaco.editor.getModel(modelUri)).toBe(model);
+  expect(getPlaygroundModel()).toBe(model);
   expect(frame.querySelector('.monaco-editor')).toBe(editorElement);
   expect(frame.querySelectorAll('.monaco-editor')).toHaveLength(1);
-  expect(selector.textContent).toContain('Crosshatch (OpenFreeMap)');
+  expect(frame.querySelector('[data-template="styles/crosshatch.yaml"]')?.getAttribute('aria-selected')).toBe('true');
   expect(window.location.search).toContain('scene=styles%2Fcrosshatch.yaml');
-  expect(loadScene).toHaveBeenCalledTimes(1);
-  expect(frame.textContent).toContain('Scene JSON (schema validated)');
+  await expect.poll(() => loadScene.mock.calls.length).toBe(1);
+  expect(frame.textContent).toContain('Style JSON');
 });
 
-test('editor content changes apply once and update the visible accordion heading after completion', async () => {
+test('editor content changes apply once and update the preview status after completion', async () => {
   const model = await mountPanels();
   model.setValue('{"scene":{"style":"edited"}}');
   await expect.poll(() => loadScene.mock.calls.length, {timeout: 10000}).toBe(1);
@@ -116,20 +132,13 @@ test('editor content changes apply once and update the visible accordion heading
     {scene: {style: 'edited'}},
     {base_path: new URL('/examples/classic/styles/', window.location.href).href}
   ]);
-  await expect.poll(() => frame.textContent, {timeout: 10000}).toContain('Scene JSON (applied)');
+  await expect.poll(() => frame.textContent, {timeout: 10000}).toContain('Style applied');
   expect(model.getValue()).toBe('{"scene":{"style":"edited"}}');
 });
 
 test('selecting Albers from a street-level style opens its national overview', async () => {
   await mountPanels();
-  frame.querySelector<HTMLButtonElement>('[aria-haspopup="listbox"]')!.click();
-  const option = await vi.waitFor(() => {
-    const option = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')]
-      .find(element => element.textContent?.includes('Albers projection morph'));
-    expect(option).toBeDefined();
-    return option!;
-  });
-  option.click();
+  await selectStyle('Albers projection morph');
   await expect.poll(() => loadScene.mock.calls.length).toBe(1);
   expect(setView).toHaveBeenCalledExactlyOnceWith([39, -96], 4);
   expect(window.location.search).toContain('projection-morph.yaml');
@@ -144,21 +153,72 @@ test('leaving a mounted playground removes its host and model and cancels pendin
   expect(loadScene).not.toHaveBeenCalled();
   expect(frame.querySelector('.classic-settings-host')).toBeNull();
   expect(runtime.tangramClassicSettingsCleanup).toBeNull();
-  await expect.poll(() => monaco.editor.getModel(modelUri), {timeout: 10000}).toBeNull();
+  await expect.poll(() => getPlaygroundModel(), {timeout: 10000}).toBeNull();
 });
 
 test('leaving during initial fetch aborts startup without mounting a late sidebar', async () => {
   let release!: (response: Response) => void;
   let signal!: AbortSignal;
+  const response = new Promise<Response>(resolve => {release = resolve;});
   sourceRequest = requestSignal => {
     signal = requestSignal;
-    return new Promise(resolve => {release = resolve;});
+    return response;
   };
-  const mounting = startSettingsPanel(panels);
+  const mounting = startSettingsPanel({createCommunityPlayground, createCommunitySettingsPanel});
   runtime.tangramClassicSettingsCleanup!();
   expect(signal.aborted).toBe(true);
   release(Response.json({scene: {style: 'late'}}));
   await mounting;
   expect(frame.querySelector('.classic-settings-host')).toBeNull();
-  expect(monaco.editor.getModel(modelUri)).toBeNull();
+  expect(getPlaygroundModel()).toBeNull();
+});
+
+test('parse errors retain the map and correcting the text applies again', async () => {
+  const model = await mountPanels();
+  model.setValue('{');
+  await expect.poll(() => frame.querySelector('.classic-playground-status')?.textContent).toContain('Style error:');
+  expect(loadScene).not.toHaveBeenCalled();
+  expect(frame.querySelector('.deckgl-playground-preview #map')).not.toBeNull();
+  model.setValue('{"scene":{"style":"fixed"}}');
+  await expect.poll(() => frame.querySelector('.classic-playground-status')?.textContent).toBe('Style applied');
+  expect(loadScene).toHaveBeenCalledTimes(1);
+});
+
+test('reports async failures and permits recovery without replacing the editor model', async () => {
+  const model = await mountPanels();
+  loadScene.mockRejectedValueOnce(new Error('scene failed'));
+  model.setValue('{"invalid":true}');
+  await expect.poll(() => frame.querySelector('.classic-playground-status')?.textContent).toBe('Style error: scene failed');
+  model.setValue('{}');
+  await expect.poll(() => frame.querySelector('.classic-playground-status')?.textContent).toBe('Style applied');
+  expect(getPlaygroundModel()).toBe(model);
+});
+
+test('cleanup restores the map to the bootstrap-owned frame', async () => {
+  await mountPanels();
+  expect(frame.querySelector('.deckgl-playground-preview #map')).not.toBeNull();
+  runtime.tangramClassicSettingsCleanup!();
+  expect(frame.querySelector(':scope > #map')).not.toBeNull();
+});
+
+test('startup preserves the authored Albers URL/hash camera until a card is selected', async () => {
+  window.history.replaceState(null, '', '?scene=styles/projection-morph.yaml#7/40/-100');
+  await startSettingsPanel({createCommunityPlayground, createCommunitySettingsPanel});
+  await expect.poll(() => frame.querySelector('.classic-playground-status')?.textContent).toBe('Style applied');
+  expect(setView).not.toHaveBeenCalled();
+  expect(window.location.hash).toBe('#7/40/-100');
+  await selectStyle('Albers projection morph');
+  expect(setView).toHaveBeenCalledExactlyOnceWith([39, -96], 4);
+});
+
+test('the editor fills the canvas and stays above Leaflet pane z-indices', async () => {
+  await mountPanels();
+  const pane = document.createElement('div');
+  pane.style.cssText = 'position:absolute;inset:0;z-index:600';
+  frame.querySelector('#map')!.append(pane);
+  const editor = frame.querySelector<HTMLElement>('.monaco-editor')!;
+  await expect.poll(() => editor.getBoundingClientRect().height).toBeGreaterThan(450);
+  const bounds = editor.getBoundingClientRect();
+  const hit = document.elementFromPoint(bounds.left + 40, bounds.top + 40);
+  expect(hit?.closest('.monaco-editor')).toBe(editor);
 });

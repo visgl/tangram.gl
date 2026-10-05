@@ -8,7 +8,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "node scripts/build.mjs && yarn build:editor-workers",
+    "build": "node scripts/build.mjs && yarn build:playground && yarn build:editor-workers",
+    "build:playground": "node scripts/build-playground.mjs",
     "build:editor-workers": "ocular-bundle ./monaco-editor.worker.js --format=iife --env=prod --output=dist/monaco-editor.worker.js && ocular-bundle ./monaco-json.worker.js --format=iife --env=prod --output=dist/monaco-json.worker.js",
     "start": "yarn workspace @vis.gl/tangram-renderer build && yarn build && node scripts/serve.mjs"
   },
@@ -16,8 +17,13 @@
     "@vis.gl/tangram-renderer": "workspace:^"
   },
   "devDependencies": {
-    "@deck.gl-community/panels": "9.4.2-beta.1",
+    "@deck.gl-community/panels": "9.4.2",
+    "@deck.gl-community/playground": "9.4.2",
+    "@deck.gl/core": "^9.4.0",
+    "@deck.gl/json": "^9.4.0",
+    "@loaders.gl/core": "^4.5.1",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
+    "esbuild": "^0.28.1",
     "monaco-editor": "0.53.0",
     "playwright": "^1.58.0",
     "vitest": "^4.0.18"

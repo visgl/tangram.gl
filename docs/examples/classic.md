@@ -16,11 +16,18 @@ playground itself is a buildable example package rather than an embedded iframe.
   </a>
 </div>
 
-The deck.gl-community `SidebarPanelContainer` holds an `AccordeonPanel` with
-the SettingsPanel and TextEditorPanel. Use the Scene section to switch between
-historical styles and shader experiments, or open Scene YAML to edit the
-active document. Pause briefly after editing to apply it; invalid YAML is
-reported in the panel title and is not submitted to Tangram.
+The deck.gl-community 9.4.2 `Playground` supplies the full-height community
+TextEditorPanel and tabs. **Select Style** shows the available scene cards;
+**Style JSON** edits the active document with the renderer's JSON Schema for
+completion and diagnostics. **Settings** contains camera and debug controls.
+If the schema is unavailable, the original YAML remains editable as plain text.
+
+Pause briefly after editing to apply it. Parse and scene-load errors appear in
+the preview status; malformed documents are not sent to Tangram. Scene loads
+are serialized, obsolete updates are cancelled, and relative imports resolve
+against the selected style file. The preview retains the classic map and its
+controls. The editor, stylesheets, and matching Monaco workers are bundled
+locally with ocular rather than loaded from an editor CDN.
 
 The [standalone playground](/tangram.gl/examples/classic/) is also
 available when a full-window map is more convenient. The [source and style

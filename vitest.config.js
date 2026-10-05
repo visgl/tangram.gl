@@ -21,6 +21,7 @@ export default getVitestConfig({
       '@loaders.gl/pmtiles', '@loaders.gl/mvt/mvt-geojson-loader',
       '@loaders.gl/tiles',
       '@deck.gl-community/panels',
+      './examples/classic/app/community-playground.js',
       'monaco-editor',
       // Eagerly optimize Monaco's lazy JSON runtime so first use cannot reload
       // other tests while their worker/client protocols are being initialized.
