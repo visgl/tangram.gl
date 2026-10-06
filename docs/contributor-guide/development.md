@@ -209,3 +209,12 @@ The public documentation and examples live at
 website development and CI build validation, but does not deploy a GitHub Pages
 site. Publication is managed by the canonical host, outside this repository;
 merging a PR here does not trigger a repository Pages deployment.
+
+## Collision batching
+
+The label-collision batcher and grid use a shared structural label/bounds contract
+for worker and main-pass placement. Register each style once on a started tile
+and submit one batch per style; the completion barrier resolves after all styles
+submit, or immediately when the tile is aborted. Collision results retain the
+submitted container identities and payload types. Numeric priority keys are
+converted explicitly when sorting, preserving the legacy numeric ordering.

@@ -4,7 +4,6 @@
   "modules/tangram-renderer/src/gl/shader_program.ts": 1,
   "modules/tangram-renderer/src/gl/texture.ts": 1,
   "modules/tangram-renderer/src/gl/vbo_mesh.ts": 1,
-  "modules/tangram-renderer/src/labels/collision.ts": 1,
   "modules/tangram-renderer/src/labels/label_line.ts": 1,
   "modules/tangram-renderer/src/labels/main_pass.ts": 1,
   "modules/tangram-renderer/src/lights/light.ts": 1,
