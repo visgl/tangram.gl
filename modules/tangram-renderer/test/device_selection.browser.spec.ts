@@ -13,7 +13,7 @@ test('device selection owns and releases its framebuffer without raw texture att
   const device = {createFramebuffer} as unknown as Device;
   const gl = {FRAMEBUFFER: 0, createFramebuffer: vi.fn(), framebufferTexture2D: vi.fn(),
     deleteFramebuffer: vi.fn(), bindFramebuffer: vi.fn(), viewport: vi.fn(), clearColor: vi.fn()};
-  const selection = new FeatureSelection(gl, [], () => false, device);
+  const selection = new FeatureSelection(gl as unknown as WebGLRenderingContext, [], () => false, device);
   expect(createFramebuffer).toHaveBeenCalledWith({
     id: 'tangram-selection', width: 256, height: 256,
     colorAttachments: ['rgba8unorm'], depthStencilAttachment: 'depth16unorm'

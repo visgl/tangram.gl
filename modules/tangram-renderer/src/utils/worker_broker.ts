@@ -1,8 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
-
-// @ts-nocheck
+// Copyright (c) 2026 vis.gl contributors
 
 /*jshint worker: true*/
 
@@ -93,14 +92,17 @@
 
 import Thread from './thread';
 import log from './log';
+import type {BrokerMethod, BrokerPacket, BrokerPostMessage, BrokerTransferable, BrokerWorker,
+    PendingBrokerMessage, TransferEnvelope, TransferEnvelopeFactory, WorkerBrokerApi} from './worker-types';
 
-export const WorkerBroker = {};
+// The object is populated below; keeping staged construction preserves logger/broker initialization.
+export const WorkerBroker = {} as WorkerBrokerApi;
 export default WorkerBroker;
 
 // Global list of all worker messages
 // Uniquely tracks every call made between main thread and a worker
 var message_id = 0;
-var messages = {};
+var messages: Record<number, PendingBrokerMessage> = {};
 
 // Register an object to receive calls from other thread
 WorkerBroker.targets = {};
@@ -116,8 +118,8 @@ WorkerBroker.removeTarget = function (name) {
 
 // Given a dot-notation-style method name, e.g. 'Object.object.method',
 // find the object to call the method on from the list of registered targets
-function findTarget (method) {
-    var chain = [];
+function findTarget (method: string | undefined): [] | [string | undefined, Record<string, unknown>] {
+    var chain: string[] = [];
     if (typeof method === 'string') {
         chain = method.split('.');
         method = chain.pop();
@@ -127,7 +129,7 @@ function findTarget (method) {
 
     for (let m=0; m < chain.length; m++) {
         if (target[chain[m]]) {
-            target = target[chain[m]];
+            target = target[chain[m]] as Record<string, unknown>;
         }
         else {
             return [];
@@ -140,7 +142,7 @@ function findTarget (method) {
 // Main thread:
 // - Send messages to workers, and optionally receive an async response as a promise
 // - Receive messages from workers, and optionally send an async response back as a promise
-function setupMainThread () {
+function setupMainThread (): void {
 
     // Send a message to a worker, and optionally get an async response
     // Arguments:
@@ -150,7 +152,7 @@ function setupMainThread () {
     // Returns:
     //   - a promise that will be fulfilled if the worker method returns a value (could be immediately, or async)
     //
-    WorkerBroker.postMessage = function (worker, method, ...message) {
+    WorkerBroker.postMessage = function (worker: BrokerWorker | BrokerWorker[], method: BrokerMethod, ...message: unknown[]) {
         // If more than one worker specified, post to multiple
         if (Array.isArray(worker)) {
             return Promise.all(
@@ -159,19 +161,19 @@ function setupMainThread () {
         }
 
         // Parse options
-        let options = {};
+        let options: {stringify?: boolean} = {};
         if (typeof method === 'object') {
             options = method;
             method = method.method;
         }
 
         // Track state of this message
-        var promise = new Promise((resolve, reject) => {
+        var promise = new Promise<unknown>((resolve, reject) => {
             messages[message_id] = { method, message, resolve, reject };
         });
 
 
-        let payload, transferables = [];
+        let payload: BrokerPacket | string, transferables: BrokerTransferable[] = [];
 
         if (message && message.length === 1 && message[0] instanceof WorkerBroker.withTransferables) {
             transferables = message[0].transferables;
@@ -197,16 +199,16 @@ function setupMainThread () {
 
         message_id++;
         return promise;
-    };
+    } as BrokerPostMessage;
 
     // Add a worker to communicate with - each worker must be registered from the main thread
     WorkerBroker.addWorker = function (worker) {
         if (!(worker instanceof Worker)) {
-            throw Error('Worker broker could not add non-Worker object', worker);
+            throw Error('Worker broker could not add non-Worker object', worker as unknown as ErrorOptions);
         }
 
         worker.addEventListener('message', function WorkerBrokerMainThreadHandler(event) {
-            let data = ((typeof event.data === 'string') ? JSON.parse(event.data) : event.data);
+            let data = ((typeof event.data === 'string') ? JSON.parse(event.data) : event.data) as BrokerPacket;
             let id = data.message_id;
 
             // Listen for messages coming back from the worker, and fulfill that message's promise
@@ -227,14 +229,14 @@ function setupMainThread () {
             // Unique id for this message & return call to main thread
             else if (data.type === 'worker_send' && id != null) {
                 // Call the requested method and save the return value
-                let result, error, target, method_name, method;
+                let result: unknown, error: unknown, target: Record<string, unknown> | undefined, method_name: string | undefined, method;
                 try {
                     [method_name, target] = findTarget(data.method);
                     if (!target) {
                         throw Error(`Worker broker could not dispatch message type ${data.method} on target ${data.target} because no object with that name is registered on main thread`);
                     }
 
-                    method = (typeof target[method_name] === 'function') && target[method_name];
+                    method = (typeof target[method_name!] === 'function') && target[method_name!] as ((...arguments_: unknown[]) => unknown);
                     if (!method) {
                         throw Error(`Worker broker could not dispatch message type ${data.method} on target ${data.target} because object has no method with that name`);
                     }
@@ -247,7 +249,7 @@ function setupMainThread () {
 
                 }
                 // Send return value to worker
-                let payload, transferables = [];
+                let payload: BrokerPacket | string, transferables: BrokerTransferable[] = [];
 
                 // Async result
                 if (result instanceof Promise) {
@@ -314,7 +316,7 @@ function setupMainThread () {
 // Worker threads:
 // - Receive messages from main thread, and optionally send an async response back as a promise
 // - Send messages to main thread, and optionally receive an async response as a promise
-function setupWorkerThread () {
+function setupWorkerThread (): void {
 
     // Send a message to the main thread, and optionally get an async response as a promise
     // Arguments:
@@ -323,20 +325,20 @@ function setupWorkerThread () {
     // Returns:
     //   - a promise that will be fulfilled if the main thread method returns a value (could be immediately, or async)
     //
-    WorkerBroker.postMessage = function (method, ...message) {
+    WorkerBroker.postMessage = function (method: BrokerMethod, ...message: unknown[]) {
         // Parse options
-        let options = {};
+        let options: {stringify?: boolean} = {};
         if (typeof method === 'object') {
             options = method;
             method = method.method;
         }
 
         // Track state of this message
-        var promise = new Promise((resolve, reject) => {
+        var promise = new Promise<unknown>((resolve, reject) => {
             messages[message_id] = { method, message, resolve, reject };
         });
 
-        let payload, transferables = [];
+        let payload: BrokerPacket | string, transferables: BrokerTransferable[] = [];
 
         if (message && message.length === 1 && message[0] instanceof WorkerBroker.withTransferables) {
             transferables = message[0].transferables;
@@ -354,7 +356,7 @@ function setupWorkerThread () {
             payload = JSON.stringify(payload);
         }
 
-        self.postMessage(payload, transferables.map(t => t.object));
+        (self as DedicatedWorkerGlobalScope).postMessage(payload, transferables.map(t => t.object));
         freeTransferables(transferables);
         if (transferables.length > 0) {
             log('trace', `'${method}' transferred ${transferables.length} objects to main thread`);
@@ -362,10 +364,10 @@ function setupWorkerThread () {
 
         message_id++;
         return promise;
-    };
+    } as BrokerPostMessage;
 
-    self.addEventListener('message', function WorkerBrokerWorkerThreadHandler(event) {
-        let data = ((typeof event.data === 'string') ? JSON.parse(event.data) : event.data);
+    self.addEventListener('message', function WorkerBrokerWorkerThreadHandler(event: MessageEvent<unknown>) {
+        let data = ((typeof event.data === 'string') ? JSON.parse(event.data) : event.data) as BrokerPacket;
         let id = data.message_id;
 
         // Listen for messages coming back from the main thread, and fulfill that message's promise
@@ -385,14 +387,14 @@ function setupWorkerThread () {
         // Unique id for this message & return call to main thread
         else if (data.type === 'main_send' && id != null) {
             // Call the requested worker method and save the return value
-            let result, error, target, method_name, method;
+            let result: unknown, error: unknown, target: Record<string, unknown> | undefined, method_name: string | undefined, method;
             try {
                 [method_name, target] = findTarget(data.method);
                 if (!target) {
                     throw Error(`Worker broker could not dispatch message type ${data.method} on target ${data.target} because no object with that name is registered on main thread`);
                 }
 
-                method = (typeof target[method_name] === 'function') && target[method_name];
+                method = (typeof target[method_name!] === 'function') && target[method_name!] as ((...arguments_: unknown[]) => unknown);
 
                 if (!method) {
                     throw Error(`Worker broker could not dispatch message type ${data.method} because worker has no method with that name`);
@@ -406,7 +408,7 @@ function setupWorkerThread () {
             }
 
             // Send return value to main thread
-            let payload, transferables = [];
+            let payload: BrokerPacket | string, transferables: BrokerTransferable[] = [];
 
             // Async result
             if (result instanceof Promise) {
@@ -421,13 +423,13 @@ function setupWorkerThread () {
                         message_id: id,
                         message: value
                     };
-                    self.postMessage(payload, transferables.map(t => t.object));
+                    (self as DedicatedWorkerGlobalScope).postMessage(payload, transferables.map(t => t.object));
                     freeTransferables(transferables);
                     if (transferables.length > 0) {
                         log('trace', `'${method_name}' transferred ${transferables.length} objects to main thread`);
                     }
                 }, (error) => {
-                    self.postMessage({
+                    (self as DedicatedWorkerGlobalScope).postMessage({
                         type: 'worker_reply',
                         message_id: id,
                         error: (error instanceof Error ? `${error.message}: ${error.stack}` : error)
@@ -447,7 +449,7 @@ function setupWorkerThread () {
                     message: result,
                     error: (error instanceof Error ? `${error.message}: ${error.stack}` : error)
                 };
-                self.postMessage(payload, transferables.map(t => t.object));
+                (self as DedicatedWorkerGlobalScope).postMessage(payload, transferables.map(t => t.object));
                 freeTransferables(transferables);
                 if (transferables.length > 0) {
                     log('trace', `'${method_name}' transferred ${transferables.length} objects to main thread`);
@@ -459,14 +461,14 @@ function setupWorkerThread () {
 }
 
 // Special value wrapper, to indicate that we want to find and include transferable objects in the message
-WorkerBroker.withTransferables = function (...value) {
+WorkerBroker.withTransferables = function (this: TransferEnvelope | undefined, ...value: unknown[]) {
     if (!(this instanceof WorkerBroker.withTransferables)) {
         return new WorkerBroker.withTransferables(...value);
     }
 
     this.value = value;
     this.transferables = findTransferables(this.value);
-};
+} as TransferEnvelopeFactory;
 
 // Build a list of transferable objects from a source object
 // Returns a list of info about each transferable:
@@ -474,7 +476,8 @@ WorkerBroker.withTransferables = function (...value) {
 //   - parent: the parent object that the transferable is a property of (if any)
 //   - property: the property name of the transferable on the parent object (if any)
 // TODO: add option in case you DON'T want to transfer objects
-function findTransferables(source, parent = null, property = null, list = []) {
+function findTransferables(source: unknown, parent: object | null = null, property: string | number | null = null,
+    list: BrokerTransferable[] = []): BrokerTransferable[] {
     if (!source) {
         return list;
     }
@@ -489,13 +492,13 @@ function findTransferables(source, parent = null, property = null, list = []) {
             list.push({ object: source, parent, property });
         }
         // Or looks like a typed array (has an array buffer property)?
-        else if (source.buffer instanceof ArrayBuffer) {
-            list.push({ object: source.buffer, parent, property });
+        else if ((source as {buffer?: unknown}).buffer instanceof ArrayBuffer) {
+            list.push({ object: (source as {buffer: ArrayBuffer}).buffer, parent, property });
         }
         // Otherwise check each property
         else {
             for (let prop in source) {
-                findTransferables(source[prop], source, prop, list);
+                findTransferables((source as Record<string, unknown>)[prop], source, prop, list);
             }
         }
     }
@@ -503,11 +506,11 @@ function findTransferables(source, parent = null, property = null, list = []) {
 }
 
 // Remove neutered transferables from parent objects, as they should no longer be accessed after transfer
-function freeTransferables(transferables) {
+function freeTransferables(transferables: BrokerTransferable[]): void {
     if (!Array.isArray(transferables)) {
         return;
     }
-    transferables.filter(t => t.parent && t.property).forEach(t => delete t.parent[t.property]);
+    transferables.filter(t => t.parent && t.property).forEach(t => delete (t.parent as Record<string | number, unknown>)[t.property!]);
 }
 
 // Setup this thread as appropriate
