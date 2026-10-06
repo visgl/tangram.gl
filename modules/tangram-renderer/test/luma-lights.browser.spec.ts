@@ -12,6 +12,7 @@ import ExternalCamera from '../src/scene/external_camera';
 import {Style} from '../src/styles/style';
 import {StyleManager} from '../src/styles/style_manager';
 import {buildNativeFalloff} from '../src/lights/native-falloff';
+import type {TangramSpotLight} from '../src/lights/light-definitions';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -37,7 +38,9 @@ describe('native luma lights drive Tangram uniforms', () => {
         const direction = program.uniform.mock.calls.find(call => call[1] === 'u_sun.direction')![2];
         expect(direction[0]).toBeCloseTo(0);
         expect(direction[1]).toBeCloseTo(1);
-        expect(sun.toLumaLight().light.direction).toEqual(direction);
+        const snapshot = sun.toLumaLight();
+        if (snapshot.light.type !== 'directional') throw new Error('Expected directional light');
+        expect(snapshot.light.direction).toEqual(direction);
     });
 
     test.each([false, true])('resolves native positions per active eye; globe=%s', globe => {
@@ -46,12 +49,18 @@ describe('native luma lights drive Tangram uniforms', () => {
             position: [4, 5, 6], attenuation: [1, 0.1, 0.01]}});
         lamp.update();
         const expected = globe ? [3, 3, 3] : [4, 22, 33];
-        expected.forEach((value, index) => expect(lamp.position_eye[index]).toBeCloseTo(value));
+        const eyePosition = lamp.position_eye;
+        if (!eyePosition) throw new Error('Expected eye position');
+        expected.forEach((value, index) => expect(eyePosition[index]).toBeCloseTo(value));
         view.camera.position_meters = [2, 3, 4];
         const mapping = lamp.toLumaLight();
+        if (mapping.light.type !== 'point' || !mapping.light.attenuation || lamp.lumaLight?.type !== 'point') {
+            throw new Error('Expected normalized point light');
+        }
+        const mappedPosition = mapping.light.position;
         expect(mapping.light.attenuation).toEqual([1, 0.1, 0.01]);
-        expected.forEach((value, index) => expect(mapping.light.position[index]).toBeCloseTo(value - 1));
-        mapping.light.attenuation[0] = 99;
+        expected.forEach((value, index) => expect(mappedPosition[index]).toBeCloseTo(value - 1));
+        Reflect.set(mapping.light.attenuation, 0, 99);
         expect(lamp.lumaLight.attenuation).toEqual([1, 0.1, 0.01]);
     });
 
@@ -303,7 +312,7 @@ describe('scene light integration', () => {
 
     test('geographic spots project position and ENU direction for the active eye without rewriting authored coordinates', () => {
         const view = createView(true);
-        const native = {type: 'spot', position: [0, 0, 0], positionSpace: 'geographic', direction: [0, 0, -1]};
+        const native = {type: 'spot', position: [0, 0, 0], positionSpace: 'geographic', direction: [0, 0, -1]} satisfies TangramSpotLight;
         const lamp = Light.create(view, {name: 'lamp', luma: native});
         const snapshot = lamp.toLumaLight();
         expect(snapshot.tangram.position).toEqual([-1, -258, -3]);

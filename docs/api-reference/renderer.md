@@ -291,6 +291,12 @@ lossless shader replacement. Native coefficients and cone angles are retained.
 `mapTangramLight(resolved)` and `convertLumaLight(light)` expose
 the same conversion boundary for tooling without creating a scene.
 
+`convertLumaLight(light).lumaLight` is typed as `NormalizedTangramLight`: color
+and intensity are required after validation/defaulting, point and spot lights
+have attenuation coefficients, and spot lights have both radian cone angles.
+Narrow on `type` before accessing positional or spotlight-only fields. The
+authored `TangramLight` input keeps those defaults optional.
+
 **Backend status:** native scene lights render on WebGL 2 and WebGPU for polygon,
 line and raster surface styles, with `lighting: 'vertex'`, `'fragment'`, or `false`.
 WebGPU supports constant emission, ambient, diffuse and specular material

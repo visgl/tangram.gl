@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // @ts-nocheck
 
@@ -11,7 +12,22 @@ import log from '../utils/log';
 
 import parseCSSColor from 'csscolorparser';
 
-const StyleParser = {};
+/** Scalar/array unit inputs consumed by checked lighting code. */
+type UnitScalar = number | string;
+/** Unit conversion overloads preserve scalar and array result shapes. */
+interface UnitConverter {
+    (value: UnitScalar, context: {zoom: number; meters_per_pixel?: number}): number;
+    (value: readonly UnitScalar[], context: {zoom: number; meters_per_pixel?: number}): number[];
+}
+/** Color and distance boundary; the dynamic style/cache implementation remains a separate tranche. */
+interface StyleParserLightingBoundary {
+    /** Parse a static color contribution into numeric RGBA components. */
+    parseColor(value: string | readonly number[]): number[];
+    /** Resolve authored meter/pixel values at the current style zoom. */
+    convertUnits: UnitConverter;
+}
+
+const StyleParser = {} as StyleParserLightingBoundary;
 export default StyleParser;
 
 // Helpers for string converstion / NaN handling
