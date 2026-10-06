@@ -243,19 +243,30 @@ function loadResource (source: any): Promise<SceneConfig> {
     });
 }
 
-/** Copy scene arrays and record-like definitions without losing prototypes, functions or opaque values. */
-function cloneSceneValue(value: any): any {
-    if (Array.isArray(value)) {
-        return value.map(cloneSceneValue);
+/** Snapshot scene records and public accessors without cloning private class state or opaque values. */
+function cloneSceneValue(value: any, copies = new WeakMap<object, any>()): any {
+    if (!value || (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]')) {
+        return value;
     }
-    if (value && Object.prototype.toString.call(value) === '[object Object]') {
-        const copy = Object.create(Object.getPrototypeOf(value));
-        for (const [key, child] of Object.entries(value)) {
-            Object.defineProperty(copy, key, {
-                value: cloneSceneValue(child), enumerable: true, writable: true, configurable: true
-            });
+    if (copies.has(value)) return copies.get(value);
+
+    // Class definitions become writable scene data. Keeping their prototype
+    // would attach getters to an instance with no private fields. Read getters
+    // on the original instead, without invoking its setters during normalization.
+    const copy = Array.isArray(value) ? new Array(value.length) :
+        Object.create(Object.getPrototypeOf(value) === null ? null : Object.prototype);
+    copies.set(value, copy);
+    const keys = new Set<string>();
+    for (const key in value) keys.add(key);
+    for (let owner = value; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
+        for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(owner))) {
+            if (descriptor.get) keys.add(key);
         }
-        return copy;
     }
-    return value;
+    for (const key of keys) {
+        Object.defineProperty(copy, key, {
+            value: cloneSceneValue(value[key], copies), enumerable: true, writable: true, configurable: true
+        });
+    }
+    return copy;
 }

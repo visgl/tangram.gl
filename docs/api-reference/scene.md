@@ -63,6 +63,9 @@ named texture references retain their names.
 Object-based scene documents are copied before normalization, including nested
 objects and arrays. Loading the same document with a different `base_path`
 does not rewrite the original document's URLs or functions.
+Class-based definitions are materialized as writable scene data, reading public
+accessors on the original instance; class prototypes and private state are not
+cloned. Cloning preserves null-prototype records.
 
 The classic playground serializes scene loads. Cancelling an edit skips its
 queued load, error reporting, and attribution refresh. A load already in flight

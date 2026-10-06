@@ -261,11 +261,43 @@ textures:
         expect(source.url).toBe('data.json');
         expect(texture.url).toBe('image.png');
         expect(font.url).toBe('font.woff');
-        expect(first.config.sources.local).toBeInstanceOf(ResourceDefinition);
+        expect(first.config.sources.local).toEqual({url: `${BASE_URL}data.json`});
         expect(first.config.sources.local).not.toBe(source);
         expect(Object.getPrototypeOf(first.config.fonts.local)).toBeNull();
         expect(second.config.sources.local.url).toBe('https://other.test/data.json');
         expect(second.config.textures.local.url).toBe('https://other.test/image.png');
         expect(second.config.fonts.local.url).toBe('https://other.test/font.woff');
+    });
+
+    test('snapshots private-backed accessors on original class instances without invoking setters', async () => {
+        /** Application definitions may expose non-enumerable, inherited accessors. */
+        class ResourceDefinition {
+            /** URL state that cannot be copied by creating an empty class instance. */
+            #url: string;
+            /** Capture the application's relative resource URL. */
+            constructor(url: string) {this.#url = url;}
+            /** Read the original private state when materializing scene data. */
+            get url() {return this.#url;}
+            /** Normalization must not invoke this setter on the application object. */
+            set url(_value: string) {throw new Error('Original URL must not be rewritten');}
+        }
+        /** Verify inherited accessors, not just accessors on the immediate prototype. */
+        class SourceDefinition extends ResourceDefinition {
+            /** Keep the public source format in the data snapshot. */
+            type = 'GeoJSON';
+        }
+        const source = new SourceDefinition('data.json');
+        const font = new ResourceDefinition('font.woff');
+        const texture = new ResourceDefinition('image.png');
+        const document = {sources: {local: source}, fonts: {local: [font]}, textures: {local: texture}};
+        for (const base of [BASE_URL, 'https://other.test/']) {
+            const {config} = await loadResources(document, base);
+            expect(config.sources.local).toEqual({url: `${base}data.json`, type: 'GeoJSON'});
+            expect(config.fonts.local[0].url).toBe(`${base}font.woff`);
+            expect(config.textures.local.url).toBe(`${base}image.png`);
+        }
+        expect(source.url).toBe('data.json');
+        expect(font.url).toBe('font.woff');
+        expect(texture.url).toBe('image.png');
     });
 });
