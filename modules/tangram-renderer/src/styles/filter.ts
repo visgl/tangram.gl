@@ -8,11 +8,11 @@ type FilterValue = unknown;
 export interface FilterOptions {
     rangeTransform?: (value: unknown) => unknown;
 }
-/** Compiled feature predicate evaluated against the style context. */
+/** Generated filter retains authored function results; matching applies truthiness. */
 export type FilterFunction = (context: {
     feature?: {properties: Record<string, unknown>};
     [name: string]: unknown;
-}) => boolean;
+}) => unknown;
 type FilterAst = string[];
 
 function notNull (x: FilterValue): boolean { return x != null; }

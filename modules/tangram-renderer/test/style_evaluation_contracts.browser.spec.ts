@@ -45,6 +45,12 @@ describe('checked property evaluation contracts', () => {
         expect(StyleParser.parsePositiveNumber(['-5', '12px', 'invalid'])).toEqual([0, 12, 0]);
     });
 
+    test('retains clamping coercion for nested numeric arrays', () => {
+        const rawValue: unknown = [[-5], [12], [2, 3]];
+        expect(StyleParser.parseNumber(rawValue)).toEqual([-5, 12, 2]);
+        expect(StyleParser.parsePositiveNumber(rawValue)).toEqual([0, 12, NaN]);
+    });
+
     test('normalizes each zoom stop once, retaining its original index', () => {
         const transform = vi.fn((value: unknown, index: number) => Number(value) + index);
         const cache = StyleParser.createPropertyCache([[10, 2], [14, 5]], transform);
@@ -102,6 +108,11 @@ describe('checked property evaluation contracts', () => {
 });
 
 describe('checked layer/filter contracts', () => {
+    test('function filters retain their authored result without adding boolean coercion', () => {
+        expect(buildFilter(() => 7)(createContext())).toBe(7);
+        expect(buildFilter(() => undefined)(createContext())).toBeUndefined();
+    });
+
     test.each([
         [{kind: 'major'}, true], [{kind: 'minor'}, false],
         [{tags: {includes_all: ['bridge', 'paved']}}, true],

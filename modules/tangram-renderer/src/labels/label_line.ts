@@ -1,9 +1,10 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
-
+import type {CollisionBounds, CollisionLabel} from './collision-types';
+import type {LabelLayout, LabelPointCoordinate, SerializedLabel} from './label-types';
 import Label, {textLayoutToJSON} from './label';
 import Vector from '../utils/vector';
 import OBB from '../utils/obb';
@@ -22,7 +23,7 @@ const VERTICAL_ANGLE_TOLERANCE = 0.01;      // nearly vertical lines considered 
 let LabelLine = {
     // Given a label's bounding box size and size of broken up individual segments
     // return a label that fits along the line geometry that is either straight (preferred) or curved (if straight tolerances aren't met)
-    create : function(segment_sizes, total_size, line, layout){
+    create : function(segment_sizes: LabelPointCoordinate | LabelPointCoordinate[], total_size: LabelPointCoordinate | undefined, line: LabelPointCoordinate[], layout: LabelLayout): LabelLineStraight | LabelLineCurved | false{
         // The passes done for fitting a label, and provided tolerances for each pass
         // First straight is chosen with a low tolerance. Then curved. Then straight with a higher tolerance.
         const passes = [
@@ -36,10 +37,10 @@ let LabelLine = {
             let check = passes[i];
             let label;
             if (check.type === 'straight'){
-                label = new LabelLineStraight(total_size, line, layout, check.tolerance);
+                label = new LabelLineStraight(total_size!, line, layout, check.tolerance!);
             }
             else if (check.type === 'curved' && !layout.no_curving && line.length > 2){
-                label = new LabelLineCurved(segment_sizes, line, layout);
+                label = new LabelLineCurved(segment_sizes as LabelPointCoordinate[], line, layout);
             }
 
             if (label && !label.throw_away) {
@@ -54,13 +55,47 @@ let LabelLine = {
 export default LabelLine;
 
 // Base class for a labels.
+/** Shared geometry and collision behavior for straight and articulated labels. */
 export class LabelLineBase {
-    constructor (layout) {
+    /** Worker-scoped identity. */
+    declare id: number;
+    /** Normalized placement configuration. */
+    declare layout: LabelLayout;
+    /** Tile-local placement position, set by a successful fit. */
+    declare position: LabelPointCoordinate;
+    /** Global text rotation. */
+    declare angle: number;
+    /** Pixel offset. */
+    declare offset: LabelPointCoordinate;
+    /** Tile units per pixel. */
+    declare unit_scale: number;
+    /** Segment narrow-phase boxes. */
+    declare obbs: OBB[];
+    /** Segment broad-phase extents. */
+    declare aabbs: number[][];
+    /** Placement kind. */
+    declare type: string;
+    /** Whether fitting rejected the candidate. */
+    declare throw_away: boolean;
+    /** Whole-label dimensions for straight text. */
+    declare size: LabelPointCoordinate;
+    /** Tile-edge collision flags, assigned when bounds are built. */
+    declare breach?: boolean;
+    declare may_repeat_across_tiles?: boolean;
+    /** Collision result and grid memberships, assigned by collision. */
+    declare placed?: boolean | null;
+    declare cells?: CollisionBounds[];
+    /** Canvas alignment for point-compatible text consumers. */
+    declare align?: string;
+    /** Repeat behavior hook reused from Label by hosts when installed. */
+    declare mayRepeatAcrossTiles?: Label['mayRepeatAcrossTiles'];
+
+    constructor (layout: LabelLayout) {
         this.id = Label.nextLabelId();
         this.layout = layout;
-        this.position = [];
+        this.position = [] as unknown as LabelPointCoordinate;
         this.angle = 0;
-        this.offset = layout.offset.slice();
+        this.offset = layout.offset.slice() as LabelPointCoordinate;
         this.unit_scale = this.layout.units_per_pixel;
         this.obbs = [];
         this.aabbs = [];
@@ -69,7 +104,7 @@ export class LabelLineBase {
     }
 
     // Minimal representation of label
-    toJSON () {
+    toJSON (): SerializedLabel {
         return {
             id: this.id,
             type: this.type,
@@ -86,7 +121,7 @@ export class LabelLineBase {
     // Given a line, find the longest series of segments that maintains a constant orientation in the x-direction.
     // This assures us that the line has no orientation flip, so text would not appear upside-down.
     // If the line's orientation is reversed, the flip return value will be true, otherwise false
-    static splitLineByOrientation(line){
+    static splitLineByOrientation(line: LabelPointCoordinate[]): [LabelPointCoordinate[], boolean]{
         let current_line = [line[0]];
         let current_length = 0;
         let max_length = 0;
@@ -168,7 +203,7 @@ export class LabelLineBase {
     }
 
     // Checks each segment to see if it should be discarded (via collision). If any segment fails this test, they all fail.
-    discard(bboxes, exclude = null) {
+    discard(bboxes: CollisionBounds, exclude: CollisionLabel | null | 0 | '' = null): boolean {
         if (this.throw_away) {
             return true;
         }
@@ -202,13 +237,13 @@ export class LabelLineBase {
     // Method to calculate oriented bounding box
     // "angle" is the angle of the text segment, "angle_offset" is the angle applied to the offset.
     // Offset angle is constant for the entire label, while segment angles are not.
-    static createOBB (position, width, height, angle, angle_offset, offset, upp) {
+    static createOBB (position: LabelPointCoordinate, width: number, height: number, angle: number, angle_offset: number, offset: LabelPointCoordinate | null, upp: number): OBB {
         let p0 = position[0];
         let p1 = position[1];
 
         // apply offset, x positive, y pointing down
         if (offset && (offset[0] !== 0 || offset[1] !== 0)) {
-            offset = Vector.rot(offset, angle_offset);
+            offset = Vector.rot(offset, angle_offset) as LabelPointCoordinate;
             p0 += offset[0] * upp;
             p1 -= offset[1] * upp;
         }
@@ -221,7 +256,7 @@ export class LabelLineBase {
 // Class for straight labels.
 // Extends base LabelLine class.
 export class LabelLineStraight extends LabelLineBase {
-    constructor (size, line, layout, tolerance){
+    constructor (size: LabelPointCoordinate, line: LabelPointCoordinate[], layout: LabelLayout, tolerance: number){
         super(layout);
         this.type = 'straight';
         this.size = size;
@@ -231,7 +266,7 @@ export class LabelLineStraight extends LabelLineBase {
     // Determine if the label can fit the geometry within provided tolerance
     // A straight label is generally placed at segment midpoints, but can "look ahead" to further segments
     // if they are within an angle bound given by STRAIGHT_ANGLE_TOLERANCE and place at the midpoint between non-consecutive segments
-    fit (size, line, layout, tolerance){
+    fit (size: LabelPointCoordinate, line: LabelPointCoordinate[], layout: LabelLayout, tolerance: number): boolean{
         let upp = this.unit_scale;
         let flipped; // boolean indicating if orientation of line is changed
 
@@ -262,7 +297,7 @@ export class LabelLineStraight extends LabelLineBase {
             let curve_tolerance = 0;
             let length = 0;
             let ahead_index = i + 1;
-            let prev_angle;
+            let prev_angle!: number;
 
             // look ahead to further line segments within an angle tolerance
             while (ahead_index < line.length){
@@ -300,7 +335,7 @@ export class LabelLineStraight extends LabelLineBase {
                         }
                     }
 
-                    this.position = curr_midpt;
+                    this.position = curr_midpt as LabelPointCoordinate;
                     this.updateBBoxes(this.position, size, this.angle, this.angle, this.offset);
                     return true; // use this placement
                 }
@@ -314,7 +349,7 @@ export class LabelLineStraight extends LabelLineBase {
     }
 
     // Calculate bounding boxes
-    updateBBoxes(position, size, angle, angle_offset, offset) {
+    updateBBoxes(this: Pick<LabelLineBase, "unit_scale" | "obbs" | "aabbs" | "breach" | "may_repeat_across_tiles"> & {layout: Pick<LabelLayout, 'buffer'>} & Partial<Pick<LabelLineBase, "inTileBounds" | "mayRepeatAcrossTiles">>, position: LabelPointCoordinate, size: LabelPointCoordinate, angle: number, angle_offset: number, offset: LabelPointCoordinate) {
         let upp = this.unit_scale;
 
         // reset bounding boxes
@@ -343,7 +378,15 @@ export class LabelLineStraight extends LabelLineBase {
 // Class for curved labels
 // Extends base LabelLine class to support angles, pre_angles, offsets as arrays for each segment
 class LabelLineCurved extends LabelLineBase {
-    constructor (segment_sizes, line, layout) {
+    /** Per-segment samples at fractional zoom stops. */
+    declare angles: number[][];
+    declare pre_angles: number[][];
+    declare offsets: number[][];
+    /** Segment count and unscaled dimensions. */
+    declare num_segments: number;
+    declare sizes: LabelPointCoordinate[];
+
+    constructor (segment_sizes: LabelPointCoordinate[], line: LabelPointCoordinate[], layout: LabelLayout) {
         super(layout);
         this.type = 'curved';
 
@@ -372,7 +415,7 @@ class LabelLineCurved extends LabelLineBase {
 
     // Determine if the curved label can fit the geometry.
     // No tolerance is provided because the label must fit entirely within the line geometry.
-    fit (size, line, layout){
+    fit (size: LabelPointCoordinate[], line: LabelPointCoordinate[], layout: LabelLayout): boolean{
         let upp = this.unit_scale;
         let flipped; // boolean determining if the line orientation is reversed
 
@@ -486,7 +529,7 @@ class LabelLineCurved extends LabelLineBase {
     // then construct a "window" whose breadth is the length of the label. Place this label at each vertex
     // and add the curvatures of each vertex within the window. The vertex mimimizing this value is the "best" placement.
     // Return -1 is no placement found.
-    static curvaturePlacement(line, total_line_length, line_lengths, label_length, start_index, end_index){
+    static curvaturePlacement(line: LabelPointCoordinate[], total_line_length: number, line_lengths: number[], label_length: number, start_index?: number, end_index?: number): number{
         start_index = start_index || 0;
         end_index = end_index || line.length - 1;
 
@@ -580,9 +623,9 @@ class LabelLineCurved extends LabelLineBase {
 
     // Scale the line by a scale factor (used for computing the angles and offsets at fractional zoom levels)
     // Return the new line positions and their lengths
-    static scaleLine(scale, line){
+    static scaleLine(scale: number, line: LabelPointCoordinate[]): [LabelPointCoordinate[], number[]]{
         var new_line = [line[0]];
-        var line_lengths = [];
+        var line_lengths: number[] = [];
 
         line.forEach((pt, i) => {
             if (i === line.length - 1) {
@@ -591,7 +634,7 @@ class LabelLineCurved extends LabelLineBase {
             var v = Vector.sub(line[i+1], line[i]);
             var delta = Vector.mult(v, 1 + scale);
 
-            new_line.push(Vector.add(new_line[i], delta));
+            new_line.push(Vector.add(new_line[i], delta) as LabelPointCoordinate);
             line_lengths.push(Vector.length(delta));
         });
 
@@ -599,7 +642,7 @@ class LabelLineCurved extends LabelLineBase {
     }
 
     // Place a label at a given line index
-    static placeAtIndex(anchor_index, line, line_lengths, label_lengths){
+    static placeAtIndex(anchor_index: number, line: LabelPointCoordinate[], line_lengths: number[], label_lengths: number[]){
         let anchor = line[anchor_index];
 
         // Use flat coordinates. Get nearest line vertex index, and offset from the vertex for all labels.
@@ -624,11 +667,11 @@ class LabelLineCurved extends LabelLineBase {
     // |---------|---------|-------------|------------|----------|-------|
     //
     // Result: indices: [0,0,1,1,3,4]
-    static getIndicesAndOffsets(line_index, line_lengths, label_lengths){
+    static getIndicesAndOffsets(line_index: number, line_lengths: number[], label_lengths: number[]): [number[], number[]]{
         let num_labels = label_lengths.length;
 
         let indices = [];
-        let offsets = [];
+        let offsets: number[] = [];
 
         let label_index = 0;
         let label_offset = 0;
@@ -657,8 +700,8 @@ class LabelLineCurved extends LabelLineBase {
     }
 
     // Given indices and 1D offsets on a line, compute their 2D positions
-    static getPositionsFromIndicesAndOffsets(line, indices, offsets){
-        let positions = [];
+    static getPositionsFromIndicesAndOffsets(line: LabelPointCoordinate[], indices: number[], offsets: number[]): LabelPointCoordinate[]{
+        let positions: LabelPointCoordinate[] = [];
         for (let i = 0; i < indices.length; i++){
             let index = indices[i];
             let offset = offsets[i];
@@ -668,14 +711,14 @@ class LabelLineCurved extends LabelLineBase {
             let offset2d = Vector.rot([offset, 0], angle);
             let position = Vector.add(line[index], offset2d);
 
-            positions.push(position);
+            positions.push(position as LabelPointCoordinate);
         }
 
         return positions;
     }
 
     // Given indices and 1D offsets on a line, compute their angles and pre-angles from a reference anchor point
-    static getAnglesFromIndicesAndOffsets(anchor, indices, line, positions){
+    static getAnglesFromIndicesAndOffsets(anchor: LabelPointCoordinate, indices: number[], line: LabelPointCoordinate[], positions: LabelPointCoordinate[]): [LabelPointCoordinate[], number[], number[]]{
         let angles = [];
         let pre_angles = [];
         let offsets = [];
@@ -703,7 +746,7 @@ class LabelLineCurved extends LabelLineBase {
 
             angles.push(offset_angle);
             pre_angles.push(pre_angle);
-            offsets.push(offset);
+            offsets.push(offset as LabelPointCoordinate);
         }
 
         return [offsets, angles, pre_angles];
@@ -711,20 +754,20 @@ class LabelLineCurved extends LabelLineBase {
 }
 
 // Fitness function (label length / line length)
-function calcFitness(line_length, label_length) {
+function calcFitness(line_length: number, label_length: number): number {
     return label_length / line_length;
 }
 
-function getAngleForSegment(p, q){
+function getAngleForSegment(p: LabelPointCoordinate, q: LabelPointCoordinate): number{
     let pq = Vector.sub(q,p);
     return Vector.angle(pq);
 }
 
-function getTextAngleForSegment(pt1, pt2) {
+function getTextAngleForSegment(pt1: LabelPointCoordinate, pt2: LabelPointCoordinate): number {
     return -getAngleForSegment(pt1, pt2);
 }
 
-function getLineLengths(line){
+function getLineLengths(line: LabelPointCoordinate[]): number[]{
     let lengths = [];
     for (let i = 0; i < line.length - 1; i++){
         let p = line[i];
@@ -735,7 +778,7 @@ function getLineLengths(line){
     return lengths;
 }
 
-function getAbsAngleDiff(angle1, angle2){
+function getAbsAngleDiff(angle1: number, angle2: number): number{
     let small, big;
     if (angle1 > angle2){
         small = angle2;

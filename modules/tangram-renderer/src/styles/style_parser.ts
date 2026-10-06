@@ -20,7 +20,7 @@ const StyleParser = {} as StyleParserRuntime;
 export default StyleParser;
 
 // Helpers for string converstion / NaN handling
-const clampPositive = (v: number) => Math.max(v, 0);
+const clampPositive = (v: unknown) => Math.max(v as number, 0);
 const noNaN = (v: number) => isNaN(v) ? 0 : v;
 const parseNumber = ((v: unknown) => Array.isArray(v) ? v.map(parseFloat).map(noNaN) : noNaN(parseFloat(v as string))) as StyleParserRuntime['parseNumber'];
 const parsePositiveNumber = ((v: unknown) => Array.isArray(v) ? v.map(parseNumber).map(clampPositive) : clampPositive(parseNumber(v) as number)) as StyleParserRuntime['parsePositiveNumber'];

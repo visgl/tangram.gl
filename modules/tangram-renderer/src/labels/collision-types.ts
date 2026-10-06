@@ -49,15 +49,15 @@ export interface CollisionLabel {
     /** Whether main-pass repeat culling is still required. */
     may_repeat_across_tiles?: boolean;
     /** Test placed bounds while ignoring an explicitly linked label. */
-    discard(bounds: CollisionBounds, exclude: CollisionLabel | null): boolean;
+    discard(bounds: CollisionBounds, exclude: CollisionLabel | null | 0 | ''): boolean;
 }
 
 /** Placement container; callers can retain additional renderer-specific payload. */
 export interface CollisionObject {
     /** Mutable candidate label. */
     label: CollisionLabel;
-    /** Optional placement dependency, considered as a pair. */
-    linked?: CollisionObject | null;
+    /** Optional placement dependency, considered as a pair; legacy falsy IDs are ignored. */
+    linked?: CollisionObject | null | 0 | '';
     /** Visibility assigned by the collision pass. */
     show?: boolean | null;
 }

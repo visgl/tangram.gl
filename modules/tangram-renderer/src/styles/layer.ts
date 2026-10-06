@@ -303,7 +303,9 @@ class Layer {
 
         if (match) {
             if (this.children_to_parse) {
-                parseLayerChildren(this as LayerTree, this.children_to_parse, this.styles);
+                // Only tree nodes schedule non-empty children. The lazy state is
+                // retained on the shared base class for legacy construction.
+                parseLayerChildren(this as unknown as LayerTree, this.children_to_parse, this.styles);
                 delete this.children_to_parse;
             }
 

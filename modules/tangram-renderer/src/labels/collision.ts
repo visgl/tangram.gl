@@ -198,7 +198,7 @@ const Collision = {
 
     // Run collision and repeat check to see if label can currently be placed
     /** Check a candidate, preserving previously resolved placement outcomes. */
-    canBePlaced (object: CollisionObject, tile: string, exclude: CollisionObject | null = null, { repeat = true }: {repeat?: boolean} = {}): boolean | null | undefined {
+    canBePlaced (object: CollisionObject, tile: string, exclude: CollisionObject | null | 0 | '' = null, { repeat = true }: {repeat?: boolean} = {}): boolean | null | undefined {
         let label = object.label;
         let layout = object.label.layout;
 

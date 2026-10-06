@@ -239,3 +239,26 @@ and submit one batch per style; the completion barrier resolves after all styles
 submit, or immediately when the tile is aborted. Collision results retain the
 submitted container identities and payload types. Numeric priority keys are
 converted explicitly when sorting, preserving the legacy numeric ordering.
+
+## Labels and text typing
+
+The labels/text subsystem is checked without blanket TypeScript suppressions.
+Its internal contracts separate normalized placement layouts, serialized worker
+labels, main-pass mesh ranges, text measurements, atlas positions, and cooperative
+task payloads. These are internal types, not new package entry points.
+
+Text records are populated in stages: source parsing creates unique strings and
+settings, measurement adds sizes and segment data, packing assigns atlas
+positions, and rasterization supplies UVs and retained texture names. Cancellation
+can return no result at either worker handoff. Mesh visibility updates retain
+their byte offsets and upload only meshes whose visibility changed.
+
+New class field annotations use `declare` so they do not create properties or
+shadow inherited methods. Prototype/mixin construction and calls into the
+still-unchecked point style, property parser, worker broker, and texture registry
+remain localized compatibility boundaries. Those implementations are unchanged;
+checking labels/text does not claim those other subsystems are finished.
+
+The typing migration preserves legacy behavior, including omitted repeat scales
+in worker snapshots, repeated curved-label bounds, and ignored falsy label-link
+IDs. Changes to those behaviors belong in separately tested fixes.

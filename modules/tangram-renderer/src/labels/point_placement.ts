@@ -1,16 +1,18 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Logic for placing point labels along a line geometry
 
 import LabelPoint from './label_point';
+import type {LabelLayout} from './label-types';
 import {isCoordOutsideTile} from '../builders/common';
 
 const PLACEMENT = LabelPoint.PLACEMENT;
 const default_spacing = 80; // spacing of points along line in pixels
 type Point = [number, number];
-type PlacementLayout = Record<string, any>;
+type PlacementLayout = LabelLayout;
 type PlacementResult = {positions: Point[]; angles: number[]};
 
 export default function placePointsOnLine (line: Point[], size: Point, layout: PlacementLayout): LabelPoint[] {

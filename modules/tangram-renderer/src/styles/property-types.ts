@@ -83,7 +83,8 @@ export type PropertyTransform = (value: unknown, index: number) => unknown;
 
 /** Checked callable surface of the incrementally initialized legacy parser object. */
 export interface StyleParserRuntime {
-    clampPositive(value: number): number;
+    /** Retains Math.max coercion, including array results from legacy nested inputs. */
+    clampPositive(value: unknown): number;
     noNaN(value: number): number;
     parseNumber(value: unknown[]): number[];
     parseNumber(value: string | number | boolean | null | undefined): number;
