@@ -197,6 +197,27 @@ coordinates and heights. No provider snapshot, font download, or tile service
 is required. This is schema/rendering conformance, not a claim of complete visual
 parity with every OpenFreeMap or CARTO style.
 
+## Style evaluation contracts
+
+Property parsing, scene-layer matching, filter compilation, and style/shader
+mixing are checked by TypeScript without blanket suppressions. Internal contracts
+live in `styles/property-types.ts`, `styles/layer-types.ts`, and
+`styles/style-mixing-types.ts`; they are not new package exports or a replacement
+for the public scene schema.
+
+Authored values and dynamic expression results enter as `unknown`. Property
+parsers normalize them before evaluation, while layers retain separate raw,
+compiled, and cached states. Local assertions describe existing normalization
+and prototype-construction boundaries; they do not add runtime coercion or
+validation. The GPU style implementations and worker broker are separate
+migration boundaries, not made checked by these contracts.
+
+The typed regression fixtures cover cache identity, sprite-relative sizing,
+zoom/unit conversion, lazy matching, exclusivity, diamond mixins, uniform
+ownership, and mesh blend passes. Preserve legacy evaluation order and fallback
+behavior when extending these contracts. In particular, avoid emitting class
+fields that shadow inherited members or eagerly building lazy layer children.
+
 ## Website and examples
 
 Run `yarn website:start` for the Docusaurus site or run `yarn build:modules`

@@ -4,7 +4,7 @@
 // Copyright (c) 2026 vis.gl contributors
 
 // Manage rendering styles
-// @ts-nocheck
+import type {ManagedStyle, StyleDefinition, StyleShaderDefinition, MixedStyleShaders, StyleManagerTile, ActiveStyleBlendOrder} from './style-mixing-types';
 
 import ShaderProgram from '../gl/shader_program';
 import mergeObjects from '../utils/merge';
@@ -22,7 +22,16 @@ import style_globals_source from './style_globals.glsl';
 import selection_globals_source from '../selection/selection_globals.glsl';
 import selection_vertex_source from '../selection/selection_vertex.glsl';
 
+/** Builds scene style mixins and owns the registered render-style lifecycle. */
 export class StyleManager {
+    /** Registered renderable styles, including reusable built-ins. */
+    declare styles: Record<string, ManagedStyle>;
+    /** Prototype sources reused when rebuilding custom styles. */
+    declare base_styles: Record<string, ManagedStyle>;
+    /** Current tile-visible style names. */
+    declare active_styles: string[];
+    /** Sorted mesh blend-order passes. */
+    declare active_blend_orders: ActiveStyleBlendOrder[];
 
     constructor () {
         this.styles = {};
@@ -72,7 +81,7 @@ export class StyleManager {
     }
 
     // Destroy all styles for a given rendering resource context
-    destroy (resource_context) {
+    destroy (resource_context: unknown): void {
         Object.keys(this.styles).forEach((_name) => {
             let style = this.styles[_name];
             if ((style.resource_context || style.gl) === resource_context) {
@@ -87,13 +96,13 @@ export class StyleManager {
     }
 
     // Register a style
-    register (style) {
+    register (style: ManagedStyle): void {
         this.styles[style.name] = style;
         this.base_styles[style.name] = style;
     }
 
     // Remove a style
-    remove (name) {
+    remove (name: string): void {
         delete this.styles[name];
     }
 
@@ -102,12 +111,12 @@ export class StyleManager {
     }
 
     // Get list of active styles based on a set of tiles
-    updateActiveStyles (tiles) {
+    updateActiveStyles (tiles: StyleManagerTile[]): string[] {
         this.active_styles = Object.keys(
             tiles.reduce((active, tile) => {
                 Object.keys(tile.meshes).forEach(s => active[s] = true);
                 return active;
-            }, {})
+            }, {} as Record<string, boolean>)
         );
         return this.active_styles;
     }
@@ -116,8 +125,8 @@ export class StyleManager {
         return this.active_blend_orders;
     }
 
-    updateActiveBlendOrders (tiles) {
-        const orders = [];
+    updateActiveBlendOrders (tiles: StyleManagerTile[]): void {
+        const orders: ActiveStyleBlendOrder[] = [];
         tiles.forEach(tile => {
             Object.entries(tile.meshes)
                 .forEach(([style, style_meshes]) => { // for each tile's set of meshes, keyed by style name
@@ -139,7 +148,7 @@ export class StyleManager {
         this.active_blend_orders = orders.sort((a, b) => a.blend_order - b.blend_order);
     }
 
-    mix (style, styles) {
+    mix (style: StyleDefinition, styles: Record<string, StyleDefinition>): StyleDefinition {
         // Exit early if we have already applied mixins to this style
         if (style.mixed) {
             return style;
@@ -147,18 +156,19 @@ export class StyleManager {
         style.mixed = {};
 
         // Mixin sources, in order
-        let sources = [];
+        let sources: StyleDefinition[] = [];
         if (style.mix) {
+            const sourceNames: string[] = [];
             if (Array.isArray(style.mix)) {
-                sources.push(...style.mix);
+                sourceNames.push(...style.mix);
             }
             else {
-                sources.push(style.mix);
+                sourceNames.push(style.mix);
             }
-            sources = sources.map(x => styles[x]).filter(x => x && x !== style); // TODO: warning on trying to mix into self
+            sources = sourceNames.map(x => styles[x]).filter(x => x && x !== style); // TODO: warning on trying to mix into self
 
             // Track which styles were mixed into this one
-            sources.forEach(s => style.mixed[s.name] = true);
+            sources.forEach(s => style.mixed![s.name!] = true);
         }
         sources.push(style);
 
@@ -195,9 +205,9 @@ export class StyleManager {
     }
 
     // Mix the propertes in the "shaders" block
-    mixShaders (style, styles, sources) {
-        let shaders = {}; // newly mixed shaders properties
-        let shader_merges = sources.map(x => x.shaders).filter(x => x); // just the source styles with shader properties
+    mixShaders (style: StyleDefinition, styles: Record<string, StyleDefinition>, sources: StyleDefinition[]): StyleDefinition {
+        let shaders = {} as MixedStyleShaders; // newly mixed shaders properties
+        let shader_merges = sources.map(x => x.shaders).filter(x => x) as StyleShaderDefinition[]; // just the source styles with shader properties
 
         // Defines
         shaders.defines = Object.assign({}, ...shader_merges.map(x => x.defines).filter(x => x));
@@ -212,10 +222,10 @@ export class StyleManager {
 
         // Mix in uniforms from ancestors, providing means to access
         sources
-            .filter(x => x.shaders && x.shaders.uniforms)
+            .filter(x => x.shaders && x.shaders!.uniforms!)
             .forEach(x => {
-                for (let u in x.shaders.uniforms) {
-                    shaders._uniform_scopes[u] = x.name;
+                for (let u in x.shaders!.uniforms!) {
+                    shaders._uniform_scopes[u] = x.name!;
 
                     // Define getter and setter for this uniform
                     // Getter returns value for this style if present, otherwise asks appropriate ancestor for it
@@ -232,8 +242,8 @@ export class StyleManager {
                             // Uniform was mixed from another style, forward request there
                             // Identity check is needed to prevent infinite recursion if a previously defined uniform
                             // is set to undefined
-                            else if (styles[shaders._uniform_scopes[u]].shaders.uniforms !== shaders.uniforms) {
-                                return styles[shaders._uniform_scopes[u]].shaders.uniforms[u];
+                            else if (styles[shaders._uniform_scopes[u]].shaders!.uniforms! !== shaders.uniforms) {
+                                return styles[shaders._uniform_scopes[u]].shaders!.uniforms![u];
                             }
                             return undefined;
                         },
@@ -255,10 +265,10 @@ export class StyleManager {
                 }
                 // array of extensions
                 else {
-                    cur.forEach(x => prev[x] = true);
+                    cur!.forEach(x => prev[x] = true);
                 }
                 return prev;
-            }, {}) || {}
+            }, {} as Record<string, boolean>) || {}
         );
 
         // Shader blocks
@@ -269,16 +279,16 @@ export class StyleManager {
                 let block = style.shaders.blocks[k];
                 style.shaders.block_scopes[k] = style.shaders.block_scopes[k] || [];
                 if (Array.isArray(block)) {
-                    style.shaders.block_scopes[k].push(...block.map(() => style.name));
+                    (style.shaders.block_scopes[k] as string[]).push(...block.map(() => style.name!));
                 }
                 else {
-                    style.shaders.block_scopes[k].push(style.name);
+                    (style.shaders.block_scopes[k] as string[]).push(style.name!);
                 }
             }
         }
 
         // Merge shader blocks, keeping track of which style each block originated from
-        let mixed = {}; // all scopes mixed so far
+        let mixed: Record<string, boolean> = {}; // all scopes mixed so far
         shader_merges.forEach(source => {
             if (!source.blocks) {
                 return;
@@ -286,11 +296,11 @@ export class StyleManager {
 
             shaders.blocks = shaders.blocks || {};
             shaders.block_scopes = shaders.block_scopes || {};
-            let mixed_source = {}; // scopes mixed for this source style
+            let mixed_source: Record<string, boolean> = {}; // scopes mixed for this source style
 
             for (let t in source.blocks) {
                 let block = source.blocks[t];
-                let block_scope = source.block_scopes[t];
+                let block_scope = source.block_scopes![t];
 
                 shaders.blocks[t] = shaders.blocks[t] || [];
                 shaders.block_scopes[t] = shaders.block_scopes[t] || [];
@@ -307,8 +317,8 @@ export class StyleManager {
                     }
                     mixed_source[block_scope[b]] = true;
 
-                    shaders.blocks[t].push(block[b]);
-                    shaders.block_scopes[t].push(block_scope[b]);
+                    (shaders.blocks[t] as string[]).push(block[b]);
+                    (shaders.block_scopes[t] as string[]).push(block_scope[b]);
                 }
             }
 
@@ -317,7 +327,7 @@ export class StyleManager {
             Object.assign(mixed, mixed_source);
         });
 
-        Object.assign(style.mixed, mixed); // add all newly mixed styles
+        Object.assign(style.mixed!, mixed); // add all newly mixed styles
 
         style.shaders = shaders; // assign back to style
         return style;
@@ -327,8 +337,8 @@ export class StyleManager {
     // name: name of new style
     // config: properties of new style
     // styles: working set of styles being built (used for mixing in existing styles)
-    create (name, config, styles = {}) {
-        let style = mergeObjects({}, config); // deep copy
+    create (name: string, config: StyleDefinition, styles: Record<string, StyleDefinition> = {}): StyleDefinition {
+        let style = mergeObjects({} as StyleDefinition, config); // deep copy
         style.name = name;
 
         // Style mixins
@@ -338,7 +348,7 @@ export class StyleManager {
         // Only renderable (instantiated) styles should be included for run-time use
         // Others are intermediary/abstract, used during style composition but not execution
         if (style.base && this.base_styles[style.base]) {
-            this.styles[name] = style = Object.assign(Object.create(this.base_styles[style.base]), style);
+            this.styles[name] = style = Object.assign(Object.create(this.base_styles[style.base]), style) as ManagedStyle;
         }
         else {
             style.base = null; // null out invalid base style
@@ -348,13 +358,13 @@ export class StyleManager {
     }
 
     // Called to create and initialize styles
-    build (styles_defs) {
+    build (styles_defs: Record<string, StyleDefinition>): Record<string, ManagedStyle> {
         const styles = { ...styles_defs }; // copy to avoid modifying underlying object
 
         // Un-register existing styles from cross-thread communication
         if (this.styles) {
             Object.values(this.styles)
-                .forEach(s => WorkerBroker.removeTarget(s.main_thread_target));
+                .forEach(s => (WorkerBroker as {removeTarget(name: string): void}).removeTarget(s.main_thread_target));
         }
 
         // Add default blend/base style pairs as needed
@@ -391,7 +401,7 @@ export class StyleManager {
         }
 
         // Working set of styles being built
-        let ws = {};
+        let ws: Record<string, StyleDefinition> = {};
         style_deps.forEach(sname => {
             ws[sname] = this.create(sname, styles[sname], ws);
         });
@@ -400,7 +410,7 @@ export class StyleManager {
     }
 
     // Initialize all styles
-    initStyles (scene = {}) {
+    initStyles (scene: Record<string, unknown> = {}): void {
         // Initialize all
         for (let sname in this.styles) {
             this.styles[sname].init(scene);
@@ -408,7 +418,7 @@ export class StyleManager {
     }
 
     // Given a style key in a set of styles to add, count the length of the inheritance chain
-    inheritanceDepth (key, styles) {
+    inheritanceDepth (key: string, styles: Record<string, StyleDefinition>): number {
         let parents = 0;
 
         for (;;) {
@@ -435,7 +445,7 @@ export class StyleManager {
                     }
 
                     return this.inheritanceDepth(s, styles);
-                }));
+                }) as number[]);
                 break;
             }
             else {
