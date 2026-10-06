@@ -9,19 +9,33 @@ import {DEFAULT_SCENE, SCENE_OPTIONS, SCENE_ALIASES, SCENE_DESCRIPTIONS, getScen
 import {OPENFREEMAP_ATTRIBUTION, OPENFREEMAP_TILEJSON} from '../examples/classic/app/vector-providers.js';
 import {parseSceneYamlLegacy} from '../modules/tangram-renderer/src/procedures/scene-yaml-legacy';
 import mergeObjects from '../modules/tangram-renderer/src/utils/merge';
+import {getPropertyPath} from '../modules/tangram-renderer/src/utils/props';
+import type {SceneDefinition} from '../modules/tangram-renderer/src/scene/scene-resource-types';
 
 /** Read a checked-in classic scene without depending on generated package bundles. */
-function readScene(name: string) {
-  return parseSceneYamlLegacy(readFileSync(new URL(`../examples/classic/styles/${name}`, import.meta.url), 'utf8'));
+function readScene(name: string): SceneDefinition {
+  return parseSceneYamlLegacy(readFileSync(new URL(`../examples/classic/styles/${name}`, import.meta.url), 'utf8')) as SceneDefinition;
+}
+
+/** Read dynamic scene fields without assigning a uniform shape to different styles. */
+function sceneValue(scene: SceneDefinition, path: string): unknown {
+  return getPropertyPath(scene, path.split('.'));
+}
+
+/** Require a fixture's dynamic object before enumerating its keys. */
+function sceneRecord(scene: SceneDefinition, path: string): object {
+  const value = sceneValue(scene, path);
+  if (!value || typeof value !== 'object') throw new Error(`Missing fixture object: ${path}`);
+  return value;
 }
 
 /** Merge local scene imports without requesting hosted style archives or remote tiles. */
 function readImportedScene(name: string): ReturnType<typeof readScene> {
   const scene = readScene(name);
   let inherited: ReturnType<typeof readScene> = {};
-  const imports = typeof scene.import === 'string' ? [scene.import] : scene.import || [];
+  const imports = typeof scene.import === 'string' ? [scene.import] : Array.isArray(scene.import) ? scene.import : [];
   for (const imported of imports) {
-    if (!imported.startsWith('https://') && imported.endsWith('.yaml')) {
+    if (typeof imported === 'string' && !imported.startsWith('https://') && imported.endsWith('.yaml')) {
       const importedName = posix.join(posix.dirname(name), imported);
       inherited = mergeObjects(inherited, readImportedScene(importedName));
     }
@@ -49,13 +63,13 @@ describe('classic live style choices', () => {
   });
   test('shares one Albers projection block between state fills and borders', () => {
     const scene = readScene('projection-morph.yaml');
-    expect(scene.styles['projection-morph']).toMatchObject({base: 'polygons', mix: 'albers-projection'});
-    expect(scene.styles['state-borders']).toMatchObject({base: 'lines', mix: 'albers-projection'});
-    expect(scene.styles['albers-projection'].shaders.blocks.position).toContain('latlon2albers');
-    expect(scene.styles['albers-projection'].animated).toBe(true);
-    expect(scene.styles['albers-projection'].shaders.blocks.global).toContain('u_time');
-    expect(scene.styles['albers-projection'].shaders.defines.MORPH_PERIOD).toBe(12);
-    expect(scene.sources.states.url).toBe('../data/us-states-10m.json');
+    expect(sceneValue(scene, 'styles.projection-morph')).toMatchObject({base: 'polygons', mix: 'albers-projection'});
+    expect(sceneValue(scene, 'styles.state-borders')).toMatchObject({base: 'lines', mix: 'albers-projection'});
+    expect(sceneValue(scene, 'styles.albers-projection.shaders.blocks.position')).toContain('latlon2albers');
+    expect(sceneValue(scene, 'styles.albers-projection.animated')).toBe(true);
+    expect(sceneValue(scene, 'styles.albers-projection.shaders.blocks.global')).toContain('u_time');
+    expect(sceneValue(scene, 'styles.albers-projection.shaders.defines.MORPH_PERIOD')).toBe(12);
+    expect(sceneValue(scene, 'sources.states.url')).toBe('../data/us-states-10m.json');
   });
   test('starts with full TRON and routes both live choices through their compatibility wrapper', () => {
     expect(DEFAULT_SCENE).toBe('styles/tron.yaml');
@@ -64,7 +78,8 @@ describe('classic live style choices', () => {
       {label: 'Crosshatch (OpenFreeMap)', value: 'styles/crosshatch.yaml'}
     ]);
     for (const name of ['tron.yaml', 'crosshatch.yaml']) {
-      expect(readScene(name).import.at(-1)).toBe('openmaptiles-mapzen-compat.yaml');
+      const imports = readScene(name).import;
+      expect(Array.isArray(imports) ? imports.at(-1) : imports).toBe('openmaptiles-mapzen-compat.yaml');
     }
     expect(SCENE_OPTIONS.some(option => option.value.endsWith('.zip'))).toBe(false);
     expect(new Set(SCENE_OPTIONS.map(option => option.value)).size).toBe(SCENE_OPTIONS.length);
@@ -89,12 +104,12 @@ describe('classic live style choices', () => {
   test.each(SCENE_OPTIONS.filter(option => !option.value.endsWith('projection-morph.yaml')))('$label uses OpenFreeMap vector tiles and provider credits', option => {
     const scene = readImportedScene(option.value.replace('styles/', ''));
     for (const name of ['mapzen', 'tilezen']) {
-      expect(scene.sources[name]).toMatchObject({type: 'MVT', url: '', url_params: null, tilejson: OPENFREEMAP_TILEJSON});
-      expect(scene.sources[name].attribution).toContain('OpenFreeMap');
-      expect(scene.sources[name].attribution).toContain('OpenMapTiles');
-      expect(scene.sources[name].attribution).toContain('OpenStreetMap');
+      expect(sceneValue(scene, `sources.${name}`)).toMatchObject({type: 'MVT', url: '', url_params: null, tilejson: OPENFREEMAP_TILEJSON});
+      expect(sceneValue(scene, `sources.${name}.attribution`)).toContain('OpenFreeMap');
+      expect(sceneValue(scene, `sources.${name}.attribution`)).toContain('OpenMapTiles');
+      expect(sceneValue(scene, `sources.${name}.attribution`)).toContain('OpenStreetMap');
     }
-    for (const source of Object.values(scene.sources) as Record<string, unknown>[]) {
+    for (const source of Object.values(scene.sources!)) {
       expect(String(source.url || '')).not.toMatch(/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/);
     }
   });
@@ -103,15 +118,15 @@ describe('classic live style choices', () => {
     'local-tron.yaml', 'local-basemap.yaml', 'crosshatch-preview.yaml'
   ])('keeps the finite fixture above the vector basemap in %s', name => {
     const scene = readImportedScene(name);
-    expect(scene.sources.preview.type).toBe('GeoJSON');
+    expect(sceneValue(scene, 'sources.preview.type')).toBe('GeoJSON');
     // Hosted style archives are deliberately not fetched by this hermetic test.
     // Fixture-only layers must not shadow their imported basemap layer names.
-    expect(Object.keys(readScene(name).layers)).toEqual(['preview-land', 'preview-buildings', 'preview-roads']);
+    expect(Object.keys(sceneRecord(readScene(name), 'layers'))).toEqual(['preview-land', 'preview-buildings', 'preview-roads']);
     for (const layer of ['preview-land', 'preview-buildings', 'preview-roads']) {
-      expect(scene.layers[layer].data.source).toBe('preview');
+      expect(sceneValue(scene, `layers.${layer}.data.source`)).toBe('preview');
     }
-    const landStyle = Object.keys(scene.layers['preview-land'].draw)[0];
-    expect(scene.styles[landStyle].blend).toBe('overlay');
+    const landStyle = Object.keys(sceneRecord(scene, 'layers.preview-land.draw'))[0];
+    expect(sceneValue(scene, `styles.${landStyle}.blend`)).toBe('overlay');
   });
 
   test('does not mount a second Leaflet raster basemap behind the renderer', () => {
@@ -122,6 +137,6 @@ describe('classic live style choices', () => {
 
   test('the crosshatch overlay reuses its canonical scene wrapper', () => {
     expect(readScene('crosshatch-preview.yaml').import).toBe('crosshatch.yaml');
-    expect(readScene('crosshatch-preview.yaml').styles['preview-crosshatch']).toBeDefined();
+    expect(sceneValue(readScene('crosshatch-preview.yaml'), 'styles.preview-crosshatch')).toBeDefined();
   });
 });

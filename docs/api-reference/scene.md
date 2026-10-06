@@ -60,6 +60,13 @@ object imports inherit their declaring scene's directory. Texture references
 substituted from `global` resolve against the root scene's resource base, and
 named texture references retain their names.
 
+Scene resource loading now has checked internal TypeScript contracts for URL
+and object inputs, recursive load results, optional resource URLs, and texture
+provenance (including numeric shader-uniform array paths). Custom scene fields
+remain supported and are represented as `unknown`, rather than `any`. These
+internal contracts do not add runtime schema validation or change the authored
+scene format; use the exported [style schemas](./styling.md#validation-and-editor-tooling) for validation.
+
 Object-based scene documents are copied before normalization, including nested
 objects and arrays. Loading the same document with a different `base_path`
 does not rewrite the original document's URLs or functions.

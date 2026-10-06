@@ -6,6 +6,8 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 import JSZip from 'jszip';
 import SceneLoader from '../src/scene/scene_loader';
 import Utils from '../src/utils/utils';
+import {getPropertyPath} from '../src/utils/props';
+import type {SceneDefinition} from '../src/scene/scene-resource-types';
 
 const BASE_URL = 'https://scenes.test/maps/';
 const objectUrls: string[] = [];
@@ -41,6 +43,19 @@ async function loadResources(source: string | object, path?: string) {
     SceneLoader.applyGlobalProperties(result.config);
     SceneLoader.hoistTextureNodes(result.config, result.bundle, result.texture_nodes);
     return result;
+}
+
+/** Inspect dynamic authored fields without pretending every scene has the same shape. */
+function sceneValue(config: SceneDefinition, path: string): unknown {
+    return getPropertyPath(config, path.split('.'));
+}
+
+/** Require the fixture's resolved URL before passing it to browser fetch. */
+function sceneUrl(config: SceneDefinition, path: string): string {
+    const value = sceneValue(config, path);
+    expect(value, path).toBeTypeOf('string');
+    if (typeof value !== 'string') throw new Error(`Missing fixture URL: ${path}`);
+    return value;
 }
 
 describe('scene import resource ownership', () => {
@@ -87,14 +102,14 @@ layers:
         });
         const {config} = await loadResources(`${BASE_URL}root.yaml`);
         const urls = {
-            'data/features.json': config.sources.local.url,
-            'fonts/local.woff': config.fonts.local.url,
-            'images/named.png': config.textures.named.url,
-            'images/style.png': config.styles.sample.texture,
-            'images/material.png': config.styles.sample.material.diffuse.texture,
-            'images/uniform.png': config.styles.sample.shaders.uniforms.image,
-            'images/draw.png': config.layers.roads.draw.sample.texture,
-            'images/outline.png': config.layers.roads.draw.sample.outline.texture
+            'data/features.json': sceneUrl(config, 'sources.local.url'),
+            'fonts/local.woff': sceneUrl(config, 'fonts.local.url'),
+            'images/named.png': sceneUrl(config, 'textures.named.url'),
+            'images/style.png': sceneUrl(config, 'styles.sample.texture'),
+            'images/material.png': sceneUrl(config, 'styles.sample.material.diffuse.texture'),
+            'images/uniform.png': sceneUrl(config, 'styles.sample.shaders.uniforms.image'),
+            'images/draw.png': sceneUrl(config, 'layers.roads.draw.sample.texture'),
+            'images/outline.png': sceneUrl(config, 'layers.roads.draw.sample.outline.texture')
         };
         for (const [path, url] of Object.entries(urls)) {
             expect(url, path).toMatch(/^blob:/);
@@ -110,7 +125,7 @@ layers:
             'https://external.test/styles/child.yaml': 'styles: {sample: {texture: images/icon.png}}'
         });
         const {config} = await loadResources(`${BASE_URL}bundle.zip`);
-        expect(config.styles.sample.texture).toBe('https://external.test/styles/images/icon.png');
+        expect(sceneValue(config, 'styles.sample.texture')).toBe('https://external.test/styles/images/icon.png');
     });
 
     test('inline scene imports inherit HTTP and archive bases without serializing functions', async () => {
@@ -119,8 +134,8 @@ layers:
             import: {styles: {sample: {texture: 'images/local.png'}},
                 layers: {land: {draw: {polygons: {color}}}}}
         }, BASE_URL);
-        expect(config.styles.sample.texture).toBe(`${BASE_URL}images/local.png`);
-        expect(config.layers.land.draw.polygons.color).toBe(color);
+        expect(sceneValue(config, 'styles.sample.texture')).toBe(`${BASE_URL}images/local.png`);
+        expect(sceneValue(config, 'layers.land.draw.polygons.color')).toBe(color);
 
         const archive = new JSZip();
         archive.file('root.yaml', 'import: folder/child.yaml');
@@ -128,8 +143,8 @@ layers:
         archive.file('images/local.png', 'local image');
         serveResources({[`${BASE_URL}bundle.zip`]: await archive.generateAsync({type: 'arraybuffer'})});
         const archived = await loadResources(`${BASE_URL}bundle.zip`);
-        expect(archived.config.styles.sample.texture).toMatch(/^blob:/);
-        expect(await (await fetch(archived.config.styles.sample.texture)).text()).toBe('local image');
+        expect(sceneValue(archived.config, 'styles.sample.texture')).toMatch(/^blob:/);
+        expect(await (await fetch(sceneUrl(archived.config, 'styles.sample.texture'))).text()).toBe('local image');
     });
 
     test('keeps import precedence independent of completion order and preserves root overrides', async () => {
@@ -154,8 +169,8 @@ layers:
         await vi.waitFor(() => expect(resources).toHaveBeenCalledWith(`${BASE_URL}late/style.yaml`));
         release();
         const {config} = await loading;
-        expect(config.styles.sample.texture).toBe(`${BASE_URL}late/late.png`);
-        expect(config.styles.override.texture).toBe(`${BASE_URL}root.png`);
+        expect(sceneValue(config, 'styles.sample.texture')).toBe(`${BASE_URL}late/late.png`);
+        expect(sceneValue(config, 'styles.override.texture')).toBe(`${BASE_URL}root.png`);
     });
 
     test('retains valid imports when a sibling fails and reports its own URL', async () => {
@@ -166,7 +181,7 @@ layers:
         });
         const trigger = vi.spyOn(SceneLoader, 'trigger');
         const {config} = await loadResources(`${BASE_URL}root.yaml`);
-        expect(config.styles.sample.texture).toBe(`${BASE_URL}styles/icon.png`);
+        expect(sceneValue(config, 'styles.sample.texture')).toBe(`${BASE_URL}styles/icon.png`);
         expect(trigger).toHaveBeenCalledWith('error', expect.objectContaining({
             type: 'scene_import', url: `${BASE_URL}missing.yaml`
         }));
@@ -185,7 +200,7 @@ layers:
         serveResources({[`${BASE_URL}bundle.zip`]: await archive.generateAsync({type: 'arraybuffer'})});
         const trigger = vi.spyOn(SceneLoader, 'trigger');
         const {config} = await loadResources(`${BASE_URL}bundle.zip`);
-        expect(await (await fetch(config.styles.sample.texture)).text()).toBe('archive image');
+        expect(await (await fetch(sceneUrl(config, 'styles.sample.texture'))).text()).toBe('archive image');
         expect(trigger).toHaveBeenCalledWith('error', expect.objectContaining({
             type: 'scene_import', url: 'folder/missing.yaml',
             error: expect.objectContaining({message: 'Scene import not found: folder/missing.yaml'})
@@ -199,8 +214,8 @@ layers:
             [`${BASE_URL}broken/style.yaml`]: 'styles: {sample: {texture: broken.png}, invalid: null}'
         });
         const {config} = await loadResources(`${BASE_URL}root.yaml`);
-        expect(config.styles.sample.texture).toBe(`${BASE_URL}good/icon.png`);
-        expect(config.styles.invalid).toBeUndefined();
+        expect(sceneValue(config, 'styles.sample.texture')).toBe(`${BASE_URL}good/icon.png`);
+        expect(sceneValue(config, 'styles.invalid')).toBeUndefined();
     });
 
     test('global substitutions use the root base and named texture overrides remain named', async () => {
@@ -216,9 +231,9 @@ textures:
             global: {image: 'images/global.png'},
             textures: {named: {url: 'images/root.png'}}
         }, BASE_URL);
-        expect(config.textures['images/global.png'].url).toBe(`${BASE_URL}images/global.png`);
-        expect(config.styles['named-image'].texture).toBe('named');
-        expect(config.textures.named.url).toBe(`${BASE_URL}images/root.png`);
+        expect(config.textures!['images/global.png'].url).toBe(`${BASE_URL}images/global.png`);
+        expect(sceneValue(config, 'styles.named-image.texture')).toBe('named');
+        expect(sceneValue(config, 'textures.named.url')).toBe(`${BASE_URL}images/root.png`);
     });
 
     test('reloads an object document at different bases without mutating arrays, URLs or functions', async () => {
@@ -233,16 +248,16 @@ textures:
         const original = {sources: document.sources, fonts: document.fonts, styles: document.styles};
         const first = await loadResources(document, BASE_URL);
         const second = await loadResources(document, 'https://other.test/');
-        expect(first.config.sources.local.url).toBe(`${BASE_URL}data.json`);
-        expect(second.config.sources.local.url).toBe('https://other.test/data.json');
-        expect(second.config.styles.sample.texture).toBe('https://other.test/icon.png');
+        expect(sceneValue(first.config, 'sources.local.url')).toBe(`${BASE_URL}data.json`);
+        expect(sceneValue(second.config, 'sources.local.url')).toBe('https://other.test/data.json');
+        expect(sceneValue(second.config, 'styles.sample.texture')).toBe('https://other.test/icon.png');
         expect(document.sources.local.url).toBe('data.json');
         expect(document.sources.local.scripts).toEqual(['transform.js']);
         expect(document.fonts.local).toEqual([{url: 'font.woff'}]);
         expect(document.styles.sample.texture).toBe('icon.png');
         expect(document.import).toEqual([]);
         expect(document).toMatchObject(original);
-        expect(second.config.layers.land.draw.polygons.color).toBe(color);
+        expect(sceneValue(second.config, 'layers.land.draw.polygons.color')).toBe(color);
     });
 
     test('copies class and null-prototype resource definitions before normalization', async () => {
@@ -261,12 +276,12 @@ textures:
         expect(source.url).toBe('data.json');
         expect(texture.url).toBe('image.png');
         expect(font.url).toBe('font.woff');
-        expect(first.config.sources.local).toEqual({url: `${BASE_URL}data.json`});
-        expect(first.config.sources.local).not.toBe(source);
-        expect(Object.getPrototypeOf(first.config.fonts.local)).toBeNull();
-        expect(second.config.sources.local.url).toBe('https://other.test/data.json');
-        expect(second.config.textures.local.url).toBe('https://other.test/image.png');
-        expect(second.config.fonts.local.url).toBe('https://other.test/font.woff');
+        expect(sceneValue(first.config, 'sources.local')).toEqual({url: `${BASE_URL}data.json`});
+        expect(sceneValue(first.config, 'sources.local')).not.toBe(source);
+        expect(Object.getPrototypeOf(sceneValue(first.config, 'fonts.local'))).toBeNull();
+        expect(sceneValue(second.config, 'sources.local.url')).toBe('https://other.test/data.json');
+        expect(sceneValue(second.config, 'textures.local.url')).toBe('https://other.test/image.png');
+        expect(sceneValue(second.config, 'fonts.local.url')).toBe('https://other.test/font.woff');
     });
 
     test('snapshots private-backed accessors on original class instances without invoking setters', async () => {
@@ -292,9 +307,9 @@ textures:
         const document = {sources: {local: source}, fonts: {local: [font]}, textures: {local: texture}};
         for (const base of [BASE_URL, 'https://other.test/']) {
             const {config} = await loadResources(document, base);
-            expect(config.sources.local).toEqual({url: `${base}data.json`, type: 'GeoJSON'});
-            expect(config.fonts.local[0].url).toBe(`${base}font.woff`);
-            expect(config.textures.local.url).toBe(`${base}image.png`);
+            expect(sceneValue(config, 'sources.local')).toEqual({url: `${base}data.json`, type: 'GeoJSON'});
+            expect(sceneValue(config, 'fonts.local.0.url')).toBe(`${base}font.woff`);
+            expect(sceneValue(config, 'textures.local.url')).toBe(`${base}image.png`);
         }
         expect(source.url).toBe('data.json');
         expect(font.url).toBe('font.woff');
