@@ -1,12 +1,49 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Text label rendering methods, can be mixed into a rendering style
 
-// @ts-nocheck
 
 import StyleParser from '../style_parser';
+import type {LabelLayout} from '../../labels/label-types';
+import type {TextSettingsResult} from './text_settings';
+import type {TextLabelState, TextLabelDraw, TextFeature, TextContext, TextTile, TextFeatureQueue, TextLabelCandidate, ParsedTextFeature, TextTable, TextSourceValue, TextValue, TextAtlas} from './text-types';
+
+/** Typed boundary to the legacy property-cache parser, not a replacement implementation. */
+const typedStyleParser = StyleParser as unknown as {
+    createPropertyCache(value: unknown, parse?: (value: unknown) => unknown, interpolate?: (value: unknown) => unknown): unknown;
+    parsePositiveNumber(value: unknown): number;
+    parseNumber(value: unknown): number;
+};
+/** Host style state plus the checked text-label operations mixed into points/text. */
+export type TextLabelRuntime = TextLabelState & TextLabelMethods;
+/** Operations shared by standalone text and attached point text. */
+export interface TextLabelMethods {
+    resetText(this: TextLabelRuntime): void;
+    freeText(this: TextLabelRuntime, tile: TextTile): void;
+    parseTextFeature(this: TextLabelRuntime, feature: TextFeature, draw: TextLabelDraw, context: TextContext, tile: TextTile): ParsedTextFeature | ParsedTextFeature[] | false | undefined;
+    parseTextSource(this: TextLabelRuntime, feature: TextFeature, draw: TextLabelDraw, context: TextContext): TextValue | Record<string, TextValue>;
+    parseTextSourceValue(this: TextLabelRuntime, source: TextSourceValue | TextSourceValue[], feature: TextFeature, context: TextContext): TextValue;
+    prepareTextLabels(this: TextLabelRuntime, tile: TextTile, queue: TextFeatureQueue[]): Promise<TextLabelCandidate[]>;
+    collideAndRenderTextLabels(this: TextLabelRuntime, tile: TextTile, group: string, queue: TextFeatureQueue[]): Promise<TextLabelResult>;
+    cullTextStyles(this: TextLabelRuntime, texts: TextTable, labels: TextLabelCandidate[]): void;
+    calcTextSizes(this: TextLabelRuntime, tileId: string, texts: TextTable): Promise<TextTable | undefined>;
+    rasterizeTexts(this: TextLabelRuntime, tileId: string, tileKey: string, texts: TextTable): Promise<TextLabelResult>;
+    preprocessText(this: TextLabelRuntime, draw: TextLabelDraw): TextLabelDraw | undefined;
+    computeTextLayout(this: TextLabelRuntime, target: Partial<LabelLayout>, feature: TextFeature, draw: TextLabelDraw, context: TextContext, tile: TextTile, text: TextValue, settings: TextSettingsResult, repeatGroup?: string, orientation?: string): LabelLayout;
+}
+/** Legacy broker boundary with explicit asynchronous payload types. */
+const typedWorkerBroker = WorkerBroker as unknown as {
+    postMessage<Value>(target: string, ...arguments_: unknown[]): Promise<Value>;
+};
+/** Collision/rasterization may return no data after cancellation or teardown. */
+export interface TextLabelResult {
+    labels?: TextLabelCandidate[];
+    texts?: TextTable;
+    textures?: string[];
+}
 import Geo from '../../utils/geo';
 import log from '../../utils/log';
 import Thread from '../../utils/thread';
@@ -18,9 +55,9 @@ import TextCanvas from './text_canvas';
 // namespaces label textures (ensures new texture name when a tile is built multiple times)
 let text_texture_id = 0;
 
-export const TextLabels = {
+export const TextLabels: TextLabelMethods = {
 
-    resetText () {
+    resetText (this: TextLabelRuntime): void {
         if (Thread.is_main) {
             this.canvas = new TextCanvas();
         }
@@ -29,11 +66,11 @@ export const TextLabels = {
         }
     },
 
-    freeText (tile) {
+    freeText (this: TextLabelRuntime, tile: TextTile): void {
         delete this.texts[tile.id];
     },
 
-    parseTextFeature (feature, draw, context, tile) {
+    parseTextFeature (this: TextLabelRuntime, feature: TextFeature, draw: TextLabelDraw, context: TextContext, tile: TextTile): ParsedTextFeature | ParsedTextFeature[] | false | undefined {
         // Compute label text
         let text = this.parseTextSource(feature, draw, context);
 
@@ -50,7 +87,7 @@ export const TextLabels = {
         let sizes = this.texts[tile.id][text_settings_key] = this.texts[tile.id][text_settings_key] || {};
 
         if (text instanceof Object){
-            let results = [];
+            let results: ParsedTextFeature[] = [];
 
             // add both left/right text elements to repeat group to improve repeat culling
             // avoids one component of a boundary label (e.g. Colorado) being culled too aggressively when it also
@@ -64,16 +101,16 @@ export const TextLabels = {
                 }
 
                 let layout = this.computeTextLayout({}, feature, draw, context, tile, current_text, text_settings, repeat_group_prefix, key);
-                if (!sizes[current_text]) {
+                if (!sizes[current_text as string]) {
                     // first label with this text/style/tile combination, make a new label entry
-                    sizes[current_text] = {
+                    sizes[current_text as string] = {
                         text_settings,
                         ref: 0 // # of times this text/style combo appears in tile
                     };
                 }
 
                 results.push({
-                    draw, text : current_text, text_settings_key, layout
+                    draw, text : current_text as string, text_settings_key, layout
                 });
             }
 
@@ -82,16 +119,16 @@ export const TextLabels = {
         else {
             // unique text strings, grouped by text drawing style
             let layout = this.computeTextLayout({}, feature, draw, context, tile, text, text_settings);
-            if (!sizes[text]) {
+            if (!sizes[text as string]) {
                 // first label with this text/style/tile combination, make a new label entry
-                sizes[text] = {
+                sizes[text as string] = {
                     text_settings,
                     ref: 0 // # of times this text/style combo appears in tile
                 };
             }
 
             return {
-                draw, text, text_settings_key, layout
+                draw, text: text as string, text_settings_key, layout
             };
         }
     },
@@ -102,8 +139,8 @@ export const TextLabels = {
     // - Array (of strings and/or functions) defines a list of fallbacks, evaluated according to the above rules,
     //   with the first non-null value used as the label text
     //   e.g. `[name:es, name:en, name]` prefers Spanish names, followed by English, and last the default local name
-    parseTextSource (feature, draw, context) {
-        let text;
+    parseTextSource (this: TextLabelRuntime, feature: TextFeature, draw: TextLabelDraw, context: TextContext): TextValue | Record<string, TextValue> {
+        let text: TextValue | Record<string, TextValue>;
         let source = draw.text_source || 'name';
 
         if (source != null && !Array.isArray(source) && typeof source === 'object') {
@@ -121,14 +158,14 @@ export const TextLabels = {
         return text;
     },
 
-    parseTextSourceValue (source, feature, context) {
-        let text;
+    parseTextSourceValue (this: TextLabelRuntime, source: TextSourceValue | TextSourceValue[], feature: TextFeature, context: TextContext): TextValue {
+        let text: TextValue;
         if (Array.isArray(source)) {
             for (let s=0; s < source.length; s++) {
                 if (typeof source[s] === 'string') {
-                    text = feature.properties[source[s]];
+                    text = feature.properties[source[s] as string];
                 } else if (typeof source[s] === 'function') {
-                    text = source[s](context);
+                    text = (source[s] as (context: TextContext) => TextValue)(context);
                 }
 
                 if (text) {
@@ -146,20 +183,20 @@ export const TextLabels = {
         return text;
     },
 
-    async prepareTextLabels (tile, queue) {
+    async prepareTextLabels (this: TextLabelRuntime, tile: TextTile, queue: TextFeatureQueue[]): Promise<TextLabelCandidate[]> {
         if (Object.keys(this.texts[tile.id]||{}).length === 0) {
             return [];
         }
 
         // first call to main thread, ask for text pixel sizes
         try {
-            const texts = await WorkerBroker.postMessage(this.main_thread_target+'.calcTextSizes', tile.id, this.texts[tile.id]);
+            const texts = await typedWorkerBroker.postMessage<TextTable | undefined>(this.main_thread_target+'.calcTextSizes', tile.id, this.texts[tile.id]);
             if (tile.canceled) {
                 log('trace', `Style ${this.name}: stop tile build because tile was canceled: ${tile.key}, post-calcTextSizes()`);
                 return [];
             }
 
-            this.texts[tile.id] = texts || [];
+            this.texts[tile.id] = texts || [] as unknown as TextTable;
             if (!texts) {
                 Collision.abortTile(tile.id);
                 return [];
@@ -173,7 +210,7 @@ export const TextLabels = {
         }
     },
 
-    async collideAndRenderTextLabels (tile, collision_group, queue) {
+    async collideAndRenderTextLabels (this: TextLabelRuntime, tile: TextTile, collision_group: string, queue: TextFeatureQueue[]): Promise<TextLabelResult> {
         let labels = await this.prepareTextLabels(tile, queue);
         if (labels.length === 0) {
             Collision.collide([], collision_group, tile.id);
@@ -199,7 +236,7 @@ export const TextLabels = {
             let text_info = texts[text_settings_key] && texts[text_settings_key][q.text];
             if (!text_info.text_settings.can_articulate){
                 text_info.align = text_info.align || {};
-                text_info.align[q.label.align] = {};
+                text_info.align[q.label.align!] = {};
             }
             else {
                 // consider making it a set
@@ -215,7 +252,7 @@ export const TextLabels = {
 
         // second call to main thread, for rasterizing the set of texts
         try {
-            const rasterized = await WorkerBroker.postMessage(this.main_thread_target+'.rasterizeTexts', tile.id, tile.key, texts);
+            const rasterized = await typedWorkerBroker.postMessage<TextLabelResult>(this.main_thread_target+'.rasterizeTexts', tile.id, tile.key, texts);
             if (tile.canceled) {
                 log('trace', `stop tile build because tile was canceled: ${tile.key}, post-rasterizeTexts()`);
                 return {};
@@ -228,7 +265,7 @@ export const TextLabels = {
     },
 
     // Remove unused text/style combinations to avoid unnecessary rasterization
-    cullTextStyles(texts, labels) {
+    cullTextStyles(this: TextLabelRuntime, texts: TextTable, labels: TextLabelCandidate[]): void {
         // Count how many times each text/style combination is used
         for (let i=0; i < labels.length; i++) {
             let label = labels[i];
@@ -256,16 +293,16 @@ export const TextLabels = {
     // Called on main thread from worker, to compute the size of each text string,
     // were it to be rendered. This info is then used to perform initial label culling, *before*
     // labels are actually rendered.
-    calcTextSizes (tile_id, texts) {
+    calcTextSizes (this: TextLabelRuntime, tile_id: string, texts: TextTable): Promise<TextTable | undefined> {
         return this.canvas.textSizes(tile_id, texts);
     },
 
     // Called on main thread from worker, to create atlas of labels for a tile
-    async rasterizeTexts (tile_id, tile_key, texts) {
+    async rasterizeTexts (this: TextLabelRuntime, tile_id: string, tile_key: string, texts: TextTable): Promise<TextLabelResult> {
         let canvas = new TextCanvas(); // one per style per tile (style may be rendering multiple tiles at once)
         let max_texture_size = Math.min(this.max_texture_size, 2048); // cap each label texture at 2048x2048
 
-        let textures = canvas.setTextureTextPositions(texts, max_texture_size);
+        let textures: TextAtlas[] | string[] | undefined = canvas.setTextureTextPositions(texts, max_texture_size);
         let texture_prefix = ['labels', this.name, tile_key, tile_id, text_texture_id, ''].join('-');
         text_texture_id++;
 
@@ -282,67 +319,67 @@ export const TextLabels = {
         return { texts, textures };
     },
 
-    preprocessText (draw) {
+    preprocessText (this: TextLabelRuntime, draw: TextLabelDraw): TextLabelDraw | undefined {
         // Font settings are required
         if (!draw || !draw.font || typeof draw.font !== 'object') {
             return;
         }
 
         // Font weight
-        draw.font.weight = StyleParser.createPropertyCache(draw.font.weight);
+        draw.font.weight = typedStyleParser.createPropertyCache(draw.font.weight);
 
         // Colors
-        draw.font.fill = StyleParser.createPropertyCache(draw.font.fill || TextSettings.defaults.fill);
-        draw.font.alpha = StyleParser.createPropertyCache(draw.font.alpha);
+        draw.font.fill = typedStyleParser.createPropertyCache(draw.font.fill || TextSettings.defaults.fill);
+        draw.font.alpha = typedStyleParser.createPropertyCache(draw.font.alpha);
 
         if (draw.font.stroke) {
-            draw.font.stroke.color = StyleParser.createPropertyCache(draw.font.stroke.color);
-            draw.font.stroke.alpha = StyleParser.createPropertyCache(draw.font.stroke.alpha);
+            draw.font.stroke.color = typedStyleParser.createPropertyCache(draw.font.stroke.color);
+            draw.font.stroke.alpha = typedStyleParser.createPropertyCache(draw.font.stroke.alpha);
         }
 
         if (draw.font.background) {
-            draw.font.background.color = StyleParser.createPropertyCache(draw.font.background.color);
-            draw.font.background.alpha = StyleParser.createPropertyCache(draw.font.background.alpha);
-            draw.font.background.width = StyleParser.createPropertyCache(draw.font.background.width, StyleParser.parsePositiveNumber);
+            draw.font.background.color = typedStyleParser.createPropertyCache(draw.font.background.color);
+            draw.font.background.alpha = typedStyleParser.createPropertyCache(draw.font.background.alpha);
+            draw.font.background.width = typedStyleParser.createPropertyCache(draw.font.background.width, typedStyleParser.parsePositiveNumber);
             if (draw.font.background.stroke) {
-                draw.font.background.stroke.color = StyleParser.createPropertyCache(draw.font.background.stroke.color);
-                draw.font.background.stroke.alpha = StyleParser.createPropertyCache(draw.font.background.stroke.alpha);
+                draw.font.background.stroke.color = typedStyleParser.createPropertyCache(draw.font.background.stroke.color);
+                draw.font.background.stroke.alpha = typedStyleParser.createPropertyCache(draw.font.background.stroke.alpha);
             }
         }
 
         // Convert font and text stroke sizes
-        draw.font.px_size = StyleParser.createPropertyCache(draw.font.size || TextSettings.defaults.size, TextCanvas.fontPixelSize, TextCanvas.fontPixelSize);
+        draw.font.px_size = typedStyleParser.createPropertyCache(draw.font.size || TextSettings.defaults.size, TextCanvas.fontPixelSize, TextCanvas.fontPixelSize);
 
         if (draw.font.stroke && draw.font.stroke.width != null) {
-            draw.font.stroke.width = StyleParser.createPropertyCache(draw.font.stroke.width, StyleParser.parsePositiveNumber);
+            draw.font.stroke.width = typedStyleParser.createPropertyCache(draw.font.stroke.width, typedStyleParser.parsePositiveNumber);
         }
 
         if (draw.font.background && draw.font.background.stroke && draw.font.background.stroke.width != null) {
-            draw.font.background.stroke.width = StyleParser.createPropertyCache(draw.font.background.stroke.width, StyleParser.parsePositiveNumber);
+            draw.font.background.stroke.width = typedStyleParser.createPropertyCache(draw.font.background.stroke.width, typedStyleParser.parsePositiveNumber);
         }
 
         // Offset (2d array)
-        draw.offset = StyleParser.createPropertyCache(draw.offset,
-            v => Array.isArray(v) && v.map(StyleParser.parseNumber)
+        draw.offset = typedStyleParser.createPropertyCache(draw.offset,
+            v => Array.isArray(v) && v.map(typedStyleParser.parseNumber)
         );
 
         // Buffer (1d value or or 2d array) - must be >= 0
-        draw.buffer = StyleParser.createPropertyCache(draw.buffer,
-            v => (Array.isArray(v) ? v : [v, v]).map(StyleParser.parsePositiveNumber)
+        draw.buffer = typedStyleParser.createPropertyCache(draw.buffer,
+            v => (Array.isArray(v) ? v : [v, v]).map(typedStyleParser.parsePositiveNumber)
         );
 
         // Repeat rules - for text labels, defaults to tile size
-        draw.repeat_distance = StyleParser.createPropertyCache(
+        draw.repeat_distance = typedStyleParser.createPropertyCache(
             draw.repeat_distance,
-            StyleParser.parsePositiveNumber
+            typedStyleParser.parsePositiveNumber
         );
 
         return draw;
     },
 
     // Additional text-specific layout settings
-    computeTextLayout (target, feature, draw, context, tile, text, text_settings, repeat_group_prefix, orientation) {
-        let layout = target || {};
+    computeTextLayout (this: TextLabelRuntime, target: Partial<LabelLayout>, feature: TextFeature, draw: TextLabelDraw, context: TextContext, tile: TextTile, text: TextValue, text_settings: TextSettingsResult, repeat_group_prefix?: string, orientation?: string): LabelLayout {
+        let layout: Partial<LabelLayout> = target || {};
 
         // common settings w/points
         layout = this.computeLayout(layout, feature, draw, context, tile);
@@ -353,7 +390,7 @@ export const TextLabels = {
             layout.repeat_distance = (context.geometry === 'point' ? 0 : Geo.tile_size);
 
             if (layout.repeat_distance) {
-                layout.repeat_distance *= layout.units_per_pixel;
+                layout.repeat_distance *= layout.units_per_pixel!;
                 layout.repeat_scale = 1; // initial repeat pass in tile with full scale
 
                 if (typeof draw.repeat_group === 'function') {
@@ -390,7 +427,7 @@ export const TextLabels = {
             layout.orientation = -1;
         }
 
-        return layout;
+        return layout as LabelLayout;
     }
 
 };

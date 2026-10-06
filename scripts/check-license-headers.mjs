@@ -162,6 +162,15 @@ const TANGRAM_RENDERER_FILES = new Set([
 // Tangram-derived files that have received substantive vis.gl modifications.
 // Keep the original Tangram notice and append the vis.gl modification notice.
 const VISGL_MODIFIED_TANGRAM_FILES = new Set([
+  'modules/tangram-renderer/src/labels/label.ts',
+  'modules/tangram-renderer/src/labels/label_line.ts',
+  'modules/tangram-renderer/src/labels/label_point.ts',
+  'modules/tangram-renderer/src/labels/main_pass.ts',
+  'modules/tangram-renderer/src/labels/point_placement.ts',
+  'modules/tangram-renderer/src/styles/text/text.ts',
+  'modules/tangram-renderer/src/styles/text/text_canvas.ts',
+  'modules/tangram-renderer/src/styles/text/text_labels.ts',
+  'modules/tangram-renderer/src/styles/text/text_settings.ts',
   'modules/tangram-renderer/src/labels/collision.ts',
   'modules/tangram-renderer/src/selection/selection_pixels.ts',
   'modules/tangram-renderer/src/scene/projection_shaders.ts',
