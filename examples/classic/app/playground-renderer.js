@@ -8,7 +8,7 @@ import {loadClassicEditorScene} from './scene-editor.js';
 export function createClassicPlaygroundRenderer({scene, resolveSceneUrl, mapElement = null, debounceMs = 400, onSceneLoaded}) {
   let disposed = false;
   let loadQueue = Promise.resolve();
-  let cancelDelay;
+  const pendingDelays = new Set();
   const originalParent = mapElement?.parentElement;
   const originalNextSibling = mapElement?.nextSibling;
 
@@ -24,11 +24,11 @@ export function createClassicPlaygroundRenderer({scene, resolveSceneUrl, mapElem
         const finish = () => {
           clearTimeout(timer);
           signal.removeEventListener('abort', finish);
-          if (cancelDelay === finish) cancelDelay = undefined;
+          pendingDelays.delete(finish);
           resolve();
         };
         const timer = setTimeout(finish, debounceMs);
-        cancelDelay = finish;
+        pendingDelays.add(finish);
         signal.addEventListener('abort', finish, {once: true});
       });
       const isObsolete = () => disposed || signal.aborted;
@@ -48,7 +48,7 @@ export function createClassicPlaygroundRenderer({scene, resolveSceneUrl, mapElem
     finalize() {
       if (disposed) return;
       disposed = true;
-      cancelDelay?.();
+      for (const finish of pendingDelays) finish();
       if (mapElement && originalParent) {
         originalParent.insertBefore(mapElement,
           originalNextSibling?.parentNode === originalParent ? originalNextSibling : null);

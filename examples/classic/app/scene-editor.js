@@ -7,7 +7,12 @@
  * into an editor error even when its fallback load resolves successfully.
  */
 export async function loadClassicEditorScene(scene, config, options, isDisposed) {
-  if (scene.initializing) await scene.initializing;
+  try {
+    if (scene.initializing) await scene.initializing;
+  } catch (error) {
+    if (isDisposed()) return;
+    throw error;
+  }
   if (isDisposed()) return;
   let loadError;
   const listener = {error: event => {
@@ -20,7 +25,11 @@ export async function loadClassicEditorScene(scene, config, options, isDisposed)
   scene.subscribe(listener);
   try {
     await scene.load(config, options);
-    if (loadError) throw loadError;
+    if (!isDisposed() && loadError) throw loadError;
+  } catch (error) {
+    // A superseded load must settle before the next serialized edit, but its
+    // failure no longer belongs to the current editor document.
+    if (!isDisposed()) throw error;
   } finally {
     scene.unsubscribe(listener);
   }

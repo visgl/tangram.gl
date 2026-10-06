@@ -42,7 +42,9 @@ export class SceneBundle {
         // for any scenes it contains, e.g. `root.zip` has a `root.yaml` that includes a `folder/child.yaml`:
         // resources within `child.yaml` must be resolved through the bundle for `root.zip`
         this.container = null;
-        if (this.parent) {
+        // Absolute imports leave the archive. Their own relative resources must
+        // resolve on the network, not through the importing ZIP container.
+        if (this.parent && URLs.isRelativeURL(this.path_for_parent)) {
             if (this.parent.container) {
                 this.container = this.parent.container;
             }
@@ -234,10 +236,20 @@ function loadResource (source: any): Promise<SceneConfig> {
                 }
             }, reject);
         } else {
-            // shallow copy to avoid modifying provided object, allowing a single config object to be loaded multiple times
-            // TODO: address possible modifications to nested properties (mostly harmless / due to data normalization)
-            source = Object.assign({}, source);
-            resolve(source);
+            // Normalization changes nested URLs and globals, not just the root.
+            // Keep editor documents reusable across loads with different bases.
+            resolve(cloneSceneValue(source));
         }
     });
+}
+
+/** Copy scene arrays and plain objects without losing functions or opaque values. */
+function cloneSceneValue(value: any): any {
+    if (Array.isArray(value)) {
+        return value.map(cloneSceneValue);
+    }
+    if (value && Object.getPrototypeOf(value) === Object.prototype) {
+        return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, cloneSceneValue(child)]));
+    }
+    return value;
 }

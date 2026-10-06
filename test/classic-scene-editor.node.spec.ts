@@ -56,3 +56,26 @@ test('recoverable import failures do not reject an accepted scene', async () => 
   await expect(loadClassicEditorScene(scene, {}, undefined, () => false)).resolves.toBeUndefined();
   expect(scene.unsubscribe).toHaveBeenCalledWith(listener);
 });
+
+test('does not report error-and-revert events after an edit becomes obsolete', async () => {
+  let obsolete = false;
+  let listener!: {error: (event: {type: string; error: Error}) => void};
+  const scene = {
+    subscribe: vi.fn(next => {listener = next;}), unsubscribe: vi.fn(),
+    load: vi.fn(async () => {
+      obsolete = true;
+      listener.error({type: 'yaml', error: new Error('Obsolete parse error')});
+    })
+  };
+  await expect(loadClassicEditorScene(scene, {}, undefined, () => obsolete)).resolves.toBeUndefined();
+  expect(scene.unsubscribe).toHaveBeenCalledWith(listener);
+});
+
+test.each([false, true])('startup rejection is suppressed only for an obsolete edit (%s)', async obsolete => {
+  const scene = {initializing: Promise.reject(new Error('Startup failed')), load: vi.fn(), subscribe: vi.fn()};
+  const loading = loadClassicEditorScene(scene, {}, undefined, () => obsolete);
+  if (obsolete) await expect(loading).resolves.toBeUndefined();
+  else await expect(loading).rejects.toThrow('Startup failed');
+  expect(scene.load).not.toHaveBeenCalled();
+  expect(scene.subscribe).not.toHaveBeenCalled();
+});
