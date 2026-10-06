@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 import Utils from '../../utils/utils';
 import StyleParser from '../style_parser';
@@ -34,7 +35,7 @@ interface TextFont {
     size?: TextColorValue;
 }
 
-interface TextDraw {
+export interface TextDraw {
     font?: TextFont;
     supersample_text?: boolean;
     can_articulate?: boolean;
@@ -42,7 +43,7 @@ interface TextDraw {
     max_lines?: number;
 }
 
-interface TextSettingsResult {
+export interface TextSettingsResult {
     style?: string;
     weight?: string | number;
     px_size?: number;
