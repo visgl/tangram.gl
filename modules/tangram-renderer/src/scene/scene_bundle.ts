@@ -42,7 +42,9 @@ export class SceneBundle {
         // for any scenes it contains, e.g. `root.zip` has a `root.yaml` that includes a `folder/child.yaml`:
         // resources within `child.yaml` must be resolved through the bundle for `root.zip`
         this.container = null;
-        if (this.parent) {
+        // Absolute imports leave the archive. Their own relative resources must
+        // resolve on the network, not through the importing ZIP container.
+        if (this.parent && URLs.isRelativeURL(this.path_for_parent)) {
             if (this.parent.container) {
                 this.container = this.parent.container;
             }
@@ -234,10 +236,37 @@ function loadResource (source: any): Promise<SceneConfig> {
                 }
             }, reject);
         } else {
-            // shallow copy to avoid modifying provided object, allowing a single config object to be loaded multiple times
-            // TODO: address possible modifications to nested properties (mostly harmless / due to data normalization)
-            source = Object.assign({}, source);
-            resolve(source);
+            // Normalization changes nested URLs and globals, not just the root.
+            // Keep editor documents reusable across loads with different bases.
+            resolve(cloneSceneValue(source));
         }
     });
+}
+
+/** Snapshot scene records and public accessors without cloning private class state or opaque values. */
+function cloneSceneValue(value: any, copies = new WeakMap<object, any>()): any {
+    if (!value || (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]')) {
+        return value;
+    }
+    if (copies.has(value)) return copies.get(value);
+
+    // Class definitions become writable scene data. Keeping their prototype
+    // would attach getters to an instance with no private fields. Read getters
+    // on the original instead, without invoking its setters during normalization.
+    const copy = Array.isArray(value) ? new Array(value.length) :
+        Object.create(Object.getPrototypeOf(value) === null ? null : Object.prototype);
+    copies.set(value, copy);
+    const keys = new Set<string>();
+    for (const key in value) keys.add(key);
+    for (let owner = value; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
+        for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(owner))) {
+            if (descriptor.get) keys.add(key);
+        }
+    }
+    for (const key of keys) {
+        Object.defineProperty(copy, key, {
+            value: cloneSceneValue(value[key], copies), enumerable: true, writable: true, configurable: true
+        });
+    }
+    return copy;
 }

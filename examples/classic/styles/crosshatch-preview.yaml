@@ -2,10 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) vis.gl contributors
 
-# Import the archive directly so its inline textures retain their ZIP resource base.
-import:
-  - crosshatch.zip
-  - openmaptiles-mapzen-compat.yaml
+import: crosshatch.yaml
 
 scene:
   background:

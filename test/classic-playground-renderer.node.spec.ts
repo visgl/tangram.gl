@@ -87,3 +87,30 @@ test('refreshes credits after the accepted scene, not after a superseded in-flig
   await current.promise;
   expect(refresh).toHaveBeenCalledExactlyOnceWith();
 });
+
+test('finalization settles every overlapping debounce and queued edit', async () => {
+  const {scene, renderer, update} = createHarness();
+  const first = update({first: true});
+  const second = update({second: true});
+  renderer.finalize();
+  await Promise.all([first.promise, second.promise]);
+  expect(vi.getTimerCount()).toBe(0);
+  expect(scene.load).not.toHaveBeenCalled();
+});
+
+test('a cancelled in-flight rejection does not report errors or block the latest edit', async () => {
+  const refresh = vi.fn();
+  const {scene, update} = createHarness(refresh);
+  let rejectLoad!: (error: Error) => void;
+  scene.load.mockImplementationOnce(() => new Promise((_resolve, reject) => {rejectLoad = reject;}));
+  const obsolete = update({obsolete: true});
+  await vi.advanceTimersByTimeAsync(400);
+  obsolete.controller.abort();
+  const current = update({current: true});
+  await vi.advanceTimersByTimeAsync(400);
+  rejectLoad(new Error('Superseded failure'));
+  await Promise.all([obsolete.promise, current.promise]);
+  expect(scene.load).toHaveBeenCalledTimes(2);
+  expect(refresh).toHaveBeenCalledTimes(1);
+  expect(scene.unsubscribe).toHaveBeenCalledTimes(2);
+});

@@ -120,8 +120,8 @@ describe('classic live style choices', () => {
     expect(main).not.toContain('getPreviewBasemapUrl');
   });
 
-  test('the crosshatch overlay imports its texture archive directly', () => {
-    expect(readScene('crosshatch-preview.yaml').import).toEqual(readScene('crosshatch.yaml').import);
+  test('the crosshatch overlay reuses its canonical scene wrapper', () => {
+    expect(readScene('crosshatch-preview.yaml').import).toBe('crosshatch.yaml');
     expect(readScene('crosshatch-preview.yaml').styles['preview-crosshatch']).toBeDefined();
   });
 });

@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // @ts-nocheck
 
@@ -64,22 +65,42 @@ const SceneLoader = {
             // Collect URLs of scenes to import
             const imports = [];
             config.import.forEach(url => {
-                // Convert scene objects to URLs
+                // Inline scene objects inherit this scene's resource directory.
+                // Keep them as objects so functions survive and no blob URL
+                // obscures their base (or leaks for each editor reload).
                 if (typeof url === 'object') {
-                    url = URLs.createObjectURL(new Blob([JSON.stringify(url)]));
+                    imports.push({url, path: bundle.container || bundle.isContainer() ? '' : bundle.path});
                 }
-                imports.push(bundle.resourceFor(url));
+                else {
+                    const resource = bundle.resourceFor(url);
+                    if (resource.url == null) {
+                        const error = new Error(`Scene import not found: ${url}`);
+                        error.url = url; // Keep the authored archive path, not an undefined blob URL.
+                        errors.push(error);
+                    }
+                    else {
+                        imports.push(resource);
+                    }
+                }
             });
             delete config.import; // don't want to merge this property
 
             // load and normalize imports
-            const queue = imports.map(resource => this.loadSceneRecursive(resource, bundle, texture_nodes, errors));
-            const configs = (await Promise.all(queue))
-                .map(r => this.normalize(r.config, r.bundle, texture_nodes))
-                .map(r => r.config);
+            // Each subtree owns its texture provenance. Recursive loads already
+            // normalize their local config; re-normalizing a merged import would
+            // resolve descendant textures against the wrong bundle. Merge nodes
+            // in authored order, never asynchronous completion order.
+            const imported_nodes = imports.map(() => ({}));
+            const queue = imports.map((resource, index) =>
+                this.loadSceneRecursive(resource, bundle, imported_nodes[index], errors));
+            const scenes = await Promise.all(queue);
+            const configs = scenes.filter(scene => scene.config).map(scene => scene.config);
+            scenes.forEach((scene, index) => {
+                if (scene.config) Object.assign(texture_nodes, imported_nodes[index]);
+            });
 
             this.normalize(config, bundle, texture_nodes); // last normalize parent
-            config = mergeObjects(...configs, config);
+            config = mergeObjects({}, ...configs, config);
             return { config, bundle, texture_nodes };
         }
         catch (error) {
@@ -236,7 +257,7 @@ const SceneLoader = {
                             if (draws[group].texture) {
                                 const tex = draws[group].texture;
                                 if (typeof tex === 'string' && !config.textures[tex]) {
-                                    const path = [...layer_path, prop, 'draw', group, 'texture'];
+                                    const path = [...layer_path, prop, group, 'texture'];
                                     this.addTextureNode(path, bundle, texture_nodes);
                                 }
                             }
@@ -245,7 +266,7 @@ const SceneLoader = {
                             if (draws[group].outline && draws[group].outline.texture) {
                                 const tex = draws[group].outline.texture;
                                 if (typeof tex === 'string' && !config.textures[tex]) {
-                                    const path = [...layer_path, prop, 'draw', group, 'outline', 'texture'];
+                                    const path = [...layer_path, prop, group, 'outline', 'texture'];
                                     this.addTextureNode(path, bundle, texture_nodes);
                                 }
                             }
@@ -354,6 +375,4 @@ const SceneLoader = {
 
 };
 
-subscribeMixin(SceneLoader);
-
-export default SceneLoader;
+export default subscribeMixin(SceneLoader);

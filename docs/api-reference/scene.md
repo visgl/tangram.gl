@@ -46,6 +46,32 @@ Loads a YAML/JSON URL or configuration object. Important options are:
 
 Calling `load()` without a new source reloads the current scene.
 
+#### Imports and resource paths
+
+Imports merge in their listed order; later imports override earlier ones, and
+the root scene overrides its imports. Network completion order does not change
+this precedence. A failed import emits a `scene_import` error while valid
+sibling imports and the root remain usable; a failed root rejects the load.
+
+Relative source, font, and texture URLs belong to the scene that declares them,
+including scenes nested inside ZIP archives. An absolute network import from
+an archive resolves its resources against its own network directory. Inline
+object imports inherit their declaring scene's directory. Texture references
+substituted from `global` resolve against the root scene's resource base, and
+named texture references retain their names.
+
+Object-based scene documents are copied before normalization, including nested
+objects and arrays. Loading the same document with a different `base_path`
+does not rewrite the original document's URLs or functions.
+Class-based definitions are materialized as writable scene data, reading public
+accessors on the original instance; class prototypes and private state are not
+cloned. Cloning preserves null-prototype records.
+
+The classic playground serializes scene loads. Cancelling an edit skips its
+queued load, error reporting, and attribution refresh. A load already in flight
+is allowed to settle before the current edit runs; cancellation is not a
+network abort or an atomic renderer rollback.
+
 ### `destroy()`
 
 Stops rendering and releases workers, textures, buffers, programs, selection
