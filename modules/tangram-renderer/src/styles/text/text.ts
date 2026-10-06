@@ -40,6 +40,8 @@ interface TextBuildMesh {
 }
 /** Checked standalone-text style, extending only the point/style capabilities it consumes. */
 export interface TextStyleRuntime extends TextLabelRuntime {
+    /** Whether this is a built-in renderer style. */
+    built_in: boolean;
     super: {makeVertexTemplate(this: TextStyleRuntime, style: TextFeatureStyle, mesh: TextBuildMesh, addCustom: boolean): number[]};
     generation: number;
     defines: Record<string, boolean | number | string>;
@@ -56,7 +58,7 @@ export interface TextStyleRuntime extends TextLabelRuntime {
     getBlendOrderForDraw(draw: TextLabelDraw): number;
     buildLabels(size: LabelPointCoordinate | LabelPointCoordinate[], geometry: TextGeometry, layout: LabelLayout, totalSize?: LabelPointCoordinate): TextRenderLabel[];
     buildLineLabels(line: LabelPointCoordinate[], size: LabelPointCoordinate | LabelPointCoordinate[], layout: LabelLayout, totalSize?: LabelPointCoordinate): TextRenderLabel[];
-    init(options?: {generation?: number; styles?: unknown; sources?: unknown}): void;
+    init(options?: {generation?: number; styles?: unknown; sources?: Record<string, unknown>}): void;
     getWGSLShaderSource(): string;
     makeVertexTemplate(style: TextFeatureStyle, mesh: TextBuildMesh): number[];
     addFeature(feature: TextFeature, draw: TextLabelDraw, context: TextContext): void;
@@ -349,6 +351,9 @@ Object.assign(TextStyle, {
         }
         return this.vertex_layouts[variant.shader_point as unknown as string];
     },
-});
+} satisfies Pick<TextStyleRuntime,
+    'name' | 'super' | 'built_in' | 'getWGSLShaderSource' | 'init' | 'makeVertexTemplate' |
+    'reset' | 'addFeature' | 'endData' | '_preprocess' | 'buildTextLabels' | 'buildLabels' |
+    'buildLineLabels' | 'vertexLayoutForMeshVariant'>);
 
 TextStyle.texture_id = 0; // namespaces per-tile label textures
