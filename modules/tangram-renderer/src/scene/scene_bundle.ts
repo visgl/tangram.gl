@@ -9,21 +9,28 @@ import { isGlobalReference } from './globals';
 
 import JSZip from 'jszip';
 import {parseSceneYamlLegacy} from '../procedures/scene-yaml-legacy';
+import type {SceneDefinition, SceneInput, SceneResourceDescriptor} from './scene-resource-types';
 
-type SceneConfig = Record<string, any>;
-type ResourceDescriptor = {url: any; path: any; type: any};
-type SceneBundleFile = {data: ArrayBuffer; type: string | undefined; depth: number; url?: any};
+/** Extracted archive member and its lazily created browser URL. */
+type SceneBundleFile = {data: ArrayBuffer; type: string | undefined; depth: number; url?: string};
 type SceneBundleParent = SceneBundle | ZipSceneBundle | null;
 
+/** Resolve resources relative to an authored scene, including nested archive imports. */
 export class SceneBundle {
 
-    url: any;
-    path: any;
-    path_for_parent: any;
+    /** Scene URL or reusable in-memory definition. */
+    url: SceneInput;
+    /** Resource directory for this scene. */
+    path: string;
+    /** Authored directory used to resolve within an ancestor archive. */
+    path_for_parent: string;
+    /** Importing scene, if present. */
     parent: SceneBundleParent;
+    /** Archive ancestor responsible for relative resources. */
     container: SceneBundle | ZipSceneBundle | null;
 
-    constructor (url: any, path: any, parent: SceneBundleParent = null) {
+    /** Create a resource resolver without loading or validating its scene. */
+    constructor (url: SceneInput, path?: string | null, parent: SceneBundleParent = null) {
         this.url = url;
 
         // If a base path was provided, use it for resolving local bundle resources only if
@@ -54,7 +61,8 @@ export class SceneBundle {
         }
     }
 
-    load (): Promise<SceneConfig> {
+    /** Load and parse URL data, or snapshot reusable object scene data. */
+    load (): Promise<SceneDefinition> {
         return loadResource(this.url);
     }
 
@@ -62,7 +70,8 @@ export class SceneBundle {
     // url: fully qualified URL to retrieve the content of the resource (e.g. zips will transform this to blob URL)
     // path: original path of the resource within the bundle (for resolving paths up the bundle tree)
     // type: file extension (used for determining bundle type, `yaml` or `zip`)
-    resourceFor (url: any): ResourceDescriptor {
+    /** Return the network/blob URL and authored directory/format for an import. */
+    resourceFor (url: string): SceneResourceDescriptor {
         return {
             url: this.urlFor(url),
             path: this.pathFor(url),
@@ -70,7 +79,8 @@ export class SceneBundle {
         };
     }
 
-    urlFor (url: any): any {
+    /** Resolve a resource URL, retaining globals and omitted URLs. */
+    urlFor (url: string | undefined): string | undefined {
         if (isGlobalReference(url)) {
             return url;
         }
@@ -81,27 +91,35 @@ export class SceneBundle {
         return URLs.addBaseURL(url, this.path);
     }
 
-    pathFor (url: any): any {
+    /** Return the authored directory before archive resolution changes the URL. */
+    pathFor (url: string): string {
         return URLs.pathForURL(url);
     }
 
-    typeFor (url: any): any {
+    /** Infer the resource format from its authored extension. */
+    typeFor (url: string): string | undefined {
         return URLs.extensionForURL(url);
     }
 
+    /** Ordinary scene files do not own an archive of resources. */
     isContainer (): boolean {
         return false;
     }
 
 }
 
+/** ZIP scene with one root YAML member and lazy blob URLs for its resources. */
 export class ZipSceneBundle extends SceneBundle {
 
-    zip: any;
+    /** Archive parser, initialized only when loading starts. */
+    zip: JSZip | null;
+    /** Non-directory members indexed by authored archive path. */
     files: Record<string, SceneBundleFile>;
+    /** Root YAML path selected after archive inspection. */
     root: string | null;
 
-    constructor (url: any, path: any, parent: SceneBundleParent) {
+    /** Create an archive resolver; loading remains explicit. */
+    constructor (url: SceneInput, path?: string | null, parent: SceneBundleParent = null) {
         super(url, path, parent);
         this.zip = null;
         this.files = {};
@@ -109,46 +127,52 @@ export class ZipSceneBundle extends SceneBundle {
         this.path = '';
     }
 
+    /** Archive scenes own their relative resources. */
     isContainer (): boolean {
         return true;
     }
 
-    async load (): Promise<SceneConfig> {
+    /** Extract an URL-backed archive, retaining the legacy object-input fallback. */
+    async load (): Promise<SceneDefinition> {
         this.zip = new JSZip();
 
         if (typeof this.url === 'string') {
             const { body } = await Utils.io(this.url, 60000, 'arraybuffer');
-            await this.zip.loadAsync(body);
+            await this.zip.loadAsync(body as ArrayBuffer);
             await this.parseZipFiles();
             return this.loadRoot();
         } else {
-            return this;
+            return this as unknown as SceneDefinition;
         }
     }
 
-    urlFor (url: any): any {
+    /** Resolve relative resources within the archive, or delegate external URLs. */
+    urlFor (url: string | undefined): string | undefined {
         if (isGlobalReference(url)) {
             return url;
         }
 
         if (URLs.isRelativeURL(url)) {
-            return this.urlForZipFile(URLs.flattenRelativeURL(url));
+            return this.urlForZipFile(URLs.flattenRelativeURL(url!));
         }
         return super.urlFor(url);
     }
 
-    typeFor (url: any): any {
+    /** Infer an archive member's format without opening its blob URL. */
+    typeFor (url: string): string | undefined {
         if (URLs.isRelativeURL(url)) {
             return this.typeForZipFile(url);
         }
         return super.typeFor(url);
     }
 
-    loadRoot (): Promise<SceneConfig> {
+    /** Load the unique root YAML file selected by findRoot. */
+    loadRoot (): Promise<SceneDefinition> {
         this.findRoot();
         return loadResource(this.urlForZipFile(this.root as string));
     }
 
+    /** Select the unique root YAML file, rejecting missing or ambiguous roots. */
     findRoot (): void {
         // There must be a single YAML file at the top level of the zip
         const yamls = Object.keys(this.files)
@@ -173,10 +197,11 @@ export class ZipSceneBundle extends SceneBundle {
         }
     }
 
+    /** Extract non-directory members while retaining depth and format metadata. */
     async parseZipFiles (): Promise<void> {
         let paths: string[] = [];
         let queue: Promise<ArrayBuffer>[] = [];
-        this.zip.forEach((path: string, file: any) => {
+        this.zip!.forEach((path, file) => {
             if (!file.dir) {
                 paths.push(path);
                 queue.push(file.async('arraybuffer'));
@@ -195,16 +220,18 @@ export class ZipSceneBundle extends SceneBundle {
         }
     }
 
+    /** Create or reuse a member's blob URL; missing members return undefined. */
     urlForZipFile (file: string): string | undefined {
         if (this.files[file]) {
             if (!this.files[file].url) {
-                this.files[file].url = URLs.createObjectURL(new Blob([this.files[file].data]));
+                this.files[file].url = URLs.createObjectURL(new Blob([this.files[file].data])) as string;
             }
 
             return this.files[file].url;
         }
     }
 
+    /** Return a member's format, or undefined when the member is absent. */
     typeForZipFile (file: string): string | undefined {
         return this.files[file] && this.files[file].type;
     }
@@ -212,7 +239,7 @@ export class ZipSceneBundle extends SceneBundle {
 }
 
 /** Create a scene or zip bundle, inferring its path and parent when omitted. */
-export function createSceneBundle (url: any, path?: any, parent: SceneBundleParent = null, type: string | null = null): SceneBundle | ZipSceneBundle {
+export function createSceneBundle (url: SceneInput, path?: string | null, parent: SceneBundleParent = null, type: string | null = null): SceneBundle | ZipSceneBundle {
     if ((type != null && type === 'zip') ||
         (typeof url === 'string' && !URLs.isLocalURL(url) && URLs.extensionForURL(url) === 'zip')) {
         return new ZipSceneBundle(url, path, parent);
@@ -220,16 +247,18 @@ export function createSceneBundle (url: any, path?: any, parent: SceneBundlePare
     return new SceneBundle(url, path, parent);
 }
 
-function parseResource (body: any): SceneConfig {
-    return parseSceneYamlLegacy(body);
+/** Interpret parser output as scene data; this boundary does not add schema validation. */
+function parseResource (body: string): SceneDefinition {
+    return parseSceneYamlLegacy(body) as SceneDefinition;
 }
 
-function loadResource (source: any): Promise<SceneConfig> {
+/** Load authored YAML or snapshot object definitions before mutating their resource paths. */
+function loadResource (source: SceneInput | undefined): Promise<SceneDefinition> {
     return new Promise((resolve, reject) => {
         if (typeof source === 'string') {
             Utils.io(source).then(({ body }) => {
                 try {
-                    resolve(parseResource(body));
+                    resolve(parseResource(body as string));
                 }
                 catch(e) {
                     reject(e);
@@ -238,34 +267,35 @@ function loadResource (source: any): Promise<SceneConfig> {
         } else {
             // Normalization changes nested URLs and globals, not just the root.
             // Keep editor documents reusable across loads with different bases.
-            resolve(cloneSceneValue(source));
+            resolve(cloneSceneValue(source) as SceneDefinition);
         }
     });
 }
 
 /** Snapshot scene records and public accessors without cloning private class state or opaque values. */
-function cloneSceneValue(value: any, copies = new WeakMap<object, any>()): any {
+function cloneSceneValue(value: unknown, copies = new WeakMap<object, object>()): unknown {
     if (!value || (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]')) {
         return value;
     }
-    if (copies.has(value)) return copies.get(value);
+    const original = value as object; // Arrays and object-tag records passed the snapshot boundary above.
+    if (copies.has(original)) return copies.get(original);
 
     // Class definitions become writable scene data. Keeping their prototype
     // would attach getters to an instance with no private fields. Read getters
     // on the original instead, without invoking its setters during normalization.
-    const copy = Array.isArray(value) ? new Array(value.length) :
+    const copy: object = Array.isArray(value) ? new Array<unknown>(value.length) :
         Object.create(Object.getPrototypeOf(value) === null ? null : Object.prototype);
-    copies.set(value, copy);
+    copies.set(original, copy);
     const keys = new Set<string>();
-    for (const key in value) keys.add(key);
-    for (let owner = value; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
+    for (const key in original) keys.add(key);
+    for (let owner = original; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
         for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(owner))) {
             if (descriptor.get) keys.add(key);
         }
     }
     for (const key of keys) {
         Object.defineProperty(copy, key, {
-            value: cloneSceneValue(value[key], copies), enumerable: true, writable: true, configurable: true
+            value: cloneSceneValue((value as Record<string, unknown>)[key], copies), enumerable: true, writable: true, configurable: true
         });
     }
     return copy;

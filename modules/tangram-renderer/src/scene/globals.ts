@@ -13,24 +13,31 @@ const GLOBAL_PREFIX_LENGTH = GLOBAL_PREFIX.length;
 // name of 'hidden' (non-enumerable) property used to track global property references on an object
 const GLOBAL_REGISTRY = '__global_prop';
 
-type GlobalValue = any;
-type GlobalObject = Record<string, any>;
+/** Authored globals may contain scalars, functions, arrays, or opaque application values. */
+type GlobalObject = Record<string, unknown>;
+/** Non-enumerable provenance attached to objects/arrays after substitution. */
+type GlobalTarget = Record<PropertyKey, unknown> & {
+    [GLOBAL_REGISTRY]?: Record<PropertyKey, string>;
+};
 
 // Property name references a global property?
-export function isGlobalReference (val: GlobalValue): boolean {
+/** Identify URL/global-reference strings while retaining omitted resource values. */
+export function isGlobalReference (val: string | null | undefined): boolean {
     return val?.slice(0, GLOBAL_PREFIX_LENGTH) === GLOBAL_PREFIX;
 }
 
 // Has object property been substitued with a value from a global reference?
 // Property provided as a single-depth string name, or nested path array (`a.b.c` => ['a', 'b', 'c'])
-export function isGlobalSubstitution (object: GlobalObject, prop_or_path: string | string[]): boolean {
+/** Inspect substitution provenance for a named property or nested object/array path. */
+export function isGlobalSubstitution (object: object, prop_or_path: string | (string | number)[]): boolean {
     const path = Array.isArray(prop_or_path) ? prop_or_path : [prop_or_path];
-    const target: any = getPropertyPathTarget(object, path);
+    const target = getPropertyPathTarget(object, path) as GlobalTarget | undefined;
     const prop = path[path.length - 1];
     return target?.[GLOBAL_REGISTRY]?.[prop] !== undefined;
 }
 
 // Flatten nested global properties for simpler string look-ups
+/** Flatten global records without discarding their original nested values. */
 export function flattenGlobalProperties (obj: GlobalObject, prefix: string | null = null, globals: GlobalObject = {}): GlobalObject {
     prefix = prefix ? (prefix + '.') : GLOBAL_PREFIX;
 
@@ -40,19 +47,21 @@ export function flattenGlobalProperties (obj: GlobalObject, prefix: string | nul
         globals[key] = val;
 
         if (typeof val === 'object' && !Array.isArray(val)) {
-            flattenGlobalProperties(val, key, globals);
+            flattenGlobalProperties(val as GlobalObject, key, globals);
         }
     }
     return globals;
 }
 
 // Find and apply new global properties (and re-apply old ones)
-export function applyGlobalProperties (globals: GlobalObject, obj: GlobalValue, target?: any, key?: any): GlobalValue {
-    let prop;
+/** Reapply globals using hidden provenance, retaining the input object's identity and type. */
+export function applyGlobalProperties<Value>(globals: GlobalObject, obj: Value, target?: object, key?: string | number): Value {
+    let prop: string | undefined;
+    const targetRecord = target as GlobalTarget | undefined;
 
     // Check for previously applied global substitution
-    if (target?.[GLOBAL_REGISTRY]?.[key]) {
-        prop = target[GLOBAL_REGISTRY][key];
+    if (targetRecord?.[GLOBAL_REGISTRY]?.[key!]) {
+        prop = targetRecord[GLOBAL_REGISTRY][key!];
     }
     // Check string for new global substitution
     else if (typeof obj === 'string' && obj.slice(0, GLOBAL_PREFIX_LENGTH) === GLOBAL_PREFIX) {
@@ -62,14 +71,14 @@ export function applyGlobalProperties (globals: GlobalObject, obj: GlobalValue, 
     // Found global property to substitute
     if (prop) {
         // Mark property as global substitution
-        if (target[GLOBAL_REGISTRY] == null) {
-            Object.defineProperty(target, GLOBAL_REGISTRY, { value: {} });
+        if (targetRecord![GLOBAL_REGISTRY] == null) {
+            Object.defineProperty(targetRecord!, GLOBAL_REGISTRY, { value: {} });
         }
-        target[GLOBAL_REGISTRY][key] = prop;
+        targetRecord![GLOBAL_REGISTRY]![key!] = prop;
 
         // Get current global value
         let val = globals[prop];
-        let stack;
+        let stack: string[] | undefined;
         while (typeof val === 'string' && val.slice(0, GLOBAL_PREFIX_LENGTH) === GLOBAL_PREFIX) {
             // handle globals that refer to other globals, detecting any cyclical references
             stack = stack || [prop];
@@ -83,16 +92,16 @@ export function applyGlobalProperties (globals: GlobalObject, obj: GlobalValue, 
         }
 
         // Create getter/setter
-        Object.defineProperty(target, key, {
+        Object.defineProperty(targetRecord!, key!, {
             enumerable: true,
             get: function () {
                 return val; // return substituted value
             },
-            set: function (v) {
+            set: function (v: unknown) {
                 // clear the global substitution and remove the getter/setter
-                delete target[GLOBAL_REGISTRY][key];
-                delete target[key];
-                target[key] = v; // save the new value
+                delete targetRecord![GLOBAL_REGISTRY]![key!];
+                delete targetRecord![key!];
+                targetRecord![key!] = v; // save the new value
             }
         });
     }
@@ -104,7 +113,7 @@ export function applyGlobalProperties (globals: GlobalObject, obj: GlobalValue, 
     }
     else if (typeof obj === 'object') {
         for (const p in obj) {
-            applyGlobalProperties(globals, obj[p], obj, p);
+            applyGlobalProperties(globals, obj[p], obj as object, p);
         }
     }
     return obj;

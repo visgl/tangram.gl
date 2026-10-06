@@ -11,7 +11,10 @@ type URLResult = [string, Array<[string, URLParameters[string]]>];
 
 // Adds a base origin to relative URLs
 /** Adds a base origin to a relative URL. */
-export function addBaseURL(url: string, base?: string): string {
+export function addBaseURL(url: string, base?: string): string;
+/** An omitted resource URL remains omitted, rather than acquiring a base path. */
+export function addBaseURL(url: string | undefined, base?: string): string | undefined;
+export function addBaseURL(url: string | undefined, base?: string): string | undefined {
     if (!url || !isRelativeURL(url)) {
         return url;
     }
@@ -42,7 +45,7 @@ export function addBaseURL(url: string, base?: string): string {
 }
 
 /** Returns the directory path portion of a URL. */
-export function pathForURL(url: string): string {
+export function pathForURL(url: string | object | null | undefined): string {
     if (typeof url === 'string' && url.search(/^(data|blob):/) === -1) {
         let qs = url.indexOf('?');
         if (qs > -1) {

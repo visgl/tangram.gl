@@ -9,7 +9,6 @@
   "modules/tangram-renderer/src/labels/main_pass.ts": 1,
   "modules/tangram-renderer/src/lights/light.ts": 1,
   "modules/tangram-renderer/src/scene/scene.ts": 1,
-  "modules/tangram-renderer/src/scene/scene_loader.ts": 1,
   "modules/tangram-renderer/src/scene/scene_worker.ts": 1,
   "modules/tangram-renderer/src/selection/selection.ts": 1,
   "modules/tangram-renderer/src/styles/layer.ts": 1,
