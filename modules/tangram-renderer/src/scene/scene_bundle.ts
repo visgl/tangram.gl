@@ -243,13 +243,19 @@ function loadResource (source: any): Promise<SceneConfig> {
     });
 }
 
-/** Copy scene arrays and plain objects without losing functions or opaque values. */
+/** Copy scene arrays and record-like definitions without losing prototypes, functions or opaque values. */
 function cloneSceneValue(value: any): any {
     if (Array.isArray(value)) {
         return value.map(cloneSceneValue);
     }
-    if (value && Object.getPrototypeOf(value) === Object.prototype) {
-        return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, cloneSceneValue(child)]));
+    if (value && Object.prototype.toString.call(value) === '[object Object]') {
+        const copy = Object.create(Object.getPrototypeOf(value));
+        for (const [key, child] of Object.entries(value)) {
+            Object.defineProperty(copy, key, {
+                value: cloneSceneValue(child), enumerable: true, writable: true, configurable: true
+            });
+        }
+        return copy;
     }
     return value;
 }

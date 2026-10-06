@@ -72,7 +72,15 @@ const SceneLoader = {
                     imports.push({url, path: bundle.container || bundle.isContainer() ? '' : bundle.path});
                 }
                 else {
-                    imports.push(bundle.resourceFor(url));
+                    const resource = bundle.resourceFor(url);
+                    if (resource.url == null) {
+                        const error = new Error(`Scene import not found: ${url}`);
+                        error.url = url; // Keep the authored archive path, not an undefined blob URL.
+                        errors.push(error);
+                    }
+                    else {
+                        imports.push(resource);
+                    }
                 }
             });
             delete config.import; // don't want to merge this property

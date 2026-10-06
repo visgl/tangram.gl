@@ -177,6 +177,21 @@ layers:
         await expect(loadResources(`${BASE_URL}root.yaml`)).rejects.toThrow('Root unavailable');
     });
 
+    test('reports missing ZIP members by their authored path without discarding valid siblings', async () => {
+        const archive = new JSZip();
+        archive.file('root.yaml', 'import: [folder/missing.yaml, folder/good.yaml]');
+        archive.file('folder/good.yaml', 'styles: {sample: {texture: icon.png}}');
+        archive.file('folder/icon.png', 'archive image');
+        serveResources({[`${BASE_URL}bundle.zip`]: await archive.generateAsync({type: 'arraybuffer'})});
+        const trigger = vi.spyOn(SceneLoader, 'trigger');
+        const {config} = await loadResources(`${BASE_URL}bundle.zip`);
+        expect(await (await fetch(config.styles.sample.texture)).text()).toBe('archive image');
+        expect(trigger).toHaveBeenCalledWith('error', expect.objectContaining({
+            type: 'scene_import', url: 'folder/missing.yaml',
+            error: expect.objectContaining({message: 'Scene import not found: folder/missing.yaml'})
+        }));
+    });
+
     test('discards partial texture provenance from an import that fails normalization', async () => {
         serveResources({
             [`${BASE_URL}root.yaml`]: 'import: [good/style.yaml, broken/style.yaml]',
@@ -228,5 +243,29 @@ textures:
         expect(document.import).toEqual([]);
         expect(document).toMatchObject(original);
         expect(second.config.layers.land.draw.polygons.color).toBe(color);
+    });
+
+    test('copies class and null-prototype resource definitions before normalization', async () => {
+        /** Resource records may come from application classes, not just YAML. */
+        class ResourceDefinition {
+            /** Relative URL supplied by the application. */
+            constructor(public url: string) {}
+        }
+        const source = new ResourceDefinition('data.json');
+        const texture = new ResourceDefinition('image.png');
+        const font = Object.create(null);
+        font.url = 'font.woff';
+        const document = {sources: {local: source}, fonts: {local: font}, textures: {local: texture}};
+        const first = await loadResources(document, BASE_URL);
+        const second = await loadResources(document, 'https://other.test/');
+        expect(source.url).toBe('data.json');
+        expect(texture.url).toBe('image.png');
+        expect(font.url).toBe('font.woff');
+        expect(first.config.sources.local).toBeInstanceOf(ResourceDefinition);
+        expect(first.config.sources.local).not.toBe(source);
+        expect(Object.getPrototypeOf(first.config.fonts.local)).toBeNull();
+        expect(second.config.sources.local.url).toBe('https://other.test/data.json');
+        expect(second.config.textures.local.url).toBe('https://other.test/image.png');
+        expect(second.config.fonts.local.url).toBe('https://other.test/font.woff');
     });
 });
