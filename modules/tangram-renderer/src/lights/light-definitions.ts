@@ -171,7 +171,7 @@ export function mapTangramLight(resolved: Omit<ResolvedTangramLight, 'ambient' |
 }
 
 /** Translate a native luma.gl light while retaining its polynomial attenuation and radian cones. */
-export function convertLumaLight(input: TangramLight | undefined): LumaLightConfig {
+export function convertLumaLight(input: TangramLight): LumaLightConfig {
     if (!input || !['ambient', 'directional', 'point', 'spot'].includes(input.type)) {
         throw new Error('Expected a luma.gl ambient, directional, point or spot light');
     }

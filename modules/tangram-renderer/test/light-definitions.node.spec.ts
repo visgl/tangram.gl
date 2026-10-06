@@ -6,7 +6,7 @@ import {describe, expect, expectTypeOf, test} from 'vitest';
 import {lighting} from '@luma.gl/shadertools';
 import type {Light as LumaLight} from '@luma.gl/shadertools';
 import {convertLumaLight, mapTangramLight, normalizeSceneLights} from '../src/lights/light-definitions';
-import type {ResolvedTangramLight, TangramPointLight, TangramSpotLight} from '../src/lights/light-definitions';
+import type {ResolvedTangramLight, TangramLight, TangramPointLight, TangramSpotLight} from '../src/lights/light-definitions';
 import {TangramStyleSheetSchema} from '../src/styles/style-schema';
 
 const nativeLights: LumaLight[] = [
@@ -30,7 +30,8 @@ describe('native luma.gl light conversion', () => {
         expectTypeOf(spot.innerConeAngle).toEqualTypeOf<number>();
         expectTypeOf(spot.outerConeAngle).toEqualTypeOf<number>();
         expect(spot).toMatchObject({innerConeAngle: 0, outerConeAngle: Math.PI / 4});
-        expect(() => convertLumaLight(undefined)).toThrow();
+        expectTypeOf<Parameters<typeof convertLumaLight>[0]>().toEqualTypeOf<TangramLight>();
+        expect(() => Reflect.apply(convertLumaLight, undefined, [undefined])).toThrow();
     });
     test.each(nativeLights)('$type uses the same color/intensity convention as the actual luma module', input => {
         const converted = convertLumaLight(input);

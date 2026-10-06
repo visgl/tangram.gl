@@ -122,8 +122,8 @@ export default class Light {
     declare diffuse: number[];
     /** Parsed specular contribution vector. */
     declare specular: number[];
-    /** Subclass shader discriminator. */
-    declare type: ResolvedTangramLight['type'];
+    /** Registered shader discriminator, including custom light kinds. */
+    declare type: string;
     /** Corresponding GLSL struct name. */
     declare struct_name: string;
 
@@ -162,7 +162,9 @@ export default class Light {
     static create(view: LightView, config: LightConfig): Light | undefined;
     static create (view: LightView, config: LightConfig) {
         if ('luma' in config) {
-            config = {...config, ...convertLumaLight(config.luma)};
+            // Preserve the converter's runtime rejection of malformed scene values;
+            // only this untrusted configuration boundary can supply an absent descriptor.
+            config = {...config, ...convertLumaLight(config.luma!)};
         }
         if (Light.types[config.type!]) {
             return new Light.types[config.type!](view, config);
@@ -294,7 +296,8 @@ export default class Light {
         this.update();
         const direction = this.getLightingDirection();
         const mapping = mapTangramLight({
-            type: this.type,
+            // The mapper rejects custom kinds at its existing runtime conversion boundary.
+            type: this.type as ResolvedTangramLight['type'],
             ambient: this.ambient, diffuse: this.diffuse, specular: this.specular,
             ...(this.position_eye ? {position: this.position_eye.slice(0, 3) as [number, number, number]} : {}),
             ...(direction ? {direction: direction as [number, number, number]} : {}),

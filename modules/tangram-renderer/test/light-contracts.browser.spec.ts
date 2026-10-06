@@ -5,7 +5,7 @@
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import Light from '../src/lights/light';
-import type {LightView} from '../src/lights/light';
+import type {LightConfig, LightView} from '../src/lights/light';
 import Geo from '../src/utils/geo';
 import ShaderProgram from '../src/gl/shader_program';
 
@@ -40,17 +40,42 @@ describe('checked lighting runtime preserves legacy contracts', () => {
 
     test('unknown factories stay optional and custom constructors remain registrable', () => {
         expect(Light.create(createView(), {name: 'missing', type: 'missing'})).toBeUndefined();
+        /** A checked third-party shader kind must remain assignable to the registry. */
+        class CustomLight extends Light {
+            /** Retain a custom discriminator for shader composition, not luma conversion. */
+            constructor(view: LightView, config: LightConfig) {
+                super(view, config);
+                this.type = 'custom';
+                this.struct_name = 'CustomLight';
+            }
+            /** Supply the custom shader struct through the normal registration hook. */
+            static inject() {}
+        }
         const original = Light.types.custom;
-        Light.types.custom = Light;
+        const originalDefines = {...ShaderProgram.defines};
+        const inject = vi.spyOn(CustomLight, 'inject');
+        vi.spyOn(ShaderProgram, 'removeBlock').mockImplementation(() => {});
+        const addBlock = vi.spyOn(ShaderProgram, 'addBlock').mockImplementation(() => {});
+        Light.types.custom = CustomLight;
         try {
             const custom = Light.create(createView(), {name: 'custom', type: 'custom'});
-            expect(custom).toBeInstanceOf(Light);
-            expect(custom?.name).toBe('custom');
+            if (!custom) throw new Error('Expected registered custom light');
+            expect(custom).toBeInstanceOf(CustomLight);
+            expect(custom.type).toBe('custom');
+            Light.inject({custom});
+            expect(inject).toHaveBeenCalledOnce();
+            expect(addBlock.mock.calls.map(call => call[1]).join('\n')).toContain('uniform CustomLight u_custom;');
+            expect(() => custom.toLumaLight()).toThrow('Unsupported Tangram light type: custom');
         }
         finally {
             if (original) Light.types.custom = original;
             else delete Light.types.custom;
+            ShaderProgram.defines = originalDefines;
         }
+    });
+
+    test('untrusted scene definitions still reject an explicitly absent native descriptor', () => {
+        expect(() => Light.create(createView(), {name: 'missing', luma: undefined})).toThrow('Expected a luma.gl');
     });
 
     test('scalar, CSS and RGBA contributions retain their normalization', () => {
