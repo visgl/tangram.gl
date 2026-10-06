@@ -2,15 +2,22 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) vis.gl contributors
 
+import: tron.yaml
+
 scene:
   background:
-    # Let the Leaflet CARTO layer show through outside the preview geometry.
-    color: [0.024, 0.043, 0.094, 0]
+    color: '#060b18'
 
 cameras:
   perspective:
     type: perspective
     active: true
+
+styles:
+  preview-polygons:
+    base: polygons
+    blend: overlay
+    lighting: false
 
 sources:
   preview:
@@ -18,31 +25,30 @@ sources:
     url: ../data/crosshatch-preview.geojson
 
 layers:
-  land:
+  preview-land:
     data: {source: preview}
     filter: {kind: land}
     draw:
-      polygons:
-        order: 0
-        # Keep the preview geometry translucent so the real CARTO basemap
-        # remains visible underneath it.
+      preview-polygons:
+        order: 10000
+        # Keep the preview geometry translucent over the live vector basemap.
         color: [0.063, 0.106, 0.192, 0.28]
 
-  buildings:
+  preview-buildings:
     data: {source: preview}
     filter: {kind: building}
     draw:
-      polygons:
-        order: 1
+      preview-polygons:
+        order: 10001
         color: [0.09, 0.161, 0.267, 0.68]
         extrude: true
 
-  roads:
+  preview-roads:
     data: {source: preview}
     filter: {kind: road}
     draw:
       lines:
-        order: 2
+        order: 10002
         color: '#27d7ff'
         alpha: 0.9
         width: 8px

@@ -17,9 +17,10 @@ function getPlaygroundModel() {
 const workers: Worker[] = [];
 let frame: HTMLDivElement;
 let originalUrl: string;
-let sourceRequest: ((signal: AbortSignal) => Promise<Response>) | undefined;
+let sourceRequest: ((signal: AbortSignal, url: string) => Promise<Response>) | undefined;
 const loadScene = vi.fn(async (_config: string | object, _options?: {base_path: string}) => {});
 const setView = vi.fn();
+const refreshAttribution = vi.fn();
 
 beforeEach(() => {
   originalUrl = window.location.href;
@@ -40,25 +41,25 @@ beforeEach(() => {
   });
   loadScene.mockClear();
   setView.mockClear();
+  refreshAttribution.mockClear();
   vi.stubGlobal('map', {setView});
   sourceRequest = undefined;
   vi.stubGlobal('scene', {
     load: loadScene, subscribe: vi.fn(), unsubscribe: vi.fn(), config: {},
     setActiveCamera: vi.fn(), setIntrospection: vi.fn()
   });
-  vi.stubGlobal('layer', {});
+  vi.stubGlobal('layer', {updateAttribution: refreshAttribution});
   vi.stubGlobal('Tangram', {debug: {yaml: {safeLoad: JSON.parse}}});
   vi.stubGlobal('tangramClassicEmbedded', true);
   vi.stubGlobal('tangramClassicScene', 'styles/tron.yaml');
   vi.stubGlobal('tangramClassicBaseUrl', new URL('/examples/classic/', window.location.href).href);
   vi.stubGlobal('tangramStyleSchemaUrl', 'https://example.test/schema.json');
-  vi.stubGlobal('tangramUpdateCartoBasemap', vi.fn());
   const fetchOriginal = globalThis.fetch;
   vi.spyOn(globalThis, 'fetch').mockImplementation((input, options) => {
     const url = String(input);
     if (url === 'https://example.test/schema.json') return Promise.resolve(Response.json({type: 'object'}));
     if (url.includes('/examples/classic/styles/')) {
-      if (sourceRequest) return sourceRequest(options?.signal as AbortSignal);
+      if (sourceRequest) return sourceRequest(options?.signal as AbortSignal, url);
       const style = url.includes('crosshatch') ? 'crosshatch' : 'tron';
       return Promise.resolve(Response.json({scene: {style}}));
     }
@@ -133,6 +134,7 @@ test('editor content changes apply once and update the preview status after comp
     {base_path: new URL('/examples/classic/styles/', window.location.href).href}
   ]);
   await expect.poll(() => frame.textContent, {timeout: 10000}).toContain('Style applied');
+  expect(refreshAttribution).toHaveBeenCalledTimes(2);
   expect(model.getValue()).toBe('{"scene":{"style":"edited"}}');
 });
 
@@ -142,6 +144,17 @@ test('selecting Albers from a street-level style opens its national overview', a
   await expect.poll(() => loadScene.mock.calls.length).toBe(1);
   expect(setView).toHaveBeenCalledExactlyOnceWith([39, -96], 4);
   expect(window.location.search).toContain('projection-morph.yaml');
+});
+
+test('selecting a local preview from Albers returns to its actual geometry', async () => {
+  await mountPanels();
+  await selectStyle('Albers projection morph');
+  await expect.poll(() => loadScene.mock.calls.length).toBe(1);
+  await selectStyle('TRON (local preview)');
+  await expect.poll(() => loadScene.mock.calls.length).toBe(2);
+  expect(setView).toHaveBeenLastCalledWith([40.705, -74.009], 16);
+  expect(frame.querySelector('[data-template="styles/local-tron.yaml"]')?.textContent)
+    .toContain('live animated TRON basemap from OpenFreeMap');
 });
 
 test('leaving a mounted playground removes its host and model and cancels pending edits', async () => {
@@ -171,6 +184,20 @@ test('leaving during initial fetch aborts startup without mounting a late sideba
   await mounting;
   expect(frame.querySelector('.classic-settings-host')).toBeNull();
   expect(getPlaygroundModel()).toBeNull();
+});
+
+test.each(['missing', 'malformed'])('an optional %s style does not prevent the active editor from mounting', async failure => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  sourceRequest = async (_signal, url) => url.endsWith('/crosshatch.yaml')
+    ? new Response(failure === 'missing' ? 'Not found' : 'invalid document', {status: failure === 'missing' ? 404 : 200})
+    : Response.json({scene: {style: 'tron'}});
+  await startSettingsPanel({createCommunityPlayground, createCommunitySettingsPanel});
+  await expect.poll(() => getPlaygroundModel(), {timeout: 15000}).not.toBeNull();
+  await expect.poll(() => frame.querySelector('.classic-playground-status')?.textContent)
+    .toBe('Style applied · 1 style unavailable');
+  expect(frame.querySelector('[data-template="styles/crosshatch.yaml"]')).toBeNull();
+  expect(frame.querySelector('[data-template="styles/tron.yaml"]')).not.toBeNull();
+  expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('styles/crosshatch.yaml'));
 });
 
 test('parse errors retain the map and correcting the text applies again', async () => {
@@ -209,6 +236,17 @@ test('startup preserves the authored Albers URL/hash camera until a card is sele
   expect(window.location.hash).toBe('#7/40/-100');
   await selectStyle('Albers projection morph');
   expect(setView).toHaveBeenCalledExactlyOnceWith([39, -96], 4);
+});
+
+test.each([
+  ['open-light-raster.yaml', 'open-light-vector.yaml'],
+  ['open-streets-raster.yaml', 'open-streets-vector.yaml']
+])('the legacy %s link selects its canonical vector card', async (legacy, canonical) => {
+  window.history.replaceState(null, '', '?scene=styles/' + legacy + '#16/40.7/-74');
+  await mountPanels();
+  expect(window.location.search).toContain(encodeURIComponent('styles/' + canonical));
+  expect(frame.querySelector(`[data-template="styles/${canonical}"]`)?.getAttribute('aria-selected')).toBe('true');
+  expect(setView).not.toHaveBeenCalled();
 });
 
 test('the editor fills the canvas and stays above Leaflet pane z-indices', async () => {

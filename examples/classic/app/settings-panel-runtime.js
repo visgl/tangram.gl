@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {DEFAULT_SCENE, SCENE_OPTIONS, getSceneOverview} from './scene-catalog.js';
+import {DEFAULT_SCENE, SCENE_OPTIONS, SCENE_ALIASES, SCENE_DESCRIPTIONS, getSceneOverview} from './scene-catalog.js';
 import {createClassicPlaygroundRenderer} from './playground-renderer.js';
 
 const SETTINGS_SCHEMA = {
@@ -47,9 +47,10 @@ export async function startSettingsPanel({createCommunityPlayground, createCommu
   };
   window.tangramClassicSettingsCleanup = cleanup;
   window.addEventListener('beforeunload', cleanup, {once: true});
-  const selectedScene = window.tangramRequestedSceneWithoutKey
+  const requestedScene = window.tangramRequestedSceneWithoutKey
     ? 'styles/local-basemap.yaml'
     : new URLSearchParams(window.location.search).get('scene') || window.tangramClassicScene || DEFAULT_SCENE;
+  const selectedScene = SCENE_ALIASES[requestedScene] || requestedScene;
   const resolveSceneUrl = sceneUrl => new URL(sceneUrl,
     new URL(window.tangramClassicBaseUrl || './', document.baseURI)).href;
   const fetchSceneSource = async sceneUrl => {
@@ -62,13 +63,24 @@ export async function startSettingsPanel({createCommunityPlayground, createCommu
     // style files, not their remote imports or tiles, before mounting its cards.
     const sceneNames = [...new Set([selectedScene, ...SCENE_OPTIONS.map(option => option.value)])];
     const [sources, styleSchema] = await Promise.all([
-      Promise.all(sceneNames.map(async name => [name, await fetchSceneSource(name)])),
+      Promise.allSettled(sceneNames.map(name => fetchSceneSource(name))),
       fetchStyleSchema(initialRequest.signal)
     ]);
     if (disposed) return;
-    const templates = Object.fromEntries(sources.map(([name, source]) => [name,
-      styleSchema ? JSON.stringify(window.Tangram.debug.yaml.safeLoad(source), null, 2) : source
-    ]));
+    const templates = {};
+    const unavailable = [];
+    for (const [index, result] of sources.entries()) {
+      const name = sceneNames[index];
+      try {
+        if (result.status === 'rejected') throw result.reason;
+        templates[name] = styleSchema ? JSON.stringify(window.Tangram.debug.yaml.safeLoad(result.value), null, 2) : result.value;
+      } catch (error) {
+        // An optional card must not take down the active scene's editor.
+        if (name === selectedScene) throw error;
+        unavailable.push(name);
+        console.warn('Unavailable playground style ' + name + ': ' + error.message);
+      }
+    }
     host = document.createElement('div');
     host.className = 'classic-settings-host';
     const parent = window.tangramClassicEmbedded
@@ -89,7 +101,9 @@ export async function startSettingsPanel({createCommunityPlayground, createCommu
         }
       }
     });
-    renderer = createClassicPlaygroundRenderer({scene, resolveSceneUrl, mapElement: document.getElementById('map')});
+    renderer = createClassicPlaygroundRenderer({scene, resolveSceneUrl, mapElement: document.getElementById('map'),
+      onSceneLoaded: () => window.layer?.updateAttribution?.()
+    });
     // Create status before construction: startup synchronously invokes observers.
     statusElement = document.createElement('div');
     statusElement.className = 'classic-playground-status';
@@ -98,10 +112,9 @@ export async function startSettingsPanel({createCommunityPlayground, createCommu
     let initialTemplate = true;
     playground = createCommunityPlayground({
       parentElement: host, templates, initialTemplate: selectedScene,
-      templateMetadata: Object.fromEntries(SCENE_OPTIONS.map(option => [option.value, {
+      templateMetadata: Object.fromEntries(SCENE_OPTIONS.filter(option => option.value in templates).map(option => [option.value, {
         title: option.label,
-        description: option.value.includes('local-') || option.value.includes('preview')
-          ? 'Local preview fixture.' : 'Editable Tangram style.'
+        description: SCENE_DESCRIPTIONS[option.value]
       }])),
       editorTitle: styleSchema ? 'Style JSON' : 'Style YAML',
       examplesTitle: 'Select Style', sidebarSide: 'right', sidebarWidthPx: 430,
@@ -114,14 +127,14 @@ export async function startSettingsPanel({createCommunityPlayground, createCommu
         // authored Albers views. Only explicit card selections reset it.
         if (overview && !initialTemplate) window.map?.setView(overview.slice(1, 3), overview[0]);
         initialTemplate = false;
-        window.tangramUpdateCartoBasemap?.(sceneUrl);
         const nextUrl = new URL(window.location.href);
         nextUrl.searchParams.set('scene', sceneUrl);
         window.history.replaceState(null, '', nextUrl);
       },
       onStatusChange: status => {
         statusElement.dataset.status = status;
-        statusElement.textContent = status === 'loading' ? 'Applying style…' : status === 'ready' ? 'Style applied' : 'Style error';
+        const summary = unavailable.length ? ' · ' + unavailable.length + ' style' + (unavailable.length === 1 ? '' : 's') + ' unavailable' : '';
+        statusElement.textContent = status === 'loading' ? 'Applying style…' : status === 'ready' ? 'Style applied' + summary : 'Style error';
       },
       onError: error => {statusElement.textContent = 'Style error: ' + error.message;}
     });

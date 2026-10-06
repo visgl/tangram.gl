@@ -60,22 +60,22 @@ directly from a checkout with a simple HTTP server.
   <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/local-basemap.yaml">
     <span className="example-tile__eyebrow">Local data preview</span>
     <strong>Local streets</strong>
-    <span>A deterministic vector preview that needs no tile-service key.</span>
+    <span>Bundled Manhattan features over a keyless OpenFreeMap vector basemap.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/local-tron.yaml">
     <span className="example-tile__eyebrow">Local data preview</span>
     <strong>TRON preview</strong>
-    <span>A local neon scene for testing when hosted tiles are unavailable.</span>
+    <span>Bundled neon features over the animated TRON style on OpenFreeMap.</span>
   </a>
-  <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/open-light-raster.yaml">
-    <span className="example-tile__eyebrow">Raster</span>
-    <strong>Light raster basemap</strong>
-    <span>An open light raster fallback for dependable map coverage.</span>
+  <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/open-light-vector.yaml">
+    <span className="example-tile__eyebrow">Live vector · OpenFreeMap</span>
+    <strong>Light vector basemap</strong>
+    <span>A light OpenFreeMap vector basemap with streets, buildings and labels.</span>
   </a>
-  <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/open-streets-raster.yaml">
-    <span className="example-tile__eyebrow">Raster</span>
-    <strong>Street map raster</strong>
-    <span>Open street-map tiles with familiar labels and landmarks.</span>
+  <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/open-streets-vector.yaml">
+    <span className="example-tile__eyebrow">Live vector · OpenFreeMap</span>
+    <strong>Street vector basemap</strong>
+    <span>OpenFreeMap vector tiles with familiar labels and landmarks.</span>
   </a>
   <a className="example-tile" href="/tangram.gl/examples/classic/?scene=styles/projection-morph.yaml#4/39/-96">
     <span className="example-tile__eyebrow">Projection</span>
@@ -91,8 +91,10 @@ The playground starts with the full animated TRON style. TRON and Crosshatch
 load keyless OpenFreeMap tiles through the OpenMapTiles-to-Tilezen adapter;
 they do not use the small local preview fixture or a CARTO raster underlay.
 Their original style archives remain separate from the tile service.
-Local-data previews are still selectable, with an optional CARTO raster context
-that requires a network connection. The local GeoJSON itself needs no tile service.
+Local-data previews are still selectable and overlay bundled GeoJSON on live
+OpenFreeMap vector basemaps. No second Leaflet raster layer is needed. The old
+`open-light-raster.yaml` and `open-streets-raster.yaml` links remain compatible
+aliases for the vector styles. Terrain shading still uses its separate elevation source.
 
 The deck example is the recommended integration starting point. It exercises
 the package entrypoints, a deck.gl overlay, vector styles, and the TRON style

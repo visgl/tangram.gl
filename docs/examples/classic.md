@@ -29,6 +29,20 @@ against the selected style file. The preview retains the classic map and its
 controls. The editor, stylesheets, and matching Monaco workers are bundled
 locally with ocular rather than loaded from an editor CDN.
 
+The cards explain each style's effect and distinguish the live vector basemaps
+from the small bundled Manhattan fixtures. Selecting a local fixture or building
+effect restores its street-level view; selecting Albers opens the national
+overview. An explicit camera in a direct-link hash is preserved on startup.
+
+All tiled basemaps in the picker use [OpenFreeMap](https://openfreemap.org/)
+vector tiles, with visible OpenFreeMap, OpenMapTiles and OpenStreetMap credits.
+The light and street comparison styles are vector scenes, not raster fallbacks;
+the previous `open-light-raster.yaml` and `open-streets-raster.yaml` URLs remain
+compatibility wrappers. The small Manhattan fixtures render as separate named
+overlay layers over these live basemaps, without a second Leaflet raster layer.
+Albers keeps its bundled US-state geometry. The outdoor terrain styles still
+use their separate elevation/normal-map sources where required.
+
 The [standalone playground](/tangram.gl/examples/classic/) is also
 available when a full-window map is more convenient. The [source and style
 assets](https://github.com/visgl/tangram.gl/tree/master/examples/classic)
@@ -36,9 +50,9 @@ are packaged and copied into the website during the build.
 
 All gallery scenes are keyless. The historical basemap and shader styles use a
 compatibility transform that maps current OpenMapTiles source layers and
-properties onto the Mapzen schema they were authored against. The local
-streets, TRON preview, raster maps, projection morph, and Crosshatch preview
-remain self-contained alternatives.
+properties onto the Mapzen schema they were authored against. Only the
+projection morph is wholly self-contained; the other styles and fixture
+overlays require a network connection for their live vector basemaps.
 
 The **Albers projection morph** is a self-contained port of the classic
 [Escape from Mercator](https://www.mapzen.com/blog/escape-from-mercator)
