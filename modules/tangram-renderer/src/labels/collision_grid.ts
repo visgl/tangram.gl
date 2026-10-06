@@ -3,20 +3,28 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
+import type {CollisionBounds} from './collision-types';
+/** Grid origin in Tangram's negative-Y tile coordinate system. */
 type Anchor = {x: number; y: number};
-type Cell = {aabb: unknown[]; obb: unknown[]};
-type LabelLike = {aabb?: number[]; aabbs?: number[][]; cells?: Cell[]};
+/** Geometry required to assign a candidate's single or multiple collision boxes. */
+type LabelLike = {aabb?: number[] | null; aabbs?: number[][]; cells?: CollisionBounds[]};
+/** Spatial index sharing placed-label bounds between overlapping candidates. */
 export default class CollisionGrid {
+    /** Coordinate origin used for cell indexing. */
     anchor: Anchor;
+    /** Cell size in the same units as candidate bounds. */
     span: number;
-    cells: Record<number, Record<number, Cell>>;
+    /** Rows and columns containing placed-label bounds. */
+    cells: Record<number, Record<number, CollisionBounds>>;
 
+    /** Create an empty grid anchored in the current collision coordinate system. */
     constructor (anchor: Anchor, span: number) {
         this.anchor = anchor;
         this.span = span;
         this.cells = {};
     }
 
+    /** Assign candidate bounds to grid cells without placing the candidate. */
     addLabel (label: LabelLike): void {
         if (label.aabb) {
             this.addLabelBboxes(label, label.aabb);
@@ -27,6 +35,7 @@ export default class CollisionGrid {
         }
     }
 
+    /** Index one box, retaining the existing per-box candidate-cell assignment. */
     addLabelBboxes (label: LabelLike, aabb: number[]): void {
         // min/max cells that the label falls into
         // keep grid coordinates at zero or above so any labels that go "below" the anchor are in the lowest grid cell

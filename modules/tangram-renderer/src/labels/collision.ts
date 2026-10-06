@@ -1,20 +1,23 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
-
-// @ts-nocheck
+// Copyright (c) 2026 vis.gl contributors
 
 import Label from './label';
 import RepeatGroup from './repeat_group';
 import CollisionGrid from './collision_grid';
 import log from '../utils/log';
+import type {CollisionObject, CollisionTileState} from './collision-types';
 
 const Collision = {
 
-    tiles: {},
-    grid: null, // no collision grid by default
+    /** Started tile batches, removed after completion or abort. */
+    tiles: {} as Partial<Record<string, CollisionTileState>>,
+    /** Optional spatial index; null uses each tile's placed bounds. */
+    grid: null as CollisionGrid | null, // no collision grid by default
 
-    initGrid (options) {
+    /** Select grid-based or tile-wide collision testing. */
+    initGrid (options?: {anchor: {x: number; y: number}; span: number} | null): void {
         if (options == null) {
             this.grid = null;
         }
@@ -23,8 +26,11 @@ const Collision = {
         }
     },
 
-    startTile (tile, { apply_repeat_groups = true, return_hidden = false } = {}) {
-        let state = this.tiles[tile] = {
+    /** Initialize a batch before registering/submitting its contributing styles. */
+    startTile (tile: string, { apply_repeat_groups = true, return_hidden = false }: {
+        apply_repeat_groups?: boolean; return_hidden?: boolean
+    } = {}): void {
+        let state: CollisionTileState = this.tiles[tile] = {
             bboxes: {           // current set of placed bounding boxes
                 aabb: [],
                 obb: []
@@ -38,18 +44,20 @@ const Collision = {
 
         // Promise resolved when all registered styles have added objects
         if (state.complete == null) {
-            state.complete = new Promise((resolve, reject) => {
+            state.complete = new Promise<void | CollisionObject[]>((resolve, reject) => {
                 state.resolve = resolve;
                 state.reject = reject;
             });
         }
     },
 
-    resetTile (tile) {
+    /** Drop all collision state for a completed or abandoned tile. */
+    resetTile (tile: string): void {
         delete this.tiles[tile];
     },
 
-    abortTile (tile) {
+    /** Resolve pending consumers before removing an abandoned batch. */
+    abortTile (tile: string): void {
         if (this.tiles[tile] && this.tiles[tile].resolve) {
             this.tiles[tile].resolve([]);
         }
@@ -57,12 +65,14 @@ const Collision = {
     },
 
     // Add a style to the pending set, collision will block on all styles submitting to collision set
-    addStyle (style, tile) {
-        this.tiles[tile].styles[style] = true;
+    /** Register a contributor on an already-started tile. */
+    addStyle (style: string, tile: string): void {
+        this.tiles[tile]!.styles[style] = true;
     },
 
     // Add collision objects for a style
-    collide (objects, style, tile) {
+    /** Submit one style and return the same containers, retaining their payload types. */
+    collide<T extends CollisionObject> (objects: readonly T[], style: string, tile: string): Promise<T[]> {
         let state = this.tiles[tile];
         if (!state) {
             log('trace', 'Collision.collide() called with null tile', tile, this.tiles, style, objects);
@@ -86,16 +96,18 @@ const Collision = {
         }
 
         // Wait for objects to be added from all styles
-        return state.complete.then(() => {
+        return state.complete!.then(() => {
             state.resolve = null;
-            return state.labels[style] || [];
+            // Each style's result contains only containers submitted by that style.
+            return state.labels[style] as T[] || [];
         });
     },
 
     // Test labels for collisions, higher to lower priority
     // When two collide, hide the lower-priority label
-    endTile (tile) {
-        let state = this.tiles[tile];
+    /** Resolve an already-started batch in priority/style submission order. */
+    endTile (tile: string): void {
+        let state = this.tiles[tile]!;
         let labels = state.labels;
 
         if (this.grid) {
@@ -107,7 +119,7 @@ const Collision = {
         }
 
         // Process labels by priority, then by style
-        let priorities = Object.keys(state.objects).sort((a, b) => a - b);
+        let priorities = Object.keys(state.objects).sort((a, b) => Number(a) - Number(b));
         for (let p=0; p < priorities.length; p++) {
             let style_objects = state.objects[priorities[p]];
             if (!style_objects) { // no labels at this priority, skip to next
@@ -163,12 +175,13 @@ const Collision = {
         }
 
         delete this.tiles[tile];
-        state.resolve();
+        state.resolve!();
     },
 
-    addLabelsToGrid (tile_id) {
+    /** Index candidates after grid initialization and before placement starts. */
+    addLabelsToGrid (tile_id: string): void {
         // Process labels by priority, then by style
-        const tile = this.tiles[tile_id];
+        const tile = this.tiles[tile_id]!;
         for (const priority in tile.objects) {
             const style_objects = tile.objects[priority];
             if (!style_objects) { // no labels at this priority, skip to next
@@ -178,13 +191,14 @@ const Collision = {
             // For each style
             for (const style in style_objects) {
                 const objects = style_objects[style];
-                objects.forEach(object => this.grid.addLabel(object.label));
+                objects.forEach(object => this.grid!.addLabel(object.label));
             }
         }
     },
 
     // Run collision and repeat check to see if label can currently be placed
-    canBePlaced (object, tile, exclude = null, { repeat = true } = {}) {
+    /** Check a candidate, preserving previously resolved placement outcomes. */
+    canBePlaced (object: CollisionObject, tile: string, exclude: CollisionObject | null = null, { repeat = true }: {repeat?: boolean} = {}): boolean | null | undefined {
         let label = object.label;
         let layout = object.label.layout;
 
@@ -206,7 +220,7 @@ const Collision = {
                 }, true);
             }
             else {
-                placeable = !label.discard(this.tiles[tile].bboxes, exclude && exclude.label);
+                placeable = !label.discard(this.tiles[tile]!.bboxes, exclude && exclude.label);
             }
         }
 
@@ -227,7 +241,8 @@ const Collision = {
     },
 
     // Place label
-    place ({ label }, tile, { repeat = true }) {
+    /** Register a candidate once, after its dependency and repeat checks succeed. */
+    place ({ label }: CollisionObject, tile: string, { repeat = true }: {repeat?: boolean}): void {
         // Skip if already processed (e.g. by parent object)
         if (label.placed != null) {
             return;
@@ -242,7 +257,7 @@ const Collision = {
             label.cells.forEach(cell => Label.add(label, cell));
         }
         else {
-            Label.add(label, this.tiles[tile].bboxes);
+            Label.add(label, this.tiles[tile]!.bboxes);
         }
     }
 
