@@ -3,8 +3,16 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-type FilterValue = any;
-type FilterOptions = any;
+type FilterValue = unknown;
+/** Optional normalization for filter range bounds. */
+export interface FilterOptions {
+    rangeTransform?: (value: unknown) => unknown;
+}
+/** Compiled feature predicate evaluated against the style context. */
+export type FilterFunction = (context: {
+    feature?: {properties: Record<string, unknown>};
+    [name: string]: unknown;
+}) => boolean;
 type FilterAst = string[];
 
 function notNull (x: FilterValue): boolean { return x != null; }
@@ -60,19 +68,19 @@ function printNested (values: FilterAst[], joiner: string): string {
     }).join(' ' + joiner + ' '));
 }
 
-function any (_: FilterValue, values: FilterValue[], options: FilterOptions): string {
+function any (_: FilterValue, values: FilterValue[], options: FilterOptions | undefined): string {
     return (values && values.length > 0) ? printNested(values.map(function (v: FilterValue) { return parseFilter(v, options); }), '||') : 'true';
 }
 
-function all (_: FilterValue, values: FilterValue[], options: FilterOptions): string {
+function all (_: FilterValue, values: FilterValue[], options: FilterOptions | undefined): string {
     return (values && values.length > 0) ? printNested(values.map(function (v: FilterValue) { return parseFilter(v, options); }), '&&') : 'true';
 }
 
-function not (key: FilterValue, value: FilterValue, options: FilterOptions): string {
+function not (key: FilterValue, value: FilterValue, options: FilterOptions | undefined): string {
     return '!' + wrap(parseFilter(value, options).join(' && '));
 }
 
-function none (key: FilterValue, values: FilterValue[], options: FilterOptions): string {
+function none (key: FilterValue, values: FilterValue[], options: FilterOptions | undefined): string {
     return '!' + wrap(any(null, values, options));
 }
 
@@ -80,7 +88,7 @@ function propertyMatchesBoolean (key: string, value: boolean): string {
     return wrap(lookUp(key) + (value ? ' != ' : ' == ')  + 'null');
 }
 
-function rangeMatch (key: string, value: any, options: FilterOptions): string {
+function rangeMatch (key: string, value: Record<string, unknown>, options: FilterOptions | undefined): string {
     var expressions = [];
     var transform = options && (typeof options.rangeTransform === 'function') && options.rangeTransform;
 
@@ -90,14 +98,14 @@ function rangeMatch (key: string, value: any, options: FilterOptions): string {
     }
 
     if (value.min) {
-        var min: any = transform ? min = transform(value.min) : value.min;
+        var min: unknown = transform ? min = transform(value.min) : value.min;
         expressions.push('' + lookUp(key) + ' >= ' + min);
     }
 
     return wrap(expressions.join(' && '));
 }
 
-function includesMatch (key: string, value: any, _options?: FilterOptions): string {
+function includesMatch (key: string, value: Record<string, unknown>, _options?: FilterOptions): string {
     let expressions = [];
 
     // the array includes ONE OE MORE of the provided values (a single value is converted to an array)
@@ -117,7 +125,7 @@ function includesMatch (key: string, value: any, _options?: FilterOptions): stri
     return wrap(expressions.join(' && '));
 }
 
-function parseFilter (filter: FilterValue, options: FilterOptions): FilterAst {
+function parseFilter (filter: FilterValue, options: FilterOptions | undefined): FilterAst {
     var filterAST: FilterAst = [];
 
     // Function filter
@@ -134,32 +142,32 @@ function parseFilter (filter: FilterValue, options: FilterOptions): FilterAst {
     }
 
     // Object filter, e.g. implicit 'all'
-    var keys = Object.keys(filter);
+    var keys = Object.keys(filter as object);
     for (var k=0; k < keys.length; k++) {
         var key = keys[k];
 
-        var value = filter[key],
+        var value = (filter as Record<string, unknown>)[key],
             type  = typeof value;
         if (type === 'string' || type === 'number') {
             filterAST.push(propertyEqual(key, value));
         } else if (type === 'boolean') {
-            filterAST.push(propertyMatchesBoolean(key, value));
+            filterAST.push(propertyMatchesBoolean(key, value as boolean));
         } else if (key === 'not') {
             filterAST.push(not(key, value, options));
         } else if (key === 'any') {
-            filterAST.push(any(key, value, options));
+            filterAST.push(any(key, value as FilterValue[], options));
         } else if (key === 'all') {
-            filterAST.push(all(key, value, options));
+            filterAST.push(all(key, value as FilterValue[], options));
         } else if (key === 'none') {
-            filterAST.push(none(key, value, options));
+            filterAST.push(none(key, value as FilterValue[], options));
         } else if (Array.isArray(value)) {
             filterAST.push(propertyOr(key, value));
         } else if (type === 'object' && value != null) {
-            if (value.max || value.min) {
-                filterAST.push(rangeMatch(key, value, options));
+            if ((value as Record<string, unknown>).max || (value as Record<string, unknown>).min) {
+                filterAST.push(rangeMatch(key, value as Record<string, unknown>, options));
             }
-            else if (value.includes_any || value.includes_all) {
-                filterAST.push(includesMatch(key, value, options));
+            else if ((value as Record<string, unknown>).includes_any || (value as Record<string, unknown>).includes_all) {
+                filterAST.push(includesMatch(key, value as Record<string, unknown>, options));
             }
         } else if (value == null) {
             filterAST.push(nullValue(key, value));
@@ -175,8 +183,8 @@ function filterToString (filterAST: FilterAst): string {
     return wrap(filterAST.join(' && '));
 }
 
-export function buildFilter (filter: FilterValue, options?: FilterOptions): Function {
+export function buildFilter (filter: FilterValue, options?: FilterOptions): FilterFunction {
     if (filter == null) { return function () { return true; }; }
     // jshint evil: true
-    return new Function('context', 'return ' + filterToString(parseFilter(filter, options)) + ';');
+    return new Function('context', 'return ' + filterToString(parseFilter(filter, options)) + ';') as FilterFunction;
 }
