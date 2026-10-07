@@ -41,7 +41,7 @@ function createRoadScene(maximumSourceZoom = 6) {
     url: `data:application/json,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features}))}`,
     max_zoom: maximumSourceZoom}}, layers: Object.fromEntries(['round', 'square', 'butt'].map((cap, index) => [cap, {
       data: {source: 'roads'}, filter: {cap}, draw: {lines: {order: 3 + index, width: '180000m',
-        color: '#ff8020', cap, join: ['round', 'bevel', 'miter'][index]}}
+        color: ['#ff2020', '#20ff20', '#ff8020'][index], cap, join: ['round', 'bevel', 'miter'][index]}}
     }]))};
 }
 
@@ -159,15 +159,17 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
       initialViewState: {target: [0, 0, 0], zoom: type === 'albers' ? -1 : -2},
       onError: error => {errors.push(error.message);}, _animate: true, layers: [createLayer(type)]});
     const waitForRoads = async () => {
-      await expect.poll(async () => {
+      for (const road of ['round', 'square', 'butt']) await expect.poll(async () => {
         expect(errors).toEqual([]);
         const pixels = await readCanvasPixels(canvas);
-        let orange = 0;
+        let matchingRoad = 0;
         for (let offset = 0; offset < pixels.data.length; offset += 4) {
-          if (pixels.data[offset] > 150 && pixels.data[offset + 1] > 70 && pixels.data[offset + 1] < 170 && pixels.data[offset + 2] < 70) orange++;
+          const red = pixels.data[offset], green = pixels.data[offset + 1], blue = pixels.data[offset + 2];
+          if (blue < 70 && (road === 'round' ? red > 150 && green < 70 :
+            road === 'square' ? green > 150 && red < 70 : red > 150 && green > 70 && green < 170)) matchingRoad++;
         }
-        return orange;
-      }, {timeout: 20000, interval: 100}).toBeGreaterThan(50);
+        return matchingRoad;
+      }, {timeout: 20000, interval: 100, message: `${type}: ${road} road must render independently`}).toBeGreaterThan(15);
     };
     await waitForRoads();
     await expect.poll(() => completed).toBe(type);

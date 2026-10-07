@@ -86,6 +86,9 @@ ordered west/south/east/north rectangle in a single world; latitude cannot excee
 meridian in this preview. Albers cannot request coverage outside the region above.
 Both Mercator variants retain this tile latitude limit rather than extending to the poles.
 Source tiles remain EPSG:3857; `mercator` changes output geometry, not the source grid.
+The example uses zoom 2 for Blue Marble and zoom 4 for OpenFreeMap, whose
+transportation layer starts at zoom 4. Its full-world vector footprint therefore
+loads up to 256 source tiles, retained across projection changes.
 
 `getProjectedViewFrame(viewport, {projection, visibleBounds, tileZoom})` exposes the
 adapter for custom hosts. Its `HostFrame` uses `projection.type: 'projected'` with
