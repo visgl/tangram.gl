@@ -59,6 +59,9 @@ test('renderer loaders use pinned v5 alphas and layer math peers match the rende
   expect(loadersVersions.length).toBeGreaterThan(0);
   // Loader packages are published independently; alpha.10 is not yet available for MVT/MLT/PMTiles.
   for (const version of loadersVersions) expect(version).toMatch(/^5\.0\.0-alpha\.\d+$/);
+  const coordinatedVersions = ['core', 'config', 'loader-utils', 'tiles']
+    .map(name => rendererPackage.devDependencies[`@loaders.gl/${name}`]);
+  expect(new Set(coordinatedVersions).size).toBe(1);
   expect(rendererPackage.dependencies['@math.gl/web-mercator']).toBe(mathVersion);
   expect(rendererPackage.devDependencies['@math.gl/geospatial']).toBe(mathVersion);
   expect(rendererPackage.devDependencies['@math.gl/projection']).toBe(mathVersion);
