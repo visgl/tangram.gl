@@ -32,7 +32,7 @@ export function projectLngLatToMetersWithMath(
       : undefined;
   return [
     legacyMeters?.[0] ?? normalizedWorldX * CIRCUMFERENCE_METERS - HALF_CIRCUMFERENCE_METERS,
-    // math.gl 4.x world Y is north-positive: latitude +40 maps above WORLD_SIZE / 2.
+    // math.gl world Y is north-positive: latitude +40 maps above WORLD_SIZE / 2.
     legacyMeters?.[1] ?? normalizedWorldY * CIRCUMFERENCE_METERS - HALF_CIRCUMFERENCE_METERS
   ];
 }

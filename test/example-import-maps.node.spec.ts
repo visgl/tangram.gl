@@ -31,6 +31,8 @@ function collectPackageImports(entry: URL, visited = new Set<string>()): Set<str
 }
 
 const packageImports = collectPackageImports(new URL('../modules/tangram-layers/src/index.ts', import.meta.url));
+const rendererPackage = JSON.parse(readFileSync(new URL('../modules/tangram-renderer/package.json', import.meta.url), 'utf8'));
+const mathVersion = rendererPackage.dependencies['@math.gl/core'];
 
 test.each([
   'examples/deck/index.html',
@@ -46,4 +48,19 @@ test.each([
       new RegExp(`["']${importName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']\\s*:`)
     );
   }
+  expect(source).toContain(`https://esm.sh/@math.gl/core@${mathVersion}?bundle`);
+});
+
+test('renderer loaders use one pinned v5 release and layer math peers match the renderer', () => {
+  const loadersVersions = Object.entries(rendererPackage.devDependencies)
+    .filter(([name]) => name.startsWith('@loaders.gl/'))
+    .map(([, version]) => version);
+  expect(loadersVersions.length).toBeGreaterThan(0);
+  expect(new Set(loadersVersions).size).toBe(1);
+  expect(loadersVersions[0]).toMatch(/^5\.0\.0-alpha\.\d+$/);
+  expect(rendererPackage.dependencies['@math.gl/web-mercator']).toBe(mathVersion);
+  const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
+  const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
+  expect(layerPackage.peerDependencies['@math.gl/core']).toBe(mathVersion);
+  expect(xrPackage.dependencies['@math.gl/core']).toBe(mathVersion);
 });
