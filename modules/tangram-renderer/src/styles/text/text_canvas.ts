@@ -1,20 +1,53 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
-
+import type {TaskRecord} from '../../utils/task';
+import type {TextSettingsResult} from './text_settings';
+import type {LabelPointCoordinate} from '../../labels/label-types';
+import type {TextTable, TextSize, TextLine, TextMeasurement, TextAtlas, TextAtlasCursor, TextSizesTask, TextRasterTask} from './text-types';
 import log from '../../utils/log';
 import Utils from '../../utils/utils';
 import Texture from '../../gl/texture';
 import FontManager from './font_manager';
 import Task from '../../utils/task';
 import StyleParser from '../style_parser';
+/** Temporary parser boundary until the full style parser is checked. */
+const typedStyleParser = StyleParser as unknown as {parsePositiveNumber(value: unknown): number};
+/** Texture registry boundary; GPU ownership remains with the existing implementation. */
+const typedTexture = Texture as unknown as {
+    getTexcoordsForSprite(origin: LabelPointCoordinate, size: LabelPointCoordinate, atlas: LabelPointCoordinate): number[];
+    create(context: unknown, name: string, options: {element: HTMLCanvasElement; filtering: string; UNPACK_PREMULTIPLY_ALPHA_WEBGL: boolean}): unknown;
+    retain(name: string): void;
+    release(name: string): void;
+};
 import MultiLine from './text_wrap';
 import { splitLabelText, isTextRTL, isTextNeutral, isTextCurveBlacklisted } from './text_segments';
 import debugSettings from '../../utils/debug_settings';
 
+/** Measures, packs, and rasterizes per-tile label atlases on the main thread. */
 export default class TextCanvas {
+    /** Canvas and context installed by createCanvas. */
+    declare canvas: HTMLCanvasElement;
+    declare context: CanvasRenderingContext2D;
+    /** Pixel paddings around rendered text. */
+    declare vertical_text_buffer: number;
+    declare horizontal_text_buffer: number;
+    declare background_size: number;
+    /** Device-pixel font size installed by setFont before measurement. */
+    declare px_size: number;
+    /** CSS size parser and shared bounded measurement/segmentation cache. */
+    declare static font_size_re: RegExp;
+    declare static cache: {
+        text: Record<string, Record<string, TextMeasurement>>;
+        text_count: number;
+        text_count_max: number;
+        segment: Record<string, string[]>;
+        segment_count_max: number;
+        stats: {text_hits: number; text_misses: number; segment_hits: number; segment_misses: number};
+    };
+
 
     constructor () {
         this.createCanvas();                // create initial canvas and context
@@ -26,32 +59,32 @@ export default class TextCanvas {
     createCanvas () {
         this.canvas = document.createElement('canvas');
         this.canvas.style.backgroundColor = 'transparent'; // render text on transparent background
-        this.context = this.canvas.getContext('2d');
+        this.context = this.canvas.getContext('2d')!;
     }
 
-    resize (width, height) {
+    resize (width: number, height: number): void {
         this.canvas.width = width;
         this.canvas.height = height;
         this.context.clearRect(0, 0, width, height);
     }
 
     // Set font style params for canvas drawing
-    setFont ({ font_css, fill, stroke, stroke_width, px_size, supersample }) {
-        this.px_size = px_size;
+    setFont ({ font_css, fill, stroke, stroke_width, px_size, supersample }: TextSettingsResult): void {
+        this.px_size = px_size!;
         let ctx = this.context;
-        let dpr = Utils.device_pixel_ratio * supersample;
+        let dpr = Utils.device_pixel_ratio! * supersample;
 
-        if (stroke && stroke_width > 0) {
+        if (stroke && stroke_width! > 0) {
             ctx.strokeStyle = stroke;
-            ctx.lineWidth = stroke_width * dpr;
+            ctx.lineWidth = stroke_width! * dpr;
         }
-        ctx.fillStyle = fill;
+        ctx.fillStyle = fill!;
 
-        ctx.font = font_css;
+        ctx.font = font_css!;
         ctx.miterLimit = 2;
     }
 
-    async textSizes (tile_id, texts) {
+    async textSizes (tile_id: string, texts: TextTable): Promise<TextTable | undefined> {
         await FontManager.loadFonts();
         return Task.add({
             type: 'textSizes',
@@ -67,12 +100,12 @@ export default class TextCanvas {
         });
     }
 
-    processTextSizesTask (task) {
-        let { cursor, texts  } = task;
+    processTextSizesTask (task: TaskRecord<TextTable>): boolean {
+        let { cursor, texts  } = task as TextSizesTask;
         cursor.style_idx = cursor.style_idx || 0;
 
-        while (cursor.style_idx < cursor.styles.length) {
-            let style = cursor.styles[cursor.style_idx];
+        while (cursor.style_idx! < cursor.styles.length) {
+            let style = cursor.styles[cursor.style_idx!];
             if (cursor.text_idx == null) {
                 cursor.text_idx = 0;
                 cursor.texts = Object.keys(texts[style]);
@@ -81,8 +114,8 @@ export default class TextCanvas {
             let text_infos = texts[style];
             let first = true;
 
-            while (cursor.text_idx < cursor.texts.length) {
-                let text = cursor.texts[cursor.text_idx];
+            while (cursor.text_idx < cursor.texts!.length) {
+                let text = cursor.texts![cursor.text_idx];
                 let text_info = text_infos[text];
                 let text_settings = text_info.text_settings;
 
@@ -116,7 +149,7 @@ export default class TextCanvas {
                         let segments = splitLabelText(text, rtl, TextCanvas.cache);
                         text_info.segments = segments;
                         for (let i = 0; i < segments.length; i++){
-                            text_info.segment_sizes.push(this.textSize(style, segments[i], text_settings).size);
+                            text_info.segment_sizes!.push(this.textSize(style, segments[i], text_settings).size);
                         }
                     }
                 }
@@ -128,7 +161,7 @@ export default class TextCanvas {
                 }
             }
             cursor.text_idx = null;
-            cursor.style_idx++;
+            cursor.style_idx!++;
         }
 
         Task.finish(task, texts);
@@ -137,7 +170,7 @@ export default class TextCanvas {
 
     // Computes width and height of text based on current font style
     // Includes word wrapping, returns size info for whole text block and individual lines
-    textSize(style, text, { transform, text_wrap, max_lines, stroke_width = 0, background_color, background_stroke_width = 0, background_width, underline_width = 0, supersample }) {
+    textSize(style: string, text: string, { transform, text_wrap, max_lines, stroke_width = 0, background_color, background_stroke_width = 0, background_width, underline_width = 0, supersample }: TextSettingsResult): TextMeasurement {
         // Check cache first
         TextCanvas.cache.text[style] = TextCanvas.cache.text[style] || {};
         if (TextCanvas.cache.text[style][text]) {
@@ -148,7 +181,7 @@ export default class TextCanvas {
         TextCanvas.cache.text_count++;
 
         // Calc and store in cache
-        const dpr = Utils.device_pixel_ratio * supersample;
+        const dpr = Utils.device_pixel_ratio! * supersample;
         const str = this.applyTextTransform(text, transform);
         const ctx = this.context;
         const vertical_buffer = this.vertical_text_buffer * dpr;
@@ -161,22 +194,22 @@ export default class TextCanvas {
         const line_height = this.px_size + leading; // px_size already in device pixels
 
         // Parse string into series of lines if it exceeds the text wrapping value or contains line breaks
-        // const multiline = MultiLine.parse(str, text_wrap, max_lines, line_height, ctx);
-        let { width, height, lines } = MultiLine.parse(str, text_wrap, max_lines, line_height, ctx);
+        // const multiline = MultiLine.parse(str, text_wrap!, max_lines!, line_height, ctx);
+        let { width, height, lines } = MultiLine.parse(str, text_wrap!, max_lines!, line_height, ctx);
         width += background_size * 2;
         height += background_size * 2;
 
-        let collision_size = [
+        let collision_size: LabelPointCoordinate = [
             width / dpr,
             height / dpr
         ];
 
-        let texture_size = [
+        let texture_size: LabelPointCoordinate = [
             width + 2 * horizontal_buffer,
             height + 2 * vertical_buffer
         ];
 
-        let logical_size = [
+        let logical_size: LabelPointCoordinate = [
             texture_size[0] / dpr,
             texture_size[1] / dpr,
         ];
@@ -193,7 +226,7 @@ export default class TextCanvas {
     }
 
     // Draw multiple lines of text
-    drawTextMultiLine (lines, [x, y], size, text_settings, label_type) {
+    drawTextMultiLine (lines: TextLine[], [x, y]: LabelPointCoordinate, size: TextSize, text_settings: TextSettingsResult & {align?: string}, label_type?: string): void {
         const { dpr, collision_size, texture_size, line_height, horizontal_buffer, vertical_buffer } = size;
 
         // draw optional background box
@@ -220,7 +253,7 @@ export default class TextCanvas {
                 this.context.lineWidth = background_stroke_width;
                 this.context.strokeRect(
                     // shift to "foreground" stroke texture for curved labels (separate stroke and fill textures)
-                    x + horizontal_buffer + (label_type === 'curved' ? texture_size[0] : 0) + background_stroke_width * 0.5,
+                    x + horizontal_buffer + (label_type === 'curved' ? texture_size[0] : 0) + background_stroke_width! * 0.5,
                     y + vertical_buffer + background_stroke_width * 0.5,
                     dpr * collision_size[0] - background_stroke_width,
                     dpr * collision_size[1] - background_stroke_width
@@ -246,14 +279,14 @@ export default class TextCanvas {
     }
 
     // Draw single line of text at specified location, adjusting for buffer and baseline
-    drawTextLine(line, [x, y], size, text_settings, type) {
+    drawTextLine(line: TextLine, [x, y]: LabelPointCoordinate, size: TextSize, text_settings: TextSettingsResult & {align?: string}, type?: string): void {
         const { stroke, stroke_width, transform, align = 'center' } = text_settings;
         const { horizontal_buffer, vertical_buffer, texture_size, background_size, line_height, dpr } = size;
         const underline_width = (text_settings.underline_width || 0) * dpr;
         const text = this.applyTextTransform(line.text, transform);
 
         // Text alignment
-        let tx;
+        let tx!: number;
         if (align === 'left') {
             tx = x + horizontal_buffer + background_size;
         }
@@ -269,7 +302,7 @@ export default class TextCanvas {
         const ty = y + vertical_buffer * 0.75 + line_height + background_size - underline_width * 0.5;
 
         // Draw stroke and fill separately for curved text. Offset stroke in texture atlas by shift.
-        const shift = (stroke && stroke_width > 0 && type === 'curved') ? texture_size[0] : 0;
+        const shift = (stroke && stroke_width! > 0 && type === 'curved') ? texture_size[0] : 0;
 
         // optional text underline
         if (underline_width) {
@@ -278,7 +311,7 @@ export default class TextCanvas {
             this.context.lineWidth = underline_width;
 
             // adjust the underline to account for the text stroke
-            const uy = ty + ((stroke_width * 0.5 + 2) * dpr) + this.context.lineWidth * 0.5;
+            const uy = ty + ((stroke_width! * 0.5 + 2) * dpr) + this.context.lineWidth * 0.5;
 
             this.context.beginPath();
             this.context.moveTo(tx + shift, uy);
@@ -287,14 +320,14 @@ export default class TextCanvas {
             this.context.restore();
         }
 
-        if (stroke && stroke_width > 0) {
+        if (stroke && stroke_width! > 0) {
             this.context.strokeText(text, tx + shift, ty);
         }
         this.context.fillText(text, tx, ty);
     }
 
     // Draw optional text debug boxes
-    drawTextDebug ([x, y], size, label_type) {
+    drawTextDebug ([x, y]: LabelPointCoordinate, size: TextSize, label_type?: string): void {
         const { dpr, horizontal_buffer, vertical_buffer, texture_size, collision_size } = size;
         const line_width = 2;
 
@@ -322,7 +355,7 @@ export default class TextCanvas {
         }
     }
 
-    rasterize (texts, textures, tile_id, texture_prefix, resource_context) {
+    rasterize (texts: TextTable, textures: TextAtlas[], tile_id: string, texture_prefix: string, resource_context: unknown): Promise<string[] | undefined> {
         return Task.add({
             type: 'rasterizeLabels',
             run: this.processRasterizeTask.bind(this),
@@ -346,12 +379,12 @@ export default class TextCanvas {
         });
     }
 
-    processRasterizeTask (task) {
-        let { cursor, texts, textures } = task;
+    processRasterizeTask (task: TaskRecord<string[]>): boolean {
+        let { cursor, texts, textures } = task as TextRasterTask;
         let texture;
 
         // Rasterize one texture at a time, so we only have to keep one canvas in memory (they can be large)
-        while (cursor.texture_idx < task.textures.length) {
+        while (cursor.texture_idx < (task as TextRasterTask).textures.length) {
             texture = textures[cursor.texture_idx];
 
             if (cursor.texture_resize) {
@@ -359,8 +392,8 @@ export default class TextCanvas {
                 this.resize(...texture.texture_size);
             }
 
-            while (cursor.style_idx < cursor.styles.length) {
-                let style = cursor.styles[cursor.style_idx];
+            while (cursor.style_idx! < cursor.styles.length) {
+                let style = cursor.styles[cursor.style_idx!];
                 if (cursor.text_idx == null) {
                     cursor.text_idx = 0;
                     cursor.texts = Object.keys(texts[style]);
@@ -369,8 +402,8 @@ export default class TextCanvas {
                 let text_infos = texts[style];
                 let first = true;
 
-                while (cursor.text_idx < cursor.texts.length) {
-                    let text = cursor.texts[cursor.text_idx];
+                while (cursor.text_idx < cursor.texts!.length) {
+                    let text = cursor.texts![cursor.text_idx];
                     let text_info = text_infos[text];
                     let text_settings = text_info.text_settings;
 
@@ -382,15 +415,15 @@ export default class TextCanvas {
 
                     if (text_settings.can_articulate) {
                         text_info.texcoords = text_info.texcoords || {};
-                        for (let t = 0; t < text_info.type.length; t++) {
-                            let type = text_info.type[t];
+                        for (let t = 0; t < text_info.type!.length; t++) {
+                            let type = text_info.type![t];
                             if (type === 'straight') {
                                 // Only render for current texture
-                                if (text_info.textures[t] !== cursor.texture_idx) {
+                                if (text_info.textures![t] !== cursor.texture_idx) {
                                     continue;
                                 }
 
-                                let word = (text_info.isRTL) ? text.split().reverse().join() : text;
+                                let word = (text_info.isRTL) ? text.split(undefined!).reverse().join() : text;
                                 let cache = texture.texcoord_cache[style][word];
 
                                 let texcoord;
@@ -403,7 +436,7 @@ export default class TextCanvas {
 
                                     this.drawTextMultiLine(lines, texture_position, size, text_settings, type);
 
-                                    texcoord = Texture.getTexcoordsForSprite(
+                                    texcoord = typedTexture.getTexcoordsForSprite(
                                         texture_position,
                                         size.texture_size,
                                         texture.texture_size
@@ -418,13 +451,13 @@ export default class TextCanvas {
                                 };
                             }
                             else if (type === 'curved') {
-                                let words = text_info.segments;
+                                let words = text_info.segments!;
                                 text_info.texcoords.curved = text_info.texcoords.curved || [];
                                 text_info.texcoords_stroke = text_info.texcoords_stroke || [];
 
                                 for (let w = 0; w < words.length; w++){
                                     // Only render for current texture
-                                    if (text_info.textures[t][w] !== cursor.texture_idx) {
+                                    if ((text_info.textures![t] as number[])[w] !== cursor.texture_idx) {
                                         continue;
                                     }
 
@@ -435,8 +468,8 @@ export default class TextCanvas {
                                     let texcoord_stroke;
                                     if (cache.texcoord){
                                         texcoord = cache.texcoord;
-                                        texcoord_stroke = cache.texcoord_stroke;
-                                        text_info.texcoords_stroke.push(texcoord_stroke);
+                                        texcoord_stroke = cache.texcoord_stroke!;
+                                        text_info.texcoords_stroke.push(texcoord_stroke!);
                                     }
                                     else {
                                         let texture_position = cache.texture_position;
@@ -444,18 +477,18 @@ export default class TextCanvas {
 
                                         this.drawTextMultiLine(lines, texture_position, size, text_settings, type);
 
-                                        texcoord = Texture.getTexcoordsForSprite(
+                                        texcoord = typedTexture.getTexcoordsForSprite(
                                             texture_position,
                                             size.texture_size,
                                             texture.texture_size
                                         );
 
-                                        let texture_position_stroke = [
+                                        let texture_position_stroke: LabelPointCoordinate = [
                                             texture_position[0] + size.texture_size[0],
                                             texture_position[1]
                                         ];
 
-                                        texcoord_stroke = Texture.getTexcoordsForSprite(
+                                        texcoord_stroke = typedTexture.getTexcoordsForSprite(
                                             texture_position_stroke,
                                             size.texture_size,
                                             texture.texture_size
@@ -465,7 +498,7 @@ export default class TextCanvas {
                                         cache.texcoord_stroke = texcoord_stroke;
 
                                         // NB: texture_id is the same between stroke and fill, so it's not duplicated here
-                                        text_info.texcoords_stroke.push(texcoord_stroke);
+                                        text_info.texcoords_stroke.push(texcoord_stroke!);
                                     }
 
                                     text_info.texcoords.curved.push({
@@ -478,20 +511,20 @@ export default class TextCanvas {
                     }
                     else {
                         let lines = this.textSize(style, text, text_settings).lines;
-                        const aligned_text_settings = { ...text_settings };
+                        const aligned_text_settings: TextSettingsResult & {align?: string} = { ...text_settings };
 
                         for (let align in text_info.align) {
                             // Only render for current texture
-                            if (text_info.align[align].texture_id !== cursor.texture_idx) {
+                            if (text_info.align![align].texture_id !== cursor.texture_idx) {
                                 continue;
                             }
 
                             aligned_text_settings.align = align;
-                            this.drawTextMultiLine(lines, text_info.align[align].texture_position, text_info.size, aligned_text_settings);
+                            this.drawTextMultiLine(lines, text_info.align![align].texture_position!, text_info.size!, aligned_text_settings);
 
-                            text_info.align[align].texcoords = Texture.getTexcoordsForSprite(
-                                text_info.align[align].texture_position,
-                                text_info.size.texture_size,
+                            text_info.align![align].texcoords = typedTexture.getTexcoordsForSprite(
+                                text_info.align![align].texture_position!,
+                                text_info.size!.texture_size,
                                 texture.texture_size
                             );
                         }
@@ -504,17 +537,17 @@ export default class TextCanvas {
                     }
                 }
                 cursor.text_idx = null;
-                cursor.style_idx++;
+                cursor.style_idx!++;
             }
 
             // Create GL texture (canvas element will be reused for next texture)
-            let tname = task.texture_prefix + cursor.texture_idx;
-            Texture.create(task.resource_context, tname, {
+            let tname = (task as TextRasterTask).texture_prefix + cursor.texture_idx;
+            typedTexture.create(task.resource_context, tname, {
                 element: this.canvas,
                 filtering: 'linear',
                 UNPACK_PREMULTIPLY_ALPHA_WEBGL: true
             });
-            Texture.retain(tname);
+            typedTexture.retain(tname);
             cursor.texture_names.push(tname);
 
             cursor.texture_idx++;
@@ -527,14 +560,14 @@ export default class TextCanvas {
     }
 
     // Free any textures that have been allocated part-way through label rasterization for a tile
-    cancelRasterizeTask (task) {
-        log('trace', `RasterizeTask: release textures [${task.cursor.texture_names.join(', ')}]`);
-        task.cursor.texture_names.forEach(t => Texture.release(t));
+    cancelRasterizeTask (task: TaskRecord<string[]>): undefined {
+        log('trace', `RasterizeTask: release textures [${(task as TextRasterTask).cursor.texture_names.join(', ')}]`);
+        (task as TextRasterTask).cursor.texture_names.forEach(t => typedTexture.release(t));
     }
 
     // Place text labels within an atlas of the given max size
-    setTextureTextPositions (texts, max_texture_size) {
-        let texture = {
+    setTextureTextPositions (texts: TextTable, max_texture_size: number): TextAtlas[] {
+        let texture: TextAtlasCursor = {
                 cx: 0,
                 cy: 0,
                 width: 0,
@@ -543,27 +576,27 @@ export default class TextCanvas {
                 texture_id: 0,
                 texcoord_cache: {}
             },
-            textures = [];
+            textures: TextAtlas[] = [];
 
         for (let style in texts) {
             let text_infos = texts[style];
 
             for (let text in text_infos) {
                 let text_info = text_infos[text];
-                let texture_position;
+                let texture_position: LabelPointCoordinate;
 
                 if (text_info.text_settings.can_articulate) {
                     text_info.textures = [];
                     texture.texcoord_cache[style] = texture.texcoord_cache[style] || {};
 
-                    for (let t = 0; t < text_info.type.length; t++) {
-                        let type = text_info.type[t];
+                    for (let t = 0; t < text_info.type!.length; t++) {
+                        let type = text_info.type![t];
 
                         if (type === 'straight') {
-                            let word = (text_info.isRTL) ? text.split().reverse().join() : text;
+                            let word = (text_info.isRTL) ? text.split(undefined!).reverse().join() : text;
 
                             if (!texture.texcoord_cache[style][word]) {
-                                let size = text_info.size.texture_size;
+                                let size = text_info.size!.texture_size;
                                 texture_position = this.placeText(size[0], size[1], style, texture, textures, max_texture_size);
                                 texture.texcoord_cache[style][word] = {
                                     texture_id: texture.texture_id,
@@ -571,16 +604,16 @@ export default class TextCanvas {
                                 };
                             }
 
-                            text_info.textures[t] = texture.texture_id;
+                            text_info.textures![t] = texture.texture_id;
                         }
                         else if (type === 'curved') {
-                            text_info.textures[t] = [];
+                            text_info.textures![t] = [];
 
-                            for (let w = 0; w < text_info.segment_sizes.length; w++) {
-                                let word = text_info.segments[w];
+                            for (let w = 0; w < text_info.segment_sizes!.length; w++) {
+                                let word = text_info.segments![w];
 
                                 if (!texture.texcoord_cache[style][word]) {
-                                    let size = text_info.segment_sizes[w].texture_size;
+                                    let size = text_info.segment_sizes![w].texture_size;
                                     let width = 2 * size[0]; // doubled to account for side-by-side rendering of fill and stroke
                                     texture_position = this.placeText(width, size[1], style, texture, textures, max_texture_size);
                                     texture.texcoord_cache[style][word] = {
@@ -589,7 +622,7 @@ export default class TextCanvas {
                                     };
                                 }
 
-                                text_info.textures[t].push(texture.texture_id);
+                                (text_info.textures![t] as number[]).push(texture.texture_id);
                             }
 
                         }
@@ -597,13 +630,13 @@ export default class TextCanvas {
                 }
                 else {
                     // rendered size is same for all alignments
-                    let size = text_info.size.texture_size;
+                    let size = text_info.size!.texture_size;
 
                     // but each alignment needs to be rendered separately
                     for (let align in text_info.align) {
                         texture_position = this.placeText (size[0], size[1], style, texture, textures, max_texture_size);
-                        text_info.align[align].texture_id = texture.texture_id;
-                        text_info.align[align].texture_position = texture_position;
+                        text_info.align![align].texture_id = texture.texture_id;
+                        text_info.align![align].texture_position = texture_position;
                     }
                 }
             }
@@ -622,8 +655,8 @@ export default class TextCanvas {
     }
 
     // Place text sprite in texture atlas, enlarging current texture, or starting new one if max texture size reached
-    placeText (text_width, text_height, style, texture, textures, max_texture_size) {
-        let texture_position;
+    placeText (text_width: number, text_height: number, style: string, texture: TextAtlasCursor, textures: TextAtlas[], max_texture_size: number): LabelPointCoordinate {
+        let texture_position: LabelPointCoordinate;
 
         // TODO: what if first label is wider than entire max texture?
 
@@ -671,7 +704,7 @@ export default class TextCanvas {
     }
 
     // Called before rasterization
-    applyTextTransform (text, transform) {
+    applyTextTransform (text: string, transform?: string): string {
         if (transform === 'capitalize') {
             return text.replace(/\w\S*/g, function (txt) {
                 return txt.charAt(0).toUpperCase() + txt.substr(1);
@@ -688,25 +721,26 @@ export default class TextCanvas {
 
     // Convert font CSS-style size ('12px', '14pt', '1.5em', etc.) to pixel size (adjusted for device pixel ratio)
     // Defaults units to pixels if not specified
-    static fontPixelSize (size) {
+    static fontPixelSize (size: unknown): number | undefined {
         if (size == null) {
             return;
         }
         size = (typeof size === 'string') ? size : String(size); // need a string for regex
 
-        let [, px_size, units] = size.match(TextCanvas.font_size_re) || [];
+        // The regexp captures a numeric string; preserve it until the legacy unit conversion/parser runs.
+        let [, px_size, units] = ((size as string).match(TextCanvas.font_size_re) || []) as [string?, (string | number)?, string?];
         units = units || 'px';
 
         if (units === 'em') {
-            px_size *= 16;
+            px_size = Number(px_size) * 16;
         } else if (units === 'pt') {
-            px_size /= 0.75;
+            px_size = Number(px_size) / 0.75;
         } else if (units === '%') {
-            px_size /= 6.25;
+            px_size = Number(px_size) / 6.25;
         }
 
-        px_size = StyleParser.parsePositiveNumber(px_size);
-        px_size *= Utils.device_pixel_ratio;
+        px_size = typedStyleParser.parsePositiveNumber(px_size);
+        px_size *= Utils.device_pixel_ratio!;
         return px_size;
     }
 

@@ -1,8 +1,10 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
+import type {LayerConfig, LayerDrawGroup, LayerDrawGroups, LayerMatchContext, LayerPropertyMatch, LayerCombinationCache, SceneLayer, SceneLayerDefinition} from './layer-types';
+import type {PropertyFunction} from './property-types';
 
 import StyleParser from './style_parser';
 import { compileFunctionStrings } from '../utils/functions';
@@ -14,14 +16,14 @@ import { buildFilter } from './filter';
 // N.B.: 'visible' is legacy compatibility for 'enabled'
 const reserved = ['filter', 'draw', 'visible', 'enabled', 'data', 'exclusive', 'priority'];
 
-let layer_cache = {};
+let layer_cache: LayerCombinationCache = {};
 export function layerCache () {
     return layer_cache;
 }
 
-function cacheKey (layers) {
+function cacheKey (layers: number[]): string | number {
     if (layers.length > 1) {
-        var k = layers[0];
+        var k = layers[0] as string | number;
         for (var i=1; i < layers.length; i++) {
             k += '/' + layers[i];
         }
@@ -32,13 +34,13 @@ function cacheKey (layers) {
 }
 
 // Merge matching layer trees into a final draw group
-export function mergeTrees(matchingTrees, group) {
-    let draws, treeDepth = 0;
+export function mergeTrees(matchingTrees: (Array<LayerDrawGroups | undefined> | false | undefined)[], group: string): LayerDrawGroup | null {
+    let draws: LayerDrawGroup[], treeDepth = 0;
 
     // Find deepest tree
     for (let t=0; t < matchingTrees.length; t++) {
-        if (matchingTrees[t].length > treeDepth) {
-            treeDepth = matchingTrees[t].length;
+        if ((matchingTrees[t] as Array<LayerDrawGroups | undefined>).length > treeDepth) {
+            treeDepth = (matchingTrees[t] as Array<LayerDrawGroups | undefined>).length;
         }
     }
 
@@ -48,7 +50,7 @@ export function mergeTrees(matchingTrees, group) {
     }
 
     // Merged draw group object
-    let draw = {
+    let draw: LayerDrawGroup = {
         visible: true, // visible by default
     };
 
@@ -57,8 +59,8 @@ export function mergeTrees(matchingTrees, group) {
         // Pull out the requested draw group, for each tree, at this depth (avoiding duplicates at the same level in tree)
         draws = [];
         matchingTrees.forEach(tree => {
-            if (tree[x] && tree[x][group] && draws.indexOf(tree[x][group]) === -1) {
-                draws.push(tree[x][group]);
+            if ((tree as LayerDrawGroups[])[x] && (tree as LayerDrawGroups[])[x][group]! && draws.indexOf((tree as LayerDrawGroups[])[x][group]!) === -1) {
+                draws.push((tree as LayerDrawGroups[])[x][group]!);
             }
         });
         if (draws.length === 0) {
@@ -79,15 +81,40 @@ export function mergeTrees(matchingTrees, group) {
 
 const blacklist = ['any', 'all', 'not', 'none'];
 
+/** Lazy feature-filter and inherited draw state shared by tree and leaf nodes. */
 class Layer {
+    declare static id: number;
+    declare id: number;
+    declare config_data: unknown;
+    declare parent: LayerTree | null | undefined;
+    declare name: string;
+    declare full_name: string;
+    declare draw: LayerDrawGroups | undefined;
+    declare filter: unknown;
+    declare filter_original: unknown;
+    declare exclusive: boolean;
+    declare priority: number;
+    declare styles: Record<string, unknown> | undefined;
+    declare is_built: boolean;
+    declare enabled: boolean;
+    declare visible?: boolean;
+    declare calculatedDraw: Array<LayerDrawGroups | undefined>;
+    declare zooms?: Record<number, boolean>;
+    declare feature_prop_matches?: LayerPropertyMatch[];
+    declare context_prop_matches?: LayerPropertyMatch[];
+    declare children_to_parse?: SceneLayerDefinition | null;
+    declare is_leaf?: boolean;
+    declare is_tree?: boolean;
+    /** Children exist only on tree nodes, not leaf objects. */
+    declare layers?: SceneLayer[];
 
-    constructor({ layer, name, parent, draw, visible, enabled, filter, exclusive, priority, styles }) {
+    constructor({ layer, name, parent, draw, visible, enabled, filter, exclusive, priority, styles }: LayerConfig) {
         this.id = Layer.id++;
         this.config_data = layer.data;
         this.parent = parent;
         this.name = name;
         this.full_name = this.parent ? (this.parent.full_name + ':' + this.name) : this.name;
-        this.draw = draw;
+        this.draw = draw as LayerDrawGroups | undefined;
         this.filter = filter;
         this.exclusive = (exclusive === true);
         this.priority = (priority != null ? priority : Number.MAX_SAFE_INTEGER);
@@ -121,7 +148,7 @@ class Layer {
     }
 
     buildDraw() {
-        this.draw = compileFunctionStrings(this.draw, StyleParser.wrapFunction);
+        this.draw = compileFunctionStrings(this.draw, StyleParser.wrapFunction) as LayerDrawGroups | undefined;
         this.calculatedDraw = calculateDraw(this);
     }
 
@@ -151,35 +178,35 @@ class Layer {
         catch(e) {
             // Invalid filter
             let msg = `Filter for layer ${this.full_name} is invalid, \`filter: ${JSON.stringify(this.filter)}\` `;
-            msg += `failed with error '${e.message}', stack trace: ${e.stack}`;
+            msg += `failed with error '${(e as Error).message}', stack trace: ${(e as Error).stack}`;
             log('warn', msg); // TODO: fire external event that clients to subscribe to
         }
     }
 
     // Zooms often cull large swaths of the layer tree, so they get special treatment and are checked first
     buildZooms() {
-        let zoom = this.filter && this.filter.$zoom; // has an explicit zoom filter
+        let zoom = this.filter && (this.filter as Record<string, unknown>).$zoom; // has an explicit zoom filter
         let ztype = typeof zoom;
         if (zoom != null) {
             this.zooms = {};
 
             if (ztype === 'number') {
-                this.zooms[zoom] = true;
+                this.zooms[zoom as number] = true;
             }
             else if (Array.isArray(zoom)) {
                 for (let z=0; z < zoom.length; z++) {
                     this.zooms[zoom[z]] = true;
                 }
             }
-            else if (ztype === 'object' && (zoom.min != null || zoom.max != null)) {
-                let zmin = zoom.min || 0;
-                let zmax = zoom.max || Geo.max_style_zoom;
+            else if (ztype === 'object' && ((zoom as {min?: number}).min != null || (zoom as {max?: number}).max != null)) {
+                let zmin = (zoom as {min?: number}).min || 0;
+                let zmax = (zoom as {max?: number}).max || Geo.max_style_zoom;
                 for (let z=zmin; z < zmax; z++) {
                     this.zooms[z] = true;
                 }
             }
 
-            delete this.filter.$zoom; // don't process zoom through usual generic filter logic
+            delete (this.filter as Record<string, unknown>).$zoom; // don't process zoom through usual generic filter logic
         }
     }
 
@@ -190,7 +217,7 @@ class Layer {
 
         Object.keys(this.filter).forEach(key => {
             if (blacklist.indexOf(key) === -1) {
-                let val = this.filter[key];
+                let val = (this.filter as Record<string, unknown>)[key];
                 let type = typeof val;
                 let array = Array.isArray(val);
 
@@ -201,20 +228,20 @@ class Layer {
                 if (key[0] === '$') {
                     // Context property
                     this.context_prop_matches = this.context_prop_matches || [];
-                    this.context_prop_matches.push([key.substring(1), array ? val : [val]]);
-                    delete this.filter[key];
+                    this.context_prop_matches.push([key.substring(1), array ? val as unknown[] : [val]]);
+                    delete (this.filter as Record<string, unknown>)[key];
                 }
                 else if (key.indexOf('.') === -1) { // exclude nested feature properties
                     // Single-level feature property
                     this.feature_prop_matches = this.feature_prop_matches || [];
-                    this.feature_prop_matches.push([key, array ? val : [val]]);
-                    delete this.filter[key];
+                    this.feature_prop_matches.push([key, array ? val as unknown[] : [val]]);
+                    delete (this.filter as Record<string, unknown>)[key];
                 }
             }
         });
     }
 
-    doPropMatches (context) {
+    doPropMatches (context: LayerMatchContext): boolean {
         if (this.feature_prop_matches) {
             for (let r=0; r < this.feature_prop_matches.length; r++) {
                 let match = this.feature_prop_matches[r];
@@ -238,7 +265,7 @@ class Layer {
         return true;
     }
 
-    doesMatch (context) {
+    doesMatch (context: LayerMatchContext): boolean {
         if (!this.enabled) {
             return false;
         }
@@ -261,12 +288,12 @@ class Layer {
         let match;
         if (this.filter instanceof Function){
             try {
-                match = this.filter(context);
+                match = (this.filter as PropertyFunction)(context);
             }
             catch (error) {
                 // Filter function error
                 let msg = `Filter for this ${this.full_name}: \`filter: ${this.filter_original}\` `;
-                msg += `failed with error '${error.message}', stack trace: ${error.stack}`;
+                msg += `failed with error '${(error as Error).message}', stack trace: ${(error as Error).stack}`;
                 log('error', msg, context.feature);
             }
         }
@@ -276,7 +303,9 @@ class Layer {
 
         if (match) {
             if (this.children_to_parse) {
-                parseLayerChildren(this, this.children_to_parse, this.styles);
+                // Only tree nodes schedule non-empty children. The lazy state is
+                // retained on the shared base class for legacy construction.
+                parseLayerChildren(this as unknown as LayerTree, this.children_to_parse, this.styles);
                 delete this.children_to_parse;
             }
 
@@ -290,27 +319,31 @@ class Layer {
 Layer.id = 0;
 
 
+/** Terminal scene node with no child traversal state. */
 export class LayerLeaf extends Layer {
-    constructor (config) {
+    constructor (config: LayerConfig) {
         super(config);
         this.is_leaf = true;
     }
 
 }
 
+/** Root/branch node with deferred children and cached matching draw combinations. */
 export class LayerTree extends Layer {
-    constructor (config) {
+    /** Traversable children, populated only after the parent matches. */
+    declare layers: SceneLayer[];
+    constructor (config: LayerConfig) {
         super(config);
         this.is_tree = true;
         this.layers = config.layers || [];
     }
 
-    addLayer (layer) {
+    addLayer (layer: SceneLayer): void {
         this.layers.push(layer);
     }
 
-    buildDrawGroups (context) {
-        let layers = [], layer_ids = [];
+    buildDrawGroups (context: LayerMatchContext): LayerDrawGroups | null | undefined {
+        let layers: SceneLayer[] = [], layer_ids: number[] = [];
         matchFeature(context, [this], layers, layer_ids);
 
         if (layers.length > 0) {
@@ -321,7 +354,7 @@ export class LayerTree extends Layer {
             if (layer_cache[cache_key] === undefined) {
                 // Find all the unique visible draw blocks for this layer tree
                 let draw_groups = layers.map(x => x && x.visible !== false && x.calculatedDraw);
-                let draw_keys = {};
+                let draw_keys: Record<string, boolean> = {};
 
                 for (let r=0; r < draw_groups.length; r++) {
                     let stack = draw_groups[r];
@@ -339,16 +372,16 @@ export class LayerTree extends Layer {
                 // Calculate each draw group
                 for (let draw_key in draw_keys) {
                     layer_cache[cache_key] = layer_cache[cache_key] || {};
-                    layer_cache[cache_key][draw_key] = mergeTrees(draw_groups, draw_key);
+                    layer_cache[cache_key]![draw_key] = mergeTrees(draw_groups, draw_key);
 
                     // Only save the ones that weren't null
-                    if (!layer_cache[cache_key][draw_key]) {
-                        delete layer_cache[cache_key][draw_key];
+                    if (!layer_cache[cache_key]![draw_key]) {
+                        delete layer_cache[cache_key]![draw_key];
                     }
                     else {
-                        layer_cache[cache_key][draw_key].key = cache_key + '/' + draw_key;
-                        layer_cache[cache_key][draw_key].layers = layers.map(x => x && x.full_name);
-                        layer_cache[cache_key][draw_key].group = draw_key;
+                        layer_cache[cache_key]![draw_key]!.key = cache_key + '/' + draw_key;
+                        layer_cache[cache_key]![draw_key]!.layers = layers.map(x => x && x.full_name);
+                        layer_cache[cache_key]![draw_key]!.group = draw_key;
                     }
                 }
 
@@ -365,7 +398,7 @@ export class LayerTree extends Layer {
 
 export const FilterOptions = {
     // Handle unit conversions on filter ranges
-    rangeTransform(val) {
+    rangeTransform(val: unknown): unknown {
         if (typeof val === 'string' && val.trim().slice(-3) === 'px2') {
             return `${parseFloat(val)} * context.meters_per_pixel_sq`;
         }
@@ -373,16 +406,16 @@ export const FilterOptions = {
     }
 };
 
-export function isReserved(key) {
+export function isReserved(key: string): boolean {
     return reserved.indexOf(key) > -1;
 }
 
-function isEmpty(obj) {
+function isEmpty(obj: object): boolean {
     return Object.keys(obj).length === 0;
 }
 
-export function groupProps(obj) {
-    let reserved = {}, children = {};
+export function groupProps(obj: SceneLayerDefinition): [SceneLayerDefinition, SceneLayerDefinition] {
+    let reserved: SceneLayerDefinition = {}, children: SceneLayerDefinition = {};
 
     for (let key in obj) {
         if (isReserved(key)) {
@@ -394,9 +427,9 @@ export function groupProps(obj) {
     return [reserved, children];
 }
 
-export function calculateDraw(layer) {
+export function calculateDraw(layer: Layer): Array<LayerDrawGroups | undefined> {
 
-    let draw  = [];
+    let draw: Array<LayerDrawGroups | undefined> = [];
 
     if (layer.parent) {
         let cs = layer.parent.calculatedDraw || [];
@@ -407,7 +440,7 @@ export function calculateDraw(layer) {
     return draw;
 }
 
-export function parseLayerNode(name, layer, parent, styles) {
+export function parseLayerNode(name: string, layer: SceneLayerDefinition | null | undefined, parent?: LayerTree | null, styles?: Record<string, unknown>): SceneLayer {
 
     layer = (layer == null) ? {} : layer;
 
@@ -422,7 +455,7 @@ export function parseLayerNode(name, layer, parent, styles) {
         Create = LayerTree;
     }
 
-    let r = new Create(Object.assign(properties, reserved));
+    let r = new Create(Object.assign(properties, reserved) as LayerConfig);
 
     // only process child layers if this layer is enabled
     if (r.enabled) {
@@ -435,18 +468,18 @@ export function parseLayerNode(name, layer, parent, styles) {
     return r;
 }
 
-function parseLayerChildren (parent, children, styles) {
+function parseLayerChildren (parent: LayerTree, children: SceneLayerDefinition, styles?: Record<string, unknown>): void {
     for (let key in children) {
         let child = children[key];
         if (typeof child === 'object' && !Array.isArray(child)) {
-            parseLayerNode(key, child, parent, styles);
+            parseLayerNode(key, child as SceneLayerDefinition | null, parent, styles);
         } else {
             // Invalid layer
             let msg = `Layer value must be an object: cannot create layer '${key}: ${JSON.stringify(child)}'`;
             msg += `, under parent layer '${parent.full_name}'.`;
 
             // If the parent is a style name, this may be an incorrectly nested layer
-            if (styles[parent.name]) {
+            if (styles![parent.name]) {
                 msg += ` The parent name '${parent.name}' is also the name of a style, did you mean to create a 'draw' group`;
                 if (parent.parent) {
                     msg += ` under '${parent.parent.name}'`;
@@ -459,7 +492,7 @@ function parseLayerChildren (parent, children, styles) {
 
     // Sort sub-layers so they are applied deterministically when multiple layers modify the same properties
     // Sort order is: exclusive layers first, then by explicit layer priority, then by layer name
-    parent.layers.sort((a, b) => {
+    parent.layers.sort(((a: SceneLayer, b: SceneLayer) => {
         // Exclusive layers come first
         // If an exclusive layer matches, no further sibling layers are matched
         if (a.exclusive < b.exclusive) return 1;
@@ -479,13 +512,13 @@ function parseLayerChildren (parent, children, styles) {
         // Sub-sort by layer name as last resort
         if (a.full_name < b.full_name) return direction;
         else if (a.full_name > b.full_name) return -direction;
-    });
+    }) as (a: SceneLayer, b: SceneLayer) => number);
 }
 
 
-export function parseLayers (layers, styles) {
+export function parseLayers (layers: Record<string, SceneLayerDefinition | null | undefined>, styles?: Record<string, unknown>): Record<string, SceneLayer> {
     layer_cache = {}; // clear layer cache
-    let layer_trees = {};
+    let layer_trees: Record<string, SceneLayer> = {};
 
     for (let key in layers) {
         let layer = layers[key];
@@ -497,9 +530,9 @@ export function parseLayers (layers, styles) {
     return layer_trees;
 }
 
-export function matchFeature(context, layers, collected_layers, collected_layers_ids) {
+export function matchFeature(context: LayerMatchContext, layers: SceneLayer[], collected_layers: SceneLayer[], collected_layers_ids: number[]): boolean | undefined {
     let matched = false;
-    let child_matched = false;
+    let child_matched: boolean | undefined = false;
 
     if (layers.length === 0) {
         return;
@@ -525,7 +558,7 @@ export function matchFeature(context, layers, collected_layers, collected_layers
 
                 child_matched = matchFeature(
                     context,
-                    current.layers,
+                    current.layers!,
                     collected_layers,
                     collected_layers_ids
                 );

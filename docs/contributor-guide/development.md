@@ -22,7 +22,7 @@ yarn lint          # Biome plus the renderer compatibility lint
 yarn lint:fix      # apply safe Biome fixes
 yarn test-fast     # lint and Node tests
 yarn test-browser  # Chromium-backed Vitest project
-yarn test-coverage # headless Vitest coverage run (renderer source)
+yarn test-coverage # Chromium coverage for renderer and layers, including WebXR
 yarn test          # lint, Node tests, worker bundle, and Vitest browser tests
 ```
 
@@ -117,9 +117,9 @@ with local fixtures rather than CDN or tile-service requests.
 Private shared development helpers live under `dev-modules/`. They are not
 published and should stay focused on test and build infrastructure.
 
-## Renderer tests and coverage
+## Module tests and coverage
 
-The renderer’s tests run through Vitest, using the `node`, `browser`, and
+Both modules' tests run through Vitest, using the `node`, `browser`, and
 `headless` projects supplied by `@vis.gl/dev-tools`. The historical renderer
 specifications are executed by the headless project with a compatibility setup
 so they can be migrated to native Vitest syntax incrementally without losing
@@ -131,19 +131,32 @@ helpers for the inherited suite. New tests should prefer Vitest’s `expect`,
 `vi.fn`, `vi.spyOn`, and `vi.stubGlobal`; the remaining helper usage can be
 removed incrementally without bringing back a second test runner.
 
-The coverage command scopes instrumentation to
-`modules/tangram-renderer/src/**/*.{js,ts}`. It includes the existing renderer
-unit and integration suite, including the legacy specifications under Vitest,
-and emits text, LCOV, and JSON summary reports in `coverage/`.
+The coverage command instruments authored JavaScript and TypeScript under both
+`modules/tangram-renderer/src` and `modules/tangram-layers/src`, including
+experimental WebXR. Tests importing layer package entries resolve to source so
+their execution is credited to authored files; generated package smoke tests
+remain separate. The inherited bridge/GPU specifications are collected exactly
+once by `legacy_layer.browser.spec.ts`. Text, LCOV, and JSON summaries are
+written to `coverage/`. `yarn coverage:scope` requires every authored file from
+both modules in the report, including zero-hit and type-only files.
 
 The pull-request workflow collects separate Node and Chromium coverage blobs,
-merges them, and enforces these global renderer thresholds before uploading the
-report as a workflow artifact:
+merges them, and enforces independent aggregate package gates before uploading
+the report to Coveralls and as a workflow artifact. The renderer gates remain:
 
 - 78% statements;
 - 69% branches;
 - 82% functions; and
 - 78% lines.
+
+The layer package has its own gates: 92% statements, 90% branches, 95% functions,
+and 94% lines. All gates live in `scripts/coverage-modules.mjs`. A gain in either
+module cannot mask a regression in the other. GitHub's coverage job summary
+contains separate package tables plus the combined total.
+
+Set `TANGRAM_COVERAGE_ENFORCE=1` only when merging the Node and Chromium blobs
+with `vitest --merge-reports=.vitest-reports --coverage`, as in CI. Individual
+runtime reports are incomplete and deliberately do not enforce merged gates.
 
 Coverage is intentionally scoped to source rather than generated bundles,
 fixtures, or dependencies. The report shows untested files and keeps the
@@ -205,6 +218,27 @@ coordinates and heights. No provider snapshot, font download, or tile service
 is required. This is schema/rendering conformance, not a claim of complete visual
 parity with every OpenFreeMap or CARTO style.
 
+## Style evaluation contracts
+
+Property parsing, scene-layer matching, filter compilation, and style/shader
+mixing are checked by TypeScript without blanket suppressions. Internal contracts
+live in `styles/property-types.ts`, `styles/layer-types.ts`, and
+`styles/style-mixing-types.ts`; they are not new package exports or a replacement
+for the public scene schema.
+
+Authored values and dynamic expression results enter as `unknown`. Property
+parsers normalize them before evaluation, while layers retain separate raw,
+compiled, and cached states. Local assertions describe existing normalization
+and prototype-construction boundaries; they do not add runtime coercion or
+validation. The GPU style implementations and worker broker are separate
+migration boundaries, not made checked by these contracts.
+
+The typed regression fixtures cover cache identity, sprite-relative sizing,
+zoom/unit conversion, lazy matching, exclusivity, diamond mixins, uniform
+ownership, and mesh blend passes. Preserve legacy evaluation order and fallback
+behavior when extending these contracts. In particular, avoid emitting class
+fields that shadow inherited members or eagerly building lazy layer children.
+
 ## Website and examples
 
 Run `yarn website:start` for the Docusaurus site or run `yarn build:modules`
@@ -217,3 +251,35 @@ The public documentation and examples live at
 website development and CI build validation, but does not deploy a GitHub Pages
 site. Publication is managed by the canonical host, outside this repository;
 merging a PR here does not trigger a repository Pages deployment.
+
+## Collision batching
+
+The label-collision batcher and grid use a shared structural label/bounds contract
+for worker and main-pass placement. Register each style once on a started tile
+and submit one batch per style; the completion barrier resolves after all styles
+submit, or immediately when the tile is aborted. Collision results retain the
+submitted container identities and payload types. Numeric priority keys are
+converted explicitly when sorting, preserving the legacy numeric ordering.
+
+## Labels and text typing
+
+The labels/text subsystem is checked without blanket TypeScript suppressions.
+Its internal contracts separate normalized placement layouts, serialized worker
+labels, main-pass mesh ranges, text measurements, atlas positions, and cooperative
+task payloads. These are internal types, not new package entry points.
+
+Text records are populated in stages: source parsing creates unique strings and
+settings, measurement adds sizes and segment data, packing assigns atlas
+positions, and rasterization supplies UVs and retained texture names. Cancellation
+can return no result at either worker handoff. Mesh visibility updates retain
+their byte offsets and upload only meshes whose visibility changed.
+
+New class field annotations use `declare` so they do not create properties or
+shadow inherited methods. Prototype/mixin construction and calls into the
+still-unchecked point style, property parser, worker broker, and texture registry
+remain localized compatibility boundaries. Those implementations are unchanged;
+checking labels/text does not claim those other subsystems are finished.
+
+The typing migration preserves legacy behavior, including omitted repeat scales
+in worker snapshots, repeated curved-label bounds, and ignored falsy label-link
+IDs. Changes to those behaviors belong in separately tested fixes.

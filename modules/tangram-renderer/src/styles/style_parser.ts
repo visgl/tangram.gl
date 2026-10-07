@@ -3,7 +3,7 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
+import type {PropertyCache, PropertyContext, PropertyFunction, PropertyStop, PropertyTransform, PointSizeCache, PointSizeFlags, PointSizeImage, StyleParserRuntime, UnitValue} from './property-types';
 
 import Utils from '../utils/utils';
 import {compileFunctionString} from '../utils/functions';
@@ -12,29 +12,18 @@ import log from '../utils/log';
 
 import parseCSSColor from 'csscolorparser';
 
-/** Scalar/array unit inputs consumed by checked lighting code. */
-type UnitScalar = number | string;
-/** Unit conversion overloads preserve scalar and array result shapes. */
-interface UnitConverter {
-    (value: UnitScalar, context: {zoom: number; meters_per_pixel?: number}): number;
-    (value: readonly UnitScalar[], context: {zoom: number; meters_per_pixel?: number}): number[];
-}
-/** Color and distance boundary; the dynamic style/cache implementation remains a separate tranche. */
-interface StyleParserLightingBoundary {
-    /** Parse a static color contribution into numeric RGBA components. */
-    parseColor(value: string | readonly number[]): number[];
-    /** Resolve authored meter/pixel values at the current style zoom. */
-    convertUnits: UnitConverter;
-}
+// This macro is stringified and evaluated inside wrapFunction's feature scope.
+declare const feature: {id: string};
 
-const StyleParser = {} as StyleParserLightingBoundary;
+// Members are installed below before this object is exposed to callers.
+const StyleParser = {} as StyleParserRuntime;
 export default StyleParser;
 
 // Helpers for string converstion / NaN handling
-const clampPositive = v => Math.max(v, 0);
-const noNaN = v => isNaN(v) ? 0 : v;
-const parseNumber = v => Array.isArray(v) ? v.map(parseFloat).map(noNaN) : noNaN(parseFloat(v));
-const parsePositiveNumber = v => Array.isArray(v) ? v.map(parseNumber).map(clampPositive) : clampPositive(parseNumber(v));
+const clampPositive = (v: unknown) => Math.max(v as number, 0);
+const noNaN = (v: number) => isNaN(v) ? 0 : v;
+const parseNumber = ((v: unknown) => Array.isArray(v) ? v.map(parseFloat).map(noNaN) : noNaN(parseFloat(v as string))) as StyleParserRuntime['parseNumber'];
+const parsePositiveNumber = ((v: unknown) => Array.isArray(v) ? v.map(parseNumber).map(clampPositive) : clampPositive(parseNumber(v) as number)) as StyleParserRuntime['parsePositiveNumber'];
 
 Object.assign(StyleParser, {clampPositive, noNaN, parseNumber, parsePositiveNumber});
 
@@ -69,7 +58,7 @@ StyleParser.wrapFunction = function (func) {
 
 // Style parsing
 
-StyleParser.zeroPair = Object.freeze([0, 0]); // single allocation for zero values that won't be modified
+StyleParser.zeroPair = Object.freeze([0, 0] as [number, number]); // single allocation for zero values that won't be modified
 
 // Style defaults
 StyleParser.defaults = {
@@ -140,11 +129,11 @@ StyleParser.createPropertyCache = function (obj, transform = null, dynamic_trans
         return;
     }
 
-    if (obj.value) {
-        return { value: obj.value, zoom: (obj.zoom ? {} : null), type: obj.type }; // clone existing cache object
+    if ((obj as PropertyCache).value) {
+        return { value: (obj as PropertyCache).value, zoom: ((obj as PropertyCache).zoom ? {} : null), type: (obj as PropertyCache).type }; // clone existing cache object
     }
 
-    let c = { value: obj, type: CACHE_TYPE.STATIC };
+    let c: PropertyCache = { value: obj, type: CACHE_TYPE.STATIC };
 
     // does value contain zoom stops to be interpolated?
     if (Array.isArray(c.value) && Array.isArray(c.value[0])) {
@@ -159,7 +148,7 @@ StyleParser.createPropertyCache = function (obj, transform = null, dynamic_trans
     // apply optional transform function - usually a parsing function
     if (typeof transform === 'function') {
         if (c.zoom) { // apply to each zoom stop value
-            c.value = c.value.map((v, i) => [v[0], transform(v[1], i)]);
+            c.value = (c.value as PropertyStop[]).map((v, i) => [v[0], transform(v[1], i)]);
         }
         else if (typeof c.value !== 'function') { // don't transform functions
             c.value = transform(c.value, 0); // single value, 0 = the first and only item in the array
@@ -186,16 +175,16 @@ StyleParser.createColorPropertyCache = function (obj) {
 
 // Parse point sizes, which include optional %-based or aspect-ratio-constrained scaling from sprite size
 // Returns a cache object if successful, otherwise throws error message
-const isPercent = v => typeof v === 'string' && v[v.length-1] === '%'; // size computed by %
-const isRatio = v => v === 'auto'; // size derived from aspect ratio of one dimension
-const isComputed = v => isPercent(v) || isRatio(v);
+const isPercent = (v: unknown) => typeof v === 'string' && v[v.length-1] === '%'; // size computed by %
+const isRatio = (v: unknown) => v === 'auto'; // size derived from aspect ratio of one dimension
+const isComputed = (v: unknown) => isPercent(v) || isRatio(v);
 const dualRatioError = '\'size\' can specify either width or height as derived from aspect ratio, but not both';
 StyleParser.createPointSizePropertyCache = function (obj, texture) {
     // obj is the value to be parsed eg "64px" "100%" "auto"
     // mimics the structure of the size value (at each zoom stop if applicable),
     // stores flags indicating if each element is a %-based size or not, or derived from aspect
-    let has_pct = null;
-    let has_ratio = null;
+    let has_pct: PointSizeFlags | null = null;
+    let has_ratio: PointSizeFlags | null = null;
     if (isPercent(obj)) { // 1D size
         has_pct = [true];
     }
@@ -214,7 +203,7 @@ StyleParser.createPointSizePropertyCache = function (obj, texture) {
         else if (obj.some(isComputed)) { // 2D size
             has_pct = [obj.map(isPercent)];
             has_ratio = [obj.map(isRatio)];
-            if (has_ratio[0].every(c => c)) {
+            if ((has_ratio[0] as boolean[]).every(c => c)) {
                 throw dualRatioError; // invalid case where both dims are ratios
             }
         }
@@ -232,16 +221,16 @@ StyleParser.createPointSizePropertyCache = function (obj, texture) {
 
         // per-sprite based evaluation
         obj = { value: obj };
-        obj.has_pct = has_pct;
-        obj.has_ratio = has_ratio;
-        obj.sprites = {}; // cache by sprite
+        (obj as PointSizeCache).has_pct = has_pct;
+        (obj as PointSizeCache).has_ratio = has_ratio;
+        (obj as PointSizeCache).sprites = {}; // cache by sprite
     }
     else {
         // no % or aspect ratio sizing, one cache for texture or all sprites
         obj = StyleParser.createPropertyCache(obj, parsePositiveNumber);
     }
 
-    return obj;
+    return obj as PointSizeCache | undefined;
 };
 
 StyleParser.evalCachedPointSizeProperty = function (val, sprite_info, texture_info, context) {
@@ -256,41 +245,41 @@ StyleParser.evalCachedPointSizeProperty = function (val, sprite_info, texture_in
 
     if (sprite_info) {
         // per-sprite based evaluation, cache sizes per sprite
-        if (!val.sprites[sprite_info.sprite]) {
-            val.sprites[sprite_info.sprite] = createPointSizeCacheEntry(val, sprite_info);
+        if (!val.sprites![sprite_info.sprite!]) {
+            val.sprites![sprite_info.sprite!] = createPointSizeCacheEntry(val, sprite_info);
         }
-        return StyleParser.evalCachedProperty(val.sprites[sprite_info.sprite], context);
+        return StyleParser.evalCachedProperty(val.sprites![sprite_info.sprite!], context);
     }
     else {
         // texture-based evaluation
         // apply percentage or ratio sizing to a texture
-        val.texture = val.texture || createPointSizeCacheEntry(val, texture_info);
+        val.texture = val.texture || createPointSizeCacheEntry(val, texture_info!);
         return StyleParser.evalCachedProperty(val.texture, context);
     }
 };
 
-function createPointSizeCacheEntry (val, image_info) {
+function createPointSizeCacheEntry (val: PointSizeCache, image_info: PointSizeImage): PropertyCache | undefined {
     // the cache property transform function needs access to the image in `val`
     // so it's accessed via a closure here
     return StyleParser.createPropertyCache(val.value, (v, i) => {
         if (Array.isArray(v)) { // 2D size
             // either width or height or both could be a %
             v = v.
-                map((c, j) => val.has_ratio[i][j] ? c : parsePositiveNumber(c)). // convert non-ratio values to px
-                map((c, j) => val.has_pct[i][j] ? image_info.css_size[j] * c / 100 : c); // apply % scaling as needed
+                map((c, j) => (val.has_ratio![i] as boolean[])[j] ? c : parsePositiveNumber(c)). // convert non-ratio values to px
+                map((c, j) => (val.has_pct![i] as boolean[])[j] ? image_info.css_size[j] * (c as number) / 100 : c); // apply % scaling as needed
 
             // either width or height could be a ratio
-            if (val.has_ratio[i][0]) {
-                v[0] = v[1] * image_info.aspect;
+            if ((val.has_ratio![i] as boolean[])[0]) {
+                (v as number[])[0] = (v as number[])[1] * image_info.aspect;
             }
-            else if (val.has_ratio[i][1]) {
-                v[1] = v[0] / image_info.aspect;
+            else if ((val.has_ratio![i] as boolean[])[1]) {
+                (v as number[])[1] = (v as number[])[0] / image_info.aspect;
             }
         }
         else { // 1D size
             v = parsePositiveNumber(v);
-            if (val.has_pct[i]) {
-                v = image_info.css_size.map(c => c * v / 100); // set size as % of image
+            if (val.has_pct![i]) {
+                v = image_info.css_size.map(c => c * (v as number) / 100); // set size as % of image
             }
             else {
                 v = [v, v]; // expand 1D size to 2D
@@ -312,8 +301,8 @@ StyleParser.evalCachedProperty = function(val, context) {
     else if (val.static) { // single static value
         return val.static;
     }
-    else if (val.zoom && val.zoom[context.zoom]) { // interpolated, cached
-        return val.zoom[context.zoom];
+    else if (val.zoom && val.zoom[context.zoom!]) { // interpolated, cached
+        return val.zoom[context.zoom!];
     }
     else { // not yet evaulated for cache
         // Dynamic function-based
@@ -322,11 +311,11 @@ StyleParser.evalCachedProperty = function(val, context) {
                 // apply an optional post-eval transform function
                 // e.g. apply device pixel ratio to font sizes, unit conversions, etc.
                 val.dynamic = function(context) {
-                    return val.dynamic_transform(val.value(context));
+                    return val.dynamic_transform!((val.value as PropertyFunction)(context));
                 };
             }
             else {
-                val.dynamic = val.value;
+                val.dynamic = val.value as PropertyFunction;
             }
             return tryEval(val.dynamic, context);
         }
@@ -334,8 +323,8 @@ StyleParser.evalCachedProperty = function(val, context) {
         else if (Array.isArray(val.value) && Array.isArray(val.value[0])) {
             // Calculate value for current zoom
             val.zoom = val.zoom || {};
-            val.zoom[context.zoom] = Utils.interpolate(context.zoom, val.value);
-            return val.zoom[context.zoom];
+            val.zoom[context.zoom!] = Utils.interpolate(context.zoom!, val.value);
+            return val.zoom[context.zoom!];
         }
         // Single static value
         else {
@@ -347,17 +336,17 @@ StyleParser.evalCachedProperty = function(val, context) {
 
 StyleParser.convertUnits = function(val, context) {
     // pre-parsed units
-    if (val.value != null) {
-        if (val.units === 'px') { // convert from pixels
-            return val.value * Geo.metersPerPixel(context.zoom);
+    if ((val as UnitValue).value != null) {
+        if ((val as UnitValue).units === 'px') { // convert from pixels
+            return ((val as UnitValue).value as number) * Geo.metersPerPixel(context.zoom!);
         }
-        return val.value;
+        return (val as UnitValue).value;
     }
     // un-parsed unit string
     else if (typeof val === 'string') {
         if (val.trim().slice(-2) === 'px') {
             val = parseNumber(val);
-            val *= Geo.metersPerPixel(context.zoom); // convert from pixels
+            (val as number) *= Geo.metersPerPixel(context.zoom!); // convert from pixels
         }
         else {
             val = parseNumber(val);
@@ -379,7 +368,7 @@ StyleParser.convertUnits = function(val, context) {
 
 // Pre-parse units from string values
 StyleParser.parseUnits = function (value) {
-    var obj = { value: parseNumber(value) };
+    var obj: UnitValue = { value: parseNumber(value) };
     if (obj.value !== 0 && typeof value === 'string' && value.trim().slice(-2) === 'px') {
         obj.units = 'px';
     }
@@ -396,23 +385,23 @@ StyleParser.evalCachedDistanceProperty = function(val, context) {
     else if (val.dynamic) {
         return tryEval(val.dynamic, context);
     }
-    else if (val.zoom && val.zoom[context.zoom]) {
-        return val.zoom[context.zoom];
+    else if (val.zoom && val.zoom[context.zoom!]) {
+        return val.zoom[context.zoom!];
     }
     else {
         // Dynamic function-based
         if (typeof val.value === 'function') {
-            val.dynamic = val.value;
+            val.dynamic = val.value as PropertyFunction;
             return tryEval(val.dynamic, context);
         }
         // Array of zoom-interpolated stops, e.g. [zoom, value] pairs
         else if (val.zoom) {
             // Calculate value for current zoom
             // Do final unit conversion as late as possible, when interpolation values have been determined
-            val.zoom[context.zoom] = Utils.interpolate(context.zoom, val.value,
-                v => StyleParser.convertUnits(v, context));
+            val.zoom[context.zoom!] = Utils.interpolate(context.zoom!, val.value as PropertyStop[],
+                v => StyleParser.convertUnits(v, context) as number);
 
-            return val.zoom[context.zoom];
+            return val.zoom[context.zoom!];
         }
         else {
             return StyleParser.convertUnits(val.value, context);
@@ -429,7 +418,7 @@ StyleParser.colorForString = function(string) {
     }
 
     // Calculate and cache
-    let color = parseCSSColor.parseCSSColor(string);
+    let color: number[] | undefined = parseCSSColor.parseCSSColor(string);
     if (color && color.length === 4) {
         color[0] /= 255;
         color[1] /= 255;
@@ -450,7 +439,7 @@ StyleParser.evalCachedColorProperty = function(val, context = {}) {
         return;
     }
     else if (val.dynamic) {
-        let v = tryEval(val.dynamic, context);
+        let v = tryEval(val.dynamic, context) as number[] | string | undefined;
 
         if (typeof v === 'string') {
             v = StyleParser.colorForString(v);
@@ -462,16 +451,16 @@ StyleParser.evalCachedColorProperty = function(val, context = {}) {
         return v;
     }
     else if (val.static) {
-        return val.static;
+        return val.static as number[];
     }
-    else if (val.zoom && val.zoom[context.zoom]) {
-        return val.zoom[context.zoom];
+    else if (val.zoom && val.zoom[context.zoom!]) {
+        return val.zoom[context.zoom!] as number[];
     }
     else {
         // Dynamic function-based color
         if (typeof val.value === 'function') {
-            val.dynamic = val.value;
-            let v = tryEval(val.dynamic, context);
+            val.dynamic = val.value as PropertyFunction;
+            let v = tryEval(val.dynamic, context) as number[] | string | undefined;
 
             if (typeof v === 'string') {
                 v = StyleParser.colorForString(v);
@@ -485,14 +474,14 @@ StyleParser.evalCachedColorProperty = function(val, context = {}) {
         // Single string color
         else if (typeof val.value === 'string') {
             val.static = StyleParser.colorForString(val.value);
-            return val.static;
+            return val.static as number[];
         }
         // Array of zoom-interpolated stops, e.g. [zoom, color] pairs
         else if (val.zoom) {
             // Parse any string colors inside stops, the first time we encounter this property
             if (!val.zoom_preprocessed) {
-                for (let i=0; i < val.value.length; i++) {
-                    let v = val.value[i];
+                for (let i=0; i < (val.value as PropertyStop[]).length; i++) {
+                    let v = (val.value as PropertyStop[])[i];
                     if (v && typeof v[1] === 'string') {
                         v[1] = StyleParser.colorForString(v[1]);
                     }
@@ -501,17 +490,17 @@ StyleParser.evalCachedColorProperty = function(val, context = {}) {
             }
 
             // Calculate color for current zoom
-            val.zoom[context.zoom] = Utils.interpolate(context.zoom, val.value);
-            val.zoom[context.zoom][3] = val.zoom[context.zoom][3] || 1; // default alpha
-            return val.zoom[context.zoom];
+            val.zoom[context.zoom!] = Utils.interpolate(context.zoom!, val.value as PropertyStop[]);
+            (val.zoom[context.zoom!] as number[])[3] = (val.zoom[context.zoom!] as number[])[3] || 1; // default alpha
+            return val.zoom[context.zoom!] as number[];
         }
         // Single array color
         else {
-            val.static = val.value.map(x => x); // copy to avoid modifying
-            if (val.static && val.static[3] == null) {
-                val.static[3] = 1; // default alpha
+            val.static = (val.value as number[]).map(x => x); // copy to avoid modifying
+            if (val.static && (val.static as number[])[3] == null) {
+                (val.static as number[])[3] = 1; // default alpha
             }
-            return val.static;
+            return val.static as number[];
         }
     }
 };
@@ -530,7 +519,7 @@ StyleParser.evalCachedColorPropertyWithAlpha = function (val, alpha_prop, contex
 
 StyleParser.parseColor = function(val, context = {}) {
     if (typeof val === 'function') {
-        val = tryEval(val, context);
+        val = tryEval(val as PropertyFunction, context);
     }
 
     // Parse CSS-style colors
@@ -556,26 +545,26 @@ StyleParser.parseColor = function(val, context = {}) {
     if (Array.isArray(val)) {
         val = val.map(x => x); // copy to avoid modifying
         // alpha
-        if (val[3] == null) {
-            val[3] = 1;
+        if ((val as number[])[3] == null) {
+            (val as number[])[3] = 1;
         }
     }
     else {
         val = [0, 0, 0, 1];
     }
 
-    return val;
+    return val as number[];
 };
 
 StyleParser.calculateOrder = function(order, context) {
     // Computed order
     if (typeof order === 'function') {
-        order = tryEval(order, context);
+        order = tryEval(order as PropertyFunction, context);
     }
     else if (typeof order === 'string') {
         // Order tied to feature property
-        if (context.feature.properties[order]) {
-            order = context.feature.properties[order];
+        if (context.feature!.properties[order]) {
+            order = context.feature!.properties[order];
         }
         // Explicit order value
         else {
@@ -589,19 +578,19 @@ StyleParser.calculateOrder = function(order, context) {
 // Evaluate a function-based property, or pass-through static value
 StyleParser.evalProperty = function(prop, context) {
     if (typeof prop === 'function') {
-        return tryEval(prop, context);
+        return tryEval(prop as PropertyFunction, context);
     }
     return prop;
 };
 
 // eval property function with try/catch
-function tryEval (func, context) {
+function tryEval (func: PropertyFunction, context: PropertyContext): unknown {
     try {
         return func(context);
     } catch(e) {
         log('warn',
-            `Property function in layer '${context.layers[context.layers.length-1]}' failed with\n`,
-            `error ${e.stack}\n`,
+            `Property function in layer '${context.layers![context.layers!.length-1]}' failed with\n`,
+            `error ${(e as Error).stack}\n`,
             `function '${func.source}'\n`,
             context.feature, context);
     }
