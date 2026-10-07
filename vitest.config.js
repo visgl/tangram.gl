@@ -3,8 +3,9 @@
 // Copyright (c) vis.gl contributors
 
 import {getVitestConfig} from '@vis.gl/dev-tools';
+import {fileURLToPath} from 'node:url';
+import {COVERAGE_MODULES} from './scripts/coverage-modules.mjs';
 
-const RENDERER_SOURCE_GLOB = 'modules/tangram-renderer/src/**/*.{js,ts}';
 const GENERATED_OR_EXTERNAL_COVERAGE_PATHS = [
   '**/build/**',
   '**/dist/**',
@@ -15,6 +16,15 @@ const GENERATED_OR_EXTERNAL_COVERAGE_PATHS = [
 
 export default getVitestConfig({
   overrides: {
+    resolve: {
+      // Unit tests exercise authored source; artifact smoke tests separately verify dist.
+      alias: [
+        {find: /^@vis\.gl\/tangram-layers\/experimental\/webxr$/,
+          replacement: fileURLToPath(new URL('./modules/tangram-layers/src/experimental/webxr/index.ts', import.meta.url))},
+        {find: /^@vis\.gl\/tangram-layers$/,
+          replacement: fileURLToPath(new URL('./modules/tangram-layers/src/index.ts', import.meta.url))}
+      ]
+    },
     optimizeDeps: {include: [
       'sinon', '@luma.gl/experimental',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
@@ -49,11 +59,14 @@ export default getVitestConfig({
   coverage: {
     provider: 'v8',
     reporter: ['text', 'lcov', 'json-summary'],
-    // Keep the denominator to authored renderer source. Package outputs and
-    // vendored copies are tracked in this repository for distribution, but are
-    // not independently executable source and must never enter coverage.
-    include: [RENDERER_SOURCE_GLOB],
-    exclude: GENERATED_OR_EXTERNAL_COVERAGE_PATHS
+    // Both authored modules belong in the report, including experimental WebXR.
+    // Generated packages, declarations, and vendored code are not independent source.
+    include: COVERAGE_MODULES.map(module => module.sourceGlob),
+    exclude: GENERATED_OR_EXTERNAL_COVERAGE_PATHS,
+    // Individual runtime blobs are incomplete. Enforce gates only on their merged report.
+    thresholds: process.env.TANGRAM_COVERAGE_ENFORCE === '1'
+      ? Object.fromEntries(COVERAGE_MODULES.map(module => [module.sourceGlob, module.thresholds]))
+      : undefined
   },
   projects: {
     node: {

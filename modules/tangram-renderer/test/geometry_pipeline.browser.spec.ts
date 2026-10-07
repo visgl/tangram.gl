@@ -66,6 +66,7 @@ describe('checked geometry pipeline', () => {
     const layout = style.vertexLayoutForMeshVariant(mesh.variant);
     const attributes = layout.getBufferLayout().attributes;
     expect(attributes.some(attribute => attribute.attribute === 'a_offset')).toBe(shaderLanguage === 'wgsl');
+    expect(layout.index.a_offset !== undefined).toBe(shaderLanguage === 'wgsl');
     expect(attributes.some(attribute => attribute.attribute === 'a_texcoord')).toBe(shaderLanguage === 'wgsl');
     if (shaderLanguage === 'wgsl') {
       const view = new DataView(packed.vertex_buffer.buffer, packed.vertex_buffer.byteOffset);
@@ -86,6 +87,15 @@ describe('checked geometry pipeline', () => {
     expect(feature.width_scale).toBeCloseTo(-0.6);
     expect(feature.offset).toBe(16);
     expect(feature.offset_scale).toBeCloseTo(-0.75);
+    style.startData(context.tile);
+    expect(style.buildLines([[[100, -100], [200, -100]]], feature, context)).toBe(2);
+    const mesh = style.getTileMesh(context.tile, style.meshVariantTypeForDraw(feature));
+    const layout = mesh.vertex_data.vertex_layout;
+    expect(layout.index.a_offset).toEqual(expect.any(Number));
+    const packed = mesh.vertex_data.end();
+    const view = new DataView(packed.vertex_buffer.buffer, packed.vertex_buffer.byteOffset);
+    const offset = [view.getInt16(layout.offset.a_offset, true), view.getInt16(layout.offset.a_offset + 2, true)];
+    expect(offset.some(component => component !== 0)).toBe(true);
   });
 
   test('reuses outline caches, limits order and copies interpolated offsets', () => {

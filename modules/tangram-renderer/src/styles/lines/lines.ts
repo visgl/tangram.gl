@@ -657,7 +657,7 @@ Object.assign(Lines, {
             style,
             vertex_data,
             vertex_template,
-            // Every line layout includes extrude/offset component indices, even when static.
+            // Extrusion is packed; a constant zero offset has no component index.
             vertex_layout_index as unknown as PolylineVertexIndices,
             (options && options.closed_polygon), // closed_polygon
             (!style.tile_edges && options && options.remove_tile_edges), // remove_tile_edges

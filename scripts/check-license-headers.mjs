@@ -169,6 +169,8 @@ const VISGL_MODIFIED_TANGRAM_FILES = new Set([
   'modules/tangram-renderer/src/gl/texture.ts',
   'modules/tangram-renderer/src/gl/vertex_data.ts',
   'modules/tangram-renderer/src/gl/vertex_layout.ts',
+  'modules/tangram-renderer/src/utils/worker_broker.ts',
+  'modules/tangram-renderer/src/selection/selection.ts',
   'modules/tangram-renderer/src/styles/layer.ts',
   'modules/tangram-renderer/src/styles/style_manager.ts',
   'modules/tangram-renderer/src/styles/style_parser.ts',

@@ -28,7 +28,7 @@ export interface PolylineStyle {
 /** Attribute component indices; portable untextured lines explicitly disable UV writes. */
 export interface PolylineVertexIndices {
     a_extrude: number;
-    a_offset: number;
+    a_offset?: number;
     a_texcoord?: number | null;
 }
 /** Per-build mutable state; deferred segments retain the same geometry sink. */
@@ -43,7 +43,7 @@ export interface PolylineBuildContext {
     vertex_template: number[];
     half_width: number;
     extrude_index: number;
-    offset_index: number;
+    offset_index: number | undefined;
     v_scale: number | undefined;
     texcoord_index: number | null | undefined;
     texcoord_width: number;

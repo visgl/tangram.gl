@@ -8,7 +8,7 @@ import {readDevicePixels} from '../gpu/pixel_readback';
 
 /** Read a selection rectangle with transparent padding where it crosses texture edges. */
 export async function readSelectionPixels(device: Device, texture: Texture,
-    point: {x: number; y: number}, radius?: {x: number; y: number}): Promise<{pixels: Uint8Array; width: number; height: number}> {
+    point: {x: number; y: number}, radius?: {x: number; y: number} | null): Promise<{pixels: Uint8Array; width: number; height: number}> {
     if (![point.x, point.y, radius?.x ?? 0, radius?.y ?? 0].every(Number.isFinite) ||
         (radius && (radius.x < 0 || radius.y < 0))) {
         throw new Error('Selection point and radius must be finite, with a non-negative radius');

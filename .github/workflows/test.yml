@@ -118,6 +118,7 @@ jobs:
         run: yarn test-headless
 
   test-coverage:
+    # Preserve the existing check name for branch-protection compatibility.
     name: Renderer coverage
     permissions:
       contents: read
@@ -144,22 +145,20 @@ jobs:
           yarn test-node --coverage --reporter=blob --outputFile.blob=.vitest-reports/node.json
       - name: Collect browser coverage blob
         run: yarn test-coverage --reporter=blob --outputFile.blob=.vitest-reports/headless.json
-      - name: Merge coverage and enforce renderer thresholds
+      - name: Merge coverage and enforce independent module thresholds
+        env:
+          TANGRAM_COVERAGE_ENFORCE: '1'
         run: >-
           yarn vitest --config vitest.config.js
           --merge-reports=.vitest-reports
           --coverage
           --coverage.reportsDirectory=coverage
-          --coverage.thresholds.statements=78
-          --coverage.thresholds.branches=69
-          --coverage.thresholds.functions=82
-          --coverage.thresholds.lines=78
       - name: Validate coverage scope
         run: yarn coverage:scope
       - name: Publish coverage to job summary
         if: always()
         run: node scripts/write-coverage-summary.mjs
-      - name: Publish renderer coverage to Coveralls
+      - name: Publish module coverage to Coveralls
         if: success()
         uses: coverallsapp/github-action@648a8eb78e6d50909eff900e4ec85cab4524a45b # v2.3.6
         with:
@@ -167,11 +166,11 @@ jobs:
           file: coverage/lcov.info
           format: lcov
           fail-on-error: false
-      - name: Upload renderer coverage
+      - name: Upload module coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: renderer-coverage
+          name: module-coverage
           path: coverage/
           if-no-files-found: error
 

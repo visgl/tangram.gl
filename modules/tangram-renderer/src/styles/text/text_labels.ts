@@ -35,9 +35,7 @@ export interface TextLabelMethods {
     computeTextLayout(this: TextLabelRuntime, target: Partial<LabelLayout>, feature: TextFeature, draw: TextLabelDraw, context: TextContext, tile: TextTile, text: TextValue, settings: TextSettingsResult, repeatGroup?: string, orientation?: string): LabelLayout;
 }
 /** Legacy broker boundary with explicit asynchronous payload types. */
-const typedWorkerBroker = WorkerBroker as unknown as {
-    postMessage<Value>(target: string, ...arguments_: unknown[]): Promise<Value>;
-};
+const typedWorkerBroker = WorkerBroker;
 /** Collision/rasterization may return no data after cancellation or teardown. */
 export interface TextLabelResult {
     labels?: TextLabelCandidate[];

@@ -441,8 +441,10 @@ function addVertex(position: GeometryCoordinate, extrude: number[], normal: numb
 
     // set line offset vector
     if (context.offset) {
-        vertex_template[context.offset_index + 0] = normal[0] * context.offset;
-        vertex_template[context.offset_index + 1] = normal[1] * context.offset;
+        // Nonzero offsets select a packed offset attribute rather than a constant.
+        const offsetIndex = context.offset_index as number;
+        vertex_template[offsetIndex + 0] = normal[0] * context.offset;
+        vertex_template[offsetIndex + 1] = normal[1] * context.offset;
     }
 
     // set UVs

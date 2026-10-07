@@ -272,7 +272,7 @@ function loadResource (source: SceneInput | undefined): Promise<SceneDefinition>
     });
 }
 
-/** Snapshot scene records and public accessors without cloning private class state or opaque values. */
+/** Snapshot enumerable scene data and URL accessors, leaving unrelated class internals alone. */
 function cloneSceneValue(value: unknown, copies = new WeakMap<object, object>()): unknown {
     if (!value || (!Array.isArray(value) && Object.prototype.toString.call(value) !== '[object Object]')) {
         return value;
@@ -281,8 +281,10 @@ function cloneSceneValue(value: unknown, copies = new WeakMap<object, object>())
     if (copies.has(original)) return copies.get(original);
 
     // Class definitions become writable scene data. Keeping their prototype
-    // would attach getters to an instance with no private fields. Read getters
-    // on the original instead, without invoking its setters during normalization.
+    // would attach getters to an instance with no private fields. Read scene
+    // accessors on the original without invoking its setters. URL getters are
+    // supported even when non-enumerable; arbitrary non-enumerable accessors
+    // are application internals, not scene data, and must not be evaluated.
     const copy: object = Array.isArray(value) ? new Array<unknown>(value.length) :
         Object.create(Object.getPrototypeOf(value) === null ? null : Object.prototype);
     copies.set(original, copy);
@@ -290,7 +292,7 @@ function cloneSceneValue(value: unknown, copies = new WeakMap<object, object>())
     for (const key in original) keys.add(key);
     for (let owner = original; owner && owner !== Object.prototype; owner = Object.getPrototypeOf(owner)) {
         for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(owner))) {
-            if (descriptor.get) keys.add(key);
+            if (descriptor.get && (descriptor.enumerable || key === 'url')) keys.add(key);
         }
     }
     for (const key of keys) {

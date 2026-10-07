@@ -22,7 +22,7 @@ yarn lint          # Biome plus the renderer compatibility lint
 yarn lint:fix      # apply safe Biome fixes
 yarn test-fast     # lint and Node tests
 yarn test-browser  # Chromium-backed Vitest project
-yarn test-coverage # headless Vitest coverage run (renderer source)
+yarn test-coverage # Chromium coverage for renderer and layers, including WebXR
 yarn test          # lint, Node tests, worker bundle, and Vitest browser tests
 ```
 
@@ -109,9 +109,9 @@ with local fixtures rather than CDN or tile-service requests.
 Private shared development helpers live under `dev-modules/`. They are not
 published and should stay focused on test and build infrastructure.
 
-## Renderer tests and coverage
+## Module tests and coverage
 
-The renderer’s tests run through Vitest, using the `node`, `browser`, and
+Both modules' tests run through Vitest, using the `node`, `browser`, and
 `headless` projects supplied by `@vis.gl/dev-tools`. The historical renderer
 specifications are executed by the headless project with a compatibility setup
 so they can be migrated to native Vitest syntax incrementally without losing
@@ -123,19 +123,32 @@ helpers for the inherited suite. New tests should prefer Vitest’s `expect`,
 `vi.fn`, `vi.spyOn`, and `vi.stubGlobal`; the remaining helper usage can be
 removed incrementally without bringing back a second test runner.
 
-The coverage command scopes instrumentation to
-`modules/tangram-renderer/src/**/*.{js,ts}`. It includes the existing renderer
-unit and integration suite, including the legacy specifications under Vitest,
-and emits text, LCOV, and JSON summary reports in `coverage/`.
+The coverage command instruments authored JavaScript and TypeScript under both
+`modules/tangram-renderer/src` and `modules/tangram-layers/src`, including
+experimental WebXR. Tests importing layer package entries resolve to source so
+their execution is credited to authored files; generated package smoke tests
+remain separate. The inherited bridge/GPU specifications are collected exactly
+once by `legacy_layer.browser.spec.ts`. Text, LCOV, and JSON summaries are
+written to `coverage/`. `yarn coverage:scope` requires every authored file from
+both modules in the report, including zero-hit and type-only files.
 
 The pull-request workflow collects separate Node and Chromium coverage blobs,
-merges them, and enforces these global renderer thresholds before uploading the
-report as a workflow artifact:
+merges them, and enforces independent aggregate package gates before uploading
+the report to Coveralls and as a workflow artifact. The renderer gates remain:
 
 - 78% statements;
 - 69% branches;
 - 82% functions; and
 - 78% lines.
+
+The layer package has its own gates: 92% statements, 90% branches, 95% functions,
+and 94% lines. All gates live in `scripts/coverage-modules.mjs`. A gain in either
+module cannot mask a regression in the other. GitHub's coverage job summary
+contains separate package tables plus the combined total.
+
+Set `TANGRAM_COVERAGE_ENFORCE=1` only when merging the Node and Chromium blobs
+with `vitest --merge-reports=.vitest-reports --coverage`, as in CI. Individual
+runtime reports are incomplete and deliberately do not enforce merged gates.
 
 Coverage is intentionally scoped to source rather than generated bundles,
 fixtures, or dependencies. The report shows untested files and keeps the
@@ -209,8 +222,8 @@ Authored values and dynamic expression results enter as `unknown`. Property
 parsers normalize them before evaluation, while layers retain separate raw,
 compiled, and cached states. Local assertions describe existing normalization
 and prototype-construction boundaries; they do not add runtime coercion or
-validation. The GPU style implementations and worker broker are separate
-migration boundaries, not made checked by these evaluation contracts.
+validation. The GPU style implementations remain separate migration boundaries,
+not made checked by these contracts.
 
 The typed regression fixtures cover cache identity, sprite-relative sizing,
 zoom/unit conversion, lazy matching, exclusivity, diamond mixins, uniform
@@ -255,7 +268,7 @@ their byte offsets and upload only meshes whose visibility changed.
 
 New class field annotations use `declare` so they do not create properties or
 shadow inherited methods. Prototype/mixin construction and calls into the
-still-unchecked point style, property parser, worker broker, and texture registry
+still-unchecked point style and texture registry
 remain localized compatibility boundaries. Those implementations are unchanged;
 checking labels/text does not claim those other subsystems are finished.
 
@@ -279,7 +292,38 @@ outline ordering, texture interpolation, and mesh disposal behavior. Prototype
 scratch records are filled in stages, and new field declarations must not emit
 properties that shadow inherited state.
 
-The base style lifecycle, shader program, texture registry, and worker broker
+The base style lifecycle, shader program, and texture registry
 remain separate checked-migration boundaries. Their small consumed interfaces
 here do not mean those implementations have been fully checked. Typing changes
 must preserve emitted runtime behavior; geometry fixes belong in separate PRs.
+## Worker messaging and feature selection
+
+The broker and selection lifecycle are checked without blanket TypeScript
+suppressions. Internal contracts in `utils/worker-types.ts` describe invocation
+and reply packets, pending promises, transport endpoints, and transferable
+argument/result tuples. They are not a new public RPC API. Callers provide the
+remote result type with `WorkerBroker.postMessage<Result>(...)`; arbitrary remote
+payloads remain `unknown` until an owning subsystem supplies its contract.
+
+The main-thread overload takes one worker or an ordered worker array. The worker
+overload uses the main thread implicitly. Native worker registration is still
+enforced at runtime. The staged broker object and callable/constructable
+`withTransferables` function preserve the existing logger initialization cycle.
+Arguments unwrap as a tuple, while replies unwrap only the first tuple member.
+ArrayBuffer discovery and post-transfer cleanup retain their legacy behavior,
+including the truthy-property filter that does not delete numeric array index 0.
+Changing transfer behavior should be a separate, explicitly tested fix.
+
+Selection contracts distinguish normalized canvas points/radii, pending readback
+and worker lookup state, build-owned feature maps, and reply payloads. Device
+selection owns a luma `Framebuffer`; the legacy path owns a raw GL framebuffer.
+Request IDs still start lazily at zero, cancellation preserves already-sent
+lookups, and late device reads/replies are checked against request identity.
+Custom worker feature payloads remain `unknown`, with the existing JSON-based
+change comparison. Class fields use `declare`, not emitted initializers.
+
+Vitest regressions cover typed packets, nested dispatch, error forwarding,
+ordered fan-out, transfer ownership, and an actual scene-worker round trip.
+Selection tests cover cancellation, repeated feature payloads, device readback
+failure/recovery, locks, and teardown. Scene, texture, and GPU-style lifecycles
+remain separate typing tranches.
