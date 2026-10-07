@@ -7,11 +7,9 @@ import version from './version';
 import Thread from './thread';
 import WorkerBroker from './worker_broker';
 
-type WorkerBrokerMessaging = typeof WorkerBroker & {
-  postMessage: (...arguments_: unknown[]) => Promise<unknown>;
-};
+import type {BrokerWorker} from './worker-types';
 
-const workerBroker = WorkerBroker as WorkerBrokerMessaging;
+const workerBroker = WorkerBroker;
 
 const LEVELS = {
   silent: -1,
@@ -34,9 +32,9 @@ type ConsoleMethod = (...messages: unknown[]) => void;
 export interface Logger {
   (options: LogLevel | LogOptions, ...messages: unknown[]): Promise<boolean>;
   level: LogLevel;
-  workers: unknown[] | null;
+  workers: BrokerWorker[] | null;
   setLevel(level: LogLevel): void;
-  setWorkers?(workers: unknown[] | null): void;
+  setWorkers?(workers: BrokerWorker[] | null): void;
   reset?(): void;
 }
 
@@ -64,11 +62,11 @@ const log = (async (
   }
 
   if (Thread.is_worker) {
-    return workerBroker.postMessage(
+    return workerBroker.postMessage<boolean>(
       {method: '_logProxy', stringify: true},
       options,
       ...messages
-    ) as Promise<boolean>;
+    );
   }
 
   if (typeof options === 'object' && options.once === true) {
@@ -99,7 +97,7 @@ log.setLevel = (level: LogLevel): void => {
 };
 
 if (Thread.is_main) {
-  log.setWorkers = (workers: unknown[] | null): void => {
+  log.setWorkers = (workers: BrokerWorker[] | null): void => {
     log.workers = workers;
   };
   log.reset = (): void => {
@@ -107,7 +105,7 @@ if (Thread.is_main) {
   };
 }
 
-(WorkerBroker as any).addTarget('_logProxy', log);
-(WorkerBroker as any).addTarget('_logSetLevelProxy', log.setLevel);
+WorkerBroker.addTarget('_logProxy', log);
+WorkerBroker.addTarget('_logSetLevelProxy', log.setLevel);
 
 export default log;

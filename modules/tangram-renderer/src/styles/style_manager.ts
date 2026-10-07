@@ -364,7 +364,7 @@ export class StyleManager {
         // Un-register existing styles from cross-thread communication
         if (this.styles) {
             Object.values(this.styles)
-                .forEach(s => (WorkerBroker as {removeTarget(name: string): void}).removeTarget(s.main_thread_target));
+                .forEach(s => WorkerBroker.removeTarget(s.main_thread_target));
         }
 
         // Add default blend/base style pairs as needed

@@ -46,7 +46,7 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(149);
+    expect(sourceFiles).toHaveLength(151);
     expect(sourceFiles.some(filePath => filePath.endsWith('labels/label-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('labels/main-pass-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('styles/text/text-types.ts'))).toBe(true);
@@ -61,6 +61,8 @@ describe('coverage scope guard', () => {
     expect(sourceFiles.some(filePath => filePath.endsWith('tile/tile_resource_cache.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('tile/globe_tile_preload.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('lights/light-definitions.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('utils/worker-types.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('selection/selection-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('index.d.ts'))).toBe(false);
     const layerFiles = collectAuthoredSourceFiles('modules/tangram-layers/src');
     expect(layerFiles).toHaveLength(14);

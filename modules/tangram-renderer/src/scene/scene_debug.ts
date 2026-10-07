@@ -15,12 +15,12 @@ export default function setupSceneDebug (scene: any): void {
         // Profile helpers, issues a profile on main thread & all workers
         profile(name: string): void {
             console.profile(`main thread: ${name}`); // eslint-disable-line no-console
-            (WorkerBroker as any).postMessage(scene.workers, 'self.profile', name);
+            WorkerBroker.postMessage(scene.workers, 'self.profile', name);
         },
 
         profileEnd(name: string): void {
             console.profileEnd(`main thread: ${name}`); // eslint-disable-line no-console
-            (WorkerBroker as any).postMessage(scene.workers, 'self.profileEnd', name);
+            WorkerBroker.postMessage(scene.workers, 'self.profileEnd', name);
         },
 
         // Rebuild geometry a given # of times and print average, min, max timings
