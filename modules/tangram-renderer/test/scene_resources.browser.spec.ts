@@ -5,6 +5,7 @@
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import JSZip from 'jszip';
 import SceneLoader from '../src/scene/scene_loader';
+import {createSceneBundle} from '../src/scene/scene_bundle';
 import Utils from '../src/utils/utils';
 import {getPropertyPath} from '../src/utils/props';
 import type {SceneDefinition} from '../src/scene/scene-resource-types';
@@ -314,5 +315,49 @@ textures:
         expect(source.url).toBe('data.json');
         expect(font.url).toBe('font.woff');
         expect(texture.url).toBe('image.png');
+    });
+
+    test('does not evaluate unrelated own or inherited non-enumerable accessors', async () => {
+        const inspectInternalState = vi.fn(() => {throw new Error('Not scene data');});
+        /** Application resources may also expose diagnostics requiring external state. */
+        class ResourceDefinition {
+            /** Relative resource URL is the only accessor needed by normalization. */
+            get url() {return 'data.json';}
+            /** Diagnostics must not run merely because the resource is cloned. */
+            get diagnostics() {return inspectInternalState();}
+        }
+        const resource = new ResourceDefinition();
+        Object.defineProperty(resource, 'internalState', {get: inspectInternalState});
+        const document = {import: [{sources: {local: resource}}]};
+        for (const base of [BASE_URL, 'https://other.test/']) {
+            const {config} = await loadResources(document, base);
+            expect(sceneValue(config, 'sources.local.url')).toBe(`${base}data.json`);
+            expect(sceneValue(config, 'sources.local')).not.toHaveProperty('diagnostics');
+            expect(sceneValue(config, 'sources.local')).not.toHaveProperty('internalState');
+        }
+        expect(inspectInternalState).not.toHaveBeenCalled();
+        expect(resource.url).toBe('data.json');
+    });
+
+    test('preserves explicitly enumerable application accessors as scene data', async () => {
+        const metadata = {attribution: 'Application data'};
+        const readMetadata = vi.fn(() => metadata);
+        const resource = {url: 'data.json'};
+        Object.defineProperty(resource, 'metadata', {get: readMetadata, enumerable: true});
+        const {config} = await loadResources({sources: {local: resource}}, BASE_URL);
+        expect(sceneValue(config, 'sources.local.metadata')).toEqual(metadata);
+        expect(sceneValue(config, 'sources.local.metadata')).not.toBe(metadata);
+        expect(readMetadata).toHaveBeenCalledTimes(1);
+    });
+
+    test('still rejects broken URL accessors instead of silently omitting scene data', async () => {
+        const error = new Error('Resource URL unavailable');
+        /** A required accessor failure must remain a useful load error. */
+        class ResourceDefinition {
+            /** Simulate unavailable application-owned URL state. */
+            get url(): string {throw error;}
+        }
+        const bundle = createSceneBundle({sources: {local: new ResourceDefinition()}}, BASE_URL);
+        await expect(bundle.load()).rejects.toBe(error);
     });
 });
