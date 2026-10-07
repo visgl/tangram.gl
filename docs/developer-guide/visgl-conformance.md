@@ -6,6 +6,10 @@ Copyright (c) vis.gl contributors
 
 # vis.gl conformance harness
 
+For the renderer's Mercator/globe CPU boundary, independent math.gl comparisons,
+and exact coordinate units and domains, see
+[projection boundary and conventions](./projection-conventions.md).
+
 Tangram's parser, projection, and matrix implementations are reached through
 small renderer-owned procedure boundaries. The renderer uses math.gl for Web
 Mercator projection and native `Matrix3`/`Matrix4` operations in its camera and

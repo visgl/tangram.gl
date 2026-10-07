@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {HostProjection} from '../types';
+import {unprojectMetersToLngLatLegacy} from '../procedures/web-mercator-legacy';
 
 /** Neutral units shared by CPU geometry, lighting, shader generation and host adapters. */
 export const PROJECTION_CONSTANTS = Object.freeze({
@@ -20,6 +21,24 @@ export const PROJECTION_CONSTANTS = Object.freeze({
 
 /** Longitude/latitude in degrees and geographic altitude in meters. */
 export type GeographicProjectionPosition = readonly [number, number, number];
+
+/** Renderer-owned geographic boundary; cameras and tile-row conversion are separate. */
+export interface GeographicProjectionProcedure {
+    /** Existing HostFrame projection discriminator; this is not a CRS identifier. */
+    readonly type: HostProjection['type'];
+    /** Absolute position units before the host's view/placement matrices. */
+    readonly positionUnits: 'meters' | 'globe-common-units';
+    /** Maximum represented latitude in degrees, after Mercator clamping. */
+    readonly latitudeLimit: number;
+    /** Whether longitude selects a nearest anchored world copy or repeats around a sphere. */
+    readonly longitudePolicy: 'nearest-anchor-or-unwrapped' | 'periodic';
+    /** Project finite degree/degree/meter positions; an anchor affects only Mercator longitude. */
+    readonly project: (position: GeographicProjectionPosition, anchorLongitude?: number) => [number, number, number];
+    /** Invert an absolute position; globe center is undefined and longitude becomes canonical. */
+    readonly unproject: (position: readonly [number, number, number]) => [number, number, number];
+    /** Rotate an ENU direction without converting its length to common-space units. */
+    readonly projectVector: (position: GeographicProjectionPosition, direction: readonly [number, number, number]) => [number, number, number];
+}
 
 /** Project geography to absolute Mercator meters or globe common coordinates, never eye space. */
 export function projectGeographicPosition(position: GeographicProjectionPosition, projection: HostProjection['type'], anchorLongitude?: number): [number, number, number] {
@@ -80,4 +99,41 @@ export function getProjectionSurface(x: number, y: number, projection: HostProje
         derivativeX: [derivativeScale * cosineLongitude * cosine, derivativeScale * sineLongitude * cosine, 0],
         derivativeY: [-derivativeScale * sineLongitude * sine * cosine,
             derivativeScale * cosineLongitude * sine * cosine, derivativeScale * cosine ** 2]};
+}
+
+/** Invert finite absolute Mercator meters without wrapping longitude or discarding altitude. */
+function unprojectMercatorPosition(position: readonly [number, number, number]): [number, number, number] {
+    if (!position.every(Number.isFinite)) throw new Error('Mercator position must be finite');
+    const [longitude, latitude] = unprojectMetersToLngLatLegacy([position[0], position[1]]);
+    return [longitude, latitude, position[2]];
+}
+
+/** Immutable procedures delegate to existing formulas; no runtime math.gl candidate switch. */
+const PROJECTION_PROCEDURES: Readonly<Record<HostProjection['type'], GeographicProjectionProcedure>> = Object.freeze({
+    'web-mercator': Object.freeze({
+        type: 'web-mercator',
+        positionUnits: 'meters',
+        latitudeLimit: PROJECTION_CONSTANTS.maxMercatorLatitude,
+        longitudePolicy: 'nearest-anchor-or-unwrapped',
+        project: (position: GeographicProjectionPosition, anchorLongitude?: number) => projectGeographicPosition(position, 'web-mercator', anchorLongitude),
+        unproject: unprojectMercatorPosition,
+        projectVector: (position: GeographicProjectionPosition, direction: readonly [number, number, number]) => projectGeographicVector(position, direction, 'web-mercator')
+    }),
+    globe: Object.freeze({
+        type: 'globe',
+        positionUnits: 'globe-common-units',
+        latitudeLimit: 90,
+        longitudePolicy: 'periodic',
+        project: (position: GeographicProjectionPosition) => projectGeographicPosition(position, 'globe'),
+        unproject: unprojectGlobePosition,
+        projectVector: (position: GeographicProjectionPosition, direction: readonly [number, number, number]) => projectGeographicVector(position, direction, 'globe')
+    })
+});
+
+/** Select the existing renderer's CPU procedure and conventions for a supported HostFrame projection. */
+export function getGeographicProjectionProcedure(projection: HostProjection['type']): GeographicProjectionProcedure {
+    if (projection !== 'web-mercator' && projection !== 'globe') {
+        throw new Error('Unsupported geographic projection; expected web-mercator or globe');
+    }
+    return PROJECTION_PROCEDURES[projection];
 }

@@ -44,6 +44,10 @@ explicit `tileZoom` can reduce data detail without changing the style zoom.
 
 ### `projection`
 
+CPU geographic procedures, units, axes and supported domains are documented in
+[projection boundary and conventions](../developer-guide/projection-conventions.md).
+They do not own host camera matrices or change the tile visibility policy.
+
 The deck-independent geographic projection contract. When omitted, it defaults to
 `{type: 'web-mercator'}` for backward compatibility. An explicit projection must
 include a valid `type`; empty objects and missing, null, or empty types are rejected.

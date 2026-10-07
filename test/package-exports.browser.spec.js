@@ -28,7 +28,7 @@ import {TangramStyleSheetSchema} from '../modules/tangram-renderer/dist/style-sc
 import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-style.schema.json';
 import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
   calculatePlanarGroundBounds as coreGroundBounds,
-  PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition,
+  PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure,
   convertLumaLight as coreConvertLumaLight} from '../modules/tangram-renderer/dist/core.js';
 import {
   WebXRMapView,
@@ -58,6 +58,10 @@ describe('published package entrypoints', () => {
     expect(point[1]).toBeLessThan(-PROJECTION_CONSTANTS.globeRadius);
     expect(projectGeographicVector([0, 0, 0], [0, 0, 1], 'globe')).toEqual([0, -1, 0]);
     expect(unprojectGlobePosition(point)[2]).toBeCloseTo(100, 6);
+    const globe = getGeographicProjectionProcedure('globe');
+    expect(globe.project([0, 0, 100])).toEqual(point);
+    expect(globe.positionUnits).toBe('globe-common-units');
+    expect(getGeographicProjectionProcedure('web-mercator').unproject([0, 0, 100])).toEqual([0, 0, 100]);
   });
   it('exposes a working host-only core while preserving the classic root', () => {
     const renderer = new CoreRenderer({});

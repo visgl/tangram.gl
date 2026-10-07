@@ -5,8 +5,8 @@
 export {default as Renderer} from './scene/renderer';
 export {default as HostFrame} from './scene/host_frame';
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';
-export {PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition} from './scene/projection_math';
-export type {GeographicProjectionPosition} from './scene/projection_math';
+export {PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure} from './scene/projection_math';
+export type {GeographicProjectionPosition, GeographicProjectionProcedure} from './scene/projection_math';
 export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
 export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
