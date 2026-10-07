@@ -8,6 +8,7 @@
 import log from './log';
 import Thread from './thread';
 import WorkerBroker from './worker_broker';
+import type {TransferEnvelope} from './worker-types';
 
 type ControlPoint = [number, number | number[]];
 type InterpolationTransform = (value: number) => number;
@@ -19,15 +20,16 @@ interface UtilsApi {
     isMicrosoft(): boolean;
     _requests: Record<string, XMLHttpRequest>;
     _proxy_requests: Record<string, boolean>;
-    io(
+    /** Main-thread proxy calls return an envelope; remote worker calls unwrap the response. */
+    io<Proxy extends boolean = false>(
         url: string,
         timeout?: number,
         responseType?: XMLHttpRequestResponseType,
         method?: string,
         headers?: RequestHeaders,
         request_key?: string | null,
-        proxy?: boolean
-    ): Promise<RequestResponse>;
+        proxy?: Proxy
+    ): Promise<Proxy extends false ? RequestResponse : RequestResponse | TransferEnvelope<[RequestResponse]>>;
     cancelRequest(key: string): void | Promise<unknown>;
     serializeWithFunctions(obj: unknown): string | undefined;
     use_high_density_display: boolean;
@@ -46,7 +48,7 @@ const Utils = {} as UtilsApi;
 
 export default Utils;
 
-(WorkerBroker as any).addTarget('Utils', Utils);
+WorkerBroker.addTarget('Utils', Utils);
 
 // Basic Safari detection
 // http://stackoverflow.com/questions/7944460/detect-safari-browser
@@ -70,7 +72,7 @@ Utils.io = function (
     method = 'GET',
     headers = {},
     request_key = null,
-    proxy = false
+    proxy: boolean = false
 ) {
     if (Thread.is_worker && Utils.isMicrosoft()) {
         // Some versions of IE11 and Edge will hang web workers when performing XHR requests
@@ -81,7 +83,7 @@ Utils.io = function (
         if (request_key) {
             Utils._proxy_requests[request_key] = true; // mark as proxied
         }
-        return (WorkerBroker as any).postMessage(
+        return WorkerBroker.postMessage<RequestResponse>(
             'Utils.io',
             url,
             timeout,
@@ -90,11 +92,11 @@ Utils.io = function (
             headers,
             request_key,
             true
-        ) as Promise<RequestResponse>;
+        );
     }
     else {
         const request = new XMLHttpRequest();
-        let promise = new Promise<RequestResponse>((resolve, reject) => {
+        let promise: Promise<RequestResponse | TransferEnvelope<[RequestResponse]>> = new Promise<RequestResponse>((resolve, reject) => {
             request.open(method, url, true);
             request.timeout = timeout;
             request.responseType = responseType as XMLHttpRequestResponseType;
@@ -137,7 +139,8 @@ Utils.io = function (
             }
 
             if (proxy) {
-                return (WorkerBroker as any).withTransferables(response) as RequestResponse;
+                // This first continuation still receives the original XHR response, not an envelope.
+                return WorkerBroker.withTransferables(response as RequestResponse);
             }
             return response;
         });
@@ -148,13 +151,13 @@ Utils.io = function (
 
         return promise;
     }
-};
+} as UtilsApi['io'];
 
 // Çancel a pending network request by user-provided request key
 Utils.cancelRequest = function (key) {
     // Check for a request that was proxied to the main thread
     if (Thread.is_worker && Utils._proxy_requests[key]) {
-        return (WorkerBroker as any).postMessage('Utils.cancelRequest', key); // forward to main thread
+        return WorkerBroker.postMessage('Utils.cancelRequest', key); // forward to main thread
     }
 
     let req = Utils._requests[key];

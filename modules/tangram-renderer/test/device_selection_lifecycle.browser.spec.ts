@@ -10,11 +10,7 @@ import WorkerBroker from '../src/utils/worker_broker';
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
-/** Inspection surface for fields in the not-yet-typed legacy lifecycle. */
-type SelectionState = FeatureSelection & {feature: unknown; read_delay_timer: ReturnType<typeof setTimeout> | null;
-  _lock_fn: () => boolean};
-/** Existing worker response contract used by these lifecycle fixtures. */
-type SelectionReply = {id: number; feature: {name: string}};
+
 
 /** Create controllable asynchronous readback through the public device surface. */
 function createSelection(bytes = new Uint8Array([7, 0, 0, 0])) {
@@ -24,10 +20,9 @@ function createSelection(bytes = new Uint8Array([7, 0, 0, 0])) {
   const encoder = {copyTextureToBuffer: vi.fn(), finish: vi.fn(() => ({})), destroy: vi.fn()};
   const device = {type: 'webgl', createFramebuffer: vi.fn(() => framebuffer),
     createBuffer: vi.fn(() => staging), createCommandEncoder: vi.fn(() => encoder), submit: vi.fn()};
-  const worker = {};
-  const selection = new FeatureSelection({}, [worker], () => false, device as unknown as Device) as SelectionState;
-  const broker = WorkerBroker as {postMessage: (...arguments_: unknown[]) => Promise<SelectionReply>};
-  const lookup = vi.spyOn(broker, 'postMessage').mockResolvedValue({id: 0, feature: {name: 'building'}});
+  const worker = {postMessage: vi.fn(), addEventListener: vi.fn()};
+  const selection = new FeatureSelection(null, [worker], () => false, device as unknown as Device);
+  const lookup = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue({id: 0, feature: {name: 'building'}});
   return {selection, staging, framebuffer, encoder, lookup, worker};
 }
 

@@ -21,7 +21,7 @@ import TextCanvas from '../src/styles/text/text_canvas';
 import type {TextTable, TextSizesTask, TextRasterTask, TextLabelCandidate} from '../src/styles/text/text-types';
 import {createLabelLayout, createTextTile, createTextQueue, createTextFeature, createTextContext, createTextSettings, createTextInfo, createTextStyle, createTextSize} from './text-test-fixtures';
 
-const broker = WorkerBroker as unknown as {postMessage(target: string, ...arguments_: unknown[]): Promise<unknown>};
+const broker = WorkerBroker;
 const textureRegistry = Texture as unknown as {
     create(...arguments_: unknown[]): unknown;
     retain(name: string): void;

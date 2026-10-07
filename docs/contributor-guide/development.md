@@ -222,8 +222,8 @@ Authored values and dynamic expression results enter as `unknown`. Property
 parsers normalize them before evaluation, while layers retain separate raw,
 compiled, and cached states. Local assertions describe existing normalization
 and prototype-construction boundaries; they do not add runtime coercion or
-validation. The GPU style implementations and worker broker are separate
-migration boundaries, not made checked by these contracts.
+validation. The GPU style implementations remain separate migration boundaries,
+not made checked by these contracts.
 
 The typed regression fixtures cover cache identity, sprite-relative sizing,
 zoom/unit conversion, lazy matching, exclusivity, diamond mixins, uniform
@@ -268,10 +268,42 @@ their byte offsets and upload only meshes whose visibility changed.
 
 New class field annotations use `declare` so they do not create properties or
 shadow inherited methods. Prototype/mixin construction and calls into the
-still-unchecked point style, property parser, worker broker, and texture registry
+still-unchecked point style and texture registry
 remain localized compatibility boundaries. Those implementations are unchanged;
 checking labels/text does not claim those other subsystems are finished.
 
 The typing migration preserves legacy behavior, including omitted repeat scales
 in worker snapshots, repeated curved-label bounds, and ignored falsy label-link
 IDs. Changes to those behaviors belong in separately tested fixes.
+
+## Worker messaging and feature selection
+
+The broker and selection lifecycle are checked without blanket TypeScript
+suppressions. Internal contracts in `utils/worker-types.ts` describe invocation
+and reply packets, pending promises, transport endpoints, and transferable
+argument/result tuples. They are not a new public RPC API. Callers provide the
+remote result type with `WorkerBroker.postMessage<Result>(...)`; arbitrary remote
+payloads remain `unknown` until an owning subsystem supplies its contract.
+
+The main-thread overload takes one worker or an ordered worker array. The worker
+overload uses the main thread implicitly. Native worker registration is still
+enforced at runtime. The staged broker object and callable/constructable
+`withTransferables` function preserve the existing logger initialization cycle.
+Arguments unwrap as a tuple, while replies unwrap only the first tuple member.
+ArrayBuffer discovery and post-transfer cleanup retain their legacy behavior,
+including the truthy-property filter that does not delete numeric array index 0.
+Changing transfer behavior should be a separate, explicitly tested fix.
+
+Selection contracts distinguish normalized canvas points/radii, pending readback
+and worker lookup state, build-owned feature maps, and reply payloads. Device
+selection owns a luma `Framebuffer`; the legacy path owns a raw GL framebuffer.
+Request IDs still start lazily at zero, cancellation preserves already-sent
+lookups, and late device reads/replies are checked against request identity.
+Custom worker feature payloads remain `unknown`, with the existing JSON-based
+change comparison. Class fields use `declare`, not emitted initializers.
+
+Vitest regressions cover typed packets, nested dispatch, error forwarding,
+ordered fan-out, transfer ownership, and an actual scene-worker round trip.
+Selection tests cover cancellation, repeated feature payloads, device readback
+failure/recovery, locks, and teardown. Scene, texture, and GPU-style lifecycles
+remain separate typing tranches.
