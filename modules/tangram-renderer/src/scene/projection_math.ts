@@ -33,11 +33,11 @@ export interface GeographicProjectionProcedure {
     /** Whether longitude selects a nearest anchored world copy or repeats around a sphere. */
     readonly longitudePolicy: 'nearest-anchor-or-unwrapped' | 'periodic';
     /** Project finite degree/degree/meter positions; an anchor affects only Mercator longitude. */
-    project(position: GeographicProjectionPosition, anchorLongitude?: number): [number, number, number];
+    readonly project: (position: GeographicProjectionPosition, anchorLongitude?: number) => [number, number, number];
     /** Invert an absolute position; globe center is undefined and longitude becomes canonical. */
-    unproject(position: readonly [number, number, number]): [number, number, number];
+    readonly unproject: (position: readonly [number, number, number]) => [number, number, number];
     /** Rotate an ENU direction without converting its length to common-space units. */
-    projectVector(position: GeographicProjectionPosition, direction: readonly [number, number, number]): [number, number, number];
+    readonly projectVector: (position: GeographicProjectionPosition, direction: readonly [number, number, number]) => [number, number, number];
 }
 
 /** Project geography to absolute Mercator meters or globe common coordinates, never eye space. */

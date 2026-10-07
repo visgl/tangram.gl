@@ -100,8 +100,20 @@ describe('renderer geographic projection boundary', () => {
     expect(globe.project([0, 0, 0])).toEqual([0, -256, 0]);
     expectPositionClose(globe.project([90, 0, earthRadius]), [512, 0, 0], 1e-12);
     const position: GeographicProjectionPosition = [-73.98, 40.7, 0];
-    for (const direction of [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as const) {
+    const longitude = position[0] * Math.PI / 180;
+    const latitude = position[1] * Math.PI / 180;
+    // Analytic ECEF tangent basis, then the same explicit axis permutation used
+    // by the independent math.gl position oracle. Length alone cannot detect
+    // swapped east/north vectors or a reversed sign.
+    const ecefBasis = [
+      [-Math.sin(longitude), Math.cos(longitude), 0],
+      [-Math.sin(latitude) * Math.cos(longitude), -Math.sin(latitude) * Math.sin(longitude), Math.cos(latitude)],
+      [Math.cos(latitude) * Math.cos(longitude), Math.cos(latitude) * Math.sin(longitude), Math.sin(latitude)]
+    ];
+    for (const [index, direction] of ([[1, 0, 0], [0, 1, 0], [0, 0, 1]] as const).entries()) {
       const transformed = globe.projectVector(position, direction);
+      const [x, y, z] = ecefBasis[index];
+      expectPositionClose(transformed, [y, -x, z], 1e-12);
       expect(Math.hypot(...transformed)).toBeCloseTo(1, 12);
     }
     expect(mercator.projectVector(position, [2, 3, 4])).toEqual([2, 3, 4]);
