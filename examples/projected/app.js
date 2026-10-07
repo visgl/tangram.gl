@@ -50,7 +50,8 @@ async function initialize() {
     return option;
   }));
   detailSelector.value = String(selectedDetail);
-  setStatus(`Requesting data zoom ${selectedDetail}; style zoom stays at 6. Drag to pan and scroll to zoom.`);
+  // Detail/coverage changes do not emit onProjectionChange; describe settings, not pending work.
+  setStatus(`Data zoom ${selectedDetail}; style zoom stays at 6. Drag to pan and scroll to zoom.`);
   if (preparedBasemap !== basemapSelector.value) {
     preparedBasemap = basemapSelector.value;
     preparedScene = createProjectedBasemapScene(createProjectedExampleScene(raster), {type},
