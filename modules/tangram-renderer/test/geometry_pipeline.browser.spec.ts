@@ -90,7 +90,7 @@ describe('checked geometry pipeline', () => {
     style.startData(context.tile);
     expect(style.buildLines([[[100, -100], [200, -100]]], feature, context)).toBe(2);
     const mesh = style.getTileMesh(context.tile, style.meshVariantTypeForDraw(feature));
-    const layout = mesh.vertex_data.vertex_layout;
+    const layout = style.vertexLayoutForMeshVariant(mesh.variant);
     expect(layout.index.a_offset).toEqual(expect.any(Number));
     const packed = mesh.vertex_data.end();
     const view = new DataView(packed.vertex_buffer.buffer, packed.vertex_buffer.byteOffset);
