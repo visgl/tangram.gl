@@ -23,7 +23,9 @@ export interface MeshProjectionRequest {
     /** Layout shared by main-thread and worker polygon styles. */
     layout: VertexLayout;
     /** Source tile's north-west EPSG:3857 origin and actual data zoom. */
-    tile: {min: {x: number; y: number}; coords: {z: number}};
+    tile: {min: {x: number; y: number}; coords: {z: number}; overzoom2?: number};
+    /** Lines carry centerline positions and separate packed extrusion; other meshes are already expanded. */
+    geometry?: 'polygons' | 'raster' | 'lines';
     /** Validated scene-wide projection and refinement limits. */
     projection: ProjectedBasemapOptions;
 }

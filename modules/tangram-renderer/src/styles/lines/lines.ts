@@ -41,7 +41,7 @@ Object.assign(Lines, {
 
     getWGSLShaderSource(this: LineStyleRuntime) {
         return buildLinesWGSL({ animated: this.animated === true, lighting: this.portable_lighting_mode,
-            lightCount: this.portable_light_count });
+            lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection) });
     },
 
     setGL(this: LineStyleRuntime, gl_context: unknown, uniform_blocks: Record<string, UniformBuffer> = {}, options = {}) {
@@ -85,6 +85,15 @@ Object.assign(Lines, {
 
     init(this: LineStyleRuntime) {
         Style.init.apply(this, arguments as unknown as Parameters<typeof Style.init>);
+        this.defines.TANGRAM_CPU_PROJECTED = Boolean(this.cpu_projection);
+        const attributes = this.shaders?.attributes;
+        const hasAttributes = attributes && typeof attributes === 'object' ? Object.keys(attributes).length > 0 : Boolean(attributes);
+        const positionBlocks = this.shaders?.blocks?.position;
+        const hasPositionBlocks = Array.isArray(positionBlocks) ? positionBlocks.length > 0 : Boolean(positionBlocks);
+        if (this.cpu_projection && (this.animated || this.texture || this.dash ||
+            hasAttributes || hasPositionBlocks)) {
+            throw new Error('CPU projected lines do not support animation, textures or shader blocks');
+        }
 
         // Tell the shader we want a order in vertex attributes, and to extrude lines
         this.defines.TANGRAM_EXTRUDE_LINES = true;
@@ -566,6 +575,7 @@ Object.assign(Lines, {
             ];
 
             this.addCustomAttributesToAttributeList(attribs);
+            if (this.cpu_projection) attribs.push({name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false});
             this.vertex_layouts[variant.key] = new VertexLayout(attribs);
         }
         return this.vertex_layouts[variant.key];
@@ -630,6 +640,10 @@ Object.assign(Lines, {
         }
 
         this.addCustomAttributesToVertexTemplate(style, i);
+        if (this.cpu_projection) {
+            const index = mesh.vertex_data.vertex_layout.index.a_projected_position;
+            this.vertex_template[index] = this.vertex_template[index + 1] = this.vertex_template[index + 2] = 0;
+        }
         return this.vertex_template;
     },
 

@@ -140,7 +140,7 @@ export interface GeometryStyleRuntime<FeatureStyle extends Omit<PolygonFeatureSt
     texcoords?: boolean;
     raster?: string | boolean;
     shader_language: 'glsl' | 'wgsl';
-    /** Optional scene-wide CPU projection of flat polygon/raster meshes. */
+    /** Optional scene-wide CPU projection of ground surfaces and fixed-meter line ribbons. */
     cpu_projection?: ProjectedBasemapOptions;
     /** Authored polygon lighting, disabled for initial CPU-projected ground. */
     lighting?: 'vertex' | 'fragment' | boolean;

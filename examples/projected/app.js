@@ -5,8 +5,7 @@
 import {Deck, OrthographicView} from '@deck.gl/core';
 import {webgpuAdapter} from 'https://esm.sh/@luma.gl/webgpu@9.4.0?bundle&external=@luma.gl/core';
 import {ProjectedBasemapLayer, createProjectedBasemapScene} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
-import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
-import {createVectorSource} from '../classic/app/vector-providers.js';
+import {createProjectedExampleScene, getProjectedExampleTileZoom} from './scene.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 const parameters = new URLSearchParams(location.search);
@@ -28,20 +27,6 @@ function setStatus(message, error = false) {
   status.dataset.type = error ? 'error' : '';
 }
 
-/** A ground-only OpenMapTiles scene: no silent unprojected lines, labels or building extrusions. */
-function createScene(raster) {
-  if (raster) return createBlueMarbleScene();
-  return {
-    scene: {background: {color: '#0b1729'}},
-    sources: {map: {...createVectorSource(), max_zoom: 6}},
-    layers: {
-      landcover: {data: {source: 'map', layer: 'landcover'}, draw: {polygons: {order: 0, color: '#3b6552'}}},
-      landuse: {data: {source: 'map', layer: 'landuse'}, draw: {polygons: {order: 1, color: '#537d63'}}},
-      water: {data: {source: 'map', layer: 'water'}, draw: {polygons: {order: 2, color: '#388ab3'}}}
-    }
-  };
-}
-
 /** Load projected ground geometry; Tangram resolves the provider's current TileJSON source. */
 async function initialize() {
   const type = projectionSelector.value;
@@ -52,7 +37,7 @@ async function initialize() {
   const raster = basemapSelector.value === 'raster';
   if (preparedBasemap !== basemapSelector.value) {
     preparedBasemap = basemapSelector.value;
-    preparedScene = createProjectedBasemapScene(createScene(raster), {type},
+    preparedScene = createProjectedBasemapScene(createProjectedExampleScene(raster), {type},
       new URL('../../modules/tangram-renderer/dist/projected-basemaps-worker.js', import.meta.url).href);
   }
   updateAttribution(document.querySelector('#attribution'), getConfiguredAttributions(preparedScene));
@@ -61,7 +46,8 @@ async function initialize() {
   url.searchParams.set('basemap', basemapSelector.value);
   history.replaceState(null, '', url);
   const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene,
-    projectedProjection: {type}, projectedTileZoom: 2,
+    // OpenFreeMap transportation starts at zoom 4; overview imagery only needs zoom 2.
+    projectedProjection: {type}, projectedTileZoom: getProjectedExampleTileZoom(raster),
     onProjectionChange: () => {
       if (generation === updateGeneration) setStatus('Worker CPU projection enabled. Drag to pan and scroll to zoom.');
     },

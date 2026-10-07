@@ -7,12 +7,12 @@ Copyright (c) vis.gl contributors
 # Experimental projected basemaps
 
 The optional `@vis.gl/tangram-layers/experimental/projected-basemaps` entry renders
-flat Tangram polygons and raster meshes in deck.gl's `OrthographicView`. Workers
+flat Tangram polygons, raster meshes and fixed-meter road ribbons in deck.gl's `OrthographicView`. Workers
 subdivide the packed tile geometry and project it with math.gl before transferring
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
 Try the [projected basemap example](/examples/deck-projected).
-It defaults to NASA GIBS Blue Marble raster imagery, with OpenFreeMap vector polygons as an alternative.
+It defaults to NASA GIBS Blue Marble raster imagery, with OpenFreeMap vector polygons and roads as an alternative.
 The raster source uses the documented [GIBS Web Mercator tile service](https://nasa-gibs.github.io/gibs-api-docs/map-library-usage/),
 with visible imagery credit; it does not preload the community-funded OSM raster server.
 
@@ -86,6 +86,9 @@ ordered west/south/east/north rectangle in a single world; latitude cannot excee
 meridian in this preview. Albers cannot request coverage outside the region above.
 Both Mercator variants retain this tile latitude limit rather than extending to the poles.
 Source tiles remain EPSG:3857; `mercator` changes output geometry, not the source grid.
+The example uses zoom 2 for Blue Marble and zoom 4 for OpenFreeMap, whose
+transportation layer starts at zoom 4. Its full-world vector footprint therefore
+loads up to 256 source tiles, retained across projection changes.
 
 `getProjectedViewFrame(viewport, {projection, visibleBounds, tileZoom})` exposes the
 adapter for custom hosts. Its `HostFrame` uses `projection.type: 'projected'` with
@@ -95,9 +98,9 @@ as EPSG:3857 meters or use the Mercator/globe surface helpers. The scene's
 
 ## Supported scenes and resource limits
 
-Use self-contained inline scenes and unlit ground `polygons` or `raster` styles.
+Use self-contained inline scenes and unlit ground `polygons`, `raster` or `lines` styles.
 The scene helper rejects imports, mixins, shader injection, extrusion, elevation,
-interactive feature draws, lines, points and text. Unsupported features fail
+interactive feature draws, points and text. Unsupported features fail
 explicitly rather than rendering partly in the wrong coordinate system.
 
 The worker keeps original packed positions, UVs, ordering and feature IDs in
@@ -111,9 +114,26 @@ queue drains. Restore a valid budget and request the projection again to rebuild
 even restoring the previous options retries after a failed update. Other queued
 updates remain usable, and late failed batches release their texture references.
 
+## Fixed-meter roads
+
+Line draws require an explicit positive width, either a number (Tangram's default
+meter unit) or a meter string such as `width: '5000m'`. Style-level draw defaults
+may supply that width. Standard butt/square/round caps and miter/bevel/round joins
+use Tangram's existing ribbon builder. Workers expand each corner using its packed
+extrusion vector, compensate for source overzoom, refine the expanded triangles,
+and project the resulting ground surface. The shader consumes those projected
+corners without applying extrusion again.
+
+Widths are measured in the source EPSG:3857 plane, not screen pixels or true
+geodesic distance. They distort with the rest of the map and grow on screen when
+the orthographic camera zooms in. The overview example deliberately exaggerates
+road widths to 150,000 meters; it is not a street-scale styling recommendation.
+Offsets, outlines, pixel widths, zoom-stop/function widths, textures, dashes,
+shader injection and animated traffic are deliberately rejected in this entry.
+Existing geographic-view roads retain their current dynamic styling and animation.
+
 ## Next steps
 
-Roads need their own projected stroke/extrusion contract so widths and joins stay
-correct under distortion. Labels, picking, lighting, height, camera-dependent LOD,
+Screen-space strokes need a separate projection-aware width contract. Labels, picking, lighting, height, camera-dependent LOD,
 projection morphing and general seam management are not implemented by this entry.
 Existing Mercator, GlobeView and FirstPersonView integrations remain unchanged.

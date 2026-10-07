@@ -71,11 +71,15 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
     const styles = readRecord(scene.styles ?? {}, 'styles');
     for (const value of Object.values(styles)) {
         const style = readRecord(value, 'style');
-        if (!['polygons', 'raster'].includes(String(style.base)) || style.mix !== undefined ||
+        if (!['polygons', 'raster', 'lines'].includes(String(style.base)) || style.mix !== undefined ||
             style.shaders !== undefined || (style.lighting !== undefined && style.lighting !== false)) {
-            throw new Error('Projected styles require an unlit polygons/raster base without mixins or shaders');
+            throw new Error('Projected styles require an unlit polygons/raster/lines base without mixins or shaders');
         }
         if (style.draw !== undefined) validateFlatDraw(readRecord(style.draw, 'style draw defaults'));
+        if (style.base === 'lines') {
+            validateRoadDraw(style, false);
+            if (style.draw !== undefined) validateRoadDraw(readRecord(style.draw, 'style draw defaults'), false);
+        }
     }
     for (const layer of Object.values(readRecord(scene.layers ?? {}, 'layers'))) {
         validateProjectedDraws(readRecord(layer, 'root layer'), styles);
@@ -92,21 +96,30 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
 }
 
 /** Reject unsupported authored features before any worker starts or a partial map can appear. */
-function validateProjectedDraws(node: Record<string, unknown>, styles: Record<string, unknown>): void {
+function validateProjectedDraws(node: Record<string, unknown>, styles: Record<string, unknown>,
+    inheritedDraws: Record<string, Record<string, unknown>> = {}): void {
+    const effectiveDraws = {...inheritedDraws};
     if (node.draw !== undefined) {
         for (const [name, value] of Object.entries(readRecord(node.draw, 'draw'))) {
-            const draw = readRecord(value, 'draw style');
-            if (!(name === 'polygons' || name === 'raster' || name in styles)) {
+            const draw = {...effectiveDraws[name], ...readRecord(value, 'draw style')};
+            effectiveDraws[name] = draw;
+            const styleName = String(draw.style ?? name);
+            const style = styleName in styles ? readRecord(styles[styleName], 'draw style definition') : {base: styleName};
+            if (!['polygons', 'raster', 'lines'].includes(String(style.base))) {
                 throw new Error('Projected basemaps currently support only flat, noninteractive polygon and raster draws');
             }
             validateFlatDraw(draw);
+            if (style.base === 'lines') {
+                const defaults = style.draw === undefined ? {} : readRecord(style.draw, 'style draw defaults');
+                validateRoadDraw({...defaults, ...draw}, true);
+            }
         }
     }
     for (const [key, value] of Object.entries(node)) {
         // Match Tangram layer parsing: configuration records are not child layers.
         if (!['filter', 'draw', 'visible', 'enabled', 'data', 'exclusive', 'priority'].includes(key) &&
             value && typeof value === 'object' && !Array.isArray(value)) {
-            validateProjectedDraws(readRecord(value, 'layer'), styles);
+            validateProjectedDraws(readRecord(value, 'layer'), styles, effectiveDraws);
         }
     }
 }
@@ -122,6 +135,19 @@ function validateFlatDraw(draw: Record<string, unknown>): void {
 function readRecord(value: unknown, label: string): Record<string, unknown> {
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`Projected ${label} must be an object`);
     return Object.fromEntries(Object.entries(value));
+}
+
+/** Initial ribbons use explicit EPSG:3857 meter widths, not screen-pixel or zoom-dependent widths. */
+function validateRoadDraw(draw: Record<string, unknown>, requireWidth: boolean): void {
+    if (['offset', 'next_width', 'next_offset', 'outline', 'texture', 'dash', 'animated'].some(key => draw[key] !== undefined)) {
+        throw new Error('Projected roads require fixed-meter ground ribbons without offsets, outlines, textures or animation');
+    }
+    if (draw.width !== undefined || requireWidth) {
+        const width = typeof draw.width === 'number' ? draw.width :
+            typeof draw.width === 'string' && /^\s*(?:\d+(?:\.\d*)?|\.\d+)\s*m\s*$/.test(draw.width) ?
+                Number.parseFloat(draw.width) : NaN;
+        if (!Number.isFinite(width) || width <= 0) throw new Error('Projected roads require an explicit positive fixed-meter width');
+    }
 }
 
 /** Opt-in deck.gl basemap layer; the ordinary package root still uses its existing view adapters. */

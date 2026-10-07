@@ -37,13 +37,13 @@ Copyright (c) vis.gl contributors
           <select id="projection"><option value="equal-earth">Equal Earth</option><option value="albers">Albers — North America</option><option value="equirectangular">Equirectangular</option><option value="mercator">Mercator — WGS84 (EPSG:3395)</option><option value="web-mercator">Web Mercator (EPSG:3857)</option></select>
         </label>
         <label class="control"><span>Basemap</span>
-          <select id="basemap"><option value="raster" selected>NASA Blue Marble</option><option value="vector">OpenFreeMap polygons</option></select>
+          <select id="basemap"><option value="raster" selected>NASA Blue Marble</option><option value="vector">OpenFreeMap polygons + roads</option></select>
         </label>
         <p class="hint">Drag to pan; scroll or pinch to zoom. Projection changes reuse loaded tiles.</p>
         </section>
         <section data-example-tab-panel="about" hidden>
           <p class="example-description">math.gl CPU projection in Tangram workers; deck.gl OrthographicView controls the camera.</p>
-          <p class="hint">Flat ground only: roads, labels, elevations and feature picking are deferred. Blue Marble is overview imagery, not street-level photography.</p>
+          <p class="hint">Ground polygons and fixed-meter road ribbons. OpenFreeMap loads zoom 4 because roads are absent from lower zooms; Blue Marble uses zoom 2. Road widths are exaggerated for overview visibility; screen-pixel strokes, labels, elevations and picking are deferred. Blue Marble is overview imagery, not street-level photography.</p>
         </section>
       </aside>
       <nav class="canvas-toolbar" aria-label="Canvas controls"><div class="canvas-device-tabs" role="tablist" aria-label="Rendering device"><button data-device="webgl" role="tab">WebGL 2</button><button data-device="webgpu" role="tab">WebGPU</button></div><button class="canvas-fullscreen" id="fullscreen" aria-label="Toggle fullscreen">⛶</button></nav>

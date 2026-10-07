@@ -24,6 +24,8 @@ export type GlobeMeshOptions = {
     maxAngularSpan?: number;
     /** Maximum additional vertices; additional triangles are limited to twice this budget. */
     maxAdditionalVertices?: number;
+    /** Optional expanded tile-space position for packed ribbons; never changes the preserved attributes. */
+    getPosition?: (vertex: DataView) => [number, number];
 };
 
 const INTERPOLATED_ATTRIBUTES = new Set([
@@ -72,7 +74,8 @@ export function refineGlobeMesh(
         const record = vertices.subarray(index * layout.stride, (index + 1) * layout.stride);
         records.push(record);
         const view = new DataView(record.buffer, record.byteOffset, record.byteLength);
-        const point: [number, number] = [readComponent(view, position, 0), readComponent(view, position, 1)];
+        const point: [number, number] = options.getPosition ? options.getPosition(view) :
+            [readComponent(view, position, 0), readComponent(view, position, 1)];
         if (!point.every(Number.isFinite)) {
             throw new Error('Globe mesh: nonfinite position');
         }
@@ -120,7 +123,8 @@ export function refineGlobeMesh(
         }
         const midpoint = records.length;
         records.push(record);
-        positions.push([readComponent(outputView, position, 0), readComponent(outputView, position, 1)]);
+        positions.push(options.getPosition ? options.getPosition(outputView) :
+            [readComponent(outputView, position, 0), readComponent(outputView, position, 1)]);
         midpoints.set(key, midpoint);
         return midpoint;
     };

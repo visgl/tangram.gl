@@ -173,9 +173,9 @@ export var Style = {
                 mesh.vertex_elements = mesh.vertex_data.element_buffer;
                 mesh.vertex_data = mesh.vertex_data.vertex_buffer; // convert from instance to raw typed array
                 if (this.cpu_projection) {
-                    if (!['polygons', 'raster'].includes(this.baseStyle())) throw new Error('CPU projection currently supports only polygon and raster meshes');
+                    if (!['polygons', 'raster', 'lines'].includes(this.baseStyle())) throw new Error('CPU projection currently supports only ground polygon, raster and line meshes');
                     const projected = projectTileMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements,
-                        layout: this.vertexLayoutForMeshVariant(mesh.variant), tile, projection: this.cpu_projection});
+                        layout: this.vertexLayoutForMeshVariant(mesh.variant), tile, geometry: this.baseStyle(), projection: this.cpu_projection});
                     mesh.vertex_data = projected.vertices;
                     mesh.vertex_elements = projected.indices;
                 }
