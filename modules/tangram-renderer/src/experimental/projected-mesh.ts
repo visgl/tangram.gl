@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {ProjectionEngine} from '@math.gl/projection/core';
+import {ProjectionTransform} from '@math.gl/projection/core';
 import {equalEarth} from '@math.gl/projection/projections/eqearth';
 import {albersEqualArea} from '@math.gl/projection/projections/aea';
 import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
@@ -13,7 +13,7 @@ import type {MeshProjectionRequest, MeshProjector, ProjectedBasemapOptions} from
 
 const SPHERE_RADIUS = 6378137;
 const COMMON_SCALE = 256 / SPHERE_RADIUS;
-const transforms = new Map<ProjectedBasemapOptions['type'], ProjectionEngine>();
+const transforms = new Map<ProjectedBasemapOptions['type'], ProjectionTransform>();
 
 /** Project ground degrees to north-positive common coordinates (256 units per sphere radius). */
 export function projectBasemapPosition(position: readonly [number, number], type: ProjectedBasemapOptions['type']): [number, number, number] {
@@ -30,7 +30,7 @@ export function projectBasemapPosition(position: readonly [number, number], type
         // EPSG:3395 uses the WGS84 ellipsoid; EPSG:3857 uses the same major radius as a sphere.
         // Use matching geographic CRS geometry so this is projection, not a datum conversion.
         const geometry = type === 'mercator' ? '+ellps=WGS84' : `+R=${SPHERE_RADIUS}`;
-        transform = new ProjectionEngine({projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator],
+        transform = new ProjectionTransform({projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator],
             from: `+proj=longlat ${geometry}`, to: `${parameters} ${geometry} +units=m`});
         transforms.set(type, transform);
     }
