@@ -6,6 +6,21 @@ Copyright (c) vis.gl contributors
 
 # Upgrade guide
 
+## Development dependency baseline
+
+The development line uses math.gl `5.0.0-alpha.12` and the renderer's optional
+loaders.gl adapters use `5.0.0-alpha.9`. The layer's math.gl peer dependency and
+the standalone and embedded examples use the same math.gl version. These are
+prerelease dependencies; the production YAML and MVT parser selection is unchanged.
+
+The `9.4-release` branch preserves the previous dependency stack. The development
+line still uses deck.gl and luma.gl 9.4 until compatible deck.gl and luma.gl WebXR
+packages are published. Published deck.gl 9.4 depends on luma.gl 9.4; installing
+an independent luma.gl 10 device alongside it is not a supported migration.
+The classic community playground also retains its loaders.gl v4 dependency to
+satisfy the published playground's peer contract. This is separate from the
+renderer's optional v5 adapters.
+
 ## From the legacy Tangram package
 
 The old root package published the renderer as `tangram`. In this integration
