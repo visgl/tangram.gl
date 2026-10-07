@@ -28,7 +28,7 @@ function setStatus(message, error = false) {
   status.dataset.type = error ? 'error' : '';
 }
 
-/** A ground-only OpenMapTiles scene: no silent unprojected lines, labels or building extrusions. */
+/** Ground polygons and fixed-meter road ribbons; no labels or building extrusions. */
 function createScene(raster) {
   if (raster) return createBlueMarbleScene();
   return {
@@ -37,7 +37,10 @@ function createScene(raster) {
     layers: {
       landcover: {data: {source: 'map', layer: 'landcover'}, draw: {polygons: {order: 0, color: '#3b6552'}}},
       landuse: {data: {source: 'map', layer: 'landuse'}, draw: {polygons: {order: 1, color: '#537d63'}}},
-      water: {data: {source: 'map', layer: 'water'}, draw: {polygons: {order: 2, color: '#388ab3'}}}
+      water: {data: {source: 'map', layer: 'water'}, draw: {polygons: {order: 2, color: '#388ab3'}}},
+      roads: {data: {source: 'map', layer: 'transportation'},
+        filter: {class: ['motorway', 'trunk', 'primary']},
+        draw: {lines: {order: 3, color: '#e3bd76', width: '150000m', cap: 'round', join: 'round'}}}
     }
   };
 }

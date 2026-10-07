@@ -10,6 +10,7 @@ import VertexLayout from '../src/gl/vertex_layout';
 import Geo from '../src/utils/geo';
 import {buildPolygonsWGSL} from '../src/styles/polygons/polygons_wgsl';
 import {StyleManager} from '../src/styles/style_manager';
+import {buildLinesWGSL} from '../src/styles/lines/lines_wgsl';
 
 const layout = new VertexLayout([
     {name: 'a_position', size: 4, type: 5122},
@@ -38,6 +39,75 @@ function createRequest(type: ProjectedBasemapOptions['type'], x = 2): MeshProjec
 }
 
 describe('opt-in worker CPU projection', () => {
+    test.each(projections)('%s projects refined ribbon corners, preserving centerlines, widths and ordering', type => {
+        const ribbonLayout = new VertexLayout([
+            {name: 'a_position', size: 4, type: 5122},
+            {name: 'a_extrude', size: 2, type: 5122},
+            {name: 'a_offset', size: 2, type: 5122},
+            {name: 'a_z_and_offset_scale', size: 2, type: 5122},
+            {name: 'a_color', size: 4, type: 5121},
+            {name: 'a_projected_position', size: 3, type: 5126}
+        ]);
+        const coords = {x: 1, y: 1, z: 2};
+        const vertices = new Uint8Array(ribbonLayout.stride * 4);
+        const input = new DataView(vertices.buffer);
+        [[0, 0, 128], [4096, -4096, 128], [4096, -4096, -128], [0, 0, -128]].forEach(([x, y, extrusion], index) => {
+            const offset = index * ribbonLayout.stride;
+            [x, y, 0, 7, extrusion, extrusion].forEach((value, component) => input.setInt16(offset + component * 2, value, true));
+            vertices.set([200, 150, 100, 255], offset + ribbonLayout.offset.a_color);
+        });
+        const before = vertices.slice();
+        const request: MeshProjectionRequest = {vertices, indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
+            layout: ribbonLayout, tile: {coords, min: Geo.metersForTile(coords), overzoom2: 4}, geometry: 'lines', projection: {type}};
+        const result = projectBasemapMesh(request);
+        expect(vertices).toEqual(before);
+        expect(result.vertices.byteLength).toBeGreaterThan(before.byteLength);
+        const neighbor = vertices.slice();
+        const neighborView = new DataView(neighbor.buffer);
+        for (let offset = 0; offset < neighbor.byteLength; offset += ribbonLayout.stride) {
+            neighborView.setInt16(offset, neighborView.getInt16(offset, true) - 4096, true);
+        }
+        // The same buffered ribbon expressed in the neighboring tile must land
+        // on identical ground corners and refine identically across the seam.
+        const adjacent = projectBasemapMesh({...request, vertices: neighbor, tile: {...request.tile,
+            min: Geo.metersForTile({...coords, x: 2})}});
+        expect(adjacent.indices).toEqual(result.indices);
+        const adjacentView = new DataView(adjacent.vertices.buffer);
+        const output = new DataView(result.vertices.buffer);
+        for (let offset = 0; offset < output.byteLength; offset += ribbonLayout.stride) {
+            const x = output.getInt16(offset, true) + output.getInt16(offset + ribbonLayout.offset.a_extrude, true) / 4;
+            const y = output.getInt16(offset + 2, true) + output.getInt16(offset + ribbonLayout.offset.a_extrude + 2, true) / 4;
+            const geographic = Geo.metersToLatLng([request.tile.min.x + x / Geo.unitsPerMeter(2),
+                request.tile.min.y + y / Geo.unitsPerMeter(2)]);
+            const expected = projectBasemapPosition([geographic[0], geographic[1]], type);
+            expected.forEach((value, component) => expect(output.getFloat32(offset + ribbonLayout.offset.a_projected_position + component * 4, true)).toBeCloseTo(value, 4));
+            expected.forEach((value, component) => expect(adjacentView.getFloat32(offset + ribbonLayout.offset.a_projected_position + component * 4, true)).toBeCloseTo(value, 4));
+            expect(output.getInt16(offset + 6, true)).toBe(7);
+        }
+        // Original packed centerline/extrusion attributes stay at their original indices.
+        for (let index = 0; index < 4; index++) expect(result.vertices.subarray(index * ribbonLayout.stride,
+            index * ribbonLayout.stride + ribbonLayout.offset.a_projected_position))
+            .toEqual(before.subarray(index * ribbonLayout.stride, index * ribbonLayout.stride + ribbonLayout.offset.a_projected_position));
+        expect(() => projectBasemapMesh({...request, tile: {...request.tile, overzoom2: NaN}})).toThrow('overzoom');
+        expect(() => projectBasemapMesh({...request, projection: {type, maxAdditionalVertices: 0}})).toThrow('budget');
+        input.setInt16(ribbonLayout.offset.a_z_and_offset_scale, 1, true);
+        expect(() => projectBasemapMesh(request)).toThrow('ground ribbons');
+    });
+
+    test('only opt-in line shaders consume CPU-projected positions and WebGPU clip depth', () => {
+        const shader = buildLinesWGSL({cpuProjection: true});
+        expect(shader).toContain('@location(6) a_projected_position');
+        expect(shader).toContain('vec4<f32>(attributes.a_projected_position, 1.0)');
+        expect(shader).toContain('clip_position.z = (clip_position.z + clip_position.w) * 0.5;');
+        expect(buildLinesWGSL()).not.toContain('a_projected_position');
+        const manager = new StyleManager();
+        manager.build({});
+        manager.initStyles({config: {scene: {cpu_projection: {type: 'equal-earth'}}}});
+        expect(manager.styles.lines).toMatchObject({defines: {TANGRAM_CPU_PROJECTED: true}});
+        manager.initStyles({config: {scene: {}}});
+        expect(manager.styles.lines).toMatchObject({defines: {TANGRAM_CPU_PROJECTED: false}});
+    });
+
     test.each(projections)('%s refines a mesh, preserves originals and computes every projected vertex', type => {
         const request = createRequest(type);
         const original = request.vertices.slice();

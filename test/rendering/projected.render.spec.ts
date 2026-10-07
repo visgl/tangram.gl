@@ -15,6 +15,7 @@ let harness: RenderingHarness | undefined;
 let deck: Deck<OrthographicView> | undefined;
 /** Dynamic layer factories do not yet emit a public subclass declaration. */
 type FixtureProperties = {scene: Record<string, unknown>; projectedTileZoom: number; onSceneError: (error: Error) => void;
+  projectedVisibleBounds?: readonly [number, number, number, number];
   projectedProjection?: ProjectedBasemapOptions; onProjectionChange?: () => void; onSceneLoad?: (scene: Scene) => void};
 const FixtureLayer = ProjectedBasemapLayer as unknown as new (properties: FixtureProperties & LayerProps) => Layer;
 
@@ -29,6 +30,19 @@ function createPolygonScene() {
   return {scene: {background: {color: '#000000'}}, sources: {fixture: {type: 'GeoJSON',
     url: `data:application/json,${encodeURIComponent(JSON.stringify(fixture))}`, max_zoom: 6}},
   layers: {ground: {data: {source: 'fixture'}, draw: {polygons: {order: 0, color: '#20d0b0'}}}}};
+}
+
+/** Offline bent roads cross source-tile boundaries and exercise all standard caps and joins. */
+function createRoadScene(maximumSourceZoom = 6) {
+  const features = ['round', 'square', 'butt'].map((cap, index) => ({type: 'Feature', properties: {cap}, geometry: {
+    type: 'LineString', coordinates: [[-150, 20 + index * 12], [-95, 35 + index * 8], [-50, 20 + index * 12]]
+  }}));
+  return {scene: {background: {color: '#000000'}}, sources: {roads: {type: 'GeoJSON',
+    url: `data:application/json,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features}))}`,
+    max_zoom: maximumSourceZoom}}, layers: Object.fromEntries(['round', 'square', 'butt'].map((cap, index) => [cap, {
+      data: {source: 'roads'}, filter: {cap}, draw: {lines: {order: 3 + index, width: '180000m',
+        color: '#ff8020', cap, join: ['round', 'bevel', 'miter'][index]}}
+    }]))};
 }
 
 beforeEach(() => commands.startRenderingDiagnostics());
@@ -123,6 +137,50 @@ test.each([false, true])(`${DEVICE_TYPE}: projection switches reuse decoded tile
       .toEqual(statistics.map(value => value.acquisitions));
   }
 });
+
+test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
+  `${DEVICE_TYPE}: projected %s road ribbons render through packaged worker and preserve warm sources`, async type => {
+    harness = new RenderingHarness();
+    await harness.initializeDevice();
+    const errors = harness.errors;
+    const canvas = harness.canvas;
+    let loadedScene: Scene | undefined;
+    let completed = '';
+    // Force style zoom 2 over data zoom 1 to check packed extrusion overzoom.
+    const scene = createProjectedBasemapScene(createRoadScene(1), {type},
+      new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+    const createLayer = (projection: ProjectedBasemapOptions['type']) => new FixtureLayer({id: 'projected-road-fixture',
+      scene, projectedTileZoom: 2, projectedProjection: {type: projection},
+      projectedVisibleBounds: [-170, 5, -40, 75],
+      onSceneLoad: value => {loadedScene = value;}, onProjectionChange: () => {completed = projection;},
+      onSceneError: error => errors.push(error.message)});
+    deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
+      views: new OrthographicView({id: 'projected', flipY: false}),
+      initialViewState: {target: [0, 0, 0], zoom: type === 'albers' ? -1 : -2},
+      onError: error => {errors.push(error.message);}, _animate: true, layers: [createLayer(type)]});
+    const waitForRoads = async () => {
+      await expect.poll(async () => {
+        expect(errors).toEqual([]);
+        const pixels = await readCanvasPixels(canvas);
+        let orange = 0;
+        for (let offset = 0; offset < pixels.data.length; offset += 4) {
+          if (pixels.data[offset] > 150 && pixels.data[offset + 1] > 70 && pixels.data[offset + 1] < 170 && pixels.data[offset + 2] < 70) orange++;
+        }
+        return orange;
+      }, {timeout: 20000, interval: 100}).toBeGreaterThan(50);
+    };
+    await waitForRoads();
+    await expect.poll(() => completed).toBe(type);
+    if (!loadedScene) throw new Error('Road scene did not load');
+    const firstScene = loadedScene;
+    const acquisitions = (await firstScene.getTileSourceStatistics()).map(value => value.acquisitions);
+    const next = type === 'equal-earth' ? 'web-mercator' : 'equal-earth';
+    deck.setProps({layers: [createLayer(next)]});
+    await expect.poll(() => completed, {timeout: 20000}).toBe(next);
+    await waitForRoads();
+    expect(loadedScene).toBe(firstScene);
+    expect((await firstScene.getTileSourceStatistics()).map(value => value.acquisitions)).toEqual(acquisitions);
+  });
 
 test(`${DEVICE_TYPE}: a worker refinement failure rejects and a queued projection correction renders`, async () => {
   harness = new RenderingHarness();

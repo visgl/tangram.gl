@@ -26,13 +26,15 @@ const ATTRIBUTE_SCALE = 1024;
  * @param {boolean} options.animated Enables the portable traffic vehicles.
  * @returns {string} Complete WGSL source for the line style.
  */
-export function buildLinesWGSL({ animated = false, lighting, lightCount }: {
+export function buildLinesWGSL({ animated = false, lighting, lightCount, cpuProjection = false }: {
     /** Enable the existing portable traffic animation. */
     animated?: boolean;
     /** Opt into constant-material surface lighting. */
     lighting?: 'vertex' | 'fragment' | false;
     /** Active scene light count, used to specialize shader compilation. */
     lightCount?: number;
+    /** Use worker-projected fixed-meter ribbons; normal line shaders retain dynamic extrusion. */
+    cpuProjection?: boolean;
 } = {}) {
     const configured = lighting === 'vertex' || lighting === 'fragment';
     const animated_fragment = animated ? `
@@ -91,6 +93,7 @@ struct LineAttributes {
     @location(3) a_z_and_offset_scale: vec2<i32>,
     @location(4) a_texcoord: vec2<f32>,
     @location(5) a_color: vec4<f32>,
+    ${cpuProjection ? '@location(6) a_projected_position: vec3<f32>,' : ''}
 };
 
 struct LineVaryings {
@@ -138,11 +141,12 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
         f32(attributes.a_z_and_offset_scale.x) / ${Geo.height_scale}.0,
         1.0
     );
-    let eye_position = tangramModelView(local_position);
+    let eye_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};
     var clip_position = TangramCamera.u_projection * eye_position;
+    ${cpuProjection ? 'clip_position.z = (clip_position.z + clip_position.w) * 0.5;' : ''}
     let layer = f32(attributes.a_position.w) +
         TangramTile.u_tile_proxy_order_offset + 1.0;
-    clip_position.z -= layer * ${LAYER_DELTA} * clip_position.w;
+    clip_position.z -= layer * ${cpuProjection ? LAYER_DELTA * 0.5 : LAYER_DELTA} * clip_position.w;
 
     output.position = clip_position;
     output.tile_position = local_position.xy;
