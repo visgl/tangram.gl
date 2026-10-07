@@ -56,7 +56,7 @@ export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
 export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
-    TangramPositionalLightExtensions, TangramLightColor} from './lights/light-definitions';
+    TangramPositionalLightExtensions, TangramLightColor, NormalizedTangramLight} from './lights/light-definitions';
 export type {Light as LumaLight} from '@luma.gl/shadertools';
 export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
 

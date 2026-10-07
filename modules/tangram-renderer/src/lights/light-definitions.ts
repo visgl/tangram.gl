@@ -52,6 +52,15 @@ export type TangramSpotLight = SpotLight & TangramPositionalLightExtensions & {
 /** Every native luma.gl Light is assignable; all Tangram additions are optional. */
 export type TangramLight = TangramAmbientLight | TangramDirectionalLight | TangramPointLight | TangramSpotLight;
 
+/** Native descriptors after defaults, vectors, attenuation and spot cones have been validated. */
+export type NormalizedTangramLight = (
+    Omit<TangramAmbientLight, 'color' | 'intensity'> | Omit<TangramDirectionalLight, 'color' | 'intensity'> |
+    (Omit<TangramPointLight, 'color' | 'intensity' | 'attenuation'> & {attenuation: Triple}) |
+    (Omit<TangramSpotLight, 'color' | 'intensity' | 'attenuation' | 'innerConeAngle' | 'outerConeAngle'> & {
+        attenuation: Triple; innerConeAngle: number; outerConeAngle: number
+    })
+) & {color: Triple; intensity: number};
+
 /** Resolved Tangram light values, after color, unit and camera conversion. */
 export interface ResolvedTangramLight {
     /** Tangram's spotlight discriminator differs from luma.gl's `spot`. */
@@ -97,7 +106,7 @@ export interface LumaLightConfig {
     /** Linear specular RGB. */
     specular: TangramLightColor;
     /** Independent copy of the native light, used for native falloff and coordinates. */
-    lumaLight: TangramLight;
+    lumaLight: NormalizedTangramLight;
     /** Native common space by default, or an explicitly selected legacy position interpretation. */
     origin: 'luma' | 'world' | 'ground' | 'camera';
     /** Native projected position. */
@@ -113,7 +122,11 @@ export interface LumaLightConfig {
 }
 
 /** Convert resolved Tangram data without pretending legacy falloff or separate colors are equivalent. */
-export function mapTangramLight(resolved: ResolvedTangramLight): TangramLightMapping {
+export function mapTangramLight(resolved: Omit<ResolvedTangramLight, 'ambient' | 'diffuse' | 'specular'> & {
+    ambient: readonly number[];
+    diffuse: readonly number[];
+    specular: readonly number[];
+}): TangramLightMapping {
     const tangram: ResolvedTangramLight = {
         ...resolved,
         ambient: copyTriple(resolved.ambient),
@@ -214,7 +227,8 @@ export function convertLumaLight(input: TangramLight): LumaLightConfig {
         ambient: lumaLight.ambient ?? (lumaLight.type === 'ambient' ? contribution : [0, 0, 0]),
         diffuse: lumaLight.diffuse ?? (lumaLight.type === 'ambient' ? [0, 0, 0] : contribution),
         specular: lumaLight.specular ?? (lumaLight.type === 'ambient' ? [0, 0, 0] : contribution),
-        origin: 'origin' in lumaLight ? lumaLight.origin ?? 'luma' : 'luma', lumaLight,
+        // All required defaults and vector validation above have completed for this discriminator.
+        origin: 'origin' in lumaLight ? lumaLight.origin ?? 'luma' : 'luma', lumaLight: lumaLight as NormalizedTangramLight,
         ...('position' in lumaLight ? {position: copyTriple(lumaLight.position)} : {}),
         ...('direction' in lumaLight ? {direction: copyTriple(lumaLight.direction)} : {}),
         ...('attenuationExponent' in lumaLight ? {attenuation: lumaLight.attenuationExponent} : {}),

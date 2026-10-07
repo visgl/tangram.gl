@@ -4,7 +4,6 @@
   "modules/tangram-renderer/src/gl/shader_program.ts": 1,
   "modules/tangram-renderer/src/gl/texture.ts": 1,
   "modules/tangram-renderer/src/gl/vbo_mesh.ts": 1,
-  "modules/tangram-renderer/src/lights/light.ts": 1,
   "modules/tangram-renderer/src/scene/scene.ts": 1,
   "modules/tangram-renderer/src/scene/scene_worker.ts": 1,
   "modules/tangram-renderer/src/styles/lines/lines.ts": 1,

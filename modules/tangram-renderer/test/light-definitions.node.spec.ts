@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {describe, expect, test} from 'vitest';
+import {describe, expect, expectTypeOf, test} from 'vitest';
 import {lighting} from '@luma.gl/shadertools';
 import type {Light as LumaLight} from '@luma.gl/shadertools';
 import {convertLumaLight, mapTangramLight, normalizeSceneLights} from '../src/lights/light-definitions';
-import type {ResolvedTangramLight, TangramPointLight, TangramSpotLight} from '../src/lights/light-definitions';
+import type {ResolvedTangramLight, TangramLight, TangramPointLight, TangramSpotLight} from '../src/lights/light-definitions';
 import {TangramStyleSheetSchema} from '../src/styles/style-schema';
 
 const nativeLights: LumaLight[] = [
@@ -18,6 +18,21 @@ const nativeLights: LumaLight[] = [
 ];
 
 describe('native luma.gl light conversion', () => {
+    test('normalized descriptors expose validated defaults through their discriminants', () => {
+        const point = convertLumaLight({type: 'point', position: [1, 2, 3]}).lumaLight;
+        expectTypeOf(point.color).toEqualTypeOf<readonly [number, number, number]>();
+        expectTypeOf(point.intensity).toEqualTypeOf<number>();
+        if (point.type !== 'point') throw new Error('Expected point light');
+        expectTypeOf(point.attenuation).toEqualTypeOf<readonly [number, number, number]>();
+        expect(point).toMatchObject({color: [0, 0, 0], intensity: 1, attenuation: [1, 0, 0]});
+        const spot = convertLumaLight({type: 'spot', position: [0, 0, 1], direction: [0, 0, -1]}).lumaLight;
+        if (spot.type !== 'spot') throw new Error('Expected spotlight');
+        expectTypeOf(spot.innerConeAngle).toEqualTypeOf<number>();
+        expectTypeOf(spot.outerConeAngle).toEqualTypeOf<number>();
+        expect(spot).toMatchObject({innerConeAngle: 0, outerConeAngle: Math.PI / 4});
+        expectTypeOf<Parameters<typeof convertLumaLight>[0]>().toEqualTypeOf<TangramLight>();
+        expect(() => Reflect.apply(convertLumaLight, undefined, [undefined])).toThrow();
+    });
     test.each(nativeLights)('$type uses the same color/intensity convention as the actual luma module', input => {
         const converted = convertLumaLight(input);
         const uniforms = lighting.getUniforms({lights: [input]});
@@ -109,6 +124,15 @@ describe('native luma.gl light conversion', () => {
 describe('resolved Tangram definitions map to luma.gl without losing legacy semantics', () => {
     const base: ResolvedTangramLight = {type: 'ambient', ambient: [0.2, 0.3, 0.4],
         diffuse: [0.5, 0.6, 0.7], specular: [0.8, 0.9, 1]};
+
+    test('accepts runtime color arrays but still validates exact finite triples', () => {
+        const colors: number[] = [0.1, 0.2, 0.3];
+        const mapping = mapTangramLight({...base, ambient: colors});
+        expect(mapping.tangram.ambient).toEqual(colors);
+        expect(mapping.tangram.ambient).not.toBe(colors);
+        expect(() => mapTangramLight({...base, ambient: [0.1, 0.2]})).toThrow();
+        expect(() => mapTangramLight({...base, ambient: [0.1, NaN, 0.3]})).toThrow();
+    });
 
     test.each(['ambient', 'directional', 'point', 'spotlight'] as const)('%s retains exact shading extensions', type => {
         const resolved: ResolvedTangramLight = {...base, type, position: [1, 2, 3], direction: [0, 0, -1],
