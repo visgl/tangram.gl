@@ -10,6 +10,8 @@ import type {RendererOptions, RenderOptions, SceneDefinition, SceneListeners, Sc
 import type {TangramLightMapping} from '../lights/light-definitions';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
 import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
+import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
+import type {ProjectedBasemapOptions} from '../procedures/mesh-projector';
 
 
 interface FrameOptions {renderViewId?: string}
@@ -26,6 +28,8 @@ interface RendererScene {
     host_animation_time: number | null;
     subscribe(listeners: SceneListeners): unknown;
     load(config: SceneDefinition | null, options: SceneLoadOptions): unknown;
+    /** Rebuild styled meshes without replacing source procedures or worker ownership. */
+    rebuild(options: {preserveTileCache: boolean}): Promise<unknown>;
     /** Retrieves current source and TileJSON provider credits for the host UI. */
     getAttributions(): Promise<string[]>;
     /** Normalized source capabilities, including worker-owned archive metadata. */
@@ -58,6 +62,10 @@ export default class Renderer {
     active_render_view_id: string | null;
     private animationFrame: unknown = null;
     private readonly submittedViews = new Set<string>();
+    /** Serialize projection rebuilds so rapid selector changes cannot publish stale meshes last. */
+    private projectionUpdate: Promise<void> = Promise.resolve();
+    /** Prevent queued mesh updates from acting on a released scene. */
+    private destroyed = false;
 
     constructor(config: SceneDefinition, options: RendererOptions = {}) {
         validateConcurrentTileLoads(options.maxConcurrentTileLoadsPerWorker);
@@ -84,6 +92,29 @@ export default class Renderer {
 
     load(config: SceneDefinition | null = null, options: SceneLoadOptions = {}): unknown {
         return this.scene.load(config, options);
+    }
+
+    /** Reproject loaded ground meshes while retaining the workers, decoded tiles and source definitions. */
+    setProjectedBasemapProjection(value: ProjectedBasemapOptions): Promise<void> {
+        const projection = normalizeProjectedBasemapOptions(value);
+        const update = this.projectionUpdate.then(async () => {
+            if (this.destroyed) throw new Error('Cannot update a destroyed renderer');
+            const settings = this.scene.config?.scene;
+            if (!settings?.cpu_projection) throw new Error('Projection updates require a loaded CPU-projected scene');
+            const previous = normalizeProjectedBasemapOptions(settings.cpu_projection);
+            if (JSON.stringify(previous) === JSON.stringify(projection)) return;
+            settings.cpu_projection = projection;
+            try {
+                await this.scene.rebuild({preserveTileCache: true});
+                if (!this.destroyed) this.scene.requestRedraw();
+            } catch (error) {
+                settings.cpu_projection = previous;
+                throw error;
+            }
+        });
+        // A failed update must not poison later corrections.
+        this.projectionUpdate = update.catch(() => {});
+        return update;
     }
 
     /** Returns source credits without coupling the renderer to DOM, deck.gl or Leaflet controls. */
@@ -180,6 +211,7 @@ export default class Renderer {
     }
 
     destroy() {
+        this.destroyed = true;
         try {
             return this.scene.destroy();
         }

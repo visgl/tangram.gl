@@ -7,7 +7,8 @@ import {PathLayer, ScatterplotLayer} from '@deck.gl/layers';
 import {webgpuAdapter} from 'https://esm.sh/@luma.gl/webgpu@9.4.0?bundle&external=@luma.gl/core';
 import {TangramLayer} from '@vis.gl/tangram-layers';
 import {resolveDeckExampleViewMode} from './app-loader.js';
-import {CARTO_ATTRIBUTION, getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
+import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
+import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 
 export function initializeDeckExample({
@@ -45,9 +46,9 @@ export function initializeDeckExample({
       scene: createVectorScene({labels: enablePortableText}),
       deviceTypes: ['webgl', 'webgpu']
     },
-    positronRaster: {
-      label: 'Positron raster tiles',
-      scene: createRasterScene('https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'),
+    blueMarbleRaster: {
+      label: 'NASA Blue Marble imagery',
+      scene: createBlueMarbleScene(),
       deviceTypes: ['webgl', 'webgpu']
     },
     tron: {
@@ -269,7 +270,7 @@ export function initializeDeckExample({
     const isTron = basemapId === 'tron' || basemapId === 'tronNextzen';
     const usesNextzen = basemapId === 'tronNextzen';
     updateAttribution(attributionElement, getConfiguredAttributions(basemap.scene));
-    if (providerSelect) providerSelect.disabled = usesNextzen || basemapId === 'positronRaster';
+    if (providerSelect) providerSelect.disabled = usesNextzen || basemapId === 'blueMarbleRaster';
     tronSourceLink.hidden = !isTron;
     nextzenKeyForm.hidden = !usesNextzen;
     basemapSelect.disabled = !viewMode.supportsTangram;
@@ -454,27 +455,6 @@ export function initializeDeckExample({
         'error'
       );
     }
-  }
-
-  function createRasterScene(url) {
-    return {
-      sources: {
-        carto: {
-          type: 'Raster',
-          url,
-          attribution: CARTO_ATTRIBUTION,
-          max_zoom: 20
-        }
-      },
-      layers: {
-        basemap: {
-          data: {source: 'carto'},
-          draw: {
-            raster: {order: 0}
-          }
-        }
-      }
-    };
   }
 
   function createVectorScene({labels = true} = {}) {

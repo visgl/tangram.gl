@@ -12,7 +12,7 @@ subdivide the packed tile geometry and project it with math.gl before transferri
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
 Try the [projected basemap example](/examples/deck-projected).
-It offers OpenFreeMap vector polygons and NASA GIBS Blue Marble raster imagery.
+It defaults to NASA GIBS Blue Marble raster imagery, with OpenFreeMap vector polygons as an alternative.
 The raster source uses the documented [GIBS Web Mercator tile service](https://nasa-gibs.github.io/gibs-api-docs/map-library-usage/),
 with visible imagery credit; it does not preload the community-funded OSM raster server.
 
@@ -47,6 +47,18 @@ no worker URL is inferred from an application bundle. Display the tile provider'
 [required attribution](./tile-providers.md) independently of rendering success.
 
 ## Projection and coordinate contract
+
+### Switching projections without reloading tiles
+
+Keep the prepared `scene` object and layer `id` stable, and update
+`projectedProjection: {type: 'albers'}` through `deck.setProps({layers: [...]})`.
+`onProjectionChange(projection)` runs after the worker mesh rebuild finishes.
+Removing the override restores the prepared scene's initial projection.
+The layer calls `renderer.setProjectedBasemapProjection(projection)` without
+replacing the scene, workers, source definitions or decoded tile cache. Raster
+textures are reused too. Only changing basemap sources requires a new scene.
+Geographic footprint changes retain loaded tiles subject to the configured
+cache budgets; new source detail or an expanded footprint may still fetch missing tiles.
 
 | `type` | Projection parameters | Initial coverage |
 | --- | --- | --- |

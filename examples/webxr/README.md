@@ -54,8 +54,9 @@ surface coordinate. Picking uses the last rendered eye and room-placement matric
 It intersects the zero-altitude ground plane or globe sphere, not buildings or terrain;
 the readout does not intercept the existing navigation controls.
 
-The **Vector provider** selector defaults to OpenFreeMap; `?provider=carto`
-selects the CARTO alternative. Sources resolve TileJSON credits and tile URLs
+The **Basemap** selector offers TRON on OpenFreeMap or NASA Blue Marble imagery
+in MapView, GlobeView, FirstPersonView and Thor. CARTO is no longer offered in
+the controls; old `?provider=carto` bookmarks remain compatible. Vector sources resolve TileJSON credits and tile URLs
 from the stable planet endpoint, with data zoom capped at 14. Browser credits
 stay inside the fullscreen container for mono/stereo preview. DOM attribution
 is not visible in an immersive framebuffer; an in-headset credit surface is

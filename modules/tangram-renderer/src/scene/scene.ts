@@ -1178,7 +1178,7 @@ export default class Scene {
     // Rebuild all tiles, without re-parsing the config or re-compiling styles
     // sync: boolean of whether to sync the config object to the worker
     // sources: optional array of data sources to selectively rebuild (by default all our rebuilt)
-    rebuild({ initial = false, new_generation = true, sources = null, serialize_funcs, profile = false, fade_in = false } = {}) {
+    rebuild({ initial = false, new_generation = true, sources = null, serialize_funcs, profile = false, fade_in = false, preserveTileCache = false } = {}) {
         return new Promise((resolve, reject) => {
             // Skip rebuild if already in progress
             if (this.building) {
@@ -1190,7 +1190,7 @@ export default class Scene {
                 }
 
                 // Save queued request
-                let options = { initial, new_generation, sources, serialize_funcs, profile, fade_in };
+                let options = { initial, new_generation, sources, serialize_funcs, profile, fade_in, preserveTileCache };
                 this.building.queued = { resolve, reject, options };
                 log('trace', 'Scene.rebuild(): queuing request');
                 return;
@@ -1219,7 +1219,7 @@ export default class Scene {
             this.resetTime();
 
             // Rebuild visible tiles
-            this.tile_manager.pruneToVisibleTiles();
+            if (!preserveTileCache) this.tile_manager.pruneToVisibleTiles();
             this.tile_manager.forEachTile(tile => {
                 if (!sources || sources.indexOf(tile.source.name) > -1) {
                     this.tile_manager.buildTile(tile, { fade_in });

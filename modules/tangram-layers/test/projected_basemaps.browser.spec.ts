@@ -2,10 +2,50 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {expect, test, vi} from 'vitest';
+import {afterEach, expect, test, vi} from 'vitest';
 import {OrthographicView, WebMercatorViewport} from '@deck.gl/core';
 import {HostFrame} from '@vis.gl/tangram-renderer/core';
 import {createProjectedBasemapScene, getProjectedViewFrame, ProjectedBasemapLayer} from '../src/experimental/projected-basemaps';
+
+afterEach(() => vi.restoreAllMocks());
+
+test('projection-only property updates are deduplicated, restore the authored default and ignore disposed records', async () => {
+    const scene = createProjectedBasemapScene({sources: {}, layers: {}}, {type: 'equal-earth'}, 'https://example.test/projection.js');
+    vi.spyOn(Object.getPrototypeOf(ProjectedBasemapLayer.prototype), 'updateState').mockImplementation(() => {});
+    const onProjectionChange = vi.fn();
+    const layer = new ProjectedBasemapLayer({id: 'warm', scene, onProjectionChange});
+    const record = {sceneSource: scene, owner: layer, disposed: false, loadFailed: false,
+        loadPromise: Promise.resolve(), renderer: {setProjectedBasemapProjection: vi.fn().mockResolvedValue(undefined)}};
+    layer.state = {tangramRecord: record};
+    vi.spyOn(layer, 'setNeedsRedraw').mockImplementation(() => {});
+    layer.updateState({props: {projectedProjection: {type: 'albers'}}});
+    await vi.waitFor(() => expect(onProjectionChange).toHaveBeenCalledOnce());
+    layer.updateState({props: {projectedProjection: {type: 'albers'}}});
+    expect(record.renderer.setProjectedBasemapProjection).toHaveBeenCalledOnce();
+    layer.updateState({props: {}});
+    await vi.waitFor(() => expect(onProjectionChange).toHaveBeenCalledTimes(2));
+    expect(record.renderer.setProjectedBasemapProjection.mock.calls[1][0].type).toBe('equal-earth');
+    record.disposed = true;
+    layer.updateState({props: {projectedProjection: {type: 'mercator'}}});
+    await Promise.resolve();
+    expect(record.renderer.setProjectedBasemapProjection).toHaveBeenCalledTimes(2);
+});
+
+test('failed projection updates report errors and allow a correction without replacing the scene', async () => {
+    const scene = createProjectedBasemapScene({sources: {}, layers: {}}, {type: 'equal-earth'}, 'https://example.test/projection.js');
+    vi.spyOn(Object.getPrototypeOf(ProjectedBasemapLayer.prototype), 'updateState').mockImplementation(() => {});
+    const layer = new ProjectedBasemapLayer({id: 'warm', scene});
+    const record = {sceneSource: scene, owner: layer, disposed: false, loadFailed: false,
+        loadPromise: Promise.resolve(), renderer: {setProjectedBasemapProjection: vi.fn().mockRejectedValueOnce(new Error('build failure'))
+            .mockResolvedValue(undefined)}};
+    layer.state = {tangramRecord: record};
+    const report = vi.spyOn(layer, '_reportSceneError').mockImplementation(() => {});
+    vi.spyOn(layer, 'setNeedsRedraw').mockImplementation(() => {});
+    layer.updateState({props: {projectedProjection: {type: 'mercator'}}});
+    await vi.waitFor(() => expect(report).toHaveBeenCalledOnce());
+    layer.updateState({props: {projectedProjection: {type: 'mercator'}}});
+    await vi.waitFor(() => expect(record.renderer.setProjectedBasemapProjection).toHaveBeenCalledTimes(2));
+});
 
 /** Actual deck.gl OrthographicViewport, not a matrix-shaped mock. */
 function createViewport(target: [number, number, number] = [0, 0, 0], zoom = -1) {
@@ -73,6 +113,14 @@ test('layer filter/data property names are not mistaken for nested draw blocks',
     expect(() => createProjectedBasemapScene({...scene, layers: {ground: {child: {draw: {lines: {order: 0}}}}}},
         {type: 'mercator'}, 'https://example.test/projection.js')).toThrow('flat');
 });
+
+test.each(['filter', 'data', 'draw', 'priority', 'visible', 'enabled', 'exclusive'])(
+    'root layer named %s is validated before loading, even when it resembles an internal configuration key', name => {
+        const scene = {layers: {[name]: {data: {source: 'map'}, draw: {polygons: {order: 0}}}}};
+        expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).not.toThrow();
+        const unsupported = {layers: {[name]: {data: {source: 'map'}, draw: {lines: {order: 0}}}}};
+        expect(() => createProjectedBasemapScene(unsupported, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('flat');
+    });
 
 test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)('the %s layer dispatches the opt-in adapter and reports invalid views', type => {
     const scene = createProjectedBasemapScene({sources: {}, layers: {}}, {type}, 'https://example.test/projection.js');

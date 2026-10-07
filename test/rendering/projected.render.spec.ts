@@ -8,11 +8,14 @@ import {Deck, OrthographicView, type Layer, type LayerProps} from '@deck.gl/core
 import {ProjectedBasemapLayer, createProjectedBasemapScene} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {createRasterScene} from './scene';
+import type Scene from '../../modules/tangram-renderer/src/scene/scene';
+import type {ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
 
 let harness: RenderingHarness | undefined;
 let deck: Deck<OrthographicView> | undefined;
 /** Dynamic layer factories do not yet emit a public subclass declaration. */
-type FixtureProperties = {scene: Record<string, unknown>; projectedTileZoom: number; onSceneError: (error: Error) => void};
+type FixtureProperties = {scene: Record<string, unknown>; projectedTileZoom: number; onSceneError: (error: Error) => void;
+  projectedProjection?: ProjectedBasemapOptions; onProjectionChange?: () => void; onSceneLoad?: (scene: Scene) => void};
 const FixtureLayer = ProjectedBasemapLayer as unknown as new (properties: FixtureProperties & LayerProps) => Layer;
 
 /** Offline continental polygon, including tile boundaries and a hole in the projected surface. */
@@ -76,3 +79,47 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     }, {timeout: 20000, interval: 100}).toBeGreaterThan(500);
   }
 );
+
+test.each([false, true])(`${DEVICE_TYPE}: projection switches reuse decoded tiles and workers (raster=%s)`, async raster => {
+  harness = new RenderingHarness();
+  await harness.initializeDevice();
+  const errors = harness.errors;
+  const canvas = harness.canvas;
+  const scene = createProjectedBasemapScene(raster ? createRasterScene() : createPolygonScene(), {type: 'equal-earth'},
+    new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  let loadedScene: Scene | undefined;
+  let completedProjection = '';
+  let loadCount = 0;
+  const createLayer = (type: ProjectedBasemapOptions['type']) => new FixtureLayer({id: 'warm-projected-fixture',
+    scene, projectedTileZoom: 2, projectedProjection: {type},
+    onSceneLoad: value => {loadedScene = value; loadCount++;},
+    onProjectionChange: () => {completedProjection = type;}, onSceneError: error => errors.push(error.message)});
+  deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
+    views: new OrthographicView({id: 'projected', flipY: false}),
+    initialViewState: {target: [0, 0, 0], zoom: -2},
+    onError: error => {errors.push(error.message);}, _animate: true, layers: [createLayer('equal-earth')]});
+  await expect.poll(async () => {
+    expect(errors).toEqual([]);
+    return coloredPixels(await readCanvasPixels(canvas));
+  }, {timeout: 20000, interval: 100}).toBeGreaterThan(500);
+  await expect.poll(() => completedProjection).toBe('equal-earth');
+  if (!loadedScene) throw new Error('Expected a loaded projected scene');
+  const initialScene = loadedScene;
+  const workers = Reflect.get(initialScene, 'workers');
+  await expect.poll(async () => (await initialScene.getTileSourceStatistics())
+    .reduce((count, value) => count + value.loadingTiles + value.queuedTiles, 0), {timeout: 20000}).toBe(0);
+  const statistics = await initialScene.getTileSourceStatistics();
+  for (const type of ['albers', 'mercator', 'web-mercator', 'equirectangular', 'equal-earth'] as const) {
+    deck.setProps({layers: [createLayer(type)]});
+    await expect.poll(() => completedProjection, {timeout: 20000}).toBe(type);
+    await expect.poll(async () => {
+      expect(errors).toEqual([]);
+      return coloredPixels(await readCanvasPixels(canvas));
+    }, {timeout: 20000, interval: 100}).toBeGreaterThan(500);
+    expect(loadedScene).toBe(initialScene);
+    expect(loadCount).toBe(1);
+    expect(Reflect.get(initialScene, 'workers')).toBe(workers);
+    expect((await initialScene.getTileSourceStatistics()).map(value => value.acquisitions))
+      .toEqual(statistics.map(value => value.acquisitions));
+  }
+});

@@ -17,6 +17,7 @@ export const SCENE_OPTIONS = [
   {label: 'Rainbow Buildings', value: 'styles/rainbow-buildings.yaml'},
   {label: 'Pop-up Buildings', value: 'styles/popup-buildings.yaml'},
   {label: 'Albers projection morph', value: 'styles/projection-morph.yaml'},
+  {label: 'NASA Blue Marble', value: 'styles/nasa-blue-marble.yaml'},
   {label: 'Light vector basemap (OpenFreeMap)', value: 'styles/open-light-vector.yaml'},
   {label: 'Street vector basemap (OpenFreeMap)', value: 'styles/open-streets-vector.yaml'},
   {label: 'Local streets (preview)', value: 'styles/local-basemap.yaml'},
@@ -48,6 +49,7 @@ export const SCENE_DESCRIPTIONS = {
   'styles/rainbow-buildings.yaml': 'Building colors cycle over time and vary with height. Best at street level.',
   'styles/popup-buildings.yaml': 'Buildings rise near the viewport center and flatten toward the edges.',
   'styles/projection-morph.yaml': 'US states morph between Albers and Mercator over a 12-second cycle. No remote tiles required.',
+  'styles/nasa-blue-marble.yaml': 'NASA Earth Observatory Blue Marble imagery from GIBS, best at a regional or world overview.',
   'styles/open-light-vector.yaml': 'A softly colored vector basemap with live OpenFreeMap streets, buildings and labels.',
   'styles/open-streets-vector.yaml': 'A complete street map with live OpenFreeMap vector tiles, labels and landmarks.',
   'styles/local-basemap.yaml': 'Small bundled Manhattan GeoJSON features over a live OpenFreeMap light vector basemap.',
@@ -60,6 +62,7 @@ export function getSceneOverview(scene) {
   if (typeof scene !== 'string') return null;
   const pathname = new URL(scene, 'https://example.invalid/').pathname;
   if (pathname.endsWith('/styles/projection-morph.yaml')) return [4, 39, -96];
+  if (pathname.endsWith('/styles/nasa-blue-marble.yaml')) return [2, 0, 0];
   // These examples have finite geometry or street-level building effects.
   // Restore a useful view when selecting them from the national Albers overview.
   const streetScenes = ['local-basemap.yaml', 'local-tron.yaml', 'crosshatch-preview.yaml',

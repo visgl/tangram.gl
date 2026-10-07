@@ -7,8 +7,24 @@ import {createVectorSource, resolveVectorProvider, OPENFREEMAP_TILEJSON} from '.
 import {updateAttribution} from '../examples/classic/app/attribution.js';
 import {NetworkTileSource} from '../modules/tangram-renderer/src/sources/data_source';
 import Utils from '../modules/tangram-renderer/src/utils/utils';
+import {BLUE_MARBLE_URL, BLUE_MARBLE_ATTRIBUTION, createBlueMarbleScene} from '../examples/classic/app/nasa-basemap.js';
 
 afterEach(() => vi.restoreAllMocks());
+
+test('Blue Marble is a fresh raster scene with GIBS bounds and safe NASA credits instead of vector credits', () => {
+  const first = createBlueMarbleScene();
+  const second = createBlueMarbleScene();
+  expect(first.sources.blueMarble).not.toBe(second.sources.blueMarble);
+  expect(first.sources.blueMarble).toEqual({type: 'Raster', url: BLUE_MARBLE_URL,
+    max_zoom: 8, attribution: BLUE_MARBLE_ATTRIBUTION});
+  expect(first.layers.ground).toEqual({data: {source: 'blueMarble'}, draw: {raster: {order: 0}}});
+  const element = document.createElement('p');
+  updateAttribution(element, [createVectorSource().attribution]);
+  updateAttribution(element, [BLUE_MARBLE_ATTRIBUTION]);
+  expect(element.textContent).toContain('NASA Earth Observatory');
+  expect(element.textContent).not.toContain('OpenStreetMap');
+  expect([...element.querySelectorAll('a')].map(link => link.hostname)).toEqual(['science.nasa.gov', 'nasa-gibs.github.io']);
+});
 
 test.each([undefined, null, '', 'openfreemap', 'unknown'])('provider %s defaults to OpenFreeMap', provider => {
   expect(resolveVectorProvider(provider)).toBe('openfreemap');

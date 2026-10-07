@@ -77,7 +77,9 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
         }
         if (style.draw !== undefined) validateFlatDraw(readRecord(style.draw, 'style draw defaults'));
     }
-    validateProjectedDraws(readRecord(scene.layers ?? {}, 'layers'), styles);
+    for (const layer of Object.values(readRecord(scene.layers ?? {}, 'layers'))) {
+        validateProjectedDraws(readRecord(layer, 'root layer'), styles);
+    }
     const settings = scene.scene;
     if (settings !== undefined && (!settings || typeof settings !== 'object' || Array.isArray(settings))) {
         throw new Error('Projected scene settings must be an object');
@@ -123,13 +125,13 @@ function readRecord(value: unknown, label: string): Record<string, unknown> {
 }
 
 /** Opt-in deck.gl basemap layer; the ordinary package root still uses its existing view adapters. */
-export const ProjectedBasemapLayer = createTangramLayerClass({Layer, ClassicWebGLRenderer: Renderer,
+const BaseProjectedBasemapLayer = createTangramLayerClass({Layer, ClassicWebGLRenderer: Renderer,
     Renderer: undefined}, {
         getFrame(viewport: ProjectedViewport, properties: {scene: unknown; projectedVisibleBounds?: ProjectedViewOptions['visibleBounds'];
-            projectedTileZoom?: number}, dimensions: {width: number; height: number}) {
+            projectedTileZoom?: number; projectedProjection?: ProjectedBasemapOptions}, dimensions: {width: number; height: number}) {
             const scene = readRecord(properties.scene, 'scene');
             const settings = readRecord(scene.scene, 'scene settings');
-            const projection = normalizeProjectedBasemapOptions(settings.cpu_projection);
+            const projection = normalizeProjectedBasemapOptions(properties.projectedProjection ?? settings.cpu_projection);
             return getProjectedViewFrame(viewport, {
                 projection,
                 visibleBounds: properties.projectedVisibleBounds ?? (projection.type === 'albers' ? [-170, 5, -40, 75] :
@@ -138,8 +140,40 @@ export const ProjectedBasemapLayer = createTangramLayerClass({Layer, ClassicWebG
             }, dimensions);
         }
     });
-ProjectedBasemapLayer.layerName = 'ProjectedBasemapLayer';
-ProjectedBasemapLayer.defaultProps = {...ProjectedBasemapLayer.defaultProps,
-    projectedVisibleBounds: null, projectedTileZoom: 2};
+
+/** Opt-in projection changes rebuild meshes on the existing renderer instead of reloading the scene. */
+export class ProjectedBasemapLayer extends BaseProjectedBasemapLayer {
+    /** deck.gl's stable layer identity for state transfer between property updates. */
+    static layerName = 'ProjectedBasemapLayer';
+    /** Optional projection override and completion notification, independent of source scene identity. */
+    static defaultProps = {...BaseProjectedBasemapLayer.defaultProps,
+        projectedVisibleBounds: null, projectedTileZoom: 2, projectedProjection: null,
+        onProjectionChange: {type: 'function', value: () => {}}};
+
+    /** Keep the ordinary scene lifecycle, then queue an opt-in projection-only update after loading. */
+    updateState(parameters: {props: {projectedProjection?: ProjectedBasemapOptions}}): void {
+        super.updateState(parameters);
+        const record = this.state.tangramRecord;
+        if (!record) return;
+        const settings = readRecord(readRecord(record.sceneSource, 'scene').scene, 'scene settings');
+        const projection = normalizeProjectedBasemapOptions(parameters.props.projectedProjection ?? settings.cpu_projection);
+        const key = JSON.stringify(projection);
+        if (record.projectedProjectionKey === key) return;
+        record.projectedProjectionKey = key;
+        Promise.resolve(record.loadPromise).then(async () => {
+            if (record.disposed || record.loadFailed || record.projectedProjectionKey !== key) return;
+            await record.renderer.setProjectedBasemapProjection(projection);
+            if (!record.disposed && record.projectedProjectionKey === key) {
+                record.owner.props.onProjectionChange(projection);
+                record.owner.setNeedsRedraw();
+            }
+        }).catch(error => {
+            if (!record.disposed && record.projectedProjectionKey === key) {
+                record.projectedProjectionKey = null;
+                record.owner._reportSceneError(record, error);
+            }
+        });
+    }
+}
 
 export type {ProjectedBasemapOptions};

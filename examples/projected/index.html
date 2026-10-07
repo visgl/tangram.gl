@@ -10,6 +10,7 @@ Copyright (c) vis.gl contributors
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Experimental projected basemaps</title>
+    <link rel="stylesheet" href="../deck/main.css">
     <link rel="stylesheet" href="./main.css">
     <script type="importmap">
       {"imports": {
@@ -21,22 +22,32 @@ Copyright (c) vis.gl contributors
       }}
     </script>
   </head>
-  <body>
-    <div id="projected-map">
-      <aside>
+  <body class="tangram-deck-standalone">
+    <div id="deck-container">
+      <div id="projected-map"></div>
+      <aside id="controls">
         <h1>Projected basemaps</h1>
-        <p>math.gl CPU projection in Tangram workers; deck.gl OrthographicView controls the camera.</p>
-        <label>Select projection
+        <div class="info-tabs" role="tablist" aria-label="Example information">
+          <button class="is-active" data-example-tab="controls" role="tab" aria-selected="true">Controls</button>
+          <button data-example-tab="about" role="tab" aria-selected="false">About</button>
+        </div>
+        <section data-example-tab-panel="controls">
+        <p id="status" role="status">Loading…</p>
+        <label class="control"><span>Select projection</span>
           <select id="projection"><option value="equal-earth">Equal Earth</option><option value="albers">Albers — North America</option><option value="equirectangular">Equirectangular</option><option value="mercator">Mercator — WGS84 (EPSG:3395)</option><option value="web-mercator">Web Mercator (EPSG:3857)</option></select>
         </label>
-        <label>Basemap
-          <select id="basemap"><option value="vector">OpenFreeMap polygons</option><option value="raster">NASA Blue Marble raster</option></select>
+        <label class="control"><span>Basemap</span>
+          <select id="basemap"><option value="raster" selected>NASA Blue Marble</option><option value="vector">OpenFreeMap polygons</option></select>
         </label>
-        <p id="status" role="status">Loading…</p>
-        <p>Drag to pan; scroll or pinch to zoom. Flat ground only: roads, labels, elevations and feature picking are deferred.</p>
+        <p class="hint">Drag to pan; scroll or pinch to zoom. Projection changes reuse loaded tiles.</p>
+        </section>
+        <section data-example-tab-panel="about" hidden>
+          <p class="example-description">math.gl CPU projection in Tangram workers; deck.gl OrthographicView controls the camera.</p>
+          <p class="hint">Flat ground only: roads, labels, elevations and feature picking are deferred. Blue Marble is overview imagery, not street-level photography.</p>
+        </section>
       </aside>
-      <nav aria-label="Rendering device"><button data-device="webgl">WebGL 2</button><button data-device="webgpu">WebGPU</button><button id="fullscreen" aria-label="Fullscreen">⛶</button></nav>
-      <p id="attribution">© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> | © <a href="https://openmaptiles.org/">OpenMapTiles</a> | <a href="https://openfreemap.org/">OpenFreeMap</a></p>
+      <nav class="canvas-toolbar" aria-label="Canvas controls"><div class="canvas-device-tabs" role="tablist" aria-label="Rendering device"><button data-device="webgl" role="tab">WebGL 2</button><button data-device="webgpu" role="tab">WebGPU</button></div><button class="canvas-fullscreen" id="fullscreen" aria-label="Toggle fullscreen">⛶</button></nav>
+      <p id="attribution"></p>
     </div>
     <script type="module" src="./app.js"></script>
   </body>

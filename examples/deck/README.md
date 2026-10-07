@@ -35,14 +35,14 @@ the vector-backed TRON style. Use the selectors or `?device=webgl` and
 `?basemap=streetsVector` to exercise the compatibility paths.
 
 Vector scenes default to OpenFreeMap's stable TileJSON endpoint. The **Vector
-provider** selector or `?provider=carto` retains CARTO as an explicit alternative.
-Both sources use OpenMapTiles layers, data zooms through 14, and source-driven
-attribution. The Positron raster scene stays on CARTO; the original Nextzen scene
+provider** selector offers OpenFreeMap, with source-driven attribution and data
+zooms through 14. CARTO is no longer offered in the controls; old `?provider=carto`
+bookmarks remain compatible. NASA Blue Marble replaces Positron as the raster option; the original Nextzen scene
 is independent of this selector. Provider selection is preserved when changing
 devices or views; switching providers reloads the page and keeps the chosen style.
 
 The demo can switch between Streets vector tiles, styled locally by
-Tangram, Positron raster tiles, and the canonical animated TRON 2.0
+Tangram, NASA Blue Marble raster tiles, and the canonical animated TRON 2.0
 vector style from [`tangrams/tron-style`](https://github.com/tangrams/tron-style).
 The vector-backed TRON adaptation reuses the original open-source style bundle,
 palette, glow, and animation shaders without requiring an API key. The exact

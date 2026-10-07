@@ -508,6 +508,9 @@ export default class View {
 
     // Remove tiles too far outside of view
     pruneTilesForView () {
+        // A projected footprint is a finite source region, not the geographic camera's rectangle.
+        // Keep its loaded tiles warm across projection switches; configured cache budgets still apply.
+        if (this.projection.type === 'projected') return;
         // TODO: will this function ever be called when view isn't ready?
         if (!this.ready() || !this.center?.meters || this.meters_per_pixel === null ||
             this.size.meters.x === undefined || this.size.meters.y === undefined || this.tile_zoom === undefined) {
