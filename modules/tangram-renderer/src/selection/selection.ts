@@ -101,7 +101,7 @@ export default class FeatureSelection {
         this.gl!.bindFramebuffer(this.gl!.FRAMEBUFFER, this.fbo!);
 
         // Texture for the FBO color attachment
-        var fbo_texture = (Texture as typeof Texture & {
+        var fbo_texture = (Texture as unknown as {
             create(gl: WebGLRenderingContext, name: string, options: {filtering: string}): {
                 texture: WebGLTexture; setData(width: number, height: number, data: null, options: {filtering: string}): void;
             };

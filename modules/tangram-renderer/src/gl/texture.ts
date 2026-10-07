@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Texture management
 // @ts-nocheck
@@ -19,6 +20,16 @@ function isTextureElement(source) {
 
 // GL texture wrapper object for keeping track of a global set of textures, keyed by a unique user-defined name
 export default class Texture {
+    /** Release one mesh-owned reference to a named texture. */
+    declare static release: (name: string) => void;
+    /** Create or replace a named style texture through the existing registry. */
+    declare static create: (context: unknown, name: string, options: Record<string, unknown>) => Texture;
+    /** Placeholder sampler used by untextured mesh variants. */
+    declare static default: string;
+    /** Dimensions available to line styles in either execution thread. */
+    declare static textures: Record<string, {width: number; height: number}>;
+    /** Synchronize named texture dimensions from the main thread to a worker. */
+    declare static syncTexturesToWorker: (names: string[]) => Promise<Record<string, {width: number; height: number}>>;
 
     constructor(gl, name, options = {}) {
         options = Texture.sliceOptions(options); // exclude any non-texture-specific props

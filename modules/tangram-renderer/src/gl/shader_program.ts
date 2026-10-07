@@ -14,6 +14,7 @@ import Texture from './texture';
 import getExtension from './extensions';
 import hashString from '../utils/hash';
 import {notifyGPUResourceDisposal} from '../gpu/resource_lifecycle';
+import type {MeshProgram} from './mesh-types';
 
 import parseShaderErrors from 'gl-shader-errors';
 
@@ -27,6 +28,8 @@ const re_texture_cube = /\btextureCube\b/g;
 const programReferences = new WeakMap<WebGLProgram, number>();
 
 export default class ShaderProgram {
+    /** Program used when a classic mesh draw omits an explicit program. */
+    declare static current: MeshProgram | null;
     /** Linked raw program owned by this wrapper, or null for device compilation. */
     declare program: WebGLProgram | null;
     /** Authored fragment source, before Tangram shader block composition. */

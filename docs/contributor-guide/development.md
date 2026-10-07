@@ -284,6 +284,26 @@ The typing migration preserves legacy behavior, including omitted repeat scales
 in worker snapshots, repeated curved-label bounds, and ignored falsy label-link
 IDs. Changes to those behaviors belong in separately tested fixes.
 
+## Geometry and mesh typing
+
+Line/polygon styles, polyline tessellation, packed vertex buffers, vertex-array
+bindings, and mesh submission are checked without blanket suppressions. The
+internal `builders/geometry-types.ts`, `styles/geometry-style-types.ts`,
+`gl/vertex-types.ts`, and `gl/mesh-types.ts` contracts distinguish authored draw
+values, cached expressions, computed features, and GPU resource descriptors.
+They are not new package exports.
+
+Keep packed component indices separate from byte offsets. Classic WebGL layouts
+can supply constant attributes; portable layouts store shader-required inputs in
+the vertex buffer. Both paths retain their existing packing, triangulation,
+outline ordering, texture interpolation, and mesh disposal behavior. Prototype
+scratch records are filled in stages, and new field declarations must not emit
+properties that shadow inherited state.
+
+The base style lifecycle, shader program, and texture registry
+remain separate checked-migration boundaries. Their small consumed interfaces
+here do not mean those implementations have been fully checked. Typing changes
+must preserve emitted runtime behavior; geometry fixes belong in separate PRs.
 ## Worker messaging and feature selection
 
 The broker and selection lifecycle are checked without blanket TypeScript

@@ -4,13 +4,15 @@
 
 import {describe, expect, test} from 'vitest';
 import {buildPolylines} from '../src/builders/polylines';
+import type {GeometryVertexData, PolylineStyle} from '../src/builders/geometry-types';
 import {
   buildExtrudedPolygons,
   buildPolygons,
   triangulatePolygon
 } from '../src/builders/polygons';
 
-function createVertexData(): any {
+/** Recording sink that retains each template before the builder reuses it. */
+function createVertexData(): GeometryVertexData & {vertices: number[][]; vertex_elements: number[]} {
   return {
     vertex_count: 0,
     vertex_elements: [],
@@ -22,7 +24,13 @@ function createVertexData(): any {
   };
 }
 
-function buildLine(lines: number[][][], style: any = {}, options: any = {}): any {
+/** Build one deterministic polyline fixture through the production sink contract. */
+function buildLine(lines: number[][][], style: Partial<PolylineStyle> = {}, options: {
+  textured?: boolean;
+  closed?: boolean;
+  removeTileEdges?: boolean;
+  tileEdgeTolerance?: number;
+} = {}) {
   const vertexData = createVertexData();
   const vertexTemplate = new Array(10).fill(0);
   const triangles = buildPolylines(
@@ -66,7 +74,7 @@ describe('polyline geometry builder', () => {
     ['square', 'bevel'],
     ['round', 'round'],
     ['butt', 'miter']
-  ])('builds %s caps with %s joins and texture coordinates', (cap, join) => {
+  ] as const)('builds %s caps with %s joins and texture coordinates', (cap, join) => {
     const result = buildLine(
       [[[100, -100], [200, -100], [260, -180], [340, -120]]],
       {cap, join, width: 32, offset: 4},
@@ -124,7 +132,7 @@ describe('polygon geometry builder', () => {
   test('triangulates flat polygons with normalized texture coordinates', () => {
     const vertexData = createVertexData();
     const template = new Array(10).fill(0);
-    const triangles = buildPolygons([polygon as any], vertexData, template, {
+    const triangles = buildPolygons([polygon], vertexData, template, {
       texcoord_index: 3,
       texcoord_scale: [0.25, 0.5, 0.75, 1],
       texcoord_normalize: 65535
@@ -144,7 +152,7 @@ describe('polygon geometry builder', () => {
     const vertexData = createVertexData();
     const template = new Array(12).fill(0);
     const triangles = buildExtrudedPolygons(
-      [polygon as any],
+      [polygon],
       2,
       20,
       5,
@@ -177,7 +185,7 @@ describe('polygon geometry builder', () => {
     ]];
     const vertexData = createVertexData();
     const triangles = buildExtrudedPolygons(
-      [edgePolygon as any],
+      [edgePolygon],
       0,
       10,
       0,

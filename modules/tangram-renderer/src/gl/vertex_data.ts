@@ -6,16 +6,13 @@
 import gl from './constants'; // web workers don't have access to GL context, so import all GL constants
 import log from '../utils/log';
 import VertexElements from './vertex_elements';
+import type {VertexAttribute, AddVertexFunction, VertexBufferViews} from './vertex-types';
 
-type VertexAttribute = {
-    type: number;
-    size: number;
-    static?: number | number[];
-};
 type VertexLayoutLike = {
     stride: number;
+    index: Record<string, number>;
     dynamic_attribs: VertexAttribute[];
-    getAddVertexFunction(): (vertex: number[], views: Record<number, ArrayBufferView>, offset: number) => void;
+    getAddVertexFunction(): AddVertexFunction;
 };
 
 // Maps GL types to JS array types
@@ -44,8 +41,8 @@ export default class VertexData {
     offset: number;
     vertex_count: number;
     realloc_count: number;
-    views!: Record<number, ArrayBufferView>;
-    vertexLayoutAddVertex!: (vertex: number[], views: Record<number, ArrayBufferView>, offset: number) => void;
+    views!: VertexBufferViews;
+    vertexLayoutAddVertex!: AddVertexFunction;
 
     constructor (vertex_layout: VertexLayoutLike, { prealloc = 500 }: {prealloc?: number} = {}) {
         this.vertex_layout = vertex_layout;

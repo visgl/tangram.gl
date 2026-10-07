@@ -5,7 +5,10 @@
 
 // Line rendering style
 
-// @ts-nocheck
+import type {LineStyleRuntime, GeometryFeature, GeometryDraw, RawGeometryDraw, GeometryContext, GeometryMeshVariant, LineFeatureStyle, GeometryBuildMesh, GeometryTile, GeometryTileData, GeometryExtrusion, GeometryOutlineDraw} from '../geometry-style-types';
+import type {GeometryLine, GeometryPolygon, PolylineVertexIndices} from '../../builders/geometry-types';
+import type {PropertyCache} from '../property-types';
+import type UniformBuffer from '../../gl/uniform_buffer';
 
 import log from '../../utils/log';
 import {Style} from '../style';
@@ -25,7 +28,7 @@ import polygons_fs from '../polygons/polygons_fragment.glsl';
 import {buildLinesWGSL} from './lines_wgsl';
 import {GLOBE_PROJECTION_GLSL} from '../../scene/projection_shaders';
 
-export const Lines = Object.create(Style);
+export const Lines: LineStyleRuntime = Object.create(Style);
 
 const DASH_SCALE = 20; // adjustment factor for UV scale to for line dash patterns w/fractional pixel width
 
@@ -36,12 +39,12 @@ Object.assign(Lines, {
     fragment_shader_src: polygons_fs,
     selection: true, // enable feature selection
 
-    getWGSLShaderSource() {
+    getWGSLShaderSource(this: LineStyleRuntime) {
         return buildLinesWGSL({ animated: this.animated === true, lighting: this.portable_lighting_mode,
             lightCount: this.portable_light_count });
     },
 
-    setGL(gl_context, uniform_blocks = {}, options = {}) {
+    setGL(this: LineStyleRuntime, gl_context: unknown, uniform_blocks: Record<string, UniformBuffer> = {}, options = {}) {
         if (Object.prototype.hasOwnProperty.call(this, 'line_uniform_buffer') &&
             this.line_uniform_buffer) {
             this.line_uniform_buffer.destroy();
@@ -71,7 +74,7 @@ Object.assign(Lines, {
         }
     },
 
-    destroy() {
+    destroy(this: LineStyleRuntime) {
         Style.destroy.call(this);
         if (Object.prototype.hasOwnProperty.call(this, 'line_uniform_buffer') &&
             this.line_uniform_buffer) {
@@ -80,8 +83,8 @@ Object.assign(Lines, {
         }
     },
 
-    init() {
-        Style.init.apply(this, arguments);
+    init(this: LineStyleRuntime) {
+        Style.init.apply(this, arguments as unknown as Parameters<typeof Style.init>);
 
         // Tell the shader we want a order in vertex attributes, and to extrude lines
         this.defines.TANGRAM_EXTRUDE_LINES = true;
@@ -90,19 +93,20 @@ Object.assign(Lines, {
         // Additional single-allocated object used for holding outline style as it is processed
         // Separate from this.feature_style so that outline properties do not overwrite calculated
         // inline properties (outline call is made *within* the inline call)
-        this.outline_feature_style = {};
+        // The scratch object is populated by the base parser before geometry is built.
+        this.outline_feature_style = {} as LineFeatureStyle;
         this.inline_feature_style = this.feature_style; // save reference to main computed style object
 
         this.dash_textures = {}; // cache previously rendered line dash pattern textures
     },
 
     // Calculate width or offset at zoom given in `context`
-    calcDistance (prop, context) {
-        return StyleParser.evalCachedDistanceProperty(prop, context) || 0;
+    calcDistance (this: LineStyleRuntime, prop: PropertyCache | null | undefined, context: GeometryContext) {
+        return (StyleParser.evalCachedDistanceProperty(prop, context) as number) || 0;
     },
 
     // Calculate width or offset at next zoom (used for zoom-based interpolation in shader)
-    calcDistanceNextZoom (prop, context) {
+    calcDistanceNextZoom (this: LineStyleRuntime, prop: PropertyCache | null | undefined, context: GeometryContext) {
         context.zoom++;
         let val = this.calcDistance(prop, context);
         context.zoom--;
@@ -110,7 +114,7 @@ Object.assign(Lines, {
     },
 
     // Calculate width at current and next zoom, and scaling factor between
-    calcWidth (draw, style, context) {
+    calcWidth (this: LineStyleRuntime, draw: GeometryDraw, style: LineFeatureStyle, context: GeometryContext) {
         // line width in meters
         let width = this.calcDistance(draw.width, context);
         if (width < 0) {
@@ -164,12 +168,13 @@ Object.assign(Lines, {
     },
 
     // Calculate offset at current and next zoom, and scaling factor between
-    calcOffset (draw, style, context) {
+    calcOffset (this: LineStyleRuntime, draw: GeometryDraw, style: LineFeatureStyle, context: GeometryContext) {
         // Pre-calculated offset passed
         // This happens when a line passes pre-computed offset values to its outline
         if (draw.offset_precalc) {
             style.offset = draw.offset_precalc;
-            style.offset_scale = draw.offset_scale_precalc;
+            // Inline parsing supplies both precalculated offset fields to the outline.
+            style.offset_scale = draw.offset_scale_precalc!;
         }
         // Offset to calculate
         else if (draw.offset) {
@@ -209,7 +214,7 @@ Object.assign(Lines, {
         }
     },
 
-    _parseFeature (feature, draw, context) {
+    _parseFeature (this: LineStyleRuntime, feature: GeometryFeature, draw: GeometryDraw, context: GeometryContext) {
         var style = this.feature_style;
 
         // calculate line width at current and next zoom
@@ -225,14 +230,14 @@ Object.assign(Lines, {
             return;
         }
 
-        style.alpha = StyleParser.evalCachedProperty(draw.alpha, context); // optional alpha override
+        style.alpha = StyleParser.evalCachedProperty(draw.alpha, context) as number | undefined; // optional alpha override
 
         style.variant = draw.variant; // pre-calculated mesh variant
 
         // height defaults to feature height, but extrude style can dynamically adjust height by returning a number or array (instead of a boolean)
-        style.z = StyleParser.evalCachedDistanceProperty(draw.z, context) || StyleParser.defaults.z;
+        style.z = (StyleParser.evalCachedDistanceProperty(draw.z, context) as number) || StyleParser.defaults.z;
         style.height = feature.properties.height || StyleParser.defaults.height;
-        style.extrude = StyleParser.evalProperty(draw.extrude, context);
+        style.extrude = StyleParser.evalProperty(draw.extrude, context) as GeometryExtrusion;
         if (style.extrude) {
             if (typeof style.extrude === 'number') {
                 style.height = style.extrude;
@@ -260,7 +265,7 @@ Object.assign(Lines, {
         style.outline = style.outline || {
             width: {}, next_width: {},
             preprocessed: true
-        };
+        } as GeometryOutlineDraw;
 
         if (draw.outline && draw.outline.visible !== false && draw.outline.color && draw.outline.width) {
             // outline width in meters
@@ -325,15 +330,15 @@ Object.assign(Lines, {
         return style;
     },
 
-    _preprocess (draw) {
+    _preprocess (this: LineStyleRuntime, draw: RawGeometryDraw) {
         draw.color = StyleParser.createColorPropertyCache(draw.color);
         draw.alpha = StyleParser.createPropertyCache(draw.alpha);
         draw.width = StyleParser.createPropertyCache(draw.width, StyleParser.parseUnits);
-        if (draw.width && draw.width.type !== StyleParser.CACHE_TYPE.STATIC) {
+        if (draw.width && (draw.width as PropertyCache).type !== StyleParser.CACHE_TYPE.STATIC) {
             draw.next_width = StyleParser.createPropertyCache(draw.width, StyleParser.parseUnits);
         }
         draw.offset = draw.offset && StyleParser.createPropertyCache(draw.offset, StyleParser.parseUnits);
-        if (draw.offset && draw.offset.type !== StyleParser.CACHE_TYPE.STATIC) {
+        if (draw.offset && (draw.offset as PropertyCache).type !== StyleParser.CACHE_TYPE.STATIC) {
             draw.next_offset = StyleParser.createPropertyCache(draw.offset, StyleParser.parseUnits);
         }
         draw.z = StyleParser.createPropertyCache(draw.z, StyleParser.parseUnits);
@@ -406,16 +411,17 @@ Object.assign(Lines, {
                 draw.outline = null;
             }
         }
-        return draw;
+        // Preprocessing replaces authored values with the cache wrappers consumed above.
+        return draw as GeometryDraw;
     },
 
     // Unique string key for a dash pattern (used as texture name)
-    dashTextureKey (dash) {
+    dashTextureKey (this: LineStyleRuntime, dash: number[]) {
         return '__dash_' + JSON.stringify(dash);
     },
 
     // Return or render a dash pattern texture
-    getDashTexture (dash) {
+    getDashTexture (this: LineStyleRuntime, dash: number[]) {
         let dash_key = this.dashTextureKey(dash);
 
         if (this.dash_textures[dash_key] == null) {
@@ -432,8 +438,8 @@ Object.assign(Lines, {
     },
 
     // Override
-    async endData (tile) {
-        const tile_data = await Style.endData.call(this, tile);
+    async endData (this: LineStyleRuntime, tile: GeometryTile) {
+        const tile_data: GeometryTileData | undefined = await Style.endData.call(this, tile);
         if (tile_data) {
             tile_data.uniforms.u_has_line_texture = false;
             tile_data.uniforms.u_texture = Texture.default;
@@ -460,7 +466,7 @@ Object.assign(Lines, {
                     if (variant.dash_key && this.dash_textures[variant.dash_key] == null) {
                         this.dash_textures[variant.dash_key] = true;
                         try {
-                            await WorkerBroker.postMessage(this.main_thread_target+'.getDashTexture', variant.dash);
+                            await (WorkerBroker as {postMessage(target: string, ...payloads: unknown[]): Promise<unknown>}).postMessage(this.main_thread_target+'.getDashTexture', variant.dash);
                         }
                         catch (e) {
                             log('trace', `${this.name}: line dash texture create failed because style no longer on main thread`);
@@ -470,7 +476,8 @@ Object.assign(Lines, {
                     if (Texture.textures[variant.texture] == null) {
                         pending.push(
                             Texture.syncTexturesToWorker([variant.texture]).then(textures => {
-                                let texture = textures[variant.texture];
+                                // The enclosing branch supplies a named, immutable mesh texture.
+                                let texture = textures[variant.texture as string];
                                 if (texture) {
                                     uniforms.u_texture_ratio = texture.height / texture.width;
                                 }
@@ -489,9 +496,10 @@ Object.assign(Lines, {
     },
 
     // Calculate and store mesh variant (unique by draw group but not feature)
-    computeVariant (draw) {
+    computeVariant (this: LineStyleRuntime, draw: GeometryDraw | RawGeometryDraw) {
         // Factors that determine a unique mesh rendering variant
-        let key = (draw.offset ? 1 : 0); // whether feature has a line offset
+        // The first concatenation converts this numeric flag to the string hash input.
+        let key = (draw.offset ? 1 : 0) as string | number; // whether feature has a line offset
         key += '/' + draw.texcoords; // whether feature has texture UVs
         key += '/' + (draw.interactive ? 1 : 0); // whether feature has interactivity
         key += '/' + ((draw.extrude || draw.z) ? 1 : 0); // whether feature has a z coordinate
@@ -500,7 +508,7 @@ Object.assign(Lines, {
         if (draw.dash_key) { // whether feature has a line dash pattern
             key += draw.dash_key;
             if (draw.dash_background_color) {
-                key += draw.dash_background_color;
+                key += draw.dash_background_color as unknown as string;
             }
         }
 
@@ -512,7 +520,7 @@ Object.assign(Lines, {
         key += '/' + blend_order;
 
         // Create unique key
-        key = hashString(key);
+        key = hashString(key as string);
         draw.variant = key;
 
         if (this.variants[key] == null) {
@@ -527,14 +535,14 @@ Object.assign(Lines, {
                 texture: draw.texture_merged,
                 dash: draw.dash,
                 dash_key: draw.dash_key,
-                dash_background_color: draw.dash_background_color
+                dash_background_color: draw.dash_background_color as GeometryMeshVariant['dash_background_color']
             };
         }
     },
 
     // Override
     // Create or return desired vertex layout permutation based on flags
-    vertexLayoutForMeshVariant (variant) {
+    vertexLayoutForMeshVariant (this: LineStyleRuntime, variant: GeometryMeshVariant) {
         if (this.vertex_layouts[variant.key] == null) {
             const portable = this.shader_language === 'wgsl';
             // Attributes for this mesh variant
@@ -564,7 +572,7 @@ Object.assign(Lines, {
     },
 
     // Override
-    meshVariantTypeForDraw (draw) {
+    meshVariantTypeForDraw (this: LineStyleRuntime, draw: Pick<GeometryDraw, 'variant'>) {
         return this.variants[draw.variant]; // return pre-calculated mesh variant
     },
 
@@ -572,7 +580,7 @@ Object.assign(Lines, {
      * A "template" that sets constant attibutes for each vertex, which is then modified per vertex or per feature.
      * A plain JS array matching the order of the vertex layout.
      */
-    makeVertexTemplate(style, mesh) {
+    makeVertexTemplate(this: LineStyleRuntime, style: LineFeatureStyle, mesh: GeometryBuildMesh) {
         let i = 0;
         const portable = this.shader_language === 'wgsl';
 
@@ -625,7 +633,7 @@ Object.assign(Lines, {
         return this.vertex_template;
     },
 
-    buildLines(lines, style, context, options) {
+    buildLines(this: LineStyleRuntime, lines: GeometryLine[], style: LineFeatureStyle, context: GeometryContext, options?: {closed_polygon?: boolean; remove_tile_edges?: boolean}) {
         // Outline (build first so that blended geometry without a depth test is drawn first/under the inner line)
         this.feature_style = this.outline_feature_style; // swap in outline-specific style holder
         if (style.outline && style.outline.color != null && style.outline.width.value != null) {
@@ -649,14 +657,15 @@ Object.assign(Lines, {
             style,
             vertex_data,
             vertex_template,
-            vertex_layout_index,
+            // Extrusion is packed; a constant zero offset has no component index.
+            vertex_layout_index as unknown as PolylineVertexIndices,
             (options && options.closed_polygon), // closed_polygon
             (!style.tile_edges && options && options.remove_tile_edges), // remove_tile_edges
             (Geo.tile_scale * context.tile.pad_scale * 2) // tile_edge_tolerance
         );
     },
 
-    buildPolygons(polygons, style, context) {
+    buildPolygons(this: LineStyleRuntime, polygons: GeometryPolygon[], style: LineFeatureStyle, context: GeometryContext) {
         // Render polygons as individual lines
         let geom_count = 0;
         for (let p=0; p < polygons.length; p++) {
@@ -665,4 +674,4 @@ Object.assign(Lines, {
         return geom_count;
     }
 
-});
+} satisfies Partial<LineStyleRuntime>);

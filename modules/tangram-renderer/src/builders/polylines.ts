@@ -1,11 +1,11 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Geometry building functions
 
-// @ts-nocheck
-
+import type {GeometryLine, GeometryCoordinate, GeometryVertexData, PolylineStyle, PolylineVertexIndices, PolylineBuildContext} from './geometry-types';
 import Vector from '../utils/vector';
 import Geo from '../utils/geo';
 import {outsideTile, isCoordOutsideTile} from './common';
@@ -34,14 +34,14 @@ const V_SCALE_ADJUST = Geo.tile_scale;
 const zero_v = [0, 0], one_v = [1, 0], mid_v = [0.5, 0]; // reusable instances, updated with V coordinate
 
 export function buildPolylines (
-    lines,
-    style,
-    vertex_data,
-    vertex_template,
-    vindex,
-    closed_polygon,
-    remove_tile_edges,
-    tile_edge_tolerance) {
+    lines: GeometryLine[],
+    style: PolylineStyle,
+    vertex_data: GeometryVertexData,
+    vertex_template: number[],
+    vindex: PolylineVertexIndices,
+    closed_polygon: boolean | undefined,
+    remove_tile_edges: boolean | undefined,
+    tile_edge_tolerance: number): number {
 
     var cap_type = style.cap ? CAP_TYPE[style.cap] : CAP_TYPE.butt;
     var join_type = style.join ? JOIN_TYPE[style.join] : JOIN_TYPE.miter;
@@ -49,7 +49,7 @@ export function buildPolylines (
     // Configure miter limit
     if (join_type === JOIN_TYPE.miter) {
         const miter_limit = style.miter_limit || DEFAULT_MITER_LIMIT; // default miter limit
-        var miter_len_sq = miter_limit * miter_limit;
+        var miter_len_sq: number | undefined = miter_limit * miter_limit;
     }
 
     // Texture Variables
@@ -59,7 +59,7 @@ export function buildPolylines (
     }
 
     // Values that are constant for each line and are passed to helper functions
-    var context = {
+    var context: PolylineBuildContext = {
         closed_polygon,
         remove_tile_edges,
         tile_edge_tolerance,
@@ -93,13 +93,13 @@ export function buildPolylines (
     return context.geom_count;
 }
 
-function buildPolyline(line, context){
+function buildPolyline(line: GeometryLine, context: PolylineBuildContext): void {
     // Skip if line is not valid
     if (line.length < 2) {
         return;
     }
 
-    var coordCurr, coordNext, normPrev, normNext;
+    var coordCurr: GeometryCoordinate, coordNext: GeometryCoordinate, normPrev: number[], normNext: number[];
     var {join_type, cap_type, closed_polygon, remove_tile_edges, tile_edge_tolerance, v_scale, miter_len_sq} = context;
     var has_texcoord = (context.texcoord_index != null);
     var v = 0; // Texture v-coordinate
@@ -171,7 +171,7 @@ function buildPolyline(line, context){
         if (!isCoordOutsideTile(coordCurr)) {
             addCap(coordCurr, v, normNext, cap_type, true, context);
             if (has_texcoord && cap_type !== CAP_TYPE.butt) {
-                v += 0.5 * v_scale * context.texcoord_width;
+                v += 0.5 * v_scale! * context.texcoord_width;
             }
         }
 
@@ -182,7 +182,7 @@ function buildPolyline(line, context){
 
     // INTERMEDIARY POINTS
     if (has_texcoord) {
-        v += v_scale * Vector.length(Vector.sub(coordNext, coordCurr));
+        v += v_scale! * Vector.length(Vector.sub(coordNext, coordCurr));
     }
 
     for (var i = index_start + 1; i < index_end; i++) {
@@ -216,14 +216,14 @@ function buildPolyline(line, context){
 
         // Add join
         if (join_type === JOIN_TYPE.miter) {
-            addMiter(v, coordCurr, normPrev, normNext, miter_len_sq, false, context);
+            addMiter(v, coordCurr, normPrev, normNext, miter_len_sq!, false, context);
         }
         else {
             addJoin(join_type, v, coordCurr, normPrev, normNext, false, context);
         }
 
         if (has_texcoord) {
-            v += v_scale * Vector.length(Vector.sub(coordNext, coordCurr));
+            v += v_scale! * Vector.length(Vector.sub(coordNext, coordCurr));
         }
     }
 
@@ -251,7 +251,7 @@ function buildPolyline(line, context){
 
 }
 
-function getTileBoundaryIndex(line){
+function getTileBoundaryIndex(line: GeometryLine): number {
     if (isCoordOutsideTile(line[0])) {
         return 0;
     }
@@ -267,7 +267,7 @@ function getTileBoundaryIndex(line){
 }
 
 // Iterate through line from startIndex to find a segment not on a tile boundary, if any.
-function getNextNonBoundarySegment (line, startIndex, tolerance) {
+function getNextNonBoundarySegment (line: GeometryLine, startIndex: number, tolerance: number): GeometryLine | false {
     var endIndex = startIndex;
     while (line[endIndex + 1] && outsideTile(line[endIndex], line[endIndex + 1], tolerance)) {
         endIndex++;
@@ -278,7 +278,7 @@ function getNextNonBoundarySegment (line, startIndex, tolerance) {
 }
 
 // Begin a polygon with a join connecting to the last segment (if valid join-type specified)
-function startPolygon(coordCurr, normPrev, normNext, join_type, context){
+function startPolygon(coordCurr: GeometryCoordinate, normPrev: number[], normNext: number[], join_type: number | undefined, context: PolylineBuildContext): void {
     // If polygon starts on a tile boundary, don't add a join
     if (join_type === undefined || isCoordOutsideTile(coordCurr)) {
         addVertex(coordCurr, normNext, normNext, 1, 0, context, 1);
@@ -288,7 +288,7 @@ function startPolygon(coordCurr, normPrev, normNext, join_type, context){
         // If polygon starts within a tile, add a join
         var v = 0;
         if (join_type === JOIN_TYPE.miter) {
-            addMiter(v, coordCurr, normPrev, normNext, context.miter_len_sq, true, context);
+            addMiter(v, coordCurr, normPrev, normNext, context.miter_len_sq!, true, context);
         }
         else {
             addJoin(join_type, v, coordCurr, normPrev, normNext, true, context);
@@ -297,7 +297,7 @@ function startPolygon(coordCurr, normPrev, normNext, join_type, context){
 }
 
 // End a polygon appropriately
-function endPolygon(coordCurr, normPrev, normNext, join_type, v, context) {
+function endPolygon(coordCurr: GeometryCoordinate, normPrev: number[], normNext: number[], join_type: number, v: number, context: PolylineBuildContext): void {
     // If polygon ends on a tile boundary, don't add a join
     if (isCoordOutsideTile(coordCurr)) {
         addVertex(coordCurr, normPrev, normPrev, 1, v, context, 1);
@@ -308,7 +308,7 @@ function endPolygon(coordCurr, normPrev, normNext, join_type, v, context) {
         // If polygon ends within a tile, add Miter or no joint (join added on startPolygon)
         var miterVec = createMiterVec(normPrev, normNext);
 
-        if (join_type === JOIN_TYPE.miter && Vector.lengthSq(miterVec) > context.miter_len_sq) {
+        if (join_type === JOIN_TYPE.miter && Vector.lengthSq(miterVec) > context.miter_len_sq!) {
             join_type = JOIN_TYPE.bevel; // switch to bevel
         }
 
@@ -325,14 +325,14 @@ function endPolygon(coordCurr, normPrev, normNext, join_type, v, context) {
     }
 }
 
-function createMiterVec(normPrev, normNext) {
+function createMiterVec(normPrev: number[], normNext: number[]): number[] {
     var miterVec = Vector.normalize(Vector.add(normPrev, normNext));
     var scale = 2 / (1 + Math.abs(Vector.dot(normPrev, miterVec)));
     return Vector.mult(miterVec, scale * scale);
 }
 
 // Add a miter vector or a join if the miter is too sharp
-function addMiter (v, coordCurr, normPrev, normNext, miter_len_sq, isBeginning, context) {
+function addMiter (v: number, coordCurr: GeometryCoordinate, normPrev: number[], normNext: number[], miter_len_sq: number, isBeginning: boolean, context: PolylineBuildContext): void {
     var miterVec = createMiterVec(normPrev, normNext);
 
     //  Miter limit: if miter join is too sharp, convert to bevel instead
@@ -349,7 +349,7 @@ function addMiter (v, coordCurr, normPrev, normNext, miter_len_sq, isBeginning, 
 }
 
 // Add a bevel or round join
-function addJoin(join_type, v, coordCurr, normPrev, normNext, isBeginning, context) {
+function addJoin(join_type: number, v: number, coordCurr: GeometryCoordinate, normPrev: number[], normNext: number[], isBeginning: boolean, context: PolylineBuildContext): void {
     var miterVec = createMiterVec(normPrev, normNext);
     var isClockwise = (normNext[0] * normPrev[1] - normNext[1] * normPrev[0] > 0);
 
@@ -410,7 +410,7 @@ function addJoin(join_type, v, coordCurr, normPrev, normNext, isBeginning, conte
 }
 
 // Add indices to vertex_elements
-function indexPairs(num_pairs, context){
+function indexPairs(num_pairs: number, context: PolylineBuildContext): void {
     var vertex_elements = context.vertex_data.vertex_elements;
     var num_vertices = context.vertex_data.vertex_count;
     var offset = num_vertices - 2 * num_pairs - 2;
@@ -426,7 +426,7 @@ function indexPairs(num_pairs, context){
     }
 }
 
-function addVertex(position, extrude, normal, u, v, context, flip) {
+function addVertex(position: GeometryCoordinate, extrude: number[], normal: number[], u: number, v: number, context: PolylineBuildContext, flip: number): void {
     var vertex_template = context.vertex_template;
     var vertex_data = context.vertex_data;
 
@@ -441,8 +441,10 @@ function addVertex(position, extrude, normal, u, v, context, flip) {
 
     // set line offset vector
     if (context.offset) {
-        vertex_template[context.offset_index + 0] = normal[0] * context.offset;
-        vertex_template[context.offset_index + 1] = normal[1] * context.offset;
+        // Nonzero offsets select a packed offset attribute rather than a constant.
+        const offsetIndex = context.offset_index as number;
+        vertex_template[offsetIndex + 0] = normal[0] * context.offset;
+        vertex_template[offsetIndex + 1] = normal[1] * context.offset;
     }
 
     // set UVs
@@ -461,7 +463,7 @@ function addVertex(position, extrude, normal, u, v, context, flip) {
 //                                              C
 var uvCurr = [0, 0];
 
-function addFan (coord, eA, eC, eB, normal, uvA, uvC, uvB, isCap, isBevel, context) {
+function addFan (coord: GeometryCoordinate, eA: number[], eC: number[], eB: number[], normal: number[], uvA: number[], uvC: number[], uvB: number[], isCap: boolean, isBevel: boolean, context: PolylineBuildContext): void {
     // eA = extrusion vector of first outer vertex
     // eC = extrusion vector of inner vertex
     // eA, eC, eB = extrusion vectors
@@ -534,13 +536,13 @@ function addFan (coord, eA, eC, eB, normal, uvA, uvC, uvB, isCap, isBevel, conte
         if (has_texcoord) {
             if (isCap){
                 // UV textures go "through" the cap
-                affine_uvCurr = Vector.rot(affine_uvCurr, angle_step);
+                affine_uvCurr = Vector.rot(affine_uvCurr!, angle_step);
                 uvCurr[0] = affine_uvCurr[0] + uvC[0];
-                uvCurr[1] = affine_uvCurr[1] * context.texcoord_width * context.v_scale + uvC[1]; // scale the v-coordinate
+                uvCurr[1] = affine_uvCurr[1] * context.texcoord_width * context.v_scale! + uvC[1]; // scale the v-coordinate
             }
             else {
                 // UV textures go "around" the join
-                uvCurr = Vector.add(uvCurr, uv_delta);
+                uvCurr = Vector.add(uvCurr, uv_delta!);
             }
         }
 
@@ -554,7 +556,7 @@ function addFan (coord, eA, eC, eB, normal, uvA, uvC, uvB, isCap, isBevel, conte
 
 //  Function to add the vertices needed for line caps,
 //  because to re-use the buffers they need to be at the end
-function addCap (coord, v, normal, type, isBeginning, context) {
+function addCap (coord: GeometryCoordinate, v: number, normal: number[], type: number, isBeginning: boolean, context: PolylineBuildContext): void {
     var neg_normal = Vector.neg(normal);
     var has_texcoord = (context.texcoord_index != null);
 
@@ -570,7 +572,7 @@ function addCap (coord, v, normal, type, isBeginning, context) {
 
             if (has_texcoord) {
                 // Add length of square cap to texture coordinate
-                v += 0.5 * context.texcoord_width * context.v_scale;
+                v += 0.5 * context.texcoord_width * context.v_scale!;
             }
 
             addVertex(coord, normal, normal, 1, v, context, 1);
@@ -586,7 +588,7 @@ function addCap (coord, v, normal, type, isBeginning, context) {
 
             if (has_texcoord) {
                 // Add length of square cap to texture coordinate
-                v += 0.5 * context.texcoord_width * context.v_scale;
+                v += 0.5 * context.texcoord_width * context.v_scale!;
             }
 
             addVertex(coord, Vector.add(normal, tangent), normal, 1, v, context, 1);
@@ -607,7 +609,7 @@ function addCap (coord, v, normal, type, isBeginning, context) {
             nB = neg_normal;
 
             if (has_texcoord){
-                v += 0.5 * context.texcoord_width * context.v_scale;
+                v += 0.5 * context.texcoord_width * context.v_scale!;
                 uvA = one_v, uvB = zero_v, uvC = mid_v; // update cap UV order
             }
         }
@@ -635,7 +637,7 @@ function addCap (coord, v, normal, type, isBeginning, context) {
 }
 
 // Calculate number of triangles for a fan given an angle and line width
-function trianglesPerArc (angle, width) {
+function trianglesPerArc (angle: number, width: number): number {
     if (angle < 0) {
         angle = -angle;
     }
@@ -645,8 +647,8 @@ function trianglesPerArc (angle, width) {
 }
 
 // Cyclically permute closed line starting at an index
-function permuteLine(line, startIndex){
-    var newLine = [];
+function permuteLine(line: GeometryLine, startIndex: number): GeometryLine {
+    var newLine: GeometryLine = [];
     for (let i = 0; i < line.length; i++){
         var index = (i + startIndex) % line.length;
         // skip the first (repeated) index

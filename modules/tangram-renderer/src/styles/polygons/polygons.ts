@@ -5,7 +5,8 @@
 
 // Polygon rendering style
 
-// @ts-nocheck
+import type {GeometryStyleRuntime, GeometryFeature, GeometryDraw, RawGeometryDraw, GeometryContext, GeometryMeshVariant, PolygonFeatureStyle, GeometryBuildMesh, GeometryExtrusion} from '../geometry-style-types';
+import type {GeometryPolygon} from '../../builders/geometry-types';
 
 import {Style} from '../style';
 import StyleParser from '../style_parser';
@@ -19,7 +20,7 @@ import polygons_fs from './polygons_fragment.glsl';
 import {buildPolygonsWGSL} from './polygons_wgsl';
 import {GLOBE_PROJECTION_GLSL} from '../../scene/projection_shaders';
 
-export const Polygons = Object.create(Style);
+export const Polygons: GeometryStyleRuntime = Object.create(Style);
 
 Object.assign(Polygons, {
     name: 'polygons',
@@ -28,20 +29,20 @@ Object.assign(Polygons, {
     fragment_shader_src: polygons_fs,
     selection: true, // enable feature selection
 
-    getWGSLShaderSource() {
+    getWGSLShaderSource(this: GeometryStyleRuntime) {
         return buildPolygonsWGSL({ raster: this.raster === 'color', lighting: this.portable_lighting_mode,
             lightCount: this.portable_light_count });
     },
 
-    init() {
-        Style.init.apply(this, arguments);
+    init(this: GeometryStyleRuntime) {
+        Style.init.apply(this, arguments as unknown as Parameters<typeof Style.init>);
 
         // Tell the shader about optional attributes (shader is shared with lines style, which has different config)
         this.defines.TANGRAM_NORMAL_ATTRIBUTE = true;
         this.defines.TANGRAM_TEXTURE_COORDS = this.texcoords;
     },
 
-    _parseFeature (feature, draw, context) {
+    _parseFeature (this: GeometryStyleRuntime, feature: GeometryFeature, draw: GeometryDraw, context: GeometryContext) {
         var style = this.feature_style;
 
         style.color = this.parseColor(draw.color, context);
@@ -49,14 +50,14 @@ Object.assign(Polygons, {
             return null;
         }
 
-        style.alpha = StyleParser.evalCachedProperty(draw.alpha, context); // optional alpha override
+        style.alpha = StyleParser.evalCachedProperty(draw.alpha, context) as number | undefined; // optional alpha override
 
         style.variant = draw.variant; // pre-calculated mesh variant
 
-        style.z = StyleParser.evalCachedDistanceProperty(draw.z, context) || StyleParser.defaults.z;
+        style.z = (StyleParser.evalCachedDistanceProperty(draw.z, context) as number) || StyleParser.defaults.z;
         style.z *= Geo.height_scale; // provide sub-meter precision of height values
 
-        style.extrude = StyleParser.evalProperty(draw.extrude, context);
+        style.extrude = StyleParser.evalProperty(draw.extrude, context) as GeometryExtrusion;
         if (style.extrude) {
             // use feature's height and min_height properties
             if (style.extrude === true) {
@@ -84,16 +85,17 @@ Object.assign(Polygons, {
         return style;
     },
 
-    _preprocess (draw) {
+    _preprocess (this: GeometryStyleRuntime, draw: RawGeometryDraw) {
         draw.color = StyleParser.createColorPropertyCache(draw.color);
         draw.alpha = StyleParser.createPropertyCache(draw.alpha);
         draw.z = StyleParser.createPropertyCache(draw.z, StyleParser.parseUnits);
         this.computeVariant(draw);
-        return draw;
+        // Cache creation is the normalization boundary for authored draw values.
+        return draw as GeometryDraw;
     },
 
     // Calculate and store mesh variant (unique by draw group but not feature)
-    computeVariant (draw) {
+    computeVariant (this: GeometryStyleRuntime, draw: GeometryDraw | RawGeometryDraw) {
         // Factors that determine a unique mesh rendering variant
         const selection = (draw.interactive ? 1 : 0); // whether feature has interactivity
         const normal = (draw.extrude != null ? 1 : 0); // whether feature has extrusion (need per-vertex normals)
@@ -116,7 +118,7 @@ Object.assign(Polygons, {
 
     // Override
     // Create or return desired vertex layout permutation based on flags
-    vertexLayoutForMeshVariant (variant) {
+    vertexLayoutForMeshVariant (this: GeometryStyleRuntime, variant: GeometryMeshVariant) {
         if (this.vertex_layouts[variant.key] == null) {
             const portable_normal = this.shader_language === 'wgsl';
             // Attributes for this mesh variant
@@ -142,7 +144,7 @@ Object.assign(Polygons, {
     },
 
     // Override
-    meshVariantTypeForDraw (draw) {
+    meshVariantTypeForDraw (this: GeometryStyleRuntime, draw: Pick<GeometryDraw, 'variant'>) {
         return this.variants[draw.variant]; // return pre-calculated mesh variant
     },
 
@@ -150,7 +152,7 @@ Object.assign(Polygons, {
      * A "template" that sets constant attibutes for each vertex, which is then modified per vertex or per feature.
      * A plain JS array matching the order of the vertex layout.
      */
-    makeVertexTemplate(style, mesh) {
+    makeVertexTemplate(this: GeometryStyleRuntime, style: PolygonFeatureStyle, mesh: GeometryBuildMesh) {
         let i = 0;
 
         // a_position.xyz - vertex position
@@ -195,7 +197,7 @@ Object.assign(Polygons, {
         return this.vertex_template;
     },
 
-    buildPolygons(polygons, style, context) {
+    buildPolygons(this: GeometryStyleRuntime, polygons: GeometryPolygon[], style: PolygonFeatureStyle, context: GeometryContext) {
         let mesh = this.getTileMesh(context.tile, this.meshVariantTypeForDraw(style));
         let vertex_data = mesh.vertex_data;
         let vertex_layout = vertex_data.vertex_layout;
@@ -229,4 +231,4 @@ Object.assign(Polygons, {
         }
     }
 
-});
+} satisfies Partial<GeometryStyleRuntime>);

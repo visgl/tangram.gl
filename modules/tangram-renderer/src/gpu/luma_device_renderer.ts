@@ -394,7 +394,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
             for (const attribute of descriptor.bufferLayout.attributes) {
                 const shader_attribute = attributes.get(attribute.attribute);
                 if (shader_attribute) {
-                    vertex_array.setBuffer(shader_attribute.location, descriptor.vertexBuffer);
+                    vertex_array.setBuffer(shader_attribute.location, descriptor.vertexBuffer!); // Portable meshes supply device buffers; classic descriptors may not.
                 }
             }
             for (const attribute of descriptor.staticAttributes) {
