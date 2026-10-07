@@ -70,9 +70,13 @@ scene format; use the exported [style schemas](./styling.md#validation-and-edito
 Object-based scene documents are copied before normalization, including nested
 objects and arrays. Loading the same document with a different `base_path`
 does not rewrite the original document's URLs or functions.
-Class-based definitions are materialized as writable scene data, reading public
-accessors on the original instance; class prototypes and private state are not
-cloned. Cloning preserves null-prototype records.
+Class-based definitions are materialized as writable scene data. Enumerable
+properties and accessors are copied, along with non-enumerable `url` accessors
+used by resource normalization. Accessors are read on the original instance;
+its setters are never used. Other non-enumerable accessors are treated as
+application internals and are not evaluated. A failing URL accessor still
+reports a load error. Class prototypes and private state are not cloned;
+null-prototype records are preserved.
 
 The classic playground serializes scene loads. Cancelling an edit skips its
 queued load, error reporting, and attribution refresh. A load already in flight
