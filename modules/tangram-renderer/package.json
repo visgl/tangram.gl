@@ -58,6 +58,7 @@
     "@loaders.gl/mvt": "5.0.0-alpha.9",
     "@loaders.gl/pmtiles": "5.0.0-alpha.9",
     "@loaders.gl/tiles": "5.0.0-alpha.9",
+    "@math.gl/geospatial": "5.0.0-alpha.12",
     "esbuild": "^0.28.1"
   },
   "dependencies": {
