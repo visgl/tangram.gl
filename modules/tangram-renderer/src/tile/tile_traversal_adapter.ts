@@ -7,6 +7,26 @@ import Geo from '../utils/geo';
 import type {HostProjection} from '../types';
 import type {TileCoordinate, TileCoordinates} from './tile_id';
 import type {GlobeVisibilityLODAdapter, VisibilityLODAdapter, VisibilityViewState} from '../scene/visibility_adapter';
+import {WebMercatorVisibilityAdapter} from '../scene/visibility_adapter';
+
+/** Count a finite CPU-projected footprint at data detail 0–6 without allocating tile coordinates.
+ * Uses the same XYZ endpoint and single-world clamping rules as actual traversal.
+ * This is a per-source candidate count, not a total across multiple sources.
+ */
+export function countProjectedTileCoordinates(bounds: readonly [number, number, number, number], tileZoom: number): number {
+    if (!Array.isArray(bounds) || bounds.length !== 4 || !Array.from(bounds).every(Number.isFinite) || bounds[0] < -180 || bounds[2] > 180 ||
+        bounds[0] > bounds[2] || bounds[1] > bounds[3] || bounds[1] < -85.0511287798066 || bounds[3] > 85.0511287798066 ||
+        !Number.isSafeInteger(tileZoom) || tileZoom < 0 || tileZoom > 6) {
+        throw new Error('Projected tile count requires finite single-world bounds and integer detail 0–6');
+    }
+    const southwest = Geo.latLngToMeters([bounds[0], bounds[1]]);
+    const northeast = Geo.latLngToMeters([bounds[2], bounds[3]]);
+    return new WebMercatorVisibilityAdapter().countTileCoordinates({
+        center: {lng: 0, lat: 0}, zoom: tileZoom, tile_zoom: tileZoom,
+        size: {css: {width: 1, height: 1}}, buffer: 0, wrap: false,
+        bounds: {sw: {x: southwest[0], y: southwest[1]}, ne: {x: northeast[0], y: northeast[1]}}
+    });
+}
 
 /** Geographic XYZ tile bounds; an unwrapped world copy retains its longitude offset. */
 export interface GeographicTileBounds {

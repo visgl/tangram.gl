@@ -5,6 +5,7 @@
 export {default as Renderer} from './scene/renderer';
 export {default as HostFrame} from './scene/host_frame';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
+export {countProjectedTileCoordinates} from './tile/tile_traversal_adapter';
 export type {ProjectedBasemapOptions} from './procedures/mesh-projector';
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 export {PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure} from './scene/projection_math';

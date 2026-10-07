@@ -7,7 +7,7 @@ import {Tileset2D} from '@loaders.gl/tiles';
 import type {Tileset2DAdapter} from '@loaders.gl/tiles';
 import TangramTileset2D from '../src/tile/tangram_tileset_2d';
 import type {ResourceTile} from '../src/tile/tile_resource_cache';
-import TangramTileTraversalAdapter, {getTileGeographicBounds} from '../src/tile/tile_traversal_adapter';
+import TangramTileTraversalAdapter, {getTileGeographicBounds, countProjectedTileCoordinates} from '../src/tile/tile_traversal_adapter';
 import type {TangramTraversalState} from '../src/tile/tile_traversal_adapter';
 import {WebMercatorVisibilityAdapter, WebMercatorGlobeVisibilityAdapter} from '../src/scene/visibility_adapter';
 import {TileID} from '../src/tile/tile_id';
@@ -16,6 +16,34 @@ import {createTraversalView as createView, traversalFixtures as fixtures} from '
 const adapter = new TangramTileTraversalAdapter(new WebMercatorVisibilityAdapter(), new WebMercatorGlobeVisibilityAdapter());
 /** Compile-time verification against the actual published adapter type. */
 const sharedAdapter: Tileset2DAdapter<TangramTraversalState> = adapter;
+
+test.each([
+    [-180, -85.0511287798066, 180, 85.0511287798066],
+    [-170, 5, -40, 75], [-180, 0, 0, 85.0511287798066], [0, 0, 0, 0],
+    [179, -1, 180, 1], [-180, -1, -179, 1]
+] as const)('projected candidate counts match real traversal, including tile/world edges: %j', (...bounds) => {
+    for (let tileZoom = 0; tileZoom <= 6; tileZoom++) {
+        const count = countProjectedTileCoordinates(bounds, tileZoom);
+        const selected = adapter.getTileIndices({viewState: {eyes: [{view: createView({tile_zoom: tileZoom,
+            buffer: 0}), projection: {type: 'projected', visibleBounds: bounds}}]}});
+        expect(count).toBe(selected.length);
+        expect(count).toBeLessThanOrEqual(4 ** tileZoom);
+    }
+});
+
+test('projected tile counts reject invalid footprints and unbounded detail before traversal', () => {
+    for (const bounds of [[-181, 0, 0, 1], [0, 0, 181, 1], [1, 0, -1, 1], [0, 2, 1, 1],
+        [0, -90, 1, 1], [0, 0, 1, 90], [0, 0, NaN, 1]] as const) {
+        expect(() => countProjectedTileCoordinates(bounds, 2)).toThrow('single-world');
+    }
+    for (const tileZoom of [-1, 1.5, 7, Infinity, NaN]) {
+        expect(() => countProjectedTileCoordinates([-180, -80, 180, 80], tileZoom)).toThrow('detail');
+    }
+    for (const bounds of [null, [], new Array(4)]) {
+        expect(() => Reflect.apply(countProjectedTileCoordinates, null, [bounds, 2])).toThrow('single-world');
+    }
+    expect(countProjectedTileCoordinates([-180, -85.0511287798066, 180, 85.0511287798066], 4)).toBe(256);
+});
 
 test.each(fixtures)('Tangram and published loaders.gl select the frozen $name footprint', ({state, keys}) => {
     const tangram = new TangramTileset2D<ResourceTile>();

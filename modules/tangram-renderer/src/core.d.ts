@@ -5,6 +5,7 @@
 export {ClassicWebGLRenderer as Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from '@vis.gl/tangram-renderer';
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
+export {countProjectedTileCoordinates} from './tile/tile_traversal_adapter';
 export type {ProjectedBasemapOptions} from './procedures/mesh-projector';
 export {PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure} from './scene/projection_math';
 export type {GeographicProjectionPosition, GeographicProjectionProcedure} from './scene/projection_math';

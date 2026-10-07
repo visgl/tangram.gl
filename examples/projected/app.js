@@ -5,20 +5,25 @@
 import {Deck, OrthographicView} from '@deck.gl/core';
 import {webgpuAdapter} from 'https://esm.sh/@luma.gl/webgpu@9.4.0?bundle&external=@luma.gl/core';
 import {ProjectedBasemapLayer, createProjectedBasemapScene} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+import {countProjectedTileCoordinates} from '@vis.gl/tangram-renderer/core';
 import {createProjectedExampleScene, getProjectedExampleTileZoom} from './scene.js';
+import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from './detail.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 const parameters = new URLSearchParams(location.search);
 const device = parameters.get('device') || (navigator.gpu ? 'webgpu' : 'webgl');
 const projectionSelector = document.querySelector('#projection');
 const basemapSelector = document.querySelector('#basemap');
+const coverageSelector = document.querySelector('#coverage');
+const detailSelector = document.querySelector('#detail');
 const status = document.querySelector('#status');
 projectionSelector.value = parameters.get('projection') || 'equal-earth';
 basemapSelector.value = parameters.get('basemap') === 'vector' ? 'vector' : 'raster';
+coverageSelector.value = parameters.get('coverage') === 'regional' ? 'regional' : 'world';
+let selectedDetail = parameters.has('detail') ? Number(parameters.get('detail')) : undefined;
 let deck;
 let preparedScene;
 let preparedBasemap;
-let activeProjection;
 let updateGeneration = 0;
 
 /** Update only the status text; provider attribution is displayed independently of load success. */
@@ -30,11 +35,22 @@ function setStatus(message, error = false) {
 /** Load projected ground geometry; Tangram resolves the provider's current TileJSON source. */
 async function initialize() {
   const type = projectionSelector.value;
-  if (deck && preparedBasemap === basemapSelector.value && activeProjection === type) return;
-  activeProjection = type;
   const generation = ++updateGeneration;
-  setStatus('Loading projected ground meshes…');
   const raster = basemapSelector.value === 'raster';
+  if (type === 'albers') coverageSelector.value = 'regional';
+  coverageSelector.disabled = type === 'albers';
+  const regional = coverageSelector.value === 'regional';
+  const choices = getProjectedExampleDetailChoices(raster, regional, countProjectedTileCoordinates);
+  if (!choices.some(choice => choice.zoom === selectedDetail && !choice.disabled)) {
+    selectedDetail = getProjectedExampleTileZoom(raster);
+  }
+  detailSelector.replaceChildren(...choices.map(choice => {
+    const option = new Option(`Zoom ${choice.zoom} — ${choice.tiles} tiles${choice.disabled ? ' (over budget)' : ''}`, String(choice.zoom));
+    option.disabled = choice.disabled;
+    return option;
+  }));
+  detailSelector.value = String(selectedDetail);
+  setStatus(`Requesting data zoom ${selectedDetail}; style zoom stays at 6. Drag to pan and scroll to zoom.`);
   if (preparedBasemap !== basemapSelector.value) {
     preparedBasemap = basemapSelector.value;
     preparedScene = createProjectedBasemapScene(createProjectedExampleScene(raster), {type},
@@ -44,10 +60,14 @@ async function initialize() {
   const url = new URL(location.href);
   url.searchParams.set('projection', type);
   url.searchParams.set('basemap', basemapSelector.value);
+  url.searchParams.set('coverage', coverageSelector.value);
+  url.searchParams.set('detail', String(selectedDetail));
   history.replaceState(null, '', url);
   const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene,
     // OpenFreeMap transportation starts at zoom 4; overview imagery only needs zoom 2.
-    projectedProjection: {type}, projectedTileZoom: getProjectedExampleTileZoom(raster),
+    projectedProjection: {type}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
+    projectedVisibleBounds: getProjectedExampleBounds(regional), projectedMaxTiles: 256,
+    tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256, maxCachedMeshBytes: 32 * 1024 * 1024},
     onProjectionChange: () => {
       if (generation === updateGeneration) setStatus('Worker CPU projection enabled. Drag to pan and scroll to zoom.');
     },
@@ -82,6 +102,11 @@ document.querySelectorAll('[data-device]').forEach(button => {
 });
 projectionSelector.addEventListener('change', () => initialize().catch(error => setStatus(error.message, true)));
 basemapSelector.addEventListener('change', () => initialize().catch(error => setStatus(error.message, true)));
+coverageSelector.addEventListener('change', () => initialize().catch(error => setStatus(error.message, true)));
+detailSelector.addEventListener('change', () => {
+  selectedDetail = Number(detailSelector.value);
+  initialize().catch(error => setStatus(error.message, true));
+});
 document.querySelector('#fullscreen').addEventListener('click', () => {
   const target = document.querySelector('#deck-container');
   const transition = document.fullscreenElement ? document.exitFullscreen() : target.requestFullscreen();

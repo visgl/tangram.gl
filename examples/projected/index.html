@@ -39,11 +39,15 @@ Copyright (c) vis.gl contributors
         <label class="control"><span>Basemap</span>
           <select id="basemap"><option value="raster" selected>NASA Blue Marble</option><option value="vector">OpenFreeMap polygons + roads</option></select>
         </label>
-        <p class="hint">Drag to pan; scroll or pinch to zoom. Projection changes reuse loaded tiles.</p>
+        <label class="control"><span>Loading coverage</span>
+          <select id="coverage"><option value="world">Whole world</option><option value="regional">North America</option></select>
+        </label>
+        <label class="control"><span>Source tile detail</span><select id="detail"></select></label>
+        <p class="hint">Camera zoom is independent of tile detail. Loaded tiles are retained within the cache budget. Regional coverage allows finer detail; pan outside it to see the loading boundary.</p>
         </section>
         <section data-example-tab-panel="about" hidden>
           <p class="example-description">math.gl CPU projection in Tangram workers; deck.gl OrthographicView controls the camera.</p>
-          <p class="hint">Ground polygons and fixed-meter road ribbons. OpenFreeMap loads zoom 4 because roads are absent from lower zooms; Blue Marble uses zoom 2. Road widths are exaggerated for overview visibility; screen-pixel strokes, labels, elevations and picking are deferred. Blue Marble is overview imagery, not street-level photography.</p>
+          <p class="hint">Ground polygons and fixed-meter road ribbons. OpenFreeMap starts at zoom 4 because roads are absent from lower zooms; Blue Marble starts at zoom 2. Styling remains at zoom 6 while detail changes. The example limits coverage to 256 tile candidates per source, 8 concurrent mesh builds and a 32 MB / 256-tile offscreen mesh cache. These are not total memory or download limits. Road widths are exaggerated for overview visibility; screen-pixel strokes, labels, elevations and picking are deferred. Blue Marble is overview imagery, not street-level photography.</p>
         </section>
       </aside>
       <nav class="canvas-toolbar" aria-label="Canvas controls"><div class="canvas-device-tabs" role="tablist" aria-label="Rendering device"><button data-device="webgl" role="tab">WebGL 2</button><button data-device="webgpu" role="tab">WebGPU</button></div><button class="canvas-fullscreen" id="fullscreen" aria-label="Toggle fullscreen">⛶</button></nav>
