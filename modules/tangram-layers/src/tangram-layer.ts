@@ -10,6 +10,13 @@ import GlobeViewAdapter from './globe_view_adapter';
 import type {GlobeViewAdapterOptions} from './globe_view_adapter';
 import type {FirstPersonViewAdapterOptions} from './first_person_view_adapter';
 import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types';
+import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
+
+/** Opt-in host adapter, kept independent of the ordinary geographic view dispatch. */
+export interface TangramHostViewAdapter {
+  /** Validate and adapt a host viewport before modifying renderer state. */
+  getFrame(viewport: unknown, properties: unknown, dimensions: {width: number; height: number}): HostFrameOptions;
+}
 
 const VIEW_EPSILON = 1e-7;
 
@@ -72,13 +79,18 @@ export function getGlobeViewFrame(viewport: GlobeViewport, options: GlobeViewAda
  * @param {object} dependencies.Renderer Legacy alias for ClassicWebGLRenderer.
  * @returns {typeof import('@deck.gl/core').Layer} TangramLayer class.
  */
-export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}) {
+export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}, viewAdapter?: TangramHostViewAdapter) {
   const rendererClass = ClassicWebGLRenderer || Renderer;
   if (!Layer || !rendererClass) {
     throw new Error('createTangramLayerClass requires Layer and ClassicWebGLRenderer');
   }
 
   class TangramLayer extends Layer {
+    /** Forward deck.gl's property objects without changing its constructor semantics. */
+    constructor(...properties: unknown[]) {
+      super(...properties);
+    }
+
     initializeState() {
       this.setState({tangramRecord: null});
     }
@@ -318,6 +330,21 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer})
       const viewports = this.context.deck.getViewports
         ? this.context.deck.getViewports()
         : [viewport];
+      if (viewAdapter) {
+        try {
+          if (viewports.length !== 1) throw new Error('only one deck.gl viewport is supported');
+          const width = record.deckCanvas.clientWidth || viewport.width;
+          const height = record.deckCanvas.clientHeight || viewport.height;
+          const frame = viewAdapter.getFrame(viewport, this.props, {width, height});
+          record.renderer.setFrame({...frame, tileResources: this.props.tileResources ?? undefined});
+          record.lastViewportError = null;
+          record.reportedViewportError = null;
+        } catch (error) {
+          record.lastViewportError = error.message;
+          this._raiseViewportError(record, normalizeError(error));
+        }
+        return;
+      }
       const globeOptions = {
         maxElevation: this.props.globeMaxElevation ?? undefined,
         visibleBounds: this.props.globeVisibleBounds ?? undefined,

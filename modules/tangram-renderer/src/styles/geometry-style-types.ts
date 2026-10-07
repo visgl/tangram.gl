@@ -9,6 +9,7 @@ import type {UniformBufferOptions} from '../gl/uniform_buffer';
 import type {VertexAttribute} from '../gl/vertex-types';
 import type {GeometryLine, GeometryPolygon, PolylineStyle} from '../builders/geometry-types';
 import type {PropertyCache, PropertyContext, StyleFeature} from './property-types';
+import type {ProjectedBasemapOptions} from '../procedures/mesh-projector';
 
 /** Geometry feature properties normalized by the source and style expression boundary. */
 export interface GeometryFeature extends StyleFeature {
@@ -139,6 +140,14 @@ export interface GeometryStyleRuntime<FeatureStyle extends Omit<PolygonFeatureSt
     texcoords?: boolean;
     raster?: string | boolean;
     shader_language: 'glsl' | 'wgsl';
+    /** Optional scene-wide CPU projection of flat polygon/raster meshes. */
+    cpu_projection?: ProjectedBasemapOptions;
+    /** Authored polygon lighting, disabled for initial CPU-projected ground. */
+    lighting?: 'vertex' | 'fragment' | boolean;
+    /** Position blocks and custom attributes are outside the initial contract. */
+    shaders?: {blocks?: {position?: unknown}; attributes?: unknown};
+    /** Underlying builtin style after inheritance and mixins. */
+    baseStyle(): string;
     portable_lighting_mode?: 'vertex' | 'fragment' | false;
     portable_light_count?: number;
     defines: Record<string, boolean | number | string | undefined>;

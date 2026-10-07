@@ -15,13 +15,15 @@ const LAYER_DELTA = 1 / (1 << 14);
  * This deliberately small WGSL program establishes the native-device path for
  * flat polygons and raster tiles before the remaining style features are ported.
  */
-export function buildPolygonsWGSL({ raster = false, lighting, lightCount }: {
+export function buildPolygonsWGSL({ raster = false, lighting, lightCount, cpuProjection = false }: {
     /** Include raster color sampling. */
     raster?: boolean;
     /** Opt into configured lights; undefined retains historical portable wall shading. */
     lighting?: 'vertex' | 'fragment' | false;
     /** Active scene light count, used to specialize shader compilation. */
     lightCount?: number;
+    /** Use worker-projected common positions while retaining tile-local UVs. */
+    cpuProjection?: boolean;
 } = {}) {
     const raster_declarations = raster ? `
 @group(0) @binding(3) var u_rasters: texture_2d<f32>;
@@ -46,6 +48,7 @@ struct PolygonAttributes {
     @location(0) a_position: vec4<i32>,
     @location(1) a_normal: vec4<f32>,
     @location(2) a_color: vec4<f32>,
+    ${cpuProjection ? '@location(3) a_projected_position: vec3<f32>,' : ''}
 };
 
 struct PolygonVaryings {
@@ -67,11 +70,12 @@ fn vertexMain(attributes: PolygonAttributes) -> PolygonVaryings {
         f32(attributes.a_position.z) / ${Geo.height_scale}.0,
         1.0
     );
-    let eye_position = tangramModelView(local_position);
+    let eye_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};
     var clip_position = TangramCamera.u_projection * eye_position;
+    ${cpuProjection ? '// deck orthographic matrices use WebGL [-w, w] depth; WebGPU requires [0, w].\n    clip_position.z = (clip_position.z + clip_position.w) * 0.5;' : ''}
     let layer = f32(attributes.a_position.w) +
         TangramTile.u_tile_proxy_order_offset + 1.0;
-    clip_position.z -= layer * ${LAYER_DELTA} * clip_position.w;
+    clip_position.z -= layer * ${cpuProjection ? LAYER_DELTA * 0.5 : LAYER_DELTA} * clip_position.w;
 
     var surface_normal = normalize(attributes.a_normal.xyz);
     if (TangramView.u_projection_mode == 1) {

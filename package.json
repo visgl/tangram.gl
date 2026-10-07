@@ -29,6 +29,7 @@
     "bundle-size": "yarn build:modules && node scripts/report-bundle-size.mjs",
     "bundle-size:parsers": "node scripts/report-parser-bundle-size.mjs",
     "bundle-size:tilesets": "node scripts/report-tileset-bundle-size.mjs",
+    "bundle-size:projections": "node scripts/report-projection-bundle-size.mjs",
     "coverage:scope": "node scripts/check-coverage-scope.mjs",
     "lint": "yarn lint:licenses && ocular-lint && yarn typescript:scope",
     "lint:fix": "yarn lint:licenses:fix && ocular-lint fix",

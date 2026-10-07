@@ -29,6 +29,12 @@ export type GeographicAnchor = {
 
 /** Geographic projection used by host-provided positions and camera matrices. */
 export type HostProjection =
+    | {
+      /** Worker-projected flat common coordinates; requires an explicit geographic footprint. */
+      type: 'projected';
+      /** Ordered unwrapped footprint in degrees; tile selection remains Web Mercator XYZ. */
+      visibleBounds: readonly [number, number, number, number];
+    }
   | {
       type: 'web-mercator';
       /** Explicit unwrapped geographic footprint; null means no visible ground, omitted uses camera/legacy bounds. */

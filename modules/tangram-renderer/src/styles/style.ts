@@ -25,6 +25,7 @@ import WorkerBroker from '../utils/worker_broker';
 import makeWireframeForTriangleElementData from '../builders/wireframe';
 import debugSettings from '../utils/debug_settings';
 import Geo from '../utils/geo';
+import {normalizeProjectedBasemapOptions, projectTileMesh} from '../procedures/mesh-projector';
 
 import selection_fragment_source from '../selection/selection_fragment.glsl';
 import rasters_source from './raster/raster_globals.glsl';
@@ -32,11 +33,16 @@ import rasters_source from './raster/raster_globals.glsl';
 // Base class
 
 export var Style = {
-    init ({ generation, styles, sources = {}, introspection, shader_language = 'glsl' } = {}) {
+    init ({ generation, styles, sources = {}, introspection, shader_language = 'glsl', config } = {}) {
         this.setGeneration(generation);
         this.styles = styles;                       // styles for scene
         this.sources = sources;                     // data sources for scene
         this.shader_language = shader_language;     // keeps worker-built vertex layouts aligned with the renderer
+        this.cpu_projection = config?.scene?.cpu_projection === undefined ? undefined :
+            normalizeProjectedBasemapOptions(config.scene.cpu_projection);
+        if (this.cpu_projection) {
+            if (this.lighting && this.lighting !== false) throw new Error('CPU projection requires unlit ground geometry');
+        }
         this.defines = (Object.prototype.hasOwnProperty.call(this, 'defines') && this.defines) || {}; // #defines to be injected into the shaders
         this.shaders = (Object.prototype.hasOwnProperty.call(this, 'shaders') && this.shaders) || {}; // shader customization (uniforms, defines, blocks, etc.)
         this.introspection = introspection || false;
@@ -84,7 +90,7 @@ export var Style = {
         this.material.inject(this);
 
         // Set lighting mode: fragment, vertex, or none (specified as 'false')
-        Light.setMode(this.lighting, this);
+        Light.setMode(this.cpu_projection ? false : this.lighting, this);
 
         // Setup raster samplers if needed
         this.setupRasters();
@@ -166,6 +172,13 @@ export var Style = {
                 mesh.vertex_data.end();
                 mesh.vertex_elements = mesh.vertex_data.element_buffer;
                 mesh.vertex_data = mesh.vertex_data.vertex_buffer; // convert from instance to raw typed array
+                if (this.cpu_projection) {
+                    if (!['polygons', 'raster'].includes(this.baseStyle())) throw new Error('CPU projection currently supports only polygon and raster meshes');
+                    const projected = projectTileMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements,
+                        layout: this.vertexLayoutForMeshVariant(mesh.variant), tile, projection: this.cpu_projection});
+                    mesh.vertex_data = projected.vertices;
+                    mesh.vertex_elements = projected.indices;
+                }
             }
 
             // Load raster tiles passed from data source

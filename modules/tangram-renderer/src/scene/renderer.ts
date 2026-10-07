@@ -19,7 +19,7 @@ interface RendererScene {
     /** Shared source/style tile ownership across every eye. */
     tile_manager: {getResourceStatistics(): TileResourceStatistics};
     view: View;
-    config: {animated?: boolean} | null;
+    config: {animated?: boolean; scene?: {cpu_projection?: unknown}} | null;
     animated: boolean;
     dirty: boolean;
     start_time: number;
@@ -116,6 +116,9 @@ export default class Renderer {
      */
     setFrame(frame: unknown, {renderViewId}: FrameOptions = {}): HostFrame {
         const host_frame = HostFrame.from(frame);
+        if (this.scene.config && Boolean(this.scene.config.scene?.cpu_projection) !== (host_frame.projection.type === 'projected')) {
+            throw new Error('CPU-projected scene meshes and HostFrame projection must match');
+        }
         const render_view = host_frame.getRenderView(renderViewId);
         const viewport = render_view.viewport;
         const render_view_changed = this.active_render_view_id !== render_view.id;

@@ -32,11 +32,14 @@ import Texture from '../gl/texture';
 import VertexElements from '../gl/vertex_elements';
 import Label from '../labels/label';
 
+import {registerMeshProjector} from '../procedures/mesh-projector';
+
 const SceneWorker = Object.assign(self, {
 
     FeatureSelection,
     registerMvtDecoder,
     registerMvtTileProvider,
+    registerMeshProjector,
 
     sources: {},
     styles: {},
@@ -107,7 +110,8 @@ const SceneWorker = Object.assign(self, {
             styles: this.styles,
             sources: this.sources,
             introspection: this.introspection,
-            shader_language
+            shader_language,
+            config
         });
 
         // Parse each top-level layer as a separate tree

@@ -1,0 +1,43 @@
+<!doctype html>
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Experimental projected basemaps</title>
+    <link rel="stylesheet" href="./main.css">
+    <script type="importmap">
+      {"imports": {
+        "@deck.gl/core": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
+        "@luma.gl/core": "https://esm.sh/@luma.gl/core@9.4.0?bundle",
+        "@math.gl/core": "https://esm.sh/@math.gl/core@5.0.0-alpha.12?bundle",
+        "@vis.gl/tangram-renderer/core": "../../modules/tangram-renderer/dist/core.js",
+        "@vis.gl/tangram-layers/experimental/projected-basemaps": "../../modules/tangram-layers/dist/experimental/projected-basemaps.js"
+      }}
+    </script>
+  </head>
+  <body>
+    <div id="projected-map">
+      <aside>
+        <h1>Projected basemaps</h1>
+        <p>math.gl CPU projection in Tangram workers; deck.gl OrthographicView controls the camera.</p>
+        <label>Select projection
+          <select id="projection"><option value="equal-earth">Equal Earth</option><option value="albers">Albers — North America</option><option value="equirectangular">Equirectangular</option></select>
+        </label>
+        <label>Basemap
+          <select id="basemap"><option value="vector">OpenFreeMap polygons</option><option value="raster">NASA Blue Marble raster</option></select>
+        </label>
+        <p id="status" role="status">Loading…</p>
+        <p>Drag to pan; scroll or pinch to zoom. Flat ground only: roads, labels, elevations and feature picking are deferred.</p>
+      </aside>
+      <nav aria-label="Rendering device"><button data-device="webgl">WebGL 2</button><button data-device="webgpu">WebGPU</button><button id="fullscreen" aria-label="Fullscreen">⛶</button></nav>
+      <p id="attribution">© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> | © <a href="https://openmaptiles.org/">OpenMapTiles</a> | <a href="https://openfreemap.org/">OpenFreeMap</a></p>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

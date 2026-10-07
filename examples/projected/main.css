@@ -1,0 +1,18 @@
+/*
+ * tangram-layers
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) vis.gl contributors
+ */
+
+html, body, #projected-map { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+body { font-family: system-ui, sans-serif; background: #0b1729; }
+aside { position: absolute; left: 16px; top: 16px; width: 280px; max-height: calc(100% - 100px); overflow: auto; padding: 18px; border-radius: 8px; background: #fffffff2; z-index: 1; }
+h1 { font-size: 20px; margin: 0 0 12px; }
+p { font-size: 13px; line-height: 1.5; }
+label { display: block; margin-top: 16px; font-size: 14px; font-weight: 600; }
+select { width: 100%; margin-top: 6px; padding: 6px; }
+nav { position: absolute; right: 16px; top: 16px; z-index: 1; display: flex; gap: 4px; }
+button { padding: 8px; cursor: pointer; }
+#attribution { position: absolute; bottom: 0; right: 0; margin: 0; padding: 5px 8px; background: #fffffff2; z-index: 1; }
+[data-error="true"] { color: #b42318; }
+@media (max-width: 700px) { aside { width: 200px; top: 56px; font-size: 12px; } }

@@ -23,6 +23,11 @@ Copyright (c) vis.gl contributors
   rendering while advanced culling and tessellation remain under development.
 - The deck example is under `examples/deck/` and supports shared luma.gl
   WebGL and WebGPU devices, vector styles, and the animated TRON style.
+- The opt-in `experimental/projected-basemaps` layer adds worker-side math.gl
+  Equal Earth, regional Albers and equirectangular projection for flat polygons
+  and raster meshes in OrthographicView. See the
+  [experimental projection contract](./developer-guide/projected-basemaps.md)
+  for coverage, resource limits and deferred features.
 - The repository uses Yarn workspaces and `@vis.gl/dev-tools` for bootstrap,
   cleaning, and Biome linting.
 

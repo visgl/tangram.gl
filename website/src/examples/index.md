@@ -41,6 +41,11 @@ page, so the examples sidebar stays visible while you move between demos.
     <strong>FirstPersonView</strong>
     <span>Explore Tangram from deck.gl’s ground-aware first-person camera.</span>
   </a>
+  <a className="example-tile" href="/tangram.gl/examples/deck-projected">
+    <span className="example-tile__eyebrow">OrthographicView · experimental</span>
+    <strong>Projected basemaps</strong>
+    <span>Worker-projected Equal Earth, Albers and equirectangular polygons and raster meshes.</span>
+  </a>
 </div>
 
 ## @vis.gl/tangram-layers (WebXR)

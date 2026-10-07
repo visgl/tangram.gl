@@ -610,7 +610,7 @@ export default class View {
                 u_device_pixel_ratio: Utils.device_pixel_ratio ?? 1,
                 u_view_pan_snap_timer: this.pan_snap_timer,
                 u_view_panning: this.panning,
-                u_projection_mode: this.projection.type === 'globe' ? 1 : 0
+                u_projection_mode: this.projection.type === 'globe' ? 1 : this.projection.type === 'projected' ? 2 : 0
             });
         }
         else {
@@ -620,7 +620,7 @@ export default class View {
             program.uniform('1f', 'u_device_pixel_ratio', Utils.device_pixel_ratio ?? 1);
             program.uniform('1f', 'u_view_pan_snap_timer', this.pan_snap_timer);
             program.uniform('1i', 'u_view_panning', this.panning);
-            program.uniform('1i', 'u_projection_mode', this.projection.type === 'globe' ? 1 : 0);
+            program.uniform('1i', 'u_projection_mode', this.projection.type === 'globe' ? 1 : this.projection.type === 'projected' ? 2 : 0);
         }
 
         this.camera?.setupProgram(program, uniform_buffers.TangramCamera);

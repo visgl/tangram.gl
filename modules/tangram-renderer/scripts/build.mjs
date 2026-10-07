@@ -42,6 +42,9 @@ function createWorkerPlugin(minified) {
           minify: minified,
           sourcemap: false
         });
+        if (Object.keys(result.metafile.inputs).some(input => /node_modules\/@math\.gl\/projection\//.test(input))) {
+          throw new Error('Normal scene worker unexpectedly includes optional math.gl projection kernels');
+        }
         workerSource = result.outputFiles[0].text;
         workerInputs = Object.keys(result.metafile.inputs).map(input => resolve(packageDirectory, input));
       });
@@ -178,7 +181,7 @@ function getCoreBuildOptions() {
         import workerSource from 'tangram-worker';
         setWorkerURL(URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'})));
         export {Renderer, HostFrame, LumaDeviceRenderer, calculatePlanarGroundBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter,
-          PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure}
+          PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure, normalizeProjectedBasemapOptions}
           from ${JSON.stringify(resolve(sourceDirectory, 'core.ts'))};
       `
     },
@@ -192,7 +195,7 @@ async function buildCore() {
   const result = await esbuild.build(getCoreBuildOptions());
   for (const input of Object.keys(result.metafile.inputs)) {
     // This package is an independent CPU test oracle, not a production projection dependency.
-    if (/node_modules\/@math\.gl\/geospatial\//.test(input)) {
+    if (/node_modules\/@math\.gl\/(geospatial|projection)\//.test(input)) {
       throw new Error(`Core entry includes the development-only projection oracle: ${input}`);
     }
     if (/scene\/(camera|classic_scene)\.ts$/.test(input) || /node_modules\/(@deck\.gl|leaflet)\//.test(input)) {

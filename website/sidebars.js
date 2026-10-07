@@ -21,6 +21,7 @@ module.exports = {
         'developer-guide/architecture',
         'developer-guide/view-integration',
         'developer-guide/projection-conventions',
+        'developer-guide/projected-basemaps',
         'developer-guide/visgl-conformance',
         'developer-guide/tile-providers',
         'developer-guide/tile-loading',

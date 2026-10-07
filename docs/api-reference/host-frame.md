@@ -56,7 +56,15 @@ It also recognizes
 can describe spherical frames without importing deck.gl classes into the
 renderer package.
 
-Planar projections may also supply `visibleBounds: [west, south, east, north]`
+The opt-in CPU-projected path uses `{type: 'projected', visibleBounds}` with
+Cartesian common-space camera matrices, **not** EPSG:3857 meter-space matrices.
+Its footprint is required and bounded to one finite Mercator tile world; it
+requires an explicit `tileZoom` no higher than 6 and rejects automatic `tileLOD`.
+The scene must enable the matching projection worker. See
+[experimental projected basemaps](../developer-guide/projected-basemaps.md)
+for units, projection choices and supported ground geometry.
+
+Web Mercator projections may also supply `visibleBounds: [west, south, east, north]`
 to override the camera-derived rectangle. Longitudes are ordered and may remain
 unwrapped across the antimeridian (for example, `179` to `181`). Latitudes must
 stay strictly between -90 and 90 degrees, and projected meters must remain
