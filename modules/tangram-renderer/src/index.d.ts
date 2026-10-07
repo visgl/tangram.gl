@@ -83,6 +83,8 @@ export declare class Scene {
 }
 
 export declare class ClassicWebGLRenderer {
+  /** Reproject loaded meshes without replacing workers; rejects failed builds and permits subsequent recovery. */
+  setProjectedBasemapProjection(projection: import('./procedures/mesh-projector').ProjectedBasemapOptions): Promise<void>;
   constructor(config: SceneDefinition, options?: RendererOptions);
   static create(config: SceneDefinition, options?: RendererOptions): ClassicWebGLRenderer;
   readonly scene: Scene;

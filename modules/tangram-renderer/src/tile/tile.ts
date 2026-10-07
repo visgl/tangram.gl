@@ -316,9 +316,15 @@ export default class Tile {
         try {
             // For each group, build all styles in the group
             await Promise.all(group.map(async (style) => {
-                const style_data = await style.endData(tile);
-                if (style_data) {
-                    mesh_data[style.name] = style_data;
+                try {
+                    const style_data = await style.endData(tile);
+                    if (style_data) {
+                        mesh_data[style.name] = style_data;
+                    }
+                } catch (error) {
+                    // Drain sibling styles before transferring the failed batch,
+                    // including any texture references they have acquired.
+                    progress.error = progress.error || ((error && error.stack) || String(error));
                 }
             }));
 
@@ -331,8 +337,10 @@ export default class Tile {
 
             // Send meshes to main thread
             WorkerBroker.postMessage(
-                `TileManager_${scene_id}.buildTileStylesCompleted`,
-                WorkerBroker.withTransferables({ tile: { ...Tile.slice(tile), mesh_data }, progress })
+                `TileManager_${scene_id}.${progress.error ? 'buildTileError' : 'buildTileStylesCompleted'}`,
+                WorkerBroker.withTransferables(progress.error ?
+                    { ...Tile.slice(tile), mesh_data, error: progress.error } :
+                    { tile: { ...Tile.slice(tile), mesh_data }, progress })
             );
             if (progress.done) {
                 Collision.resetTile(tile.id); // clear collision if we're done with the tile
@@ -340,6 +348,8 @@ export default class Tile {
         }
         catch (e) {
             log('error', `Error for style group '${group_name}' for tile ${tile.key}`, (e && e.stack) || e);
+            WorkerBroker.postMessage(`TileManager_${scene_id}.buildTileError`,
+                WorkerBroker.withTransferables({ ...Tile.slice(tile), mesh_data, error: (e && e.stack) || String(e) }));
         }
     }
 

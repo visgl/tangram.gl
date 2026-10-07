@@ -1235,6 +1235,13 @@ export default class Scene {
         });
     }
 
+    /** Record the first current-generation failure; settle only after work drains. */
+    tileManagerBuildError(error: unknown) {
+        if (this.building && !this.building.error) {
+            this.building.error = error instanceof Error ? error : new Error(String(error));
+        }
+    }
+
     // Tile manager finished building tiles
     // TODO move to tile manager
     tileManagerBuildDone() {
@@ -1242,7 +1249,9 @@ export default class Scene {
 
         if (this.building) {
             log('info', 'Scene: build geometry finished');
-            if (this.building.resolve) {
+            if (this.building.error) {
+                this.building.reject(this.building.error);
+            } else if (this.building.resolve) {
                 this.logFirstBuild();
                 this.building.resolve(true);
             }

@@ -48,8 +48,10 @@ describe('atomic multi-view host contract', () => {
         rebuild.mockRejectedValueOnce(new Error('fixture build failure'));
         await expect(renderer.setProjectedBasemapProjection({type: 'equirectangular'})).rejects.toThrow('fixture build failure');
         expect(config.scene.cpu_projection).toMatchObject({type: 'mercator'});
+        await renderer.setProjectedBasemapProjection({type: 'mercator'});
+        expect(rebuild).toHaveBeenCalledTimes(4);
         await renderer.setProjectedBasemapProjection({type: 'equirectangular'});
-        expect(redraw).toHaveBeenCalledTimes(3);
+        expect(redraw).toHaveBeenCalledTimes(4);
         delete config.scene.cpu_projection;
         await expect(renderer.setProjectedBasemapProjection({type: 'albers'})).rejects.toThrow('loaded CPU-projected scene');
         renderer.destroy();

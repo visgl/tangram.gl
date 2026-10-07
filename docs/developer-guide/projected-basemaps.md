@@ -106,6 +106,10 @@ sampling and tile clipping. `maxAngularSpan` defaults to 4° (range 1–30°) an
 `maxAdditionalVertices` defaults to 65,536 per mesh (range 0–262,144). Exceeding
 the budget rejects a build rather than silently dropping triangles. Tile detail,
 geographic footprint and refinement should be kept small for initial applications.
+Worker mesh failures reject the projection update after the current tile-build
+queue drains. Restore a valid budget and request the projection again to rebuild;
+even restoring the previous options retries after a failed update. Other queued
+updates remain usable, and late failed batches release their texture references.
 
 ## Next steps
 

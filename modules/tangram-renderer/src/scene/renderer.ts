@@ -64,6 +64,8 @@ export default class Renderer {
     private readonly submittedViews = new Set<string>();
     /** Serialize projection rebuilds so rapid selector changes cannot publish stale meshes last. */
     private projectionUpdate: Promise<void> = Promise.resolve();
+    /** Failed worker geometry must be rebuilt even when restoring the prior options. */
+    private projectionNeedsRebuild = false;
     /** Prevent queued mesh updates from acting on a released scene. */
     private destroyed = false;
 
@@ -102,12 +104,14 @@ export default class Renderer {
             const settings = this.scene.config?.scene;
             if (!settings?.cpu_projection) throw new Error('Projection updates require a loaded CPU-projected scene');
             const previous = normalizeProjectedBasemapOptions(settings.cpu_projection);
-            if (JSON.stringify(previous) === JSON.stringify(projection)) return;
+            if (!this.projectionNeedsRebuild && JSON.stringify(previous) === JSON.stringify(projection)) return;
             settings.cpu_projection = projection;
             try {
                 await this.scene.rebuild({preserveTileCache: true});
+                this.projectionNeedsRebuild = false;
                 if (!this.destroyed) this.scene.requestRedraw();
             } catch (error) {
+                this.projectionNeedsRebuild = true;
                 settings.cpu_projection = previous;
                 throw error;
             }

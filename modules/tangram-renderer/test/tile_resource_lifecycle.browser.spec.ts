@@ -63,7 +63,7 @@ function createManager() {
     source.builds_geometry_tiles = true;
     const scene = {id: 'resource-lifecycle', generation: 1, workers: [{}], sources: {fixture: source}, styles: {},
         view: {tile_zoom: 2, center: {tile: TileID.coord({x: 2, y: 2, z: 2})}},
-        tileManagerBuildDone: vi.fn(), requestRedraw: vi.fn(), withWebGLContext: (callback: () => void) => callback()};
+        tileManagerBuildDone: vi.fn(), tileManagerBuildError: vi.fn(), requestRedraw: vi.fn(), withWebGLContext: (callback: () => void) => callback()};
     const tiles: Record<string, Tile> = {};
     const manager = Object.assign(new TileManager({scene}), {tiles});
     const workerMessage = vi.spyOn(Tile.prototype, 'workerMessage').mockResolvedValue(undefined);
@@ -117,6 +117,7 @@ test('scene rebuilds wait behind old generations and ignore their stale errors',
         manager.buildTile(tile, {fade_in: false});
         expect(manager.getResourceStatistics()).toMatchObject({activeBuilds: 1, queuedBuilds: 1});
         manager.buildTileError({...old, error: new Error('stale')});
+        expect(scene.tileManagerBuildError).not.toHaveBeenCalled();
         expect(manager.hasTile(tile.key)).toBe(true);
         expect(tile.generation).toBe(2);
         expect(manager.getResourceStatistics()).toMatchObject({activeBuilds: 1, queuedBuilds: 0});
@@ -128,12 +129,13 @@ test('scene rebuilds wait behind old generations and ignore their stale errors',
 });
 
 test('rejected worker promises destroy owned resources and release the next slot', async () => {
-    const {manager, workerMessage} = createManager();
+    const {manager, scene, workerMessage} = createManager();
     workerMessage.mockRejectedValueOnce(new Error('fixture failure'));
     const destroy = vi.spyOn(Tile.prototype, 'destroy');
     try {
         for (const x of [0, 1]) manager.loadCoordinate(TileID.coord({x, y: 1, z: 2}));
         await vi.waitFor(() => expect(destroy).toHaveBeenCalledTimes(1));
+        expect(scene.tileManagerBuildError).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({message: 'fixture failure'}));
         expect(manager.getResourceStatistics()).toMatchObject({activeBuilds: 1, queuedBuilds: 0, residentTiles: 1});
     } finally { manager.destroy(); }
 });

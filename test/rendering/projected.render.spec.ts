@@ -9,7 +9,7 @@ import {ProjectedBasemapLayer, createProjectedBasemapScene} from '@vis.gl/tangra
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {createRasterScene} from './scene';
 import type Scene from '../../modules/tangram-renderer/src/scene/scene';
-import type {ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
+import type {ProjectedBasemapOptions, Renderer} from '@vis.gl/tangram-renderer/core';
 
 let harness: RenderingHarness | undefined;
 let deck: Deck<OrthographicView> | undefined;
@@ -122,4 +122,38 @@ test.each([false, true])(`${DEVICE_TYPE}: projection switches reuse decoded tile
     expect((await initialScene.getTileSourceStatistics()).map(value => value.acquisitions))
       .toEqual(statistics.map(value => value.acquisitions));
   }
+});
+
+test(`${DEVICE_TYPE}: a worker refinement failure rejects and a queued projection correction renders`, async () => {
+  harness = new RenderingHarness();
+  await harness.initializeDevice();
+  const errors = harness.errors;
+  const canvas = harness.canvas;
+  const layer = new FixtureLayer({id: 'recover-projected-fixture', projectedTileZoom: 2,
+    scene: createProjectedBasemapScene(createRasterScene(), {type: 'equal-earth'},
+      new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href),
+    onSceneError: error => errors.push(error.message)});
+  deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
+    views: new OrthographicView({id: 'projected', flipY: false}),
+    initialViewState: {target: [0, 0, 0], zoom: -2},
+    onError: error => {errors.push(error.message);}, _animate: true, layers: [layer]});
+  await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas)),
+    {timeout: 20000, interval: 100}).toBeGreaterThan(500);
+  const state = Reflect.get(layer, 'state') as {tangramRecord: {renderer: Renderer}};
+  const renderer = state.tangramRecord.renderer;
+  const failed = renderer.setProjectedBasemapProjection({type: 'equal-earth', maxAdditionalVertices: 0});
+  // Queue the original configuration immediately, before the worker replies.
+  // It must rebuild even though the failed update restores those same options.
+  const correction = renderer.setProjectedBasemapProjection({type: 'equal-earth'});
+  await expect(failed).rejects.toThrow(/budget/);
+  await correction;
+  await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas)),
+    {timeout: 20000, interval: 100}).toBeGreaterThan(500);
+  expect(errors).toEqual([]);
+  const diagnostics = await commands.renderingDiagnostics();
+  expect(diagnostics.length).toBeGreaterThan(0);
+  for (const diagnostic of diagnostics) expect(diagnostic).toMatch(/budget/);
+  // Only the deliberately induced and asserted failure is cleared. Teardown
+  // still checks for unrelated errors or errors emitted after recovery.
+  await commands.startRenderingDiagnostics();
 });

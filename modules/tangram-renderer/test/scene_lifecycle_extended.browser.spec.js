@@ -77,6 +77,31 @@ afterEach(() => {
 });
 
 describe('Scene host lifecycle', () => {
+    test('rejects a failed rebuild after draining and starts the queued correction', async () => {
+        const scene = createScene();
+        const resolve = vi.fn();
+        const reject = vi.fn();
+        const queuedResolve = vi.fn();
+        const queuedReject = vi.fn();
+        scene.building = {resolve, reject, queued: {options: {preserveTileCache: true},
+            resolve: queuedResolve, reject: queuedReject}};
+        scene.logFirstBuild = vi.fn();
+        vi.spyOn(scene, 'rebuild').mockResolvedValue(true);
+        scene.tileManagerBuildError('vertex budget exceeded');
+        scene.tileManagerBuildError('later failure');
+        expect(reject).not.toHaveBeenCalled();
+        scene.tileManagerBuildDone();
+        await Promise.resolve();
+        expect(reject).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({message: 'vertex budget exceeded'}));
+        expect(resolve).not.toHaveBeenCalled();
+        expect(scene.building).toBeNull();
+        expect(scene.rebuild).toHaveBeenCalledExactlyOnceWith({preserveTileCache: true});
+        expect(queuedResolve).toHaveBeenCalledWith(true);
+        expect(queuedReject).not.toHaveBeenCalled();
+        scene.tileManagerBuildError('background failure');
+        expect(scene.building).toBeNull();
+    });
+
     test('checks readiness and updates external script inventory', () => {
         const scene = createScene();
         expect(scene.ready()).toBe(true);
