@@ -3,8 +3,9 @@
 // Copyright (c) vis.gl contributors
 
 import {existsSync, readFileSync, readdirSync} from 'node:fs';
-import {isAbsolute, join, relative, resolve, sep} from 'node:path';
+import {join, resolve, sep} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {COVERAGE_MODULES, isWithinSourcePath} from './coverage-modules.mjs';
 
 const generatedPathPattern = new RegExp(`(?:^|[\\${sep}])(build|dist|node_modules|vendor)(?:[\\${sep}]|$)`);
 
@@ -24,18 +25,15 @@ export function collectAuthoredSourceFiles(directoryPath) {
 export function getCoverageScopeDiagnostics({
   authoredSourceFiles,
   coverageSummary,
-  rendererSourcePath
+  sourcePaths
 }) {
-  const sourceRoot = resolve(rendererSourcePath) + sep;
   const coverageFiles = Object.keys(coverageSummary).filter(filePath => filePath !== 'total');
   const absoluteCoverageFiles = coverageFiles.map(filePath => resolve(filePath));
   const invalidCoverageFiles = absoluteCoverageFiles.filter(absoluteFilePath => {
-    const relativeSourcePath = relative(sourceRoot, absoluteFilePath);
     return (
-      !relativeSourcePath ||
-      relativeSourcePath.startsWith(`..${sep}`) ||
-      isAbsolute(relativeSourcePath) ||
-      generatedPathPattern.test(absoluteFilePath)
+      !sourcePaths.some(sourcePath => isWithinSourcePath(absoluteFilePath, sourcePath)) ||
+      generatedPathPattern.test(absoluteFilePath) ||
+      absoluteFilePath.endsWith('.d.ts')
     );
   });
   const coveredFiles = new Set(absoluteCoverageFiles);
@@ -48,31 +46,31 @@ export function getCoverageScopeDiagnostics({
 
 function main() {
   const coveragePath = resolve('coverage/coverage-summary.json');
-  const rendererSourcePath = resolve('modules/tangram-renderer/src');
+  const sourcePaths = COVERAGE_MODULES.map(module => resolve(module.sourcePath));
   if (!existsSync(coveragePath)) {
     throw new Error(`Coverage summary not found: ${coveragePath}`);
   }
 
   const coverageSummary = JSON.parse(readFileSync(coveragePath, 'utf8'));
-  const authoredSourceFiles = collectAuthoredSourceFiles(rendererSourcePath);
+  const authoredSourceFiles = sourcePaths.flatMap(collectAuthoredSourceFiles);
   const {coverageFiles, invalidCoverageFiles, missingCoverageFiles} = getCoverageScopeDiagnostics({
     authoredSourceFiles,
     coverageSummary,
-    rendererSourcePath
+    sourcePaths
   });
 
   if (invalidCoverageFiles.length > 0) {
     throw new Error(
-      `Coverage includes files outside authored renderer source:\n${invalidCoverageFiles.join('\n')}`
+      `Coverage includes files outside authored module source:\n${invalidCoverageFiles.join('\n')}`
     );
   }
   if (missingCoverageFiles.length > 0) {
     throw new Error(
-      `Coverage omits authored renderer source files:\n${missingCoverageFiles.join('\n')}`
+      `Coverage omits authored module source files:\n${missingCoverageFiles.join('\n')}`
     );
   }
 
-  console.log(`Coverage scope is valid (${coverageFiles.length} renderer source files).`);
+  console.log(`Coverage scope is valid (${coverageFiles.length} source files across ${sourcePaths.length} modules).`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

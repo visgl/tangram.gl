@@ -11,7 +11,7 @@ import TangramLayer, {
   WebMercatorViewAdapter,
   FirstPersonViewAdapter,
   GlobeViewAdapter
-} from '@vis.gl/tangram-layers';
+} from '../modules/tangram-layers/dist/index.js';
 import Tangram, {
   ClassicWebGLRenderer,
   HostFrame,
@@ -23,19 +23,36 @@ import Tangram, {
   calculatePlanarGroundBounds,
   convertLumaLight,
   mapTangramLight
-} from '@vis.gl/tangram-renderer';
-import {TangramStyleSheetSchema} from '@vis.gl/tangram-renderer/style-schema';
-import tangramStyleJsonSchema from '@vis.gl/tangram-renderer/tangram-style.schema.json';
+} from '../modules/tangram-renderer/dist/index.js';
+import {TangramStyleSheetSchema} from '../modules/tangram-renderer/dist/style-schema.js';
+import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-style.schema.json';
 import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
   calculatePlanarGroundBounds as coreGroundBounds,
   PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition,
-  convertLumaLight as coreConvertLumaLight} from '@vis.gl/tangram-renderer/core';
+  convertLumaLight as coreConvertLumaLight} from '../modules/tangram-renderer/dist/core.js';
 import {
   WebXRMapView,
   WebXRPresentation
-} from '@vis.gl/tangram-layers/experimental/webxr';
+} from '../modules/tangram-layers/dist/experimental/webxr.js';
+import layerPackage from '../modules/tangram-layers/package.json';
+import rendererPackage from '../modules/tangram-renderer/package.json';
+
+// Import artifacts explicitly so source aliases used for coverage cannot bypass
+// the build. Check export mappings too, so these paths stay the published ones.
 
 describe('published package entrypoints', () => {
+  it.each([
+    [layerPackage, '.', './dist/index.js'],
+    [layerPackage, './experimental/webxr', './dist/experimental/webxr.js'],
+    [rendererPackage, '.', './dist/index.js'],
+    [rendererPackage, './core', './dist/core.js'],
+    [rendererPackage, './style-schema', './dist/style-schema.js'],
+    [rendererPackage, './tangram-style.schema.json', './dist/tangram-style.schema.json']
+  ].map(([manifest, subpath, artifactPath]) => ({packageName: manifest.name, manifest, subpath, artifactPath})))
+  ('tests the built artifact exported by $packageName $subpath', ({manifest, subpath, artifactPath}) => {
+    const entry = manifest.exports[subpath];
+    expect(typeof entry === 'string' ? entry : entry.import).toBe(artifactPath);
+  });
   it('exports neutral projection helpers from the built core entry', () => {
     const point = projectGeographicPosition([0, 0, 100], 'globe');
     expect(point[1]).toBeLessThan(-PROJECTION_CONSTANTS.globeRadius);

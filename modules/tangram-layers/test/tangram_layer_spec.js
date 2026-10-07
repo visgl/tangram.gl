@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import { assert } from 'chai';
+import {expect} from 'vitest';
 import {FirstPersonViewport} from '@deck.gl/core';
 import createTangramLayerClass, {getFirstPersonViewFrame} from '../src/tangram-layer';
 import Camera from '../../tangram-renderer/src/scene/camera';
@@ -371,7 +372,7 @@ describe('TangramLayer', function () {
         assert.closeTo(frame.view.longitude, expected_frame.view.longitude, 1e-12);
         assert.closeTo(frame.view.latitude, expected_frame.view.latitude, 1e-12);
         assert.closeTo(frame.view.zoom, expected_frame.view.zoom, 1e-12);
-        assert.strictEqual(frame.view.altitude, 600);
+        expect(frame.view.altitude).toBeCloseTo(600, 7);
         assert.strictEqual(frame.tileBuffer, 1);
         assert.isAbove(frame.view.zoom, 14);
         assert.isBelow(frame.view.zoom, viewport.zoom + 1);

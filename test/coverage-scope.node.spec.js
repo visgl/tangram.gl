@@ -17,7 +17,7 @@ describe('coverage scope guard', () => {
     const diagnostics = getCoverageScopeDiagnostics({
       authoredSourceFiles: [firstSource, secondSource],
       coverageSummary: {total: {}, [firstSource]: {}},
-      rendererSourcePath
+      sourcePaths: [rendererSourcePath]
     });
     expect(diagnostics.invalidCoverageFiles).toEqual([]);
     expect(diagnostics.missingCoverageFiles).toEqual([secondSource]);
@@ -28,7 +28,7 @@ describe('coverage scope guard', () => {
     const diagnostics = getCoverageScopeDiagnostics({
       authoredSourceFiles: [firstSource],
       coverageSummary: {total: {}, [firstSource]: {}, [generatedFile]: {}},
-      rendererSourcePath
+      sourcePaths: [rendererSourcePath]
     });
     expect(diagnostics.invalidCoverageFiles).toEqual([generatedFile]);
     expect(diagnostics.missingCoverageFiles).toEqual([]);
@@ -38,7 +38,7 @@ describe('coverage scope guard', () => {
     const diagnostics = getCoverageScopeDiagnostics({
       authoredSourceFiles: [firstSource, secondSource],
       coverageSummary: {total: {}, [firstSource]: {}, [secondSource]: {}},
-      rendererSourcePath
+      sourcePaths: [rendererSourcePath]
     });
     expect(diagnostics.invalidCoverageFiles).toEqual([]);
     expect(diagnostics.missingCoverageFiles).toEqual([]);
@@ -62,5 +62,32 @@ describe('coverage scope guard', () => {
     expect(sourceFiles.some(filePath => filePath.endsWith('tile/globe_tile_preload.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('lights/light-definitions.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('index.d.ts'))).toBe(false);
+    const layerFiles = collectAuthoredSourceFiles('modules/tangram-layers/src');
+    expect(layerFiles).toHaveLength(14);
+    expect(layerFiles.some(filePath => filePath.endsWith('experimental/webxr/grabbing.ts'))).toBe(true);
+    expect(layerFiles.some(filePath => filePath.endsWith('.d.ts'))).toBe(false);
   });
+
+  test('requires both modules including experimental WebXR and type-only sources', () => {
+    const layersSourcePath = '/workspace/modules/tangram-layers/src';
+    const grabbing = `${layersSourcePath}/experimental/webxr/grabbing.ts`;
+    const types = `${layersSourcePath}/view_adapter_types.ts`;
+    const diagnostics = getCoverageScopeDiagnostics({
+      authoredSourceFiles: [firstSource, grabbing, types],
+      coverageSummary: {total: {}, [firstSource]: {}, [grabbing]: {}},
+      sourcePaths: [rendererSourcePath, layersSourcePath]
+    });
+    expect(diagnostics.invalidCoverageFiles).toEqual([]);
+    expect(diagnostics.missingCoverageFiles).toEqual([types]);
+  });
+
+  test.each(['dist/bundle.js', 'src/vendor/library.js', 'src/index.d.ts', 'src-old/index.ts'])
+    ('rejects generated, declaration, vendored, and sibling paths: %s', suffix => {
+      const filePath = `/workspace/modules/tangram-layers/${suffix}`;
+      const diagnostics = getCoverageScopeDiagnostics({
+        authoredSourceFiles: [], coverageSummary: {total: {}, [filePath]: {}},
+        sourcePaths: [rendererSourcePath, '/workspace/modules/tangram-layers/src']
+      });
+      expect(diagnostics.invalidCoverageFiles).toEqual([filePath]);
+    });
 });
