@@ -17,6 +17,11 @@
       "import": "./dist/experimental/webxr.js",
       "default": "./dist/experimental/webxr.js"
     },
+    "./experimental/projected-basemaps": {
+      "types": "./src/experimental/projected-basemaps.ts",
+      "import": "./dist/experimental/projected-basemaps.js",
+      "default": "./dist/experimental/projected-basemaps.js"
+    },
     "./dist/*": "./dist/*"
   },
   "files": [
@@ -35,7 +40,8 @@
   },
   "scripts": {
     "build": "yarn build:bundle",
-    "build:bundle": "yarn build:bundle:main && yarn build:bundle:webxr",
+    "build:bundle": "yarn build:bundle:main && yarn build:bundle:webxr && yarn build:bundle:projected",
+    "build:bundle:projected": "ocular-bundle ./experimental-projected-basemaps.js --env=dev --output=dist/experimental/projected-basemaps.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "build:bundle:main": "ocular-bundle ./bundle.js --env=dev --output=dist/index.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "build:bundle:webxr": "ocular-bundle ./experimental-webxr.js --env=dev --output=dist/experimental/webxr.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "prepack": "yarn build"

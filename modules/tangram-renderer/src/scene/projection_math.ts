@@ -43,6 +43,7 @@ export interface GeographicProjectionProcedure {
 /** Project geography to absolute Mercator meters or globe common coordinates, never eye space. */
 export function projectGeographicPosition(position: GeographicProjectionPosition, projection: HostProjection['type'], anchorLongitude?: number): [number, number, number] {
     let [longitude, latitude, altitude] = position;
+    if (projection === 'projected') throw new Error('CPU-projected basemaps require the experimental worker procedure');
     if (!position.every(Number.isFinite) || Math.abs(latitude) > 90) throw new Error('Projection requires finite geographic coordinates and latitude within +/-90 degrees');
     if (projection === 'globe') {
         longitude *= Math.PI / 180; latitude *= Math.PI / 180;
@@ -58,6 +59,7 @@ export function projectGeographicPosition(position: GeographicProjectionPosition
 
 /** Rotate an ENU direction into globe axes without camera transforms or changing its length. */
 export function projectGeographicVector(position: GeographicProjectionPosition, direction: readonly [number, number, number], projection: HostProjection['type']): [number, number, number] {
+    if (projection === 'projected') throw new Error('CPU-projected basemaps do not support geographic lighting');
     const [east, north, up] = direction;
     if (projection === 'web-mercator') return [east, north, up];
     const longitude = position[0] * Math.PI / 180, latitude = position[1] * Math.PI / 180;
@@ -89,6 +91,7 @@ export function getProjectionSurface(x: number, y: number, projection: HostProje
     /** Change in position per northward Mercator meter. */
     derivativeY: number[];
 } {
+    if (projection === 'projected') throw new Error('CPU-projected basemaps require explicit LOD');
     if (projection === 'web-mercator') return {position: [x, y, 0], derivativeX: [1, 0, 0], derivativeY: [0, 1, 0]};
     const longitude = x / PROJECTION_CONSTANTS.mercatorRadius;
     const latitude = Math.atan(Math.sinh(y / PROJECTION_CONSTANTS.mercatorRadius));
@@ -109,7 +112,7 @@ function unprojectMercatorPosition(position: readonly [number, number, number]):
 }
 
 /** Immutable procedures delegate to existing formulas; no runtime math.gl candidate switch. */
-const PROJECTION_PROCEDURES: Readonly<Record<HostProjection['type'], GeographicProjectionProcedure>> = Object.freeze({
+const PROJECTION_PROCEDURES: Readonly<Record<'web-mercator' | 'globe', GeographicProjectionProcedure>> = Object.freeze({
     'web-mercator': Object.freeze({
         type: 'web-mercator',
         positionUnits: 'meters',

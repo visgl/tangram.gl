@@ -14,6 +14,7 @@ import {createSurfacePicker} from './surface-picking.js';
 import {createSurfaceGrabControls, bindReferenceSpaceReset} from './surface-grabbing.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
+import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {
   WebXRFirstPersonView,
   WebXRFirstPersonController,
@@ -74,9 +75,20 @@ const titleElement = document.getElementById('webxr-title');
 const deviceButtons = document.querySelectorAll('[data-webxr-device]');
 const query = new URLSearchParams(window.location.search);
 const vectorProvider = resolveVectorProvider(query.get('provider'));
+const basemapId = query.get('basemap') === 'blueMarbleRaster' ? 'blueMarbleRaster' : 'tron';
+const basemapSelect = document.getElementById('webxr-basemap');
+if (basemapSelect) {
+  basemapSelect.value = basemapId;
+  basemapSelect.addEventListener('change', event => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('basemap', event.target.value);
+    window.location.assign(url);
+  });
+}
 const providerSelect = document.getElementById('webxr-vector-provider');
 if (providerSelect) {
   providerSelect.value = vectorProvider;
+  providerSelect.disabled = basemapId === 'blueMarbleRaster';
   providerSelect.addEventListener('change', event => {
     const url = new URL(window.location.href);
     url.searchParams.set('provider', resolveVectorProvider(event.target.value));
@@ -198,7 +210,8 @@ const stereoControls = createStereoControls({
   onChange: () => animationLoop?.setNeedsRedraw('Stereo settings changed')
 });
 
-const scene = createTronScene({portable: requestedDeviceType === 'webgpu'});
+const scene = basemapId === 'blueMarbleRaster' ? createBlueMarbleScene()
+  : createTronScene({portable: requestedDeviceType === 'webgpu'});
 updateAttribution(document.getElementById('attribution'), getConfiguredAttributions(scene));
 
 if (titleElement) {

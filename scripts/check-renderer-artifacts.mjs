@@ -14,6 +14,8 @@ const requiredArtifacts = [
   'dist/core.js.map',
   'dist/style-schema.js',
   'dist/loaders-gl-worker.js',
+  'dist/projected-basemaps-worker.js',
+  'dist/projected-basemaps-worker.js.map',
   'dist/loaders-gl-worker.js.map',
   'dist/tangram-style.schema.json',
   'dist/tangram.debug.mjs',

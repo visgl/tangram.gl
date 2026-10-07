@@ -32,6 +32,14 @@ await copyExampleAssets(
   resolve(repositoryDirectory, 'examples/webxr'),
   resolve(staticDirectory, 'examples/webxr')
 );
+await copyExampleAssets(resolve(repositoryDirectory, 'examples/projected'), resolve(staticDirectory, 'examples/projected'));
+// .htm avoids the preview server's .html-to-clean-route redirect, which drops the base URL.
+// No directory index can shadow a Docusaurus route.
+await cp(resolve(repositoryDirectory, 'examples/projected/index.html'), resolve(staticDirectory, 'examples/projected/embed.htm'));
+await cp(resolve(repositoryDirectory, 'modules/tangram-renderer/dist/projected-basemaps-worker.js'),
+  resolve(staticDirectory, 'modules/tangram-renderer/dist/projected-basemaps-worker.js'));
+await cp(resolve(repositoryDirectory, 'modules/tangram-layers/dist/experimental/projected-basemaps.js'),
+  resolve(staticDirectory, 'modules/tangram-layers/dist/experimental/projected-basemaps.js'));
 await cp(
   resolve(repositoryDirectory, 'modules/tangram-renderer/dist/tangram.debug.mjs'),
   resolve(staticDirectory, 'modules/tangram-renderer/dist/tangram.debug.mjs')

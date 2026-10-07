@@ -177,6 +177,33 @@ describe('tile lifecycle', () => {
         expect(Collision.resetTile).toHaveBeenCalledWith(9);
     });
 
+    test('drains failed style groups and forwards late batches for cleanup instead of publishing them', async () => {
+        const tile = {debug: {}, id: 9, key: 'tile', generation: 3};
+        const textureBatch = {meshes: {}, textures: ['retained-texture']};
+        let release;
+        const pending = new Promise(resolve => {release = resolve;});
+        const groups = {
+            failed: [{name: 'raster', endData: vi.fn().mockRejectedValue(new Error('vertex budget exceeded'))},
+                {name: 'sibling', endData: vi.fn().mockResolvedValue(textureBatch)}],
+            late: [{name: 'late', endData: vi.fn(() => pending)}]
+        };
+        const progress = {};
+        vi.spyOn(WorkerBroker, 'postMessage').mockImplementation(() => {});
+        vi.spyOn(WorkerBroker, 'withTransferables').mockImplementation(value => value);
+        vi.spyOn(Collision, 'resetTile').mockImplementation(() => {});
+        const late = Tile.buildStyleGroup({group_name: 'late', groups, progress, scene_id: 'scene', tile});
+        await Tile.buildStyleGroup({group_name: 'failed', groups, progress, scene_id: 'scene', tile});
+        expect(WorkerBroker.postMessage).toHaveBeenCalledExactlyOnceWith('TileManager_scene.buildTileError',
+            expect.objectContaining({error: expect.stringContaining('vertex budget exceeded'),
+                generation: 3, mesh_data: {sibling: textureBatch}}));
+        expect(Collision.resetTile).not.toHaveBeenCalled();
+        release(textureBatch);
+        await late;
+        expect(WorkerBroker.postMessage).toHaveBeenLastCalledWith('TileManager_scene.buildTileError',
+            expect.objectContaining({mesh_data: {late: textureBatch}}));
+        expect(Collision.resetTile).toHaveBeenCalledExactlyOnceWith(9);
+    });
+
     test('creates, sorts, swaps, and releases main-thread meshes', () => {
         const tile = createTile();
         tile.debug.feature_count = 2;

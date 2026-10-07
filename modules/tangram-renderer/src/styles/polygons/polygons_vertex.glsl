@@ -20,6 +20,9 @@ uniform mat3 u_inverseNormalMatrix;
 
 attribute vec4 a_position;
 attribute vec4 a_color;
+#ifdef TANGRAM_CPU_PROJECTED
+    attribute vec3 a_projected_position;
+#endif
 
 // Optional normal attribute, otherwise default to up
 #ifdef TANGRAM_NORMAL_ATTRIBUTE
@@ -139,6 +142,9 @@ void main() {
     // World coordinates for 3d procedural textures
     v_tile_position = position.xy;
     position = tangramModelView(position, v_world_position);
+    #ifdef TANGRAM_CPU_PROJECTED
+        position = vec4(a_projected_position, 1.);
+    #endif
     // Geographic orientation requires absolute meters, before the procedural
     // texture precision wrap changes v_world_position's origin.
     v_normal = u_projection_mode == 1

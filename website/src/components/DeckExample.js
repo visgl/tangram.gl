@@ -121,7 +121,7 @@ export default function DeckExample({
               <span>Basemap</span>
               <select id="basemap-style" defaultValue="tron">
                 <option value="streetsVector">Streets (vector)</option>
-                <option value="positronRaster">Positron (raster)</option>
+                <option value="blueMarbleRaster">NASA Blue Marble</option>
                 <option value="tron">TRON 2.0 (vector, no key)</option>
                 <option value="tronNextzen">Original TRON 2.0 on Nextzen</option>
               </select>
@@ -130,7 +130,6 @@ export default function DeckExample({
               <span>Vector provider</span>
               <select id="vector-provider" defaultValue="openfreemap">
                 <option value="openfreemap">OpenFreeMap</option>
-                <option value="carto">CARTO</option>
               </select>
             </label>
             <label className="control checkbox-control">

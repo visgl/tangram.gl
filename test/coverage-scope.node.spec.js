@@ -46,7 +46,9 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(155);
+    expect(sourceFiles).toHaveLength(158);
+    expect(sourceFiles.some(filePath => filePath.endsWith('experimental/projected-mesh.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('procedures/mesh-projector.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('builders/geometry-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('gl/vertex-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('gl/mesh-types.ts'))).toBe(true);
@@ -69,7 +71,8 @@ describe('coverage scope guard', () => {
     expect(sourceFiles.some(filePath => filePath.endsWith('selection/selection-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('index.d.ts'))).toBe(false);
     const layerFiles = collectAuthoredSourceFiles('modules/tangram-layers/src');
-    expect(layerFiles).toHaveLength(14);
+    expect(layerFiles).toHaveLength(15);
+    expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-basemaps.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/webxr/grabbing.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('.d.ts'))).toBe(false);
   });

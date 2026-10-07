@@ -149,10 +149,16 @@ export default function WebXRExample({viewMode = 'globe'}) {
             ) : null}
           </div>
           <label>
+            Basemap
+            <select id="webxr-basemap" defaultValue="tron">
+              <option value="tron">TRON (OpenFreeMap)</option>
+              <option value="blueMarbleRaster">NASA Blue Marble</option>
+            </select>
+          </label>
+          <label>
             Vector provider
             <select id="webxr-vector-provider" defaultValue="openfreemap">
               <option value="openfreemap">OpenFreeMap</option>
-              <option value="carto">CARTO</option>
             </select>
           </label>
           <details id="webxr-stereo-settings" className="webxr-help">

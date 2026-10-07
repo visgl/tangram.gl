@@ -514,6 +514,9 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
             return;
         }
         log('error', `Error building tile ${tile.key}:`, tile.error);
+        // Record the failure before releasing work: the last release may settle
+        // the scene rebuild synchronously. Stale generations never reach here.
+        this.scene.tileManagerBuildError?.(tile.error);
         const ownedMeshData = current.mesh_data;
         current.destroy();
         this.forgetTile(tile.key);

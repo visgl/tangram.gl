@@ -31,7 +31,7 @@ Object.assign(Polygons, {
 
     getWGSLShaderSource(this: GeometryStyleRuntime) {
         return buildPolygonsWGSL({ raster: this.raster === 'color', lighting: this.portable_lighting_mode,
-            lightCount: this.portable_light_count });
+            lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection) });
     },
 
     init(this: GeometryStyleRuntime) {
@@ -40,6 +40,15 @@ Object.assign(Polygons, {
         // Tell the shader about optional attributes (shader is shared with lines style, which has different config)
         this.defines.TANGRAM_NORMAL_ATTRIBUTE = true;
         this.defines.TANGRAM_TEXTURE_COORDS = this.texcoords;
+        this.defines.TANGRAM_CPU_PROJECTED = Boolean(this.cpu_projection && ['polygons', 'raster'].includes(this.baseStyle()));
+        const positionBlocks = this.shaders?.blocks?.position;
+        const attributes = this.shaders?.attributes;
+        const hasPositionBlocks = Array.isArray(positionBlocks) ? positionBlocks.length > 0 : Boolean(positionBlocks);
+        const hasAttributes = attributes && typeof attributes === 'object' ? Object.keys(attributes).length > 0 : Boolean(attributes);
+        if (this.cpu_projection && ['polygons', 'raster'].includes(this.baseStyle()) &&
+            (hasPositionBlocks || hasAttributes)) {
+            throw new Error('CPU projection requires unlit polygons without position blocks or custom attributes');
+        }
     },
 
     _parseFeature (this: GeometryStyleRuntime, feature: GeometryFeature, draw: GeometryDraw, context: GeometryContext) {
@@ -138,6 +147,9 @@ Object.assign(Polygons, {
             ];
 
             this.addCustomAttributesToAttributeList(attribs);
+            if (this.cpu_projection && ['polygons', 'raster'].includes(this.baseStyle())) {
+                attribs.push({name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false});
+            }
             this.vertex_layouts[variant.key] = new VertexLayout(attribs);
         }
         return this.vertex_layouts[variant.key];
@@ -194,6 +206,12 @@ Object.assign(Polygons, {
         }
 
         this.addCustomAttributesToVertexTemplate(style, i);
+        if (this.cpu_projection) {
+            const projectedIndex = mesh.vertex_data.vertex_layout.index.a_projected_position;
+            this.vertex_template[projectedIndex] = 0;
+            this.vertex_template[projectedIndex + 1] = 0;
+            this.vertex_template[projectedIndex + 2] = 0;
+        }
         return this.vertex_template;
     },
 

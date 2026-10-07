@@ -1,0 +1,18 @@
+# tangram-layers
+# SPDX-License-Identifier: MIT
+# Copyright (c) vis.gl contributors
+
+scene:
+    background:
+        color: '#0b1729'
+sources:
+    blueMarble:
+        type: Raster
+        url: https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/BlueMarble_ShadedRelief/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.jpeg
+        max_zoom: 8
+        attribution: 'Imagery: <a href="https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/">NASA Earth Observatory</a> | Tiles: <a href="https://nasa-gibs.github.io/gibs-api-docs/">NASA GIBS</a>'
+layers:
+    ground:
+        data: {source: blueMarble}
+        draw:
+            raster: {order: 0}

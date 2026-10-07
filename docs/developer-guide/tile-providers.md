@@ -60,19 +60,36 @@ as required by the provider. Merely retrieving credits does not establish compli
 ## Default vector provider: OpenFreeMap
 
 The deck streets/TRON examples, homepage hero and WebXR vector scenes use
-OpenFreeMap by default. Choose **Vector provider → CARTO** in deck or WebXR
-controls, or append `?provider=carto` (use `&provider=carto` with existing query
-parameters). The provider is retained when changing devices/views; changing it
-reloads the example with the same style selection. This is a selectable
-alternative, not a silent automatic failover. The Positron raster alternative
-remains on CARTO; the Nextzen style still requires its existing key.
+OpenFreeMap by default. CARTO is no longer offered in the controls; old
+`?provider=carto` bookmarks remain compatible rather than silently changing their
+data. NASA Blue Marble replaces Positron as the raster choice. The Nextzen style
+still requires its existing key.
 
-All tiled styles in the classic playground use OpenFreeMap through the
+Vector styles in the classic playground use OpenFreeMap through the
 OpenMapTiles compatibility transform. Light and street comparisons are vector
 styles rather than raster basemaps. The local GeoJSON previews overlay their
 bundled fixtures on these live vector scenes, without a second Leaflet raster
 layer. The Albers morph is a standalone bundled GeoJSON example, while terrain
 shading retains its separate elevation source.
+
+## NASA Blue Marble imagery
+
+The deck.gl and WebXR MapView, GlobeView and FirstPersonView examples, classic
+playground and experimental projections offer Blue Marble. The projections
+example defaults to it; other examples retain their vector defaults.
+The shared raster source uses NASA GIBS's EPSG:3857 WMTS JPEG tiles at levels
+0–8 and overzooms higher views. This is overview imagery, not a street-level
+satellite basemap. It inherits the source grid's ±85.0511287798066° latitude limit.
+
+Blue Marble's publisher requests **NASA Earth Observatory** credit; the examples
+also identify **NASA GIBS** as the tile service. NASA's
+[media-use guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
+permit factual, informational use without implying endorsement. This is not
+a blanket license for NASA logos or separately credited third-party material.
+See the [Blue Marble publication and credit](https://earthobservatory.nasa.gov/features/BlueMarble/BlueMarble.php)
+and [GIBS tile API](https://nasa-gibs.github.io/gibs-api-docs/map-library-usage/).
+The imagery is not relicensed under this repository's MIT license. Display
+credits when exporting images and in immersive presentation as well as the DOM.
 
 The shared source factory uses TileJSON rather than a hard-coded dated URL,
 clears inherited `url`/URL parameters, sets maximum data zoom 14 and tile size
@@ -103,7 +120,8 @@ treating this document as a substitute for its terms.
 
 ### Compatibility and follow-up validation
 
-1. Retain CARTO as a selectable vector option and as the raster alternative.
+1. Use OpenFreeMap for vector choices and NASA Blue Marble for overview imagery;
+   retain explicit old provider bookmarks only for compatibility.
 2. Reuse the existing OpenMapTiles-to-Tilezen compatibility transform for classic styles.
    Compare layer names, road classes, building `render_height`/`render_min_height`,
    labels and zoom behavior with small conformance fixtures.
@@ -111,8 +129,8 @@ treating this document as a substitute for its terms.
    across MapView, FirstPersonView and GlobeView, on both GPU backends.
 4. Verify required links in source changes, stereo preview, fullscreen and exports;
    implement the separate immersive attribution surface before headset signoff.
-5. Continue regional and zoom-level comparisons; preserve the CARTO option while
-   remaining visual differences are characterized.
+5. Continue regional and zoom-level comparisons using recorded conformance fixtures
+   while remaining visual differences are characterized.
 
 The deck vector examples target OpenMapTiles-style layers such
 as `transportation`, `building`, `landuse`, `water` and `place`. Legacy Tilezen

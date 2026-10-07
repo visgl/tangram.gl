@@ -6,6 +6,12 @@ Copyright (c) vis.gl contributors
 
 # Renderer API
 
+For opt-in CPU-projected ground scenes, `setProjectedBasemapProjection(options)`
+returns a promise for a mesh-only worker rebuild. It retains loaded source tiles
+and renderer ownership instead of reloading the scene. See
+[experimental projected basemaps](../developer-guide/projected-basemaps.md) for
+projection types, restrictions and cache budgets. Other scenes reject this method.
+
 `@vis.gl/tangram-renderer` exports the classic Tangram default object and named
 integration primitives:
 

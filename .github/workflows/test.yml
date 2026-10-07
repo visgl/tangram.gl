@@ -49,6 +49,9 @@ jobs:
           test -f modules/tangram-renderer/dist/tangram-style.schema.json
           test -f website/build/modules/tangram-renderer/dist/index.js
           test -f website/build/modules/tangram-renderer/dist/loaders-gl-worker.js
+          test -f website/build/modules/tangram-renderer/dist/projected-basemaps-worker.js
+          test -f website/build/modules/tangram-layers/dist/experimental/projected-basemaps.js
+          test -f website/build/examples/projected/embed.htm
           test -f website/build/examples/deck.html
           test -f website/build/examples/classic.html
           test -f website/build/examples/classic/monaco-editor.worker.js
@@ -96,6 +99,8 @@ jobs:
         run: yarn bundle-size:parsers
       - name: Verify candidate tileset dependency graphs and report sizes
         run: yarn bundle-size:tilesets
+      - name: Verify optional projection dependency graphs and report sizes
+        run: yarn bundle-size:projections
 
   test-headless:
     runs-on: ubuntu-22.04

@@ -1,0 +1,7 @@
+{
+  "name": "@vis.gl/tangram-projected-example",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Experimental worker-projected Tangram basemaps with deck.gl OrthographicView"
+}

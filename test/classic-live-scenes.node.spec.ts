@@ -7,6 +7,7 @@ import {posix} from 'node:path';
 import {describe, expect, test} from 'vitest';
 import {DEFAULT_SCENE, SCENE_OPTIONS, SCENE_ALIASES, SCENE_DESCRIPTIONS, getSceneOverview} from '../examples/classic/app/scene-catalog.js';
 import {OPENFREEMAP_ATTRIBUTION, OPENFREEMAP_TILEJSON} from '../examples/classic/app/vector-providers.js';
+import {BLUE_MARBLE_URL, BLUE_MARBLE_ATTRIBUTION, createBlueMarbleScene} from '../examples/classic/app/nasa-basemap.js';
 import {parseSceneYamlLegacy} from '../modules/tangram-renderer/src/procedures/scene-yaml-legacy';
 import mergeObjects from '../modules/tangram-renderer/src/utils/merge';
 import {getPropertyPath} from '../modules/tangram-renderer/src/utils/props';
@@ -21,6 +22,23 @@ function readScene(name: string): SceneDefinition {
 function sceneValue(scene: SceneDefinition, path: string): unknown {
   return getPropertyPath(scene, path.split('.'));
 }
+
+test('the selectable classic NASA scene agrees with the shared basemap definition and opens at world scale', () => {
+  const scene = readScene('nasa-blue-marble.yaml');
+  expect(sceneValue(scene, 'sources.blueMarble')).toEqual({type: 'Raster', url: BLUE_MARBLE_URL,
+    max_zoom: 8, attribution: BLUE_MARBLE_ATTRIBUTION});
+  expect(scene.layers).toEqual(createBlueMarbleScene().layers);
+  expect(SCENE_OPTIONS.some(option => option.value === 'styles/nasa-blue-marble.yaml')).toBe(true);
+  expect(getSceneOverview('styles/nasa-blue-marble.yaml')).toEqual([2, 0, 0]);
+});
+
+test.each(['examples/deck/index.html', 'examples/webxr/index.html', 'website/src/components/DeckExample.js',
+  'website/src/components/WebXRExample.js'])('the %s basemap controls offer NASA and no longer offer CARTO', pathname => {
+  const source = readFileSync(new URL(`../${pathname}`, import.meta.url), 'utf8');
+  expect(source).toContain('<option value="blueMarbleRaster">NASA Blue Marble</option>');
+  expect(source).not.toContain('<option value="carto">');
+  expect(source).not.toContain('<option value="positronRaster">');
+});
 
 /** Require a fixture's dynamic object before enumerating its keys. */
 function sceneRecord(scene: SceneDefinition, path: string): object {
@@ -101,7 +119,7 @@ describe('classic live style choices', () => {
     expect(source.attribution).toBe(OPENFREEMAP_ATTRIBUTION);
   });
 
-  test.each(SCENE_OPTIONS.filter(option => !option.value.endsWith('projection-morph.yaml')))('$label uses OpenFreeMap vector tiles and provider credits', option => {
+  test.each(SCENE_OPTIONS.filter(option => !['projection-morph.yaml', 'nasa-blue-marble.yaml'].some(name => option.value.endsWith(name))))('$label uses OpenFreeMap vector tiles and provider credits', option => {
     const scene = readImportedScene(option.value.replace('styles/', ''));
     for (const name of ['mapzen', 'tilezen']) {
       expect(sceneValue(scene, `sources.${name}`)).toMatchObject({type: 'MVT', url: '', url_params: null, tilejson: OPENFREEMAP_TILEJSON});

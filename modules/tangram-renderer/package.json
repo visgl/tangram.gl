@@ -40,7 +40,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:size",
+    "build": "node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:projection-worker && yarn build:size",
+    "build:projection-worker": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/experimental/projected-basemaps-worker.ts --format=iife --globalName=TangramProjectedBasemaps --output=modules/tangram-renderer/dist/projected-basemaps-worker.js --externals=@vis.gl/tangram-layers --sourcemap=true --sourcesContent=false",
     "build:entry": "node scripts/write-package-entry.mjs",
     "build:style-schema": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/styles/style-schema.ts --env=dev --format=esm --output=modules/tangram-renderer/dist/style-schema.js --externals=zod --sourcemap=true --sourcesContent=false",
     "build:loaders-gl-worker": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/experimental/loaders-gl-worker.ts --format=iife --globalName=TangramLoadersGL --output=modules/tangram-renderer/dist/loaders-gl-worker.js --externals=@vis.gl/tangram-layers --sourcemap=true --sourcesContent=false",
@@ -59,6 +60,7 @@
     "@loaders.gl/pmtiles": "5.0.0-alpha.9",
     "@loaders.gl/tiles": "5.0.0-alpha.9",
     "@math.gl/geospatial": "5.0.0-alpha.12",
+    "@math.gl/projection": "5.0.0-alpha.12",
     "esbuild": "^0.28.1"
   },
   "dependencies": {

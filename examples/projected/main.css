@@ -1,0 +1,9 @@
+/*
+ * tangram-layers
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) vis.gl contributors
+ */
+
+html { height: 100%; }
+#projected-map { position: absolute; inset: 0; }
+#controls { max-height: calc(100% - 80px); overflow: auto; }

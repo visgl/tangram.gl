@@ -30,6 +30,53 @@ function frame(overrides: Partial<HostFrameOptions> = {}): HostFrame {
 afterEach(() => vi.restoreAllMocks());
 
 describe('atomic multi-view host contract', () => {
+    test('projection rebuilds retain source identity, serialize updates, recover failures and reject released scenes', async () => {
+        const renderer = new Renderer({});
+        const sources = {};
+        const config: {scene: {cpu_projection?: unknown}; sources: object} = {scene: {cpu_projection: {type: 'equal-earth'}}, sources};
+        renderer.scene.config = config;
+        const rebuild = vi.spyOn(renderer.scene, 'rebuild').mockResolvedValue(true);
+        const redraw = vi.spyOn(renderer.scene, 'requestRedraw');
+        await renderer.setProjectedBasemapProjection({type: 'equal-earth'});
+        expect(rebuild).not.toHaveBeenCalled();
+        await Promise.all([renderer.setProjectedBasemapProjection({type: 'albers'}),
+            renderer.setProjectedBasemapProjection({type: 'mercator'})]);
+        expect(config.scene.cpu_projection).toMatchObject({type: 'mercator'});
+        expect(renderer.scene.config).toBe(config);
+        expect(config.sources).toBe(sources);
+        expect(rebuild.mock.calls).toEqual([[{preserveTileCache: true}], [{preserveTileCache: true}]]);
+        rebuild.mockRejectedValueOnce(new Error('fixture build failure'));
+        await expect(renderer.setProjectedBasemapProjection({type: 'equirectangular'})).rejects.toThrow('fixture build failure');
+        expect(config.scene.cpu_projection).toMatchObject({type: 'mercator'});
+        await renderer.setProjectedBasemapProjection({type: 'mercator'});
+        expect(rebuild).toHaveBeenCalledTimes(4);
+        await renderer.setProjectedBasemapProjection({type: 'equirectangular'});
+        expect(redraw).toHaveBeenCalledTimes(4);
+        delete config.scene.cpu_projection;
+        await expect(renderer.setProjectedBasemapProjection({type: 'albers'})).rejects.toThrow('loaded CPU-projected scene');
+        renderer.destroy();
+        await expect(renderer.setProjectedBasemapProjection({type: 'albers'})).rejects.toThrow('destroyed renderer');
+    });
+
+    test('projected footprints do not prune warm tiles using the unrelated geographic camera rectangle', () => {
+        const renderer = new Renderer({});
+        renderer.setFrame(frame({tileZoom: 2, projection: {type: 'projected', visibleBounds: [-170, 5, -40, 75]}}));
+        const prune = vi.spyOn(renderer.scene.view.scene.tile_manager, 'removeTiles');
+        renderer.scene.view.pruneTilesForView();
+        expect(prune).not.toHaveBeenCalled();
+        renderer.destroy();
+    });
+
+    test.each([0, 2, 6])('projected full-world detail %s selects only valid finite-world coordinates', tileZoom => {
+        const renderer = new Renderer({});
+        renderer.setFrame(frame({tileZoom, geographicAnchor: {longitude: 0, latitude: 0, zoom: tileZoom},
+            projection: {type: 'projected', visibleBounds: [-180, -85.0511287798066, 180, 85.0511287798066]}}));
+        const tiles = renderer.scene.view.findVisibleTileCoordinates();
+        const count = 2 ** tileZoom;
+        expect(tiles).toHaveLength(count * count);
+        expect(tiles.every(tile => tile.x >= 0 && tile.x < count && tile.y >= 0 && tile.y < count)).toBe(true);
+        renderer.destroy();
+    });
     test('camera policy observes projection switches without replacing the camera or matrices', () => {
         const renderer = new Renderer({});
         const hostCamera: HostCamera = {...camera(), view: new Float64Array(new Matrix4().rotateZ(Math.PI / 2))};

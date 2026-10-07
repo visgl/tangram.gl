@@ -47,6 +47,9 @@ export default class HostFrame {
         this.tileBuffer = normalizeNonNegative(record.tileBuffer ?? 0, 'tileBuffer');
         this.tileZoom = normalizeTileZoom(record.tileZoom, this.geographicAnchor.zoom);
         this.tileLOD = normalizeTileLOD(record.tileLOD);
+        if (this.projection.type === 'projected' && (this.tileLOD || this.tileZoom === undefined || this.tileZoom > 6)) {
+            throw new Error('HostFrame CPU projection requires explicit tileZoom <= 6 and does not support automatic LOD');
+        }
         this.tileResources = normalizeTileResources(record.tileResources);
         this.globePreloadZoom = normalizeGlobePreloadZoom(record.globePreloadZoom);
         if (this.globePreloadZoom !== undefined && this.projection.type !== 'globe') {
@@ -237,13 +240,19 @@ function normalizeAnchor(value: unknown): Required<GeographicAnchor> {
 function normalizeProjection(value: unknown): HostProjection {
     const record = value === undefined ? {} : requireRecord(value, 'HostFrame projection');
     const type = value === undefined ? 'web-mercator' : record.type;
-    if (type === 'web-mercator') {
-        if (record.visibleBounds === undefined) return {type};
-        if (record.visibleBounds === null) return {type, visibleBounds: null};
+    if (type === 'web-mercator' || type === 'projected') {
+        if (type === 'projected' && (record.visibleBounds === undefined || record.visibleBounds === null)) {
+            throw new Error('HostFrame CPU projection requires an explicit geographic footprint');
+        }
+        if (type === 'web-mercator' && record.visibleBounds === undefined) return {type};
+        if (type === 'web-mercator' && record.visibleBounds === null) return {type, visibleBounds: null};
         const bounds = record.visibleBounds;
         if (!Array.isArray(bounds) || bounds.length !== 4 || !bounds.every(isFiniteNumber) ||
             bounds[0] > bounds[2] || bounds[1] > bounds[3] || bounds[1] <= -90 || bounds[3] >= 90) {
             throw new Error('HostFrame planar projection requires finite ordered visibleBounds with latitudes strictly between -90 and 90');
+        }
+        if (type === 'projected' && (bounds[0] < -180 || bounds[2] > 180 || bounds[1] < -85.0511287798066 || bounds[3] > 85.0511287798066)) {
+            throw new Error('HostFrame CPU projection footprint must stay inside the finite single-world tile domain');
         }
         return {type, visibleBounds: [bounds[0], bounds[1], bounds[2], bounds[3]]};
     }
