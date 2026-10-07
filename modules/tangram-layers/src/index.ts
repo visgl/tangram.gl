@@ -27,6 +27,7 @@ export {
 };
 
 export default TangramLayer;
+export type {TangramLayerProps} from './tangram-layer';
 
 export {default as WebMercatorViewAdapter} from './web_mercator_view_adapter';
 export {default as FirstPersonViewAdapter} from './first_person_view_adapter';

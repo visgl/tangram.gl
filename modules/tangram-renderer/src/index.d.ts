@@ -124,3 +124,4 @@ declare const Tangram: {
 };
 
 export default Tangram;
+export type {ProjectionEngine} from '@math.gl/projection/types';

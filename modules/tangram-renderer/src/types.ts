@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {Device, RenderPass} from '@luma.gl/core';
+import type {ProjectionEngine} from '@math.gl/projection/types';
 import type {DecodedTileStatistics} from './sources/decoded_tile_store';
 import type {
   GlobeVisibilityLODAdapter,
@@ -154,6 +155,8 @@ export type LegacyHostFrame = {
 };
 
 export type RendererOptions = {
+  /** Optional caller-owned CRS factory for CPU-projected basemaps; ordinary Mercator/globe cameras are unchanged. */
+  projectionEngine?: ProjectionEngine;
   device?: Device;
   /** Optional worker script URL; otherwise the package uses its embedded worker. */
   workerURL?: string;

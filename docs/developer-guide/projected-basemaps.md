@@ -46,6 +46,54 @@ The website build copies this asset automatically. Custom hosting must copy it;
 no worker URL is inferred from an application bundle. Display the tile provider's
 [required attribution](./tile-providers.md) independently of rendering success.
 
+## Injecting a projection engine
+
+The renderer and deck layer accept `projectionEngine?: ProjectionEngine`. Supply
+a reusable math.gl factory, not a compiled transform:
+
+```ts
+import {createProjectionEngine} from '@math.gl/projection/core';
+import {equalEarth} from '@math.gl/projection/projections/eqearth';
+import {albersEqualArea} from '@math.gl/projection/projections/aea';
+import {mercator} from '@math.gl/projection/projections/merc';
+import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
+import type {ProjectionEngine} from '@math.gl/projection/types';
+
+const projectionEngine: ProjectionEngine = createProjectionEngine({
+  projections: [equalEarth, albersEqualArea, mercator, equidistantCylindrical]
+});
+
+// Keep both scene and engine identity stable across deck updates.
+const layer = new ProjectedBasemapLayer({scene, projectionEngine, projectedTileZoom: 2});
+// Or for a custom host:
+// const renderer = Renderer.create(scene, {device, canvas, projectionEngine});
+```
+
+`@math.gl/projection` is an optional peer. Install a compatible alpha.13 factory
+when using this option. The normal Tangram core/layer entries import its types
+only, not a default factory or the full projection catalog. Register only the
+algorithms you need. Lazy factories are supported through
+`createProjectionAsync`; required descriptors/grids must load successfully.
+
+The engine stays on the host because factories, plugins and grids are not
+structured-cloneable. The opt-in projection worker is **still required** for
+geometry refinement. It transfers one longitude/latitude batch per refined mesh,
+and receives projected common positions. Factory work runs on the main thread,
+so this path trades a host round trip for caller-controlled implementations.
+Without an injected engine, projection remains worker-local.
+
+The requested CRS pairs, sphere/ellipsoid, domain and meter/common scaling below
+are unchanged. The factory must honor these pairs and return finite meter values.
+This is backend injection for the five supported projections, not arbitrary
+target-CRS or globe-camera support. Source tiles, UVs, ordering and feature IDs
+retain their original conventions.
+
+Changing `projectedProjection` reuses the factory, independent compiled transforms
+and decoded tiles. Changing/removing the engine prop recreates the renderer and
+workers, so keep the factory reference stable. Tangram never modifies or destroys
+the caller's engine, even if shared by multiple renderers. Pending work is rejected
+on teardown; factory/transform errors surface through `onSceneError`.
+
 ## Projection and coordinate contract
 
 ### Switching projections without reloading tiles

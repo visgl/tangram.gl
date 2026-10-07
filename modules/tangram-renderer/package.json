@@ -81,5 +81,13 @@
     "quickselect": "3.0.0",
     "topojson-client": "https://github.com/tangrams/topojson-client.git#read-only",
     "zod": "^4.1.12"
+  },
+  "peerDependencies": {
+    "@math.gl/projection": "5.0.0-alpha.13"
+  },
+  "peerDependenciesMeta": {
+    "@math.gl/projection": {
+      "optional": true
+    }
   }
 }

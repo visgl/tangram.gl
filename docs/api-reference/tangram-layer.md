@@ -259,6 +259,30 @@ whose URL uses `nextzen.org`. The key is not written back to the source scene fi
 Changing `apiKey` reloads the scene in a new renderer. Applications that do not use Nextzen
 should omit this property.
 
+### Projection engine
+
+#### `projectionEngine` (ProjectionEngine, optional) {/* #projectionengine */}
+
+* Default: omitted (the layer normalizes its internal `null` default to `undefined`)
+
+An optional caller-owned math.gl `ProjectionEngine` factory. Forwarded to the
+renderer and used by the opt-in `ProjectedBasemapLayer` for CPU-projected ground
+meshes. Ordinary `MapView`, `GlobeView`, and `FirstPersonView` camera projection
+is unchanged; this property does not enable arbitrary CRS camera views.
+
+The engine must implement `createProjection` and `createProjectionAsync`, not
+represent a single `ProjectionTransform`. Only the requested CRS pairs are
+compiled. Keep its identity stable across layer updates. Changing or removing
+the engine recreates the renderer and workers; changing `projectedProjection`
+with the same engine retains decoded tiles and compiled transforms.
+
+No engine instance or factory functions are serialized into workers. Refined
+mesh coordinates are transferred in one batch per mesh to the host and projected
+there. This adds a host round trip and main-thread work. The engine is never
+mutated or disposed by Tangram. See
+[engine injection](../developer-guide/projected-basemaps.md#injecting-a-projection-engine)
+for registration, units, worker setup, and limitations.
+
 ### Callbacks
 
 #### `onSceneLoad` (function, optional) {/* #onsceneload */}
