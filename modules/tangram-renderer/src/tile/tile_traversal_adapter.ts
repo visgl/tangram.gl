@@ -106,6 +106,7 @@ export default class TangramTileTraversalAdapter {
             }
             state = {...state, bounds: {sw: {x: southwest[0], y: southwest[1]}, ne: {x: northeast[0], y: northeast[1]}}};
         }
-        return this.planar.findVisibleTileCoordinates(state);
+        // CPU-projected scenes represent one finite tile world, never wrapped copies.
+        return this.planar.findVisibleTileCoordinates(projection.type === 'projected' ? {...state, wrap: false} : state);
     }
 }

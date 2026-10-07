@@ -24,7 +24,7 @@ Copyright (c) vis.gl contributors
 - The deck example is under `examples/deck/` and supports shared luma.gl
   WebGL and WebGPU devices, vector styles, and the animated TRON style.
 - The opt-in `experimental/projected-basemaps` layer adds worker-side math.gl
-  Equal Earth, regional Albers and equirectangular projection for flat polygons
+  Equal Earth, regional Albers, equirectangular, ellipsoidal Mercator and Web Mercator projection for flat polygons
   and raster meshes in OrthographicView. See the
   [experimental projection contract](./developer-guide/projected-basemaps.md)
   for coverage, resource limits and deferred features.

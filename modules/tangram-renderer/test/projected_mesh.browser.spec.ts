@@ -18,7 +18,7 @@ const layout = new VertexLayout([
     {name: 'a_texcoord', size: 2, type: 5123},
     {name: 'a_projected_position', size: 3, type: 5126}
 ]);
-const projections: ProjectedBasemapOptions['type'][] = ['equal-earth', 'albers', 'equirectangular'];
+const projections: ProjectedBasemapOptions['type'][] = ['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'];
 
 /** A buffered tile quad with nonzero byte offset, exact selection bytes, original UVs and layer order. */
 function createRequest(type: ProjectedBasemapOptions['type'], x = 2): MeshProjectionRequest {
@@ -95,7 +95,7 @@ describe('opt-in worker CPU projection', () => {
         expect(() => projectBasemapMesh({...request, tile: {...request.tile, min: {x: Infinity, y: 0}}})).toThrow('metadata');
     });
 
-    test.each([null, {type: 'mercator'}, {type: 'equal-earth', maxAngularSpan: 0},
+    test.each([null, {type: 'unknown'}, {type: 'equal-earth', maxAngularSpan: 0},
         {type: 'albers', maxAdditionalVertices: -1}, {type: 'albers', maxAdditionalVertices: 262145}])('rejects invalid serialized options %j', options => {
         expect(() => normalizeProjectedBasemapOptions(options)).toThrow('CPU projection');
     });
@@ -106,6 +106,29 @@ describe('opt-in worker CPU projection', () => {
         registerMeshProjector(projectBasemapMesh);
         expect(projectTileMesh(request)).toEqual(projectBasemapMesh(request));
         expect(() => registerMeshProjector(projectBasemapMesh)).toThrow('already registered');
+    });
+
+    test.each([-80, -45, 0, 45, 80, 85.0511287798066])('Mercator variants follow their analytic equations at latitude %s', latitude => {
+        const radians = latitude * Math.PI / 180;
+        const eccentricity = Math.sqrt(0.0066943799901413165);
+        const sphericalY = 256 * Math.asinh(Math.tan(radians));
+        const ellipsoidalY = sphericalY - 256 * eccentricity * Math.atanh(eccentricity * Math.sin(radians));
+        const web = projectBasemapPosition([90, latitude], 'web-mercator');
+        const ellipsoidal = projectBasemapPosition([90, latitude], 'mercator');
+        expect(web[0]).toBeCloseTo(128 * Math.PI, 10);
+        expect(ellipsoidal[0]).toBeCloseTo(web[0], 10);
+        expect(web[1]).toBeCloseTo(sphericalY, 10);
+        expect(ellipsoidal[1]).toBeCloseTo(ellipsoidalY, 10);
+        expect(web[2]).toBe(0);
+        expect(ellipsoidal[2]).toBe(0);
+        expect(web[1]).toBeCloseTo(Geo.latLngToMeters([90, latitude])[1] * 256 / 6378137, 10);
+    });
+
+    test.each(['mercator', 'web-mercator'] as const)('%s keeps both world-edge meridians distinct and rejects polar coordinates', type => {
+        expect(projectBasemapPosition([-180, 0], type)[0]).toBeCloseTo(-256 * Math.PI, 10);
+        expect(projectBasemapPosition([180, 0], type)[0]).toBeCloseTo(256 * Math.PI, 10);
+        expect(() => projectBasemapPosition([0, 90], type)).toThrow('domain');
+        expect(() => projectBasemapPosition([0, -90], type)).toThrow('domain');
     });
 
     test('portable shaders consume projected positions but retain original raster UV input', () => {

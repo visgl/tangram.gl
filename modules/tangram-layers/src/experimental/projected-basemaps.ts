@@ -75,6 +75,7 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
             style.shaders !== undefined || (style.lighting !== undefined && style.lighting !== false)) {
             throw new Error('Projected styles require an unlit polygons/raster base without mixins or shaders');
         }
+        if (style.draw !== undefined) validateFlatDraw(readRecord(style.draw, 'style draw defaults'));
     }
     validateProjectedDraws(readRecord(scene.layers ?? {}, 'layers'), styles);
     const settings = scene.scene;
@@ -93,16 +94,25 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
     if (node.draw !== undefined) {
         for (const [name, value] of Object.entries(readRecord(node.draw, 'draw'))) {
             const draw = readRecord(value, 'draw style');
-            if (!(name === 'polygons' || name === 'raster' || name in styles) ||
-                (draw.extrude !== undefined && draw.extrude !== false) || draw.z !== undefined || draw.interactive === true) {
+            if (!(name === 'polygons' || name === 'raster' || name in styles)) {
                 throw new Error('Projected basemaps currently support only flat, noninteractive polygon and raster draws');
             }
+            validateFlatDraw(draw);
         }
     }
     for (const [key, value] of Object.entries(node)) {
-        if (key !== 'draw' && value && typeof value === 'object' && !Array.isArray(value)) {
+        // Match Tangram layer parsing: configuration records are not child layers.
+        if (!['filter', 'draw', 'visible', 'enabled', 'data', 'exclusive', 'priority'].includes(key) &&
+            value && typeof value === 'object' && !Array.isArray(value)) {
             validateProjectedDraws(readRecord(value, 'layer'), styles);
         }
+    }
+}
+
+/** Apply the same ground-only restrictions to layer draws and inherited style defaults. */
+function validateFlatDraw(draw: Record<string, unknown>): void {
+    if ((draw.extrude !== undefined && draw.extrude !== false) || draw.z !== undefined || draw.interactive === true) {
+        throw new Error('Projected basemaps currently support only flat, noninteractive polygon and raster draws');
     }
 }
 

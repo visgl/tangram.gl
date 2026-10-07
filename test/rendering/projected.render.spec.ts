@@ -46,7 +46,7 @@ afterEach(async () => {
   }
 });
 
-test.each(['equal-earth', 'albers', 'equirectangular'] as const)(
+test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
   `${DEVICE_TYPE}: projected %s polygons and raster use the packaged worker and OrthographicView`, async type => {
     harness = new RenderingHarness();
     await harness.initializeDevice();

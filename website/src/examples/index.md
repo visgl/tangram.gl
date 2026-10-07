@@ -44,7 +44,7 @@ page, so the examples sidebar stays visible while you move between demos.
   <a className="example-tile" href="/tangram.gl/examples/deck-projected">
     <span className="example-tile__eyebrow">OrthographicView · experimental</span>
     <strong>Projected basemaps</strong>
-    <span>Worker-projected Equal Earth, Albers and equirectangular polygons and raster meshes.</span>
+    <span>Worker-projected Equal Earth, Albers, equirectangular, Mercator and Web Mercator polygons and raster meshes.</span>
   </a>
 </div>
 

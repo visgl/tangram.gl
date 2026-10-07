@@ -6,8 +6,8 @@ import type VertexLayout from '../gl/vertex_layout';
 
 /** Initial CPU basemap projections; no arbitrary CRS or dynamic camera projection. */
 export type ProjectedBasemapOptions = {
-    /** Spherical projection, with fixed documented origins and standard parallels. */
-    type: 'equal-earth' | 'albers' | 'equirectangular';
+    /** Projection with fixed documented ellipsoid, origin and standard parallels. */
+    type: 'equal-earth' | 'albers' | 'equirectangular' | 'mercator' | 'web-mercator';
     /** Maximum Mercator angular edge span before projection; defaults to four degrees. */
     maxAngularSpan?: number;
     /** Per-mesh additional vertex budget; defaults to 65,536. */
@@ -52,8 +52,8 @@ export function projectTileMesh(request: MeshProjectionRequest): ReturnType<Mesh
 /** Validate serialized scene options before layouts, shaders or meshes are created. */
 export function normalizeProjectedBasemapOptions(value: unknown): ProjectedBasemapOptions {
     if (!value || typeof value !== 'object' || !('type' in value) ||
-        !['equal-earth', 'albers', 'equirectangular'].includes(String(value.type))) {
-        throw new Error('CPU projection requires equal-earth, albers or equirectangular');
+        !['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'].includes(String(value.type))) {
+        throw new Error('CPU projection requires equal-earth, albers, equirectangular, mercator or web-mercator');
     }
     const maxAngularSpan = 'maxAngularSpan' in value ? value.maxAngularSpan : 4;
     const maxAdditionalVertices = 'maxAdditionalVertices' in value ? value.maxAdditionalVertices : 65536;
@@ -63,6 +63,7 @@ export function normalizeProjectedBasemapOptions(value: unknown): ProjectedBasem
         throw new Error('CPU projection requires angular span in [1, 30] and vertex budget in [0, 262144]');
     }
     const type = value.type;
-    if (type !== 'equal-earth' && type !== 'albers' && type !== 'equirectangular') throw new Error('Invalid CPU projection');
+    if (type !== 'equal-earth' && type !== 'albers' && type !== 'equirectangular' &&
+        type !== 'mercator' && type !== 'web-mercator') throw new Error('Invalid CPU projection');
     return {type, maxAngularSpan, maxAdditionalVertices};
 }

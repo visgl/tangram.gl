@@ -30,6 +30,16 @@ function frame(overrides: Partial<HostFrameOptions> = {}): HostFrame {
 afterEach(() => vi.restoreAllMocks());
 
 describe('atomic multi-view host contract', () => {
+    test.each([0, 2, 6])('projected full-world detail %s selects only valid finite-world coordinates', tileZoom => {
+        const renderer = new Renderer({});
+        renderer.setFrame(frame({tileZoom, geographicAnchor: {longitude: 0, latitude: 0, zoom: tileZoom},
+            projection: {type: 'projected', visibleBounds: [-180, -85.0511287798066, 180, 85.0511287798066]}}));
+        const tiles = renderer.scene.view.findVisibleTileCoordinates();
+        const count = 2 ** tileZoom;
+        expect(tiles).toHaveLength(count * count);
+        expect(tiles.every(tile => tile.x >= 0 && tile.x < count && tile.y >= 0 && tile.y < count)).toBe(true);
+        renderer.destroy();
+    });
     test('camera policy observes projection switches without replacing the camera or matrices', () => {
         const renderer = new Renderer({});
         const hostCamera: HostCamera = {...camera(), view: new Float64Array(new Matrix4().rotateZ(Math.PI / 2))};

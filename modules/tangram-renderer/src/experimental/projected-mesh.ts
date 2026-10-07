@@ -6,6 +6,7 @@ import {ProjectionEngine} from '@math.gl/projection/core';
 import {equalEarth} from '@math.gl/projection/projections/eqearth';
 import {albersEqualArea} from '@math.gl/projection/projections/aea';
 import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
+import {mercator} from '@math.gl/projection/projections/merc';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
 import type {MeshProjectionRequest, MeshProjector, ProjectedBasemapOptions} from '../procedures/mesh-projector';
@@ -24,9 +25,13 @@ export function projectBasemapPosition(position: readonly [number, number], type
     if (!transform) {
         const parameters = type === 'equal-earth' ? '+proj=eqearth +lon_0=0' :
             type === 'albers' ? '+proj=aea +lon_0=-96 +lat_0=37.5 +lat_1=29.5 +lat_2=45.5' :
-                '+proj=eqc +lon_0=0 +lat_0=0 +lat_ts=0';
-        transform = new ProjectionEngine({projections: [equalEarth, albersEqualArea, equidistantCylindrical], from: `+proj=longlat +R=${SPHERE_RADIUS}`,
-            to: `${parameters} +R=${SPHERE_RADIUS} +units=m`});
+                type === 'mercator' || type === 'web-mercator' ? '+proj=merc +lon_0=0 +k_0=1 +over' :
+                    '+proj=eqc +lon_0=0 +lat_0=0 +lat_ts=0';
+        // EPSG:3395 uses the WGS84 ellipsoid; EPSG:3857 uses the same major radius as a sphere.
+        // Use matching geographic CRS geometry so this is projection, not a datum conversion.
+        const geometry = type === 'mercator' ? '+ellps=WGS84' : `+R=${SPHERE_RADIUS}`;
+        transform = new ProjectionEngine({projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator],
+            from: `+proj=longlat ${geometry}`, to: `${parameters} ${geometry} +units=m`});
         transforms.set(type, transform);
     }
     const projected = transform.projectSync([position[0], position[1]]);

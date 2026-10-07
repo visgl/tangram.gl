@@ -52,6 +52,9 @@ test('prepares an inline scene without mutating authored records and deduplicate
 test.each([
     {import: 'scene.yaml'},
     {styles: {road: {base: 'lines'}}},
+    {styles: {ground: {base: 'polygons', draw: {extrude: true}}}},
+    {styles: {ground: {base: 'raster', draw: {z: 1}}}},
+    {styles: {ground: {base: 'polygons', draw: {interactive: true}}}},
     {styles: {shape: {base: 'polygons', shaders: {blocks: {position: 'position.x += 1.;'}}}}},
     {layers: {ground: {draw: {lines: {order: 0}}}}},
     {layers: {ground: {draw: {polygons: {order: 0, extrude: true}}}}},
@@ -61,7 +64,17 @@ test.each([
     expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow();
 });
 
-test.each(['equal-earth', 'albers', 'equirectangular'] as const)('the %s layer dispatches the opt-in adapter and reports invalid views', type => {
+test('layer filter/data property names are not mistaken for nested draw blocks', () => {
+    const scene = {styles: {ground: {base: 'polygons', draw: {extrude: false}}}, layers: {
+        ground: {data: {source: 'map', draw: 'metadata'}, filter: {draw: 'fill'},
+            draw: {ground: {order: 0}}, child: {filter: {draw: 'outline'}, draw: {polygons: {order: 1}}}}
+    }};
+    expect(() => createProjectedBasemapScene(scene, {type: 'mercator'}, 'https://example.test/projection.js')).not.toThrow();
+    expect(() => createProjectedBasemapScene({...scene, layers: {ground: {child: {draw: {lines: {order: 0}}}}}},
+        {type: 'mercator'}, 'https://example.test/projection.js')).toThrow('flat');
+});
+
+test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)('the %s layer dispatches the opt-in adapter and reports invalid views', type => {
     const scene = createProjectedBasemapScene({sources: {}, layers: {}}, {type}, 'https://example.test/projection.js');
     const onSceneError = vi.fn();
     const layer = new ProjectedBasemapLayer({id: 'fixture', scene, onSceneError});

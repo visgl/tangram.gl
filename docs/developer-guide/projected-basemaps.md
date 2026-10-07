@@ -48,16 +48,22 @@ no worker URL is inferred from an application bundle. Display the tile provider'
 
 ## Projection and coordinate contract
 
-| `type` | Spherical parameters | Initial coverage |
+| `type` | Projection parameters | Initial coverage |
 | --- | --- | --- |
 | `equal-earth` | Central longitude 0° | One Mercator tile world |
 | `equirectangular` | Origin and standard parallel 0° | One Mercator tile world |
 | `albers` | Origin −96°, 37.5°; standard parallels 29.5°, 45.5° | North America: −170°, 5° to −40°, 75° |
+| `mercator` | Ellipsoidal WGS84 Mercator, EPSG:3395; origin 0°, scale 1 | One Mercator tile world |
+| `web-mercator` | Spherical Web Mercator, EPSG:3857; origin 0°, scale 1 | One Mercator tile world |
 
-All three use a 6,378,137 meter sphere. Projected meters are multiplied by
+Equal Earth, Albers, equirectangular and Web Mercator use a 6,378,137 meter sphere.
+Mercator uses the WGS84 ellipsoid (major radius 6,378,137 meters, inverse flattening
+298.257223563). Mercator and Web Mercator share eastings but have different northings
+away from the equator: Web Mercator omits the ellipsoidal latitude correction.
+Projected meters are multiplied by
 `256 / 6378137` to obtain Cartesian common coordinates; X points east, Y north,
 and Z is zero. Unlike a geographic deck view, OrthographicView's zoom measures
-pixels per common unit, not tile or styling zoom. Equal Earth and equirectangular
+pixels per common unit, not tile or styling zoom. Equal Earth, equirectangular and both Mercator variants
 are centered on 0°, 0°; Albers is centered on its geographic origin.
 
 `projectedTileZoom` explicitly selects data and style detail, defaults to 2, and
@@ -66,6 +72,8 @@ but does not follow orthographic panning automatically. The footprint is a finit
 ordered west/south/east/north rectangle in a single world; latitude cannot exceed
 ±85.0511287798066°. There is no pole completion, wrapped world, or arbitrary cut
 meridian in this preview. Albers cannot request coverage outside the region above.
+Both Mercator variants retain this tile latitude limit rather than extending to the poles.
+Source tiles remain EPSG:3857; `mercator` changes output geometry, not the source grid.
 
 `getProjectedViewFrame(viewport, {projection, visibleBounds, tileZoom})` exposes the
 adapter for custom hosts. Its `HostFrame` uses `projection.type: 'projected'` with
