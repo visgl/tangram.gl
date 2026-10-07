@@ -1,24 +1,26 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 import {beforeEach, describe, expect, it} from 'vitest';
 import VertexLayout from '../src/gl/vertex_layout';
 import VertexData from '../src/gl/vertex_data';
 import gl from '../src/gl/constants';
+import type {VertexAttribute} from '../src/gl/vertex-types';
 
 describe('VertexData', () => {
 
     // Note: a_color is intentionally not a multiple of 4, to test padding
-    let attribs: any =  [
+    let attribs: VertexAttribute[] =  [
         { name: 'a_position', size: 3, type: gl.FLOAT, normalized: false },
         { name: 'a_color', size: 3, type: gl.UNSIGNED_BYTE, normalized: true }, // should be padded to 4 bytes
         { name: 'a_layer', size: 1, type: gl.FLOAT, normalized: false }
     ];
 
     describe('.constructor(vertex_layout)', () => {
-        let subject: any;
-        let layout: any;
+        let subject: VertexData;
+        let layout: VertexLayout;
 
         beforeEach(() => {
             layout = new VertexLayout(attribs);
@@ -35,8 +37,8 @@ describe('VertexData', () => {
     });
 
     describe('.addVertex(vertex)', () => {
-        let subject: any;
-        let layout: any;
+        let subject: VertexData;
+        let layout: VertexLayout;
         let vertex: number[] = [
             25, 50, 100,    // position
             255, 0, 0,      // color

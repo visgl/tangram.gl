@@ -8,6 +8,7 @@ import VertexLayout from '../src/gl/vertex_layout';
 import VBOMesh from '../src/gl/vbo_mesh';
 import {Style} from '../src/styles/style';
 import debugSettings from '../src/utils/debug_settings';
+import type {Buffer} from '@luma.gl/core';
 
 const layout = new VertexLayout([
     {name: 'a_position', size: 4, type: 0x1402},
@@ -173,7 +174,7 @@ describe('globe mesh lifetime and style routing', () => {
     test('fine meshes cache a no-op, and source zoom 7 does not retain CPU buffers', () => {
         for (const tileZoom of [4, 7]) {
             const mesh = new VBOMesh(null, createVertices([[0, 0], [10, 0], [0, -10]]), false, layout, {
-                globeRefinement: {tileZoom}, bufferFactory: () => ({destroy() {}})
+                globeRefinement: {tileZoom}, bufferFactory: () => ({destroy() {}} as Buffer)
             });
             const drawMesh = vi.fn((_options: {mesh: VBOMesh}) => false);
             const options = {projection: 'globe', meshRenderer: {drawMesh}};
@@ -213,7 +214,7 @@ describe('globe mesh lifetime and style routing', () => {
                 bufferFactory() {
                     const resource = {destroy: vi.fn()};
                     resources.push(resource);
-                    return resource;
+                    return resource as unknown as Buffer; // This lifetime-only fixture intentionally implements only destroy.
                 }
             });
         const drawMesh = vi.fn((_options: {mesh: VBOMesh}) => false);

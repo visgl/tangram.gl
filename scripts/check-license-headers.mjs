@@ -162,6 +162,13 @@ const TANGRAM_RENDERER_FILES = new Set([
 // Tangram-derived files that have received substantive vis.gl modifications.
 // Keep the original Tangram notice and append the vis.gl modification notice.
 const VISGL_MODIFIED_TANGRAM_FILES = new Set([
+  'modules/tangram-renderer/test/vertex_data.browser.spec.ts',
+  'modules/tangram-renderer/src/builders/polygons.ts',
+  'modules/tangram-renderer/src/builders/polylines.ts',
+  'modules/tangram-renderer/src/gl/vao.ts',
+  'modules/tangram-renderer/src/gl/texture.ts',
+  'modules/tangram-renderer/src/gl/vertex_data.ts',
+  'modules/tangram-renderer/src/gl/vertex_layout.ts',
   'modules/tangram-renderer/src/styles/layer.ts',
   'modules/tangram-renderer/src/styles/style_manager.ts',
   'modules/tangram-renderer/src/styles/style_parser.ts',

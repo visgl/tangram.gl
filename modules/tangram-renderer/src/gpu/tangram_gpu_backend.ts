@@ -76,7 +76,7 @@ export type TangramMeshDrawDescriptor = {
   topology: PrimitiveTopology;
   vertexCount: number;
   indexCount: number;
-  vertexBuffer: Buffer;
+  vertexBuffer: Buffer | null;
   indexBuffer: Buffer | null;
   bufferLayout: BufferLayout & {attributes: NonNullable<BufferLayout['attributes']>};
   staticAttributes: {attribute: string; value: readonly number[]}[];

@@ -6,23 +6,14 @@
 import gl from './constants'; // web workers don't have access to GL context, so import all GL constants
 import VertexData from './vertex_data';
 import hashString from '../utils/hash';
-
-type VertexAttribute = {
-    name: string;
-    size: number;
-    type: number;
-    normalized?: boolean;
-    static?: number | number[];
-    offset?: number;
-    byte_size?: number;
-    method?: string;
-};
+import type {VertexFormat} from '@luma.gl/core';
+import type {VertexAttribute, AddVertexFunction, VertexAttributeProgram, VertexAttributeContext, VertexBufferLayout} from './vertex-types';
 type VertexComponent = {type: number; shift: number; offset: number; index: number};
 
 // Describes a vertex layout that can be used with many different GL programs.
 export default class VertexLayout {
-    static enabled_attribs: Record<string, any> = {};
-    static add_vertex_funcs: Record<number, (vertex: number[], views: Record<number, ArrayBufferView>, offset: number) => void> = {};
+    static enabled_attribs: Record<string, VertexAttributeProgram> = {};
+    static add_vertex_funcs: Record<number, AddVertexFunction> = {};
     attribs: VertexAttribute[];
     dynamic_attribs: VertexAttribute[];
     static_attribs: VertexAttribute[];
@@ -30,7 +21,7 @@ export default class VertexLayout {
     index: Record<string, number>;
     offset: Record<string, number>;
     stride: number;
-    addVertex?: (vertex: number[], views: Record<number, ArrayBufferView>, offset: number) => void;
+    addVertex?: AddVertexFunction;
     // Attribs are an array, in layout order, of: name, size, type, normalized
     // ex: { name: 'position', size: 3, type: gl.FLOAT, normalized: false }
     constructor (attribs: VertexAttribute[]) {
@@ -102,10 +93,11 @@ export default class VertexLayout {
     // Assumes that the desired vertex buffer (VBO) is already bound
     // If the program doesn't include all attributes, it can still use the vertex layout
     // to read those attribs that it does recognize, using the attrib offsets to skip others.
-    enableDynamicAttributes (gl: any, program: any): void {
+    enableDynamicAttributes (gl: VertexAttributeContext, program: VertexAttributeProgram): void {
         // Disable all attributes
         for (const location in VertexLayout.enabled_attribs) {
-            gl.disableVertexAttribArray(location);
+            // Object keys are numeric strings; WebGL performs the existing numeric coercion.
+            gl.disableVertexAttribArray(location as unknown as number);
         }
         VertexLayout.enabled_attribs = {};
 
@@ -114,7 +106,7 @@ export default class VertexLayout {
             const location = program.attribute(attrib.name).location;
             if (location !== -1) {
                 gl.enableVertexAttribArray(location);
-                gl.vertexAttribPointer(location, attrib.size, attrib.type, attrib.normalized, this.stride, attrib.offset!);
+                gl.vertexAttribPointer(location, attrib.size, attrib.type, attrib.normalized!, this.stride, attrib.offset!);
                 VertexLayout.enabled_attribs[location] = program;
             }
         });
@@ -122,7 +114,7 @@ export default class VertexLayout {
 
     // Enable static attributes for this layout. Since these aren't captured as part of Vertex Array Object state,
     // they are enabled separately.
-    enableStaticAttributes (gl: any, program: any): void {
+    enableStaticAttributes (gl: VertexAttributeContext, program: VertexAttributeProgram): void {
         this.static_attribs.forEach(attrib => {
             const location = program.attribute(attrib.name).location;
             if (location !== -1 && gl[attrib.method!] instanceof Function) {
@@ -130,7 +122,7 @@ export default class VertexLayout {
                 // (the static attribute value method does not work without it). So the attribute is temporarily
                 // enabled as an array, then disabled.
                 gl.enableVertexAttribArray(location);
-                gl[attrib.method!](location, attrib.static);
+                gl[attrib.method!]!(location, attrib.static as number[]);
                 gl.disableVertexAttribArray(location);
             }
         });
@@ -142,20 +134,20 @@ export default class VertexLayout {
 
     // Return a luma.gl-compatible description of the interleaved vertex buffer.
     // Static attributes are omitted because they are supplied independently of the buffer.
-    getBufferLayout (name = 'vertices'): any {
+    getBufferLayout (name = 'vertices'): VertexBufferLayout {
         return {
             name,
             byteStride: this.stride,
             attributes: this.dynamic_attribs.map(attrib => ({
                 attribute: attrib.name,
                 format: getVertexFormat(attrib),
-                byteOffset: attrib.offset
+                byteOffset: attrib.offset!
             }))
         };
     }
 
     // Return constant vertex attributes for renderers that don't use Tangram's VAO wrapper.
-    getStaticAttributes (): any[] {
+    getStaticAttributes (): {attribute: string; value: number[]}[] {
         return this.static_attribs.map(attrib => ({
             attribute: attrib.name,
             value: (attrib.static as number[]).slice()
@@ -163,7 +155,7 @@ export default class VertexLayout {
     }
 
     // Lazily create the add vertex function
-    getAddVertexFunction (): (vertex: number[], views: Record<number, ArrayBufferView>, offset: number) => void {
+    getAddVertexFunction (): AddVertexFunction {
         if (this.addVertex == null) {
             this.createAddVertexFunction();
         }
@@ -199,7 +191,7 @@ export default class VertexLayout {
             }
 
             src = src.join('\n');
-            const func = new Function('v', 'vs', 'off', src) as (vertex: number[], views: Record<number, ArrayBufferView>, offset: number) => void; // jshint ignore:line
+            const func = new Function('v', 'vs', 'off', src) as AddVertexFunction; // Generated writer follows the component layout above.
             VertexLayout.add_vertex_funcs[key] = func;
         }
 
@@ -207,7 +199,7 @@ export default class VertexLayout {
     }
 }
 
-function getVertexFormat(attrib: VertexAttribute): string {
+function getVertexFormat(attrib: VertexAttribute): VertexFormat {
     let type: string;
     switch (attrib.type) {
     case gl.BYTE:
@@ -236,12 +228,12 @@ function getVertexFormat(attrib: VertexAttribute): string {
     }
 
     if (attrib.size === 1) {
-        return type;
+        return type as VertexFormat; // The switch restricts the scalar format to luma's supported GL types.
     }
     if (attrib.size < 2 || attrib.size > 4) {
         throw new Error(`VertexLayout: unsupported attribute size ${attrib.size}`);
     }
     const webgl_only = attrib.size === 3 && attrib.type !== gl.FLOAT &&
         attrib.type !== gl.INT && attrib.type !== gl.UNSIGNED_INT;
-    return `${type}x${attrib.size}${webgl_only ? '-webgl' : ''}`;
+    return `${type}x${attrib.size}${webgl_only ? '-webgl' : ''}` as VertexFormat; // Validated component size/type above.
 }

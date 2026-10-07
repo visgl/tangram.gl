@@ -46,7 +46,11 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(149);
+    expect(sourceFiles).toHaveLength(153);
+    expect(sourceFiles.some(filePath => filePath.endsWith('builders/geometry-types.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('gl/vertex-types.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('gl/mesh-types.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('styles/geometry-style-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('labels/label-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('labels/main-pass-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('styles/text/text-types.ts'))).toBe(true);

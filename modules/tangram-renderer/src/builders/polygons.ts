@@ -1,6 +1,7 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Polygon builders
 
@@ -10,15 +11,12 @@ import { default_uvs, outsideTile } from './common';
 
 import earcut from 'earcut';
 import quickselect from 'quickselect';
+import type {GeometryPolygon, GeometryVertexData} from './geometry-types';
 
 const up_vec3 = [0, 0, 1];
 
-type PolygonCoordinates = Array<Array<[number, number]>>;
-type VertexData = {
-    vertex_elements: number[];
-    vertex_count: number;
-    addVertex(vertex: number[]): void;
-};
+type PolygonCoordinates = GeometryPolygon;
+type VertexData = GeometryVertexData;
 type PolygonBuildOptions = {
     texcoord_index?: number;
     texcoord_scale?: number[];
@@ -58,7 +56,7 @@ export function buildPolygons (
 
         if (polygon.length > max_rings) {
             polygon = [...polygon]; // copy to avoid modifying original
-            quickselect(polygon, max_rings, 1, polygon.length - 1, (a: any, b: any) => b.area - a.area);
+            quickselect(polygon, max_rings, 1, polygon.length - 1, (a, b) => b.area! - a.area!);
             polygon = polygon.slice(0, max_rings);
         }
 
@@ -185,7 +183,7 @@ export function buildExtrudedPolygons (
 
                 // Calc the normal of the wall from up vector and one segment of the wall triangles
                 let wall_vec = Vector.normalize([contour[w1][0] - contour[w0][0], contour[w1][1] - contour[w0][1], 0]);
-                let normal = Vector.cross(up_vec3, wall_vec) as number[];
+                let normal = Vector.cross(up_vec3, wall_vec) as number[]; // Three-dimensional inputs produce a vector, not a 2D scalar.
 
                 // Update vertex template with current surface normal
                 vertex_template[normal_index + 0] = normal[0] * normal_normalize;

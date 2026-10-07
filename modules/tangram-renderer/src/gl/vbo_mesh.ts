@@ -4,8 +4,9 @@
 // Copyright (c) 2026 vis.gl contributors
 
 // Manage rendering for primitives
-// @ts-nocheck
-
+import type {Buffer, PrimitiveTopology} from '@luma.gl/core';
+import type {TangramMeshBufferOptions, TangramMeshDrawDescriptor} from '../gpu/tangram_gpu_backend';
+import type {MeshContext, MeshVertexData, MeshElementData, MeshVertexLayout, MeshOptions, MeshProgram, MeshRenderOptions, MeshVertexArrays} from './mesh-types';
 import ShaderProgram from './shader_program';
 import VertexArrayObject from './vao';
 import Texture from './texture';
@@ -14,6 +15,32 @@ import {notifyGPUResourceDisposal} from '../gpu/resource_lifecycle';
 
 // A single mesh/VBO, described by a vertex layout, that can be drawn with one or more programs
 export default class VBOMesh  {
+    /** Next automatically assigned mesh identifier. */
+    declare static id: number;
+    declare gl: MeshContext | null;
+    declare vertex_data?: MeshVertexData;
+    declare element_data?: MeshElementData;
+    declare vertex_layout: MeshVertexLayout;
+    declare id: string | number;
+    declare buffer_factory: MeshOptions['bufferFactory'];
+    declare vertex_buffer_resource: Buffer | null;
+    declare element_buffer_resource?: Buffer | null;
+    declare vertex_buffer: Buffer | WebGLBuffer | null;
+    declare element_buffer?: Buffer | WebGLBuffer | null;
+    declare draw_mode: number;
+    declare data_usage: number | null;
+    declare vertices_per_geometry: number;
+    declare uniforms: MeshOptions['uniforms'];
+    declare textures: MeshOptions['textures'];
+    declare retain: boolean;
+    declare fade_in_time: number;
+    declare globe_refinement_error: string | undefined;
+    declare vertex_count: number;
+    declare element_count: number;
+    declare element_type: number;
+    declare vaos: MeshVertexArrays;
+    declare toggle_element_array: boolean;
+    declare valid: boolean;
 
     /** Vertex/index allocation bytes, excluding textures and projection-specific child meshes. */
     declare buffer_size: number;
@@ -26,12 +53,12 @@ export default class VBOMesh  {
     globe_mesh?: VBOMesh | null;
     /** Immutable coarse tile data, released once refinement completes. */
     globe_source?: {
-        vertices: Uint8Array;
-        indices: Uint16Array | Uint32Array | false;
-        options: {globeRefinement: GlobeMeshOptions; [key: string]: unknown};
+        vertices: MeshVertexData;
+        indices: MeshElementData;
+        options: MeshOptions & {globeRefinement: GlobeMeshOptions};
     };
 
-    constructor(gl, vertex_data, element_data, vertex_layout, options) {
+    constructor(gl: MeshContext | null, vertex_data: MeshVertexData, element_data: MeshElementData, vertex_layout: MeshVertexLayout, options?: MeshOptions) {
         options = options || {};
 
         this.gl = gl;
@@ -45,10 +72,10 @@ export default class VBOMesh  {
             usage: 'vertex',
             data: this.vertex_data
         });
-        this.vertex_buffer = this.vertex_buffer_resource || this.gl.createBuffer();
+        this.vertex_buffer = this.vertex_buffer_resource || this.gl!.createBuffer();
         this.buffer_size = this.vertex_data.byteLength;
         this.draw_mode = options.draw_mode || 0x0004;
-        this.data_usage = options.data_usage || (this.vertex_buffer_resource ? null : this.gl.STATIC_DRAW);
+        this.data_usage = options.data_usage || (this.vertex_buffer_resource ? null : this.gl!.STATIC_DRAW);
         this.vertices_per_geometry = 3; // TODO: support lines, strip, fan, etc.
         this.uniforms = options.uniforms;
         this.textures = options.textures; // any textures owned by this mesh
@@ -59,7 +86,7 @@ export default class VBOMesh  {
         // Only coarse, immutable triangle meshes need a second projection-specific buffer.
         if (options.globeRefinement && options.globeRefinement.tileZoom < 7 &&
             this.draw_mode === 0x0004 && !this.retain) {
-            this.globe_source = {vertices: vertex_data, indices: element_data, options};
+            this.globe_source = {vertices: vertex_data, indices: element_data, options: options as MeshOptions & {globeRefinement: GlobeMeshOptions}};
         }
 
         this.vertex_count = this.vertex_data.byteLength / this.vertex_layout.stride;
@@ -87,11 +114,11 @@ export default class VBOMesh  {
                 }
                 throw error;
             }
-            this.element_buffer = this.element_buffer_resource || this.gl.createBuffer();
+            this.element_buffer = this.element_buffer_resource || this.gl!.createBuffer();
             this.buffer_size += this.element_data.byteLength;
             if (!this.element_buffer_resource) {
-                this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.element_buffer);
-                this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, this.element_data, this.data_usage);
+                this.gl!.bindBuffer(this.gl!.ELEMENT_ARRAY_BUFFER, this.element_buffer as WebGLBuffer | null);
+                this.gl!.bufferData(this.gl!.ELEMENT_ARRAY_BUFFER, this.element_data, this.data_usage!);
             }
         }
         else {
@@ -111,7 +138,7 @@ export default class VBOMesh  {
 
     // Render, by default with currently bound program, or otherwise with optionally provided one
     // Returns true if mesh requests a render on next frame (e.g. for fade animations)
-    render(options = {}) {
+    render(options: MeshRenderOptions = {}): boolean {
         if (!this.valid) {
             return false;
         }
@@ -122,7 +149,8 @@ export default class VBOMesh  {
             }
             if (this.globe_source && this.globe_mesh === undefined) {
                 const {vertices, indices, options: meshOptions} = this.globe_source;
-                const refined = refineGlobeMesh(vertices, indices, this.vertex_layout, meshOptions.globeRefinement);
+                const refined = refineGlobeMesh(vertices as Uint8Array, indices as Uint16Array | Uint32Array | false,
+                    this.vertex_layout as MeshVertexLayout & {dynamic_attribs: NonNullable<MeshVertexLayout['dynamic_attribs']>}, meshOptions.globeRefinement);
                 this.globe_mesh = refined.vertices === vertices ? null : new VBOMesh(
                     this.gl, refined.vertices, refined.indices, this.vertex_layout,
                     {...meshOptions, id: undefined, globeRefinement: undefined, textures: undefined}
@@ -138,13 +166,13 @@ export default class VBOMesh  {
             }
         }
 
-        var program = options.program || ShaderProgram.current;
+        var program: MeshProgram = (options.program || ShaderProgram.current)!;
         let visible_time = (+new Date() - this.created_at) / 1000;
         if (options.meshRenderer && typeof options.meshRenderer.drawMesh === 'function') {
             const needs_redraw = options.meshRenderer.drawMesh({
                 mesh: this,
                 program,
-                renderPass: options.renderPass,
+                renderPass: options.renderPass!,
                 renderState: options.renderState,
                 visibleTime: visible_time
             });
@@ -165,13 +193,13 @@ export default class VBOMesh  {
         this.bind(program);
 
         if (this.toggle_element_array){
-            this.gl.drawElements(this.draw_mode, this.element_count, this.element_type, 0);
+            this.gl!.drawElements(this.draw_mode, this.element_count, this.element_type, 0);
         }
         else {
-            this.gl.drawArrays(this.draw_mode, 0, this.vertex_count);
+            this.gl!.drawArrays(this.draw_mode, 0, this.vertex_count);
         }
 
-        VertexArrayObject.bind(this.gl, null);
+        VertexArrayObject.bind(this.gl!, null);
 
         if (this.uniforms) {
             program.restoreUniforms(this.uniforms);
@@ -182,7 +210,7 @@ export default class VBOMesh  {
     }
 
     // Return the renderer-independent resources and draw parameters for this mesh.
-    getDrawDescriptor() {
+    getDrawDescriptor(): TangramMeshDrawDescriptor & {indexType: 'uint16' | 'uint32' | null} {
         return {
             topology: getTopology(this.draw_mode),
             vertexCount: this.vertex_count,
@@ -197,39 +225,39 @@ export default class VBOMesh  {
     }
 
     // Bind buffers and vertex attributes to prepare for rendering
-    bind(program) {
+    bind(program: MeshProgram): void {
         // Bind VAO for this progam, or create one
         let vao = this.vaos[program.id];
         if (vao) {
-            VertexArrayObject.bind(this.gl, vao);
+            VertexArrayObject.bind(this.gl!, vao);
         }
         else {
-            this.vaos[program.id] = VertexArrayObject.create(this.gl, () => {
-                this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertex_buffer);
+            this.vaos[program.id] = VertexArrayObject.create(this.gl!, () => {
+                this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, this.vertex_buffer as WebGLBuffer | null);
                 if (this.toggle_element_array) {
-                    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, this.element_buffer);
+                    this.gl!.bindBuffer(this.gl!.ELEMENT_ARRAY_BUFFER, this.element_buffer as WebGLBuffer | null);
                 }
-                this.vertex_layout.enableDynamicAttributes(this.gl, program);
+                this.vertex_layout.enableDynamicAttributes!(this.gl!, program);
             });
         }
 
-        this.vertex_layout.enableStaticAttributes(this.gl, program);
+        this.vertex_layout.enableStaticAttributes!(this.gl!, program);
     }
 
     // Upload buffer data to GPU
-    upload() {
+    upload(): void {
         if (this.vertex_buffer_resource) {
             if (typeof this.vertex_buffer_resource.write !== 'function') {
                 throw new Error('VBOMesh: portable vertex buffers must support write');
             }
-            this.vertex_buffer_resource.write(this.vertex_data);
+            this.vertex_buffer_resource.write(this.vertex_data!);
             return;
         }
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.vertex_buffer);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, this.vertex_data, this.data_usage);
+        this.gl!.bindBuffer(this.gl!.ARRAY_BUFFER, this.vertex_buffer as WebGLBuffer | null);
+        this.gl!.bufferData(this.gl!.ARRAY_BUFFER, this.vertex_data!, this.data_usage!);
     }
 
-    destroy() {
+    destroy(): boolean {
         if (!this.valid) {
             return false;
         }
@@ -243,7 +271,7 @@ export default class VBOMesh  {
             delete this.globe_source;
 
             for (let v in this.vaos) {
-                VertexArrayObject.destroy(this.gl, this.vaos[v]);
+                VertexArrayObject.destroy(this.gl!, this.vaos[v]);
             }
 
             if (this.vertex_buffer_resource) {
@@ -251,7 +279,7 @@ export default class VBOMesh  {
                 this.vertex_buffer_resource = null;
             }
             else {
-                this.gl.deleteBuffer(this.vertex_buffer);
+                this.gl!.deleteBuffer(this.vertex_buffer as WebGLBuffer | null);
             }
             this.vertex_buffer = null;
 
@@ -261,7 +289,7 @@ export default class VBOMesh  {
                     this.element_buffer_resource = null;
                 }
                 else {
-                    this.gl.deleteBuffer(this.element_buffer);
+                    this.gl!.deleteBuffer(this.element_buffer as WebGLBuffer | null);
                 }
                 this.element_buffer = null;
             }
@@ -281,7 +309,7 @@ export default class VBOMesh  {
 
 VBOMesh.id = 0;
 
-function createBufferResource(buffer_factory, options) {
+function createBufferResource(buffer_factory: MeshOptions['bufferFactory'], options: TangramMeshBufferOptions): Buffer | null {
     if (typeof buffer_factory !== 'function') {
         return null;
     }
@@ -292,7 +320,7 @@ function createBufferResource(buffer_factory, options) {
     return resource;
 }
 
-function getTopology(draw_mode) {
+function getTopology(draw_mode: number): PrimitiveTopology {
     switch (draw_mode) {
     case 0x0000:
         return 'point-list';
