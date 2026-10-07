@@ -11,6 +11,7 @@ import ShaderProgram from '../src/gl/shader_program';
 import ExternalCamera from '../src/scene/external_camera';
 import {Style} from '../src/styles/style';
 import {StyleManager} from '../src/styles/style_manager';
+import type {ManagedStyle} from '../src/styles/style-mixing-types';
 import {buildNativeFalloff} from '../src/lights/native-falloff';
 
 afterEach(() => vi.restoreAllMocks());
@@ -136,7 +137,12 @@ describe('scene light integration', () => {
         const resourceContext = {};
         const options = {portableLighting: true, portableLightCount: 1,
             uniformBlockFactory: factory, maxTextureSize: 1024, resourceContext};
-        let styles = manager.build(definitions);
+        type ResourceStyle = ManagedStyle & Pick<typeof Style, 'setGL'> & {
+            portable_material_buffer: {destroy: ReturnType<typeof vi.fn>};
+            program: {destroy: ReturnType<typeof vi.fn>};
+            selection_program: {destroy: ReturnType<typeof vi.fn>};
+        };
+        let styles = manager.build(definitions) as Record<string, ResourceStyle>;
         manager.initStyles({generation: 1});
         const base = styles.polygons;
         const baseBuffer = {destroy: vi.fn()};
@@ -152,7 +158,7 @@ describe('scene light integration', () => {
                 style.selection_program = {destroy: vi.fn()};
                 programs.push(style.program, style.selection_program);
             }
-            styles = manager.build(definitions);
+            styles = manager.build(definitions) as Record<string, ResourceStyle>;
             expect(styles.polygons).toBe(base);
             expect(baseBuffer.destroy).toHaveBeenCalledTimes(1);
             expect(baseProgram.destroy).toHaveBeenCalledTimes(1);

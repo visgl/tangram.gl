@@ -210,6 +210,27 @@ coordinates and heights. No provider snapshot, font download, or tile service
 is required. This is schema/rendering conformance, not a claim of complete visual
 parity with every OpenFreeMap or CARTO style.
 
+## Style evaluation contracts
+
+Property parsing, scene-layer matching, filter compilation, and style/shader
+mixing are checked by TypeScript without blanket suppressions. Internal contracts
+live in `styles/property-types.ts`, `styles/layer-types.ts`, and
+`styles/style-mixing-types.ts`; they are not new package exports or a replacement
+for the public scene schema.
+
+Authored values and dynamic expression results enter as `unknown`. Property
+parsers normalize them before evaluation, while layers retain separate raw,
+compiled, and cached states. Local assertions describe existing normalization
+and prototype-construction boundaries; they do not add runtime coercion or
+validation. The GPU style implementations and worker broker are separate
+migration boundaries, not made checked by these contracts.
+
+The typed regression fixtures cover cache identity, sprite-relative sizing,
+zoom/unit conversion, lazy matching, exclusivity, diamond mixins, uniform
+ownership, and mesh blend passes. Preserve legacy evaluation order and fallback
+behavior when extending these contracts. In particular, avoid emitting class
+fields that shadow inherited members or eagerly building lazy layer children.
+
 ## Website and examples
 
 Run `yarn website:start` for the Docusaurus site or run `yarn build:modules`
@@ -222,3 +243,35 @@ The public documentation and examples live at
 website development and CI build validation, but does not deploy a GitHub Pages
 site. Publication is managed by the canonical host, outside this repository;
 merging a PR here does not trigger a repository Pages deployment.
+
+## Collision batching
+
+The label-collision batcher and grid use a shared structural label/bounds contract
+for worker and main-pass placement. Register each style once on a started tile
+and submit one batch per style; the completion barrier resolves after all styles
+submit, or immediately when the tile is aborted. Collision results retain the
+submitted container identities and payload types. Numeric priority keys are
+converted explicitly when sorting, preserving the legacy numeric ordering.
+
+## Labels and text typing
+
+The labels/text subsystem is checked without blanket TypeScript suppressions.
+Its internal contracts separate normalized placement layouts, serialized worker
+labels, main-pass mesh ranges, text measurements, atlas positions, and cooperative
+task payloads. These are internal types, not new package entry points.
+
+Text records are populated in stages: source parsing creates unique strings and
+settings, measurement adds sizes and segment data, packing assigns atlas
+positions, and rasterization supplies UVs and retained texture names. Cancellation
+can return no result at either worker handoff. Mesh visibility updates retain
+their byte offsets and upload only meshes whose visibility changed.
+
+New class field annotations use `declare` so they do not create properties or
+shadow inherited methods. Prototype/mixin construction and calls into the
+still-unchecked point style, property parser, worker broker, and texture registry
+remain localized compatibility boundaries. Those implementations are unchanged;
+checking labels/text does not claim those other subsystems are finished.
+
+The typing migration preserves legacy behavior, including omitted repeat scales
+in worker snapshots, repeated curved-label bounds, and ignored falsy label-link
+IDs. Changes to those behaviors belong in separately tested fixes.

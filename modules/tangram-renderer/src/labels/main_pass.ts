@@ -1,9 +1,10 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
-
+import type {CollisionBounds, CollisionLabel} from './collision-types';
+import type {LabelTile, LabelMesh, MainPassLabel, MainPassContainer, UnresolvedMainPassContainer} from './main-pass-types';
 import Label from './label';
 import LabelPoint from './label_point';
 import {LabelLineStraight} from './label_line';
@@ -11,10 +12,10 @@ import Collision from './collision';
 import OBB from '../utils/obb';
 import Geo from '../utils/geo';
 
-let visible = {};       // currently visible labels
-let prev_visible = {};  // previously visible labels (in last collision run)
+let visible: Record<string, boolean> = {};       // currently visible labels
+let prev_visible: Record<string, boolean> = {};  // previously visible labels (in last collision run)
 
-export default async function mainThreadLabelCollisionPass (tiles, view_zoom, hide_breach = false) {
+export default async function mainThreadLabelCollisionPass (tiles: LabelTile[], view_zoom: number, hide_breach = false): Promise<{labels: MainPassContainer[]; containers: MainPassContainer[]}> {
     // Swap/reset visible label set
     prev_visible = visible; // save last visible label set
     visible = {};           // initialize new visible label set
@@ -49,7 +50,7 @@ export default async function mainThreadLabelCollisionPass (tiles, view_zoom, hi
     const labels = await Collision.collide(containers, 'main', 'main');
 
     // Update label visiblity
-    let meshes = [];
+    let meshes: LabelMesh[] = [];
     labels.forEach(container => {
         // Hide breach labels (those that cross tile boundaries) while tiles are loading, unless they
         // were previously visible (otherwise fully loaded/collided breach labels will flicker in and out
@@ -101,9 +102,9 @@ export default async function mainThreadLabelCollisionPass (tiles, view_zoom, hi
     return { labels, containers }; // currently returned for debugging
 }
 
-function buildLabels (tiles, view_zoom) {
-    const labels = {};
-    let containers = {};
+function buildLabels (tiles: LabelTile[], view_zoom: number): MainPassContainer[] {
+    const labels: Record<string, MainPassLabel> = {};
+    let containers: Record<string, UnresolvedMainPassContainer> | UnresolvedMainPassContainer[] = {};
 
     // Collect labels from each tile and turn into new label instances
     tiles.forEach(tile => {
@@ -133,12 +134,13 @@ function buildLabels (tiles, view_zoom) {
                         const ranges = mesh.labels[label_id].ranges;
                         // const debug = Object.assign({}, mesh.labels[label_id].debug, { tile, params, label_id });
 
-                        let label = labels[label_id] = {};
+                        // The worker snapshot and bounds are installed below before collision reads this record.
+                        let label = labels[label_id] = {} as MainPassLabel;
                         label.discard = discard.bind(label);
                         label.build_id = tile.build_id; // original order in which tiles were built
 
                         Object.assign(label, params);
-                        label.layout = Object.assign({}, params.layout); // TODO: ideally remove need to copy props here
+                        label.layout = Object.assign({}, params.layout) as MainPassLabel['layout']; // repeat_scale is installed below
                         label.layout.repeat_scale = 0.75; // looser second pass on repeat groups, to weed out repeats near tile edges
                         label.layout.repeat_distance = label.layout.repeat_distance || 0;
                         label.layout.repeat_distance /= size_scale; // TODO: where should this be scaled?
@@ -170,7 +172,7 @@ function buildLabels (tiles, view_zoom) {
                             label.aabbs = obbs.map(o => o.getExtent());
                         }
 
-                        containers[label_id] = {
+                        (containers as Record<string, UnresolvedMainPassContainer>)[label_id] = {
                             label,
                             linked,
                             ranges,
@@ -187,19 +189,19 @@ function buildLabels (tiles, view_zoom) {
     for (let c in containers) {
         const container = containers[c];
         if (container.linked) {
-            container.linked = containers[container.linked];
+            container.linked = containers[container.linked as string] as MainPassContainer;
         }
         // NB: if linked label not found, it was discarded in initial tile collision pass
     }
 
     // Convert container map to array
-    containers = Object.keys(containers).map(k => containers[k]);
-    return containers;
+    containers = Object.keys(containers).map(k => (containers as Record<string, UnresolvedMainPassContainer>)[k]);
+    return containers as MainPassContainer[];
 }
 
 // Generic discard function for labels, does simple occlusion with one or more bounding boxes
 // (no additional logic to try alternate anchors or other layout options, etc.)
-function discard (bboxes, exclude = null) {
+function discard (this: MainPassLabel, bboxes: CollisionBounds, exclude: CollisionLabel | null | 0 | '' = null): boolean {
     if (this.obb) { // single collision box
         return Label.prototype.occluded.call(this, bboxes, exclude);
     }

@@ -1,22 +1,25 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 import Label from './label';
+import type {CollisionBounds, CollisionLabel} from './collision-types';
+import type {LabelLayout, LabelParent} from './label-types';
 import PointAnchor from './point_anchor';
 import OBB from '../utils/obb';
 import StyleParser from '../styles/style_parser';
 
 type LabelPointCoordinate = [number, number];
 type LabelPointSize = [number, number];
-type LabelPointLayout = Record<string, any>;
-const typedStyleParser = StyleParser as any;
+type LabelPointLayout = LabelLayout;
+const typedStyleParser = StyleParser as unknown as {zeroPair: readonly number[]};
 
 export default class LabelPoint extends Label {
 
     position: LabelPointCoordinate;
     angle: number;
-    parent: any;
+    parent: LabelParent | undefined;
     start_anchor_index: number;
     degenerate: boolean;
     throw_away: boolean;
@@ -64,7 +67,7 @@ export default class LabelPoint extends Label {
         this.offset = PointAnchor.computeOffset(this.offset, this.size, this.anchor);
     }
 
-    updateBBoxes () {
+    updateBBoxes (this: Pick<LabelPoint, 'size' | 'unit_scale' | 'position' | 'offset' | 'angle' | 'obb' | 'aabb' | 'breach' | 'may_repeat_across_tiles'> & {layout: Pick<LabelLayout, 'buffer' | 'italic'>} & Partial<Pick<LabelPoint, 'inTileBounds' | 'mayRepeatAcrossTiles'>>) {
         let width = (this.size[0] + this.layout.buffer[0] * 2) * this.unit_scale * Label.epsilon;
         let height = (this.size[1] + this.layout.buffer[1] * 2) * this.unit_scale * Label.epsilon;
 
@@ -92,7 +95,7 @@ export default class LabelPoint extends Label {
         }
     }
 
-    discard (bboxes: any, exclude: any = null) {
+    discard (bboxes: CollisionBounds, exclude: CollisionLabel | null | 0 | '' = null) {
         if (this.degenerate) {
             return false;
         }

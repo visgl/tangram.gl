@@ -90,7 +90,7 @@ describe('renderer pure logic', () => {
     expect(buildFilter({optional: true})(context)).toBe(false);
     expect(buildFilter(null)(context)).toBe(true);
 
-    const transformed = buildFilter({zoom: {min: 3}}, {rangeTransform: (value: number) => value + 8});
+    const transformed = buildFilter({zoom: {min: 3}}, {rangeTransform: value => Number(value) + 8});
     expect(transformed({feature: {properties: {zoom: 12}}})).toBe(true);
     expect(buildFilter((value: any) => value.feature.properties.kind === 'road')(context)).toBe(true);
     expect(buildFilter((value: any) => value.feature.properties.kind === 'building')(context)).toBe(false);
