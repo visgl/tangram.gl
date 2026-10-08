@@ -88,12 +88,14 @@ export class ProjectedBasemapNavigation {
     /** Project a detached longitude/latitude batch into north-positive common coordinates. */
     async projectPositions(coordinates: Float64Array, type: ProjectedBasemapType): Promise<Float64Array> {
         const domain = getProjectedGeographicBounds(type);
-        if (!(coordinates instanceof Float64Array) || coordinates.length % 2 !== 0 ||
-            !coordinates.every((value, index) => Number.isFinite(value) && value >= domain[index % 2] && value <= domain[index % 2 + 2])) {
+        if (!(coordinates instanceof Float64Array) || coordinates.length % 2 !== 0) {
+            throw new Error('Projected navigation requires finite geographic pairs inside the projection domain');
+        }
+        const result = coordinates.slice();
+        if (!result.every((value, index) => Number.isFinite(value) && value >= domain[index % 2] && value <= domain[index % 2 + 2])) {
             throw new Error('Projected navigation requires finite geographic pairs inside the projection domain');
         }
         const transform = await this.getTransform(type, false);
-        const result = coordinates.slice();
         transform.projectFlatSync(result, 2);
         for (let index = 0; index < result.length; index++) result[index] *= PROJECTED_COMMON_SCALE;
         if (!result.every(Number.isFinite)) throw new Error('Projected navigation produced nonfinite common coordinates');
@@ -110,8 +112,9 @@ export class ProjectedBasemapNavigation {
     /** Invert ground; finite outside-domain/folded results return null. Engine errors propagate. */
     async unprojectPosition(position: readonly [number, number], type: ProjectedBasemapType): Promise<[number, number] | null> {
         if (position.length !== 2 || !position.every(Number.isFinite)) throw new Error('Projected inverse requires a finite common pair');
+        const point: [number, number] = [position[0], position[1]];
+        const result = new Float64Array(point.map(value => value / PROJECTED_COMMON_SCALE));
         const transform = await this.getTransform(type, true);
-        const result = new Float64Array(position.map(value => value / PROJECTED_COMMON_SCALE));
         transform.projectFlatSync(result, 2);
         const domain = getProjectedGeographicBounds(type);
         if (!result.every((value, index) => Number.isFinite(value) && value >= domain[index] - 1e-7 && value <= domain[index + 2] + 1e-7)) return null;
@@ -119,7 +122,14 @@ export class ProjectedBasemapNavigation {
             Math.max(domain[1], Math.min(domain[3], result[1]))];
         // Some inverse kernels wrap or fold outside the drawn map. Require a forward round trip.
         const restored = await this.projectPosition(geographic, type);
-        return Math.hypot(restored[0] - position[0], restored[1] - position[1]) <= 1e-5 ? geographic : null;
+        if (Math.hypot(restored[0] - point[0], restored[1] - point[1]) <= 1e-5) return geographic;
+        // The two source-world seam edges are distinct, even if an inverse kernel wraps one onto the other.
+        if (domain[0] === -180 && domain[2] === 180 && Math.abs(Math.abs(geographic[0]) - 180) <= 1e-7) {
+            const opposite: [number, number] = [geographic[0] < 0 ? 180 : -180, geographic[1]];
+            const alternative = await this.projectPosition(opposite, type);
+            if (Math.hypot(alternative[0] - point[0], alternative[1] - point[1]) <= 1e-5) return opposite;
+        }
+        return null;
     }
 
     /** Probe geographic coordinates on ground, not a rendered feature or depth/picking buffer. */

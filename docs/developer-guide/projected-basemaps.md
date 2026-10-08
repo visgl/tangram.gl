@@ -270,12 +270,15 @@ const geographic = await navigation.unprojectScreenPosition(viewport, [400, 300]
 navigation.dispose();
 ```
 
-`projectPositions(Float64Array, type)` projects detached longitude/latitude pairs.
+`projectPositions(Float64Array, type)` projects detached longitude/latitude pairs,
+captured before asynchronous compilation; inverse inputs are captured the same way.
 `unprojectPosition([x, y], type)` inverts common ground coordinates, compiling a
 separate reverse CRS pair. Forward and reverse compilation is shared across
 concurrent requests, supports lazy factories and retries failed compilation.
 Finite inverse results outside the current geographic domain, or failing a
-forward round trip, return `null`. Engine compilation, domain and convergence
+forward round trip, return `null`. The two antimeridian edges stay distinct even
+when a kernel wraps +180° onto −180°: the opposite edge must pass the same forward
+round-trip check. This does not accept additional world copies. Engine compilation, domain and convergence
 exceptions propagate: applications should handle them when probing outside the
 drawn outline. Disposed helpers reject pending work without destroying the engine.
 
@@ -309,7 +312,9 @@ For each eligible XYZ level, the helper projects nine samples per tile footprint
 clipped to the supplied loading region, and measures its maximum CSS screen span.
 It chooses the coarsest level meeting the target, bounded by integer levels 0–6
 and the same per-source candidate count used by `projectedMaxTiles`. The previous
-eligible level is retained near adjacent thresholds with optional hysteresis
+eligible level is retained near adjacent thresholds with optional hysteresis;
+the coarser footprint is measured too, because clipping need not halve tile spans.
+Hysteresis
 (default 0.15, range [0, 0.5)). A minimum level exceeding the candidate budget
 throws instead of silently violating it. The result reports `candidateCount`,
 `estimatedTilePixels`, `budgetLimited` and `detailLimited`; limit diagnostics use

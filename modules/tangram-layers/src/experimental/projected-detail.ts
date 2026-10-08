@@ -99,8 +99,9 @@ export async function selectProjectedTileDetail(navigation: ProjectedBasemapNavi
     const current = candidates.find(candidate => candidate.zoom === currentTileZoom);
     if (current) {
         const pixels = await measure(current.zoom);
+        const coarser = candidates.find(candidate => candidate.zoom === current.zoom - 1);
         if (pixels <= targetTilePixels * (1 + hysteresis) &&
-            (current.zoom === minZoom || pixels >= targetTilePixels / 2 * (1 - hysteresis))) selected = current;
+            (!coarser || await measure(coarser.zoom) > targetTilePixels * (1 - hysteresis))) selected = current;
         else {
             for (const candidate of candidates) if (await measure(candidate.zoom) <= targetTilePixels) {selected = candidate; break;}
         }

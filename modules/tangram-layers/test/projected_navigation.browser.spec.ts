@@ -49,6 +49,29 @@ test.each(types)('%s forward/inverse, screen probing and fitting share the rende
     navigation.dispose();
 });
 
+test.each(types)('%s inverse preserves source-domain corners and resized viewport coordinates', async type => {
+    const navigation = createNavigation();
+    const bounds = getProjectedGeographicBounds(type);
+    for (const longitude of [bounds[0], bounds[2]]) for (const latitude of [bounds[1], bounds[3]]) {
+        const projected = await navigation.projectPosition([longitude, latitude], type);
+        const geographic = await navigation.unprojectPosition([projected[0], projected[1]], type);
+        expect(geographic?.[0]).toBeCloseTo(longitude, 6);
+        expect(geographic?.[1]).toBeCloseTo(latitude, 6);
+    }
+    if (type === 'equirectangular') {
+        // A wrapped third-world seam must not be mistaken for the valid opposite edge.
+        const edge = await navigation.projectPosition([180, 0], type);
+        expect(await navigation.unprojectPosition([edge[0] * 3, edge[1]], type)).toBeNull();
+    }
+    const target = await navigation.projectPosition([-100, 40], type);
+    for (const dimensions of [{width: 400, height: 300}, {width: 1000, height: 700}]) {
+        const viewport = new OrthographicViewport({...dimensions, target, zoom: 1, flipY: false});
+        const geographic = await navigation.unprojectScreenPosition(viewport, [dimensions.width / 2, dimensions.height / 2], type);
+        expect(geographic?.[0]).toBeCloseTo(-100, 6);
+        expect(geographic?.[1]).toBeCloseTo(40, 6);
+    }
+});
+
 test('lazy transforms compile once per direction, retry failures and remain caller owned', async () => {
     const engine = createProjectedExampleProjectionEngine();
     const compile = vi.fn(engine.createProjectionAsync.bind(engine));
@@ -78,6 +101,37 @@ test('disposal rejects late compilation and inverse failures are not hidden', as
     const failing = new ProjectedBasemapNavigation({createProjection: engine.createProjection.bind(engine),
         createProjectionAsync: async () => {throw new Error('inverse unavailable');}});
     await expect(failing.unprojectPosition([0, 0], 'equal-earth')).rejects.toThrow('inverse unavailable');
+});
+
+test('pending forward and inverse compilation uses detached request-time coordinates', async () => {
+    const engine = createProjectedExampleProjectionEngine();
+    let release = () => {};
+    const wait = new Promise<void>(resolve => {release = resolve;});
+    const navigation = new ProjectedBasemapNavigation({createProjection: engine.createProjection.bind(engine),
+        createProjectionAsync: async options => {await wait; return engine.createProjection(options);}});
+    const oracle = createNavigation();
+    const expected = await oracle.projectPosition([-75, 40], 'equal-earth');
+    const forwardInput = new Float64Array([-75, 40]);
+    const inverseInput: [number, number] = [expected[0], expected[1]];
+    const forward = navigation.projectPositions(forwardInput, 'equal-earth');
+    const inverse = navigation.unprojectPosition(inverseInput, 'equal-earth');
+    forwardInput.fill(NaN);
+    inverseInput[0] = 1e10;
+    release();
+    expect(await forward).toEqual(new Float64Array(expected.slice(0, 2)));
+    const geographic = await inverse;
+    expect(geographic?.[0]).toBeCloseTo(-75, 6);
+    expect(geographic?.[1]).toBeCloseTo(40, 6);
+});
+
+test('small clipped regions coarsen using measured footprints, not assumed powers of two', async () => {
+    const navigation = createNavigation();
+    const coordinates = await navigation.projectPositions(new Float64Array([1, 1, 2, 2]), 'web-mercator');
+    const span = Math.max(coordinates[2] - coordinates[0], coordinates[3] - coordinates[1]);
+    const result = await selectProjectedTileDetail(navigation, createViewport(Math.log2(200 / span)), 'web-mercator', {
+        visibleBounds: [1, 1, 2, 2], targetTilePixels: 256, currentTileZoom: 4, hysteresis: 0});
+    expect(result.tileZoom).toBe(0);
+    expect(result.estimatedTilePixels).toBeCloseTo(200, 6);
 });
 
 test('nonfinite and folded transform results never become usable navigation coordinates', async () => {

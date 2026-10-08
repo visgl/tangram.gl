@@ -89,6 +89,13 @@ test('example controls coalesce navigation, discard stale results and release re
     await vi.advanceTimersByTimeAsync(0);
     expect(getElement('#detail')).toHaveProperty('value', '2');
     expect(getElement('#status').textContent).not.toContain('Camera detail 4');
+    let rejectFit = (_error: Error) => {};
+    fixtures.fit.mockImplementationOnce(() => new Promise((_resolve, reject) => {rejectFit = reject;}));
+    getElement('#fit-region').click();
+    change('#projection', 'equal-earth');
+    rejectFit(new Error('obsolete fit failure'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getElement('#status').textContent).not.toContain('obsolete fit failure');
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     await vi.advanceTimersByTimeAsync(1000);
     expect(fixtures.detail).toHaveBeenCalledTimes(2);

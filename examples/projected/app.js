@@ -71,13 +71,17 @@ async function fitLoadingRegion() {
   clearTimeout(detailTimer);
   const viewport = deck?.getViewports()[0];
   if (!viewport) return;
-  const fitted = await navigation.fitBounds(getProjectedExampleBounds(coverageSelector.value === 'regional'),
-    viewport, projectionSelector.value);
-  if (disposed || generation !== navigationGeneration) return;
-  viewState = fitted;
-  probeGeneration++;
-  deck.setProps({viewState});
-  scheduleDetail();
+  try {
+    const fitted = await navigation.fitBounds(getProjectedExampleBounds(coverageSelector.value === 'regional'),
+      viewport, projectionSelector.value);
+    if (disposed || generation !== navigationGeneration) return;
+    viewState = fitted;
+    probeGeneration++;
+    deck.setProps({viewState});
+    scheduleDetail();
+  } catch (error) {
+    if (!disposed && generation === navigationGeneration) setStatus(error.message, true);
+  }
 }
 
 /** Invert CSS cursor coordinates on the ground plane; this does not select rendered features. */
@@ -194,7 +198,7 @@ detailSelector.addEventListener('change', () => {
   initialize().catch(error => setStatus(error.message, true));
 });
 detailMode.addEventListener('change', () => initialize().catch(error => setStatus(error.message, true)));
-document.querySelector('#fit-region').addEventListener('click', () => fitLoadingRegion().catch(error => setStatus(error.message, true)));
+document.querySelector('#fit-region').addEventListener('click', fitLoadingRegion);
 document.querySelector('#projected-map').addEventListener('pointermove', probeCoordinates);
 document.querySelector('#projected-map').addEventListener('pointerleave', () => {
   probeGeneration++;
