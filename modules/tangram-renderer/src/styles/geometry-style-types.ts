@@ -23,6 +23,8 @@ export interface GeometryTile {
 }
 /** Evaluation context with the tile conversions needed by geometry construction. */
 export interface GeometryContext extends PropertyContext {
+    /** EPSG:3857 meters per CSS pixel at the style zoom. */
+    meters_per_pixel: number;
     feature: GeometryFeature;
     zoom: number;
     units_per_meter_overzoom: number;
@@ -48,6 +50,8 @@ export interface GeometryMeshVariant {
 }
 /** Per-draw cache fields after property preprocessing, not evaluated feature values. */
 export interface GeometryDraw {
+    /** Internal fixed-pixel stroke marker captured before distance preprocessing. */
+    projected_pixel_width?: boolean;
     color?: PropertyCache | null;
     alpha?: PropertyCache;
     width?: PropertyCache;
@@ -106,6 +110,8 @@ export interface PolygonFeatureStyle {
 }
 /** Computed line values, including interpolation and a reusable cached outline. */
 export interface LineFeatureStyle extends Omit<PolygonFeatureStyle, 'min_height'>, PolylineStyle {
+    /** Packed extrusion units per CSS pixel, zero for meter-width strokes. */
+    projected_pixel_scale?: number;
     width_unscaled: number;
     next_width_unscaled: number;
     width_scale: number;

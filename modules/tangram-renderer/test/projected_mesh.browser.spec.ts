@@ -46,6 +46,41 @@ function createRequest(type: ProjectedBasemapOptions['type'], x = 2): MeshProjec
 }
 
 describe('opt-in worker CPU projection', () => {
+    test.each(projections)('%s adaptive chord refinement is identical with a caller engine and respects budgets', async type => {
+        const request = createRequest(type);
+        request.projection = {type, maxAngularSpan: 30, maxProjectedError: 0.05};
+        const engine = new HostProjectionEngineAdapter(createProjectionEngine({
+            projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator]}));
+        const coarse = projectBasemapMesh({...request, projection: {type, maxAngularSpan: 30}});
+        const refined = projectBasemapMesh(request);
+        const remote = await projectBasemapMeshWithEngine({...request,
+            projectPositions: coordinates => engine.projectPositions(coordinates, type)});
+        expect(remote).toEqual(refined);
+        expect(refined.vertices.byteLength).toBeGreaterThanOrEqual(coarse.vertices.byteLength);
+        expect(request.vertices.byteLength).toBe(layout.stride * 4);
+        if (type === 'equal-earth' || type === 'albers' || type === 'equirectangular') expect(refined.vertices.byteLength).toBeGreaterThan(coarse.vertices.byteLength);
+        expect(() => projectBasemapMesh({...request, projection: {...request.projection,
+            maxProjectedError: 1e-12, maxAdditionalVertices: 0}})).toThrow(/budget|precision/);
+    });
+    test.each([0, -1, Infinity, NaN])('rejects invalid adaptive tolerance %s', maxProjectedError => {
+        expect(() => normalizeProjectedBasemapOptions({type: 'equal-earth', maxProjectedError})).toThrow('projected error');
+    });
+    test('independent equal-detail tile seams have identical adaptive projected boundary vertices', () => {
+        const first = createRequest('equal-earth', 1), second = createRequest('equal-earth', 2);
+        first.projection.maxProjectedError = second.projection.maxProjectedError = 0.02;
+        const boundary = (request: MeshProjectionRequest, x: number) => {
+            const result = projectBasemapMesh(request);
+            const view = new DataView(result.vertices.buffer, result.vertices.byteOffset, result.vertices.byteLength);
+            const points = new Set<string>();
+            for (let offset = 0; offset < result.vertices.length; offset += layout.stride) {
+                if (view.getInt16(offset, true) === x) points.add([
+                    view.getFloat32(offset + layout.offset.a_projected_position, true),
+                    view.getFloat32(offset + layout.offset.a_projected_position + 4, true)].join(','));
+            }
+            return [...points].sort();
+        };
+        expect(boundary(first, 4096)).toEqual(boundary(second, 0));
+    });
     test.each(projections)('%s host-engine batches produce byte-identical refined meshes', async type => {
         const request = createRequest(type);
         const original = request.vertices.slice();
@@ -127,7 +162,7 @@ describe('opt-in worker CPU projection', () => {
         expect(() => projectBasemapMesh({...request, tile: {...request.tile, overzoom2: NaN}})).toThrow('overzoom');
         expect(() => projectBasemapMesh({...request, projection: {type, maxAdditionalVertices: 0}})).toThrow('budget');
         input.setInt16(ribbonLayout.offset.a_z_and_offset_scale, 1, true);
-        expect(() => projectBasemapMesh(request)).toThrow('ground ribbons');
+        expect(() => projectBasemapMesh(request)).toThrow('elevation');
     });
 
     test('only opt-in line shaders consume CPU-projected positions and WebGPU clip depth', () => {

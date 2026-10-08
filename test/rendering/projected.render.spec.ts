@@ -51,6 +51,56 @@ function createRoadScene(maximumSourceZoom = 6) {
 }
 
 beforeEach(() => commands.startRenderingDiagnostics());
+
+test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with outlines, dashes and animated traffic`, async () => {
+  harness = new RenderingHarness();
+  await harness.initializeDevice();
+  const errors = harness.errors, canvas = harness.canvas;
+  const source = {type: 'FeatureCollection', features: [{type: 'Feature', properties: {}, geometry: {
+    type: 'LineString', coordinates: [[-125, 40], [-75, 40]]}}]};
+  const engine = createProjectedExampleProjectionEngine();
+  const navigation = new ProjectedBasemapNavigation(engine);
+  const target = await navigation.projectPosition([-100, 40], 'equal-earth');
+  const createScene = (animated: boolean, dashed: boolean) => createProjectedBasemapScene({
+    scene: {background: {color: '#000000'}}, styles: {traffic: {base: 'lines', animated}},
+    sources: {roads: {type: 'GeoJSON', url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`, max_zoom: 6}},
+    layers: {roads: {data: {source: 'roads'}, draw: {traffic: {width: '12px', offset: '2px', color: '#20d0b0',
+      order: 2, outline: {width: '2px', color: '#f08020'}, ...(dashed ? {dash: [3, 2]} : {})}}}}
+  }, {type: 'equal-earth', maxProjectedError: 0.5},
+  new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  const layer = (scene: Record<string, unknown>) => new FixtureLayer({id: 'pixel-roads', scene, projectionEngine: engine,
+    projectedTileZoom: 4, projectedStyleZoom: 6, projectedVisibleBounds: [-130, 30, -70, 50],
+    onSceneError: error => errors.push(error.message)});
+  deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
+    views: new OrthographicView({id: 'projected', flipY: false}), viewState: {target, zoom: 1},
+    onError: error => errors.push(error.message), _animate: true, layers: [layer(createScene(false, false))]});
+  const thickness = async () => {
+    const pixels = (await readCanvasPixels(canvas)).data;
+    let count = 0;
+    for (let row = 0; row < 320; row++) {
+      const offset = (row * 512 + 256) * 4;
+      if (pixels[offset] + pixels[offset + 1] + pixels[offset + 2] > 100) count++;
+    }
+    return count;
+  };
+  await expect.poll(thickness, {timeout: 20000}).toBeGreaterThan(8);
+  const before = await thickness();
+  expect(before).toBeLessThanOrEqual(20);
+  deck.setProps({viewState: {target, zoom: 3}});
+  await expect.poll(thickness).toBeGreaterThan(8);
+  expect(Math.abs(await thickness() - before)).toBeLessThanOrEqual(2);
+  deck.setProps({layers: [layer(createScene(true, true))]});
+  await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas)), {timeout: 20000}).toBeGreaterThan(100);
+  const previous = (await readCanvasPixels(canvas)).data;
+  await expect.poll(async () => {
+    const current = (await readCanvasPixels(canvas)).data;
+    let changed = 0;
+    for (let index = 0; index < current.length; index++) if (current[index] !== previous[index]) changed++;
+    return changed;
+  }, {timeout: 10000}).toBeGreaterThan(20);
+  expect(errors).toEqual([]);
+  navigation.dispose();
+});
 afterEach(async () => {
   try {
     expect(harness?.errors || []).toEqual([]);
@@ -111,8 +161,8 @@ test.each(['equal-earth', 'albers'] as const)(`${DEVICE_TYPE}: %s fit, inverse p
     expect(fine.candidateCount).toBeLessThanOrEqual(256);
     const coverage = await navigation.getCameraCoverage(deck.getViewports()[0], type, bounds);
     if (!coverage.bounds) throw new Error('Expected visible projected coverage');
-    expect(coverage.domainFallback).toBe(type === 'albers');
-    if (type === 'equal-earth') expect(coverage.bounds[2] - coverage.bounds[0]).toBeLessThan(bounds[2] - bounds[0]);
+    expect(coverage.domainFallback).toBe(false);
+    expect(coverage.bounds[2] - coverage.bounds[0]).toBeLessThan(bounds[2] - bounds[0]);
     deck.setProps({layers: [createLayer(fine.tileZoom, coverage.bounds)]});
     await waitForGround();
     // Off-domain cameras hide the layer without destroying its warm renderer and workers.

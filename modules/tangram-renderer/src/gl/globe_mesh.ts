@@ -26,11 +26,13 @@ export type GlobeMeshOptions = {
     maxAdditionalVertices?: number;
     /** Optional expanded tile-space position for packed ribbons; never changes the preserved attributes. */
     getPosition?: (vertex: DataView) => [number, number];
+    /** Optional additional edge decision; callers must use the same criterion across adjacent meshes. */
+    shouldSplitEdge?: (first: DataView, second: DataView) => boolean;
 };
 
 const INTERPOLATED_ATTRIBUTES = new Set([
     'a_position', 'a_normal', 'a_color', 'a_texcoord', 'a_extrude', 'a_offset',
-    'a_z_and_offset_scale', 'a_projected_position'
+    'a_z_and_offset_scale', 'a_projected_position', 'a_projected_stroke'
 ]);
 
 /**
@@ -89,9 +91,12 @@ export function refineGlobeMesh(
     for (let index = triangleIndices.length - 3; index >= 0; index -= 3) {
         pending.push([triangleIndices[index], triangleIndices[index + 1], triangleIndices[index + 2]]);
     }
-    const isLong = (first: number, second: number): boolean =>
-        Math.hypot(positions[first][0] - positions[second][0],
-            positions[first][1] - positions[second][1]) > maximumEdge;
+    const isLong = (first: number, second: number): boolean => {
+        const distance = Math.hypot(positions[first][0] - positions[second][0], positions[first][1] - positions[second][1]);
+        return distance > maximumEdge || (distance >= 2 && Boolean(options.shouldSplitEdge?.(
+            new DataView(records[first].buffer, records[first].byteOffset, layout.stride),
+            new DataView(records[second].buffer, records[second].byteOffset, layout.stride))));
+    };
     const getMidpoint = (first: number, second: number): number => {
         const key = `${Math.min(first, second)}:${Math.max(first, second)}`;
         const cached = midpoints.get(key);

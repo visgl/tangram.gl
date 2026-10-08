@@ -90,10 +90,11 @@ Object.assign(Lines, {
         const hasAttributes = attributes && typeof attributes === 'object' ? Object.keys(attributes).length > 0 : Boolean(attributes);
         const positionBlocks = this.shaders?.blocks?.position;
         const hasPositionBlocks = Array.isArray(positionBlocks) ? positionBlocks.length > 0 : Boolean(positionBlocks);
-        if (this.cpu_projection && (this.animated || this.texture || this.dash ||
-            hasAttributes || hasPositionBlocks)) {
-            throw new Error('CPU projected lines do not support animation, textures or shader blocks');
+        if (this.cpu_projection && (hasAttributes || hasPositionBlocks)) {
+            throw new Error('CPU projected lines do not support custom vertex shader blocks');
         }
+        this.defines.TANGRAM_PROJECTED_TRAFFIC = Boolean(this.cpu_projection && this.animated);
+        if (this.cpu_projection && this.animated) this.texcoords = true;
 
         // Tell the shader we want a order in vertex attributes, and to extrude lines
         this.defines.TANGRAM_EXTRUDE_LINES = true;
@@ -124,6 +125,8 @@ Object.assign(Lines, {
 
     // Calculate width at current and next zoom, and scaling factor between
     calcWidth (this: LineStyleRuntime, draw: GeometryDraw, style: LineFeatureStyle, context: GeometryContext) {
+        style.projected_pixel_scale = this.cpu_projection && draw.projected_pixel_width ?
+            1 / (context.units_per_meter_overzoom * context.meters_per_pixel) : 0;
         // line width in meters
         let width = this.calcDistance(draw.width, context);
         if (width < 0) {
@@ -299,6 +302,7 @@ Object.assign(Lines, {
                 // Offset is directly copied from fill to outline, no need to re-calculate it
                 style.outline.offset_precalc = style.offset;
                 style.outline.offset_scale_precalc = style.offset_scale;
+                style.outline.projected_pixel_width = draw.projected_pixel_width;
 
                 style.outline.color = draw.outline.color;
                 style.outline.alpha = draw.outline.alpha;
@@ -340,6 +344,7 @@ Object.assign(Lines, {
     },
 
     _preprocess (this: LineStyleRuntime, draw: RawGeometryDraw) {
+        if (this.cpu_projection && !draw.preprocessed) draw.projected_pixel_width = typeof draw.width === 'string' && /px\s*$/.test(draw.width);
         draw.color = StyleParser.createColorPropertyCache(draw.color);
         draw.alpha = StyleParser.createPropertyCache(draw.alpha);
         draw.width = StyleParser.createPropertyCache(draw.width, StyleParser.parseUnits);
@@ -575,7 +580,10 @@ Object.assign(Lines, {
             ];
 
             this.addCustomAttributesToAttributeList(attribs);
-            if (this.cpu_projection) attribs.push({name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false});
+            if (this.cpu_projection) {
+                attribs.push({name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false});
+                attribs.push({name: 'a_projected_stroke', size: 4, type: gl.FLOAT, normalized: false});
+            }
             this.vertex_layouts[variant.key] = new VertexLayout(attribs);
         }
         return this.vertex_layouts[variant.key];
@@ -643,6 +651,9 @@ Object.assign(Lines, {
         if (this.cpu_projection) {
             const index = mesh.vertex_data.vertex_layout.index.a_projected_position;
             this.vertex_template[index] = this.vertex_template[index + 1] = this.vertex_template[index + 2] = 0;
+            const stroke = mesh.vertex_data.vertex_layout.index.a_projected_stroke;
+            this.vertex_template[stroke] = this.vertex_template[stroke + 1] = this.vertex_template[stroke + 2] = 0;
+            this.vertex_template[stroke + 3] = style.projected_pixel_scale ?? 0;
         }
         return this.vertex_template;
     },
