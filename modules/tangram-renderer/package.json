@@ -7,16 +7,16 @@
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
-  "types": "src/index.d.ts",
+  "types": "dist/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.d.ts",
+      "types": "./dist/types/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./dist/*": "./dist/*",
     "./core": {
-      "types": "./src/core.d.ts",
+      "types": "./dist/types/core.d.ts",
       "import": "./dist/core.js",
       "default": "./dist/core.js"
     },
@@ -40,7 +40,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:projection-worker && yarn build:size",
+    "build": "yarn build:types && node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:projection-worker && yarn build:size",
+    "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-renderer index.d.ts core.d.ts types.ts",
     "build:projection-worker": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/experimental/projected-basemaps-worker.ts --format=iife --globalName=TangramProjectedBasemaps --output=modules/tangram-renderer/dist/projected-basemaps-worker.js --externals=@vis.gl/tangram-layers --sourcemap=true --sourcesContent=false",
     "build:entry": "node scripts/write-package-entry.mjs",
     "build:style-schema": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/styles/style-schema.ts --env=dev --format=esm --output=modules/tangram-renderer/dist/style-schema.js --externals=zod --sourcemap=true --sourcesContent=false",

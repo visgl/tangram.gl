@@ -22,7 +22,7 @@ function collectPackageImports(entry: URL, visited = new Set<string>()): Set<str
       imports.add(importName);
       continue;
     }
-    const candidates = [importName, `${importName}.ts`, `${importName}/index.ts`];
+    const candidates = [importName, importName.replace(/\.js$/, '.ts'), `${importName}.ts`, `${importName}/index.ts`];
     const dependency = candidates.map(path => new URL(path, entry)).find(path => existsSync(path));
     if (!dependency) throw new Error(`Unable to resolve ${importName} from ${entry.href}`);
     for (const packageImport of collectPackageImports(dependency, visited)) imports.add(packageImport);
@@ -33,6 +33,17 @@ function collectPackageImports(entry: URL, visited = new Set<string>()): Set<str
 const packageImports = collectPackageImports(new URL('../modules/tangram-layers/src/index.ts', import.meta.url));
 const rendererPackage = JSON.parse(readFileSync(new URL('../modules/tangram-renderer/package.json', import.meta.url), 'utf8'));
 const mathVersion = rendererPackage.dependencies['@math.gl/core'];
+
+test('projected example resolves its caller-owned factory and the engine spheroid leaf', () => {
+  const source = readFileSync(new URL('../examples/projected/index.html', import.meta.url), 'utf8');
+  const factoryImports = collectPackageImports(new URL('../examples/projected/projection-engine.js', import.meta.url));
+  for (const importName of factoryImports) {
+    expect(source).toContain(`"${importName}":`);
+    const subpath = importName.replace('@math.gl/projection/', '');
+    expect(source).toContain(`https://esm.sh/@math.gl/projection@${mathVersion}/${subpath}?bundle`);
+  }
+  expect(source).toContain(`"@math.gl/core/spheroid": "https://esm.sh/@math.gl/core@${mathVersion}/spheroid?bundle"`);
+});
 
 test.each([
   'examples/deck/index.html',

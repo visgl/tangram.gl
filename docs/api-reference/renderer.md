@@ -77,8 +77,9 @@ state through its existing WebGL state manager.
 ## `projectionEngine` constructor option
 
 `Renderer.create(scene, {projectionEngine})` (also named `ClassicWebGLRenderer`)
-accepts an optional math.gl `ProjectionEngine` factory, imported as a type from
-`@math.gl/projection/types` or `@vis.gl/tangram-renderer/core`. The option applies
+accepts an optional math.gl-compatible `ProjectionEngine` factory. Tangram's
+structural type is exported from `@vis.gl/tangram-renderer/core`, so ordinary
+consumers do not need the optional math.gl projection peer. The option applies
 to scenes using `scene.cpu_projection` and the opt-in projection worker; it
 does not replace built-in Mercator/globe cameras or change `HostFrame`.
 

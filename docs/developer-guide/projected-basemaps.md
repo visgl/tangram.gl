@@ -13,6 +13,9 @@ the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
 Try the [projected basemap example](/examples/deck-projected).
 It defaults to NASA GIBS Blue Marble raster imagery, with OpenFreeMap vector polygons and roads as an alternative.
+The example supplies one stable math.gl `ProjectionEngine`, registering only the four
+algorithms required by its five projection choices. Changing projections reuses
+that factory, compiled transforms and loaded tiles.
 The raster source uses the documented [GIBS Web Mercator tile service](https://nasa-gibs.github.io/gibs-api-docs/map-library-usage/),
 with visible imagery credit; it does not preload the community-funded OSM raster server.
 
@@ -70,8 +73,8 @@ const layer = new ProjectedBasemapLayer({scene, projectionEngine, projectedTileZ
 ```
 
 `@math.gl/projection` is an optional peer. Install a compatible alpha.13 factory
-when using this option. The normal Tangram core/layer entries import its types
-only, not a default factory or the full projection catalog. Register only the
+when using this option. Tangram exposes a structural factory contract without
+importing the optional package's types or a default factory in its normal entries. Register only the
 algorithms you need. Lazy factories are supported through
 `createProjectionAsync`; required descriptors/grids must load successfully.
 

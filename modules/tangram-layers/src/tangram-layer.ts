@@ -4,14 +4,14 @@
 
 // @ts-nocheck
 
-import WebMercatorViewAdapter from './web_mercator_view_adapter';
-import FirstPersonViewAdapter from './first_person_view_adapter';
-import GlobeViewAdapter from './globe_view_adapter';
-import type {GlobeViewAdapterOptions} from './globe_view_adapter';
-import type {FirstPersonViewAdapterOptions} from './first_person_view_adapter';
-import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types';
+import WebMercatorViewAdapter from './web_mercator_view_adapter.js';
+import FirstPersonViewAdapter from './first_person_view_adapter.js';
+import GlobeViewAdapter from './globe_view_adapter.js';
+import type {GlobeViewAdapterOptions} from './globe_view_adapter.js';
+import type {FirstPersonViewAdapterOptions} from './first_person_view_adapter.js';
+import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types.js';
 import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
-import type {ProjectionEngine} from '@math.gl/projection/types';
+import type {ProjectionEngine} from '@vis.gl/tangram-renderer/core';
 import type {LayerProps} from '@deck.gl/core';
 import type {SceneDefinition} from '@vis.gl/tangram-renderer/core';
 
@@ -66,7 +66,7 @@ export function injectNextzenApiKey(config, apiKey) {
  * @param {object} viewport deck.gl WebMercatorViewport.
  * @returns {{view: Float64Array, projection: Float32Array, position: number[]}}
  */
-export function getExternalCameraFrame(viewport) {
+export function getExternalCameraFrame(viewport): {view: Float64Array; projection: Float32Array; position: [number, number, number]} {
   return WebMercatorViewAdapter.getCameraFrame(viewport);
 }
 

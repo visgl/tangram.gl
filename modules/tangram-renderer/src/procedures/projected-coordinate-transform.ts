@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {CreateProjectionOptions, ProjectionEngine, ProjectionInstance} from '@math.gl/projection/types';
+import type {ProjectionEngineOptions, ProjectionEngine, ProjectionEngineTransform} from '../types';
 import {normalizeProjectedBasemapOptions} from './mesh-projector';
 import type {ProjectedBasemapOptions} from './mesh-projector';
 
@@ -10,7 +10,7 @@ import type {ProjectedBasemapOptions} from './mesh-projector';
 export const PROJECTED_COMMON_SCALE = 256 / 6378137;
 
 /** Compile the same geographic-degree to north-positive meter contract on either thread. */
-export function getProjectedCoordinateOptions(type: ProjectedBasemapOptions['type']): CreateProjectionOptions {
+export function getProjectedCoordinateOptions(type: ProjectedBasemapOptions['type']): ProjectionEngineOptions {
     normalizeProjectedBasemapOptions({type});
     const parameters = type === 'equal-earth' ? '+proj=eqearth +lon_0=0' :
         type === 'albers' ? '+proj=aea +lon_0=-96 +lat_0=37.5 +lat_1=29.5 +lat_2=45.5' :
@@ -31,7 +31,7 @@ export function validateProjectionEngine(engine: ProjectionEngine | undefined): 
 /** Scene-owned transforms; the caller owns the engine and its registrations/grids. */
 export class HostProjectionEngineAdapter {
     /** Independent asynchronous compilation per CRS pair, shared across meshes and workers. */
-    private readonly transforms = new Map<ProjectedBasemapOptions['type'], Promise<ProjectionInstance>>();
+    private readonly transforms = new Map<ProjectedBasemapOptions['type'], Promise<ProjectionEngineTransform>>();
     /** Prevent late worker batches from publishing after scene teardown. */
     private disposed = false;
 

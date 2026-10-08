@@ -21,8 +21,8 @@ describe('workspace package manifests', () => {
 
     expect(renderer.name).toBe('@vis.gl/tangram-renderer');
     expect(renderer.private).toBe(true);
-    expect(renderer.types).toBe('src/index.d.ts');
-    expect(renderer.exports['.'].types).toBe('./src/index.d.ts');
+    expect(renderer.types).toBe('dist/types/index.d.ts');
+    expect(renderer.exports['.'].types).toBe('./dist/types/index.d.ts');
     expect(renderer.exports['.'].import).toBe('./dist/index.js');
     expect(layers.name).toBe('@vis.gl/tangram-layers');
     expect(layers.private).toBe(true);

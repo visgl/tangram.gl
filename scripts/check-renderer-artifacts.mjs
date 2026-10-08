@@ -9,6 +9,9 @@ const repositoryRoot = resolve(import.meta.dirname, '..');
 const rendererDirectory = resolve(repositoryRoot, 'modules/tangram-renderer');
 const rendererPackage = JSON.parse(readFileSync(resolve(rendererDirectory, 'package.json'), 'utf8'));
 const requiredArtifacts = [
+  'dist/types/index.d.ts',
+  'dist/types/core.d.ts',
+  'dist/types/types.d.ts',
   'dist/index.js',
   'dist/core.js',
   'dist/core.js.map',

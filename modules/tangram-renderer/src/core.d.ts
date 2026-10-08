@@ -15,4 +15,4 @@ export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmb
 export type {Light as LumaLight} from '@luma.gl/shadertools';
 export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
 export type {HostFrameOptions, HostRenderView, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, TileSourceStatistics, HostCamera, HostProjection, GeographicAnchor, LegacyHostFrame, RendererOptions, RenderOptions, Viewport, SceneDefinition, SceneListeners, SceneLoadOptions, VisibilityLODAdapter, GlobeVisibilityLODAdapter, VisibilityViewState, GlobeVisibilityViewState, CalculatedViewBounds} from '@vis.gl/tangram-renderer';
-export type {ProjectionEngine} from '@math.gl/projection/types';
+export type {ProjectionEngine, ProjectionEngineOptions, ProjectionEngineTransform} from './types.js';

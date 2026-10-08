@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
-import type {GlobeViewport} from './view_adapter_types';
+import type {GlobeViewport} from './view_adapter_types.js';
 const DECK_TO_TANGRAM_ZOOM_OFFSET = 1;
 const MAX_MERCATOR_LATITUDE = 85.05112878;
 

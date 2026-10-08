@@ -10,12 +10,8 @@ import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './
 import {createRasterScene} from './scene';
 import type Scene from '../../modules/tangram-renderer/src/scene/scene';
 import type {ProjectedBasemapOptions, Renderer} from '@vis.gl/tangram-renderer/core';
-import {createProjectionEngine} from '@math.gl/projection/core';
-import {equalEarth} from '@math.gl/projection/projections/eqearth';
-import {albersEqualArea} from '@math.gl/projection/projections/aea';
-import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
-import {mercator} from '@math.gl/projection/projections/merc';
 import type {ProjectionEngine} from '@math.gl/projection/types';
+import {createProjectedExampleProjectionEngine} from '../../examples/projected/projection-engine.js';
 
 let harness: RenderingHarness | undefined;
 let deck: Deck<OrthographicView> | undefined;
@@ -114,7 +110,7 @@ test.each([
   let loadedScene: Scene | undefined;
   let completedProjection = '';
   let loadCount = 0;
-  const engine = createProjectionEngine({projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator]});
+  const engine = createProjectedExampleProjectionEngine();
   const compiledTypes: unknown[] = [];
   const projectionEngine: ProjectionEngine | undefined = injected ? {
     createProjection: options => engine.createProjection(options),
@@ -164,7 +160,7 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     const canvas = harness.canvas;
     let loadedScene: Scene | undefined;
     let completed = '';
-    const engine = createProjectionEngine({projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator]});
+    const engine = createProjectedExampleProjectionEngine();
     let engineCompilations = 0;
     const projectionEngine: ProjectionEngine | undefined = type === 'albers' ? {
       createProjection: options => engine.createProjection(options),
