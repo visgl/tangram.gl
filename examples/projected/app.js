@@ -38,6 +38,9 @@ let probeGeneration = 0;
 let detailTimer;
 let disposed = false;
 let viewState = {target: [0, 0, 0], zoom: projectionSelector.value === 'albers' ? 0 : -1.5};
+let activeProjection = projectionSelector.value;
+let loadingBounds;
+let coverageEmpty = false;
 
 /** Coalesce camera updates and discard obsolete projection, coverage or camera calculations. */
 function scheduleDetail() {
@@ -48,21 +51,59 @@ function scheduleDetail() {
     const viewport = deck?.getViewports()[0];
     if (!viewport) return;
     try {
-      const result = await selectProjectedTileDetail(navigation, viewport, projectionSelector.value, {
-        visibleBounds: getProjectedExampleBounds(coverageSelector.value === 'regional'),
+      const coverage = await navigation.getCameraCoverage(viewport, activeProjection,
+        getProjectedExampleBounds(coverageSelector.value === 'regional'));
+      if (disposed || generation !== navigationGeneration) return;
+      if (!coverage.bounds) {
+        if (!coverageEmpty) {coverageEmpty = true; await initialize(false);}
+        setStatus('Camera is outside the loading region. The scene and tile cache remain warm.');
+        return;
+      }
+      const result = await selectProjectedTileDetail(navigation, viewport, activeProjection, {
+        visibleBounds: coverage.bounds,
         minZoom: basemapSelector.value === 'raster' ? 0 : 4,
         maxZoom: 6, maxTiles: 256, targetTilePixels: 256, currentTileZoom: selectedDetail});
       if (disposed || generation !== navigationGeneration) return;
-      if (selectedDetail !== result.tileZoom) {
+      if (coverageEmpty || selectedDetail !== result.tileZoom || JSON.stringify(loadingBounds) !== JSON.stringify(coverage.bounds)) {
+        coverageEmpty = false;
+        loadingBounds = coverage.bounds;
         selectedDetail = result.tileZoom;
-        await initialize();
+        await initialize(false);
         return;
       }
-      setStatus(`Camera detail ${result.tileZoom}: ${result.candidateCount} candidates, sampled span ${Math.round(result.estimatedTilePixels)} CSS px.${result.budgetLimited ? ' Candidate budget reached.' : ''}${result.detailLimited ? ' Maximum detail reached.' : ''}`);
+      setStatus(`Camera detail ${result.tileZoom}: ${result.candidateCount} candidates, sampled span ${Math.round(result.estimatedTilePixels)} CSS px.${coverage.domainFallback ? ' Albers retains the full loading region.' : ''}${result.budgetLimited ? ' Candidate budget reached.' : ''}${result.detailLimited ? ' Maximum detail reached.' : ''}`);
     } catch (error) {
       if (!disposed && generation === navigationGeneration) setStatus(error.message, true);
     }
   }, 120);
+}
+
+/** Keep the geographic focus when replacing a projection, without rebuilding the source scene. */
+async function changeProjection() {
+  const generation = ++updateGeneration;
+  navigationGeneration++;
+  probeGeneration++;
+  clearTimeout(detailTimer);
+  const type = projectionSelector.value;
+  const previousState = viewState;
+  try {
+    const transition = await navigation.reprojectViewState(previousState, activeProjection, type);
+    if (disposed || generation !== updateGeneration) return;
+    // A drag during asynchronous compilation needs a fresh transition, not an obsolete camera target.
+    if (previousState !== viewState) {await changeProjection(); return;}
+    viewState = {...viewState, ...transition.viewState};
+    activeProjection = type;
+    deck?.setProps({viewState});
+    await initialize();
+    if (generation + 1 === updateGeneration && (transition.clamped || transition.domainFallback)) {
+      setStatus(transition.clamped ? 'Geographic focus clamped to the destination projection domain.' : 'Outside-domain focus reset to the destination region center.');
+    }
+  } catch (error) {
+    if (!disposed && generation === updateGeneration) {
+      projectionSelector.value = activeProjection;
+      setStatus(error.message, true);
+    }
+  }
 }
 
 /** Fit the configured loading region, without replacing the scene, workers or factory. */
@@ -73,7 +114,7 @@ async function fitLoadingRegion() {
   if (!viewport) return;
   try {
     const fitted = await navigation.fitBounds(getProjectedExampleBounds(coverageSelector.value === 'regional'),
-      viewport, projectionSelector.value);
+      viewport, activeProjection);
     if (disposed || generation !== navigationGeneration) return;
     viewState = fitted;
     probeGeneration++;
@@ -92,7 +133,7 @@ async function probeCoordinates(event) {
   const rectangle = document.querySelector('#projected-map').getBoundingClientRect();
   try {
     const position = await navigation.unprojectScreenPosition(viewport,
-      [event.clientX - rectangle.left, event.clientY - rectangle.top], projectionSelector.value);
+      [event.clientX - rectangle.left, event.clientY - rectangle.top], activeProjection);
     if (disposed || generation !== probeGeneration) return;
     coordinateProbe.textContent = position ? `${position[0].toFixed(4)}°, ${position[1].toFixed(4)}°` : 'Outside projection domain';
   } catch (error) {
@@ -107,18 +148,25 @@ function setStatus(message, error = false) {
 }
 
 /** Load projected ground geometry; Tangram resolves the provider's current TileJSON source. */
-async function initialize() {
+async function initialize(resetCoverage = true) {
   if (disposed) return;
   navigationGeneration++;
   probeGeneration++;
   clearTimeout(detailTimer);
-  const type = projectionSelector.value;
+  const type = activeProjection;
+  projectionSelector.value = type;
   const generation = ++updateGeneration;
   const raster = basemapSelector.value === 'raster';
   if (type === 'albers') coverageSelector.value = 'regional';
   coverageSelector.disabled = type === 'albers';
   const regional = coverageSelector.value === 'regional';
-  const choices = getProjectedExampleDetailChoices(raster, regional, countProjectedTileCoordinates);
+  if (resetCoverage || !loadingBounds) {
+    loadingBounds = getProjectedExampleBounds(regional);
+    coverageEmpty = false;
+  }
+  activeProjection = type;
+  const choices = getProjectedExampleDetailChoices(raster, regional,
+    (_bounds, zoom) => countProjectedTileCoordinates(loadingBounds, zoom));
   if (!choices.some(choice => choice.zoom === selectedDetail && !choice.disabled)) {
     selectedDetail = getProjectedExampleTileZoom(raster);
   }
@@ -147,7 +195,7 @@ async function initialize() {
   const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene, projectionEngine,
     // OpenFreeMap transportation starts at zoom 4; overview imagery only needs zoom 2.
     projectedProjection: {type}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
-    projectedVisibleBounds: getProjectedExampleBounds(regional), projectedMaxTiles: 256,
+    projectedVisibleBounds: loadingBounds, projectedMaxTiles: 256, visible: !coverageEmpty,
     tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256, maxCachedMeshBytes: 32 * 1024 * 1024},
     onProjectionChange: () => {
       if (!disposed && generation === updateGeneration && detailMode.value === 'manual') setStatus('Caller-supplied math.gl engine enabled. Drag to pan and scroll to zoom.');
@@ -190,7 +238,7 @@ document.querySelectorAll('[data-device]').forEach(button => {
   button.setAttribute('aria-selected', String(button.dataset.device === device));
   button.addEventListener('click', () => navigateDevice(button.dataset.device));
 });
-projectionSelector.addEventListener('change', () => initialize().catch(error => setStatus(error.message, true)));
+projectionSelector.addEventListener('change', changeProjection);
 basemapSelector.addEventListener('change', () => initialize().catch(error => setStatus(error.message, true)));
 coverageSelector.addEventListener('change', () => initialize().catch(error => setStatus(error.message, true)));
 detailSelector.addEventListener('change', () => {

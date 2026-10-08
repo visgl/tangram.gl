@@ -157,8 +157,9 @@ styling level in [0, 22], at least as high as data detail. When omitted it follo
 restyling cached meshes, keep `projectedStyleZoom`, the layer `id` and prepared
 `scene` stable and change only `projectedTileZoom`.
 
-`projectedVisibleBounds` can reduce geographic loading coverage
-but does not follow orthographic panning automatically. The footprint is a finite,
+`projectedVisibleBounds` can reduce geographic loading coverage. The layer does not
+follow orthographic panning automatically; applications can opt into the camera
+policy below. The footprint is a finite,
 ordered west/south/east/north rectangle in a single world; latitude cannot exceed
 ±85.0511287798066°. There is no pole completion, wrapped world, or arbitrary cut
 meridian in this preview. Albers cannot request coverage outside the region above.
@@ -291,6 +292,54 @@ default padding 24 and zoom limits −10 to 10. It is a navigation aid, not a
 conservative visibility or arbitrary curved-domain guarantee. An explicit zoom
 clamp can prevent a full fit. Albers bounds must stay inside its documented region.
 
+### Retaining focus across projection switches
+
+```ts
+const transition = await navigation.reprojectViewState(viewState, previousType, nextType);
+deck.setProps({viewState: {...viewState, ...transition.viewState}, layers: [
+  new ProjectedBasemapLayer({...existingProps, projectedProjection: {type: nextType}})
+]});
+```
+
+`reprojectViewState` captures the old common-space target and zoom before awaiting
+the engine. It inverts the target, projects that geographic focus into the new
+coordinate system, and preserves numeric orthographic zoom. It does **not** promise
+constant local ground scale across different projection distortions. Its result
+includes `focus`, `clamped` and `domainFallback`: switching to Albers clamps an
+outside focus to its North American domain; a finite invalid old inverse resets
+to the destination domain center. Engine compilation/domain/convergence failures
+still propagate rather than being mistaken for an ordinary outside-map target.
+Applications must discard obsolete asynchronous transitions. The example retries
+against the latest camera if a drag occurs during compilation and restores the
+previous projection selector if compilation fails. Scene/id/engine stay stable.
+
+### Camera-driven geographic coverage
+
+```ts
+const coverage = await navigation.getCameraCoverage(viewport, type, sourceRegion);
+// Feed coverage.bounds into both projectedVisibleBounds and the detail policy.
+// If null, retain the layer and its previous bounds with visible: false.
+```
+
+`getCameraCoverage` returns `{bounds, domainFallback}`. It captures the four
+viewport-local CSS ground corners, computes their common-space envelope, and
+intersects it with the allowed source region. For equirectangular and both
+Mercator modes, latitude is monotone and longitude has constant scale. Equal
+Earth also has monotone latitude, but longitude scale decreases with absolute
+latitude: both endpoints and the equator (when included) bound its geographic
+envelope. This avoids treating a sparse inverse screen grid as a visibility proof.
+The fixed supported CRS parameters and a conforming engine are required; it does
+not bound arbitrary user-defined projection kernels.
+
+The envelope is conservative, not an exact visible polygon. It may load extra
+tiles at curved outlines. Longitude and latitude are clipped to the source region
+with a small outward numerical margin; seam edges remain separate and additional
+worlds are not wrapped. A viewport beyond that domain returns `bounds: null`.
+Albers currently returns the complete allowed source region with
+`domainFallback: true`, because conic extrema need a separate conservative policy.
+Neither this method nor focus transitions change renderer defaults or import
+projection kernels into the normal package entry.
+
 ## Opt-in camera-driven source detail
 
 `selectProjectedTileDetail` is an application policy; the renderer's default
@@ -321,16 +370,19 @@ throws instead of silently violating it. The result reports `candidateCount`,
 the hysteresis upper bound. This is **uniform sampled tile-span LOD**, not a
 per-triangle pixel-error guarantee or a screen-derived visible footprint.
 
-The example defaults to Manual, with an optional Camera-driven policy and Fit
+The example defaults to fixed coverage/manual detail, with an optional Camera-driven policy and Fit
 loading region button. OpenFreeMap retains minimum zoom 4; Blue Marble can use
-zoom 0–6. Styling stays at 6. Camera updates are coalesced and obsolete calculations
+zoom 0–6. Camera-driven mode feeds the camera envelope into loading and detail
+selection, capped by the selected world or North American source region. Styling
+stays at 6. Camera updates are coalesced and obsolete calculations
 are discarded. Loaded scene/workers remain warm, subject to cache limits; changing
-detail can fetch missing tiles. Panning outside the fixed region does not load
-new geographic coverage. Large scenes should avoid running this sampling policy
+detail or panning into uncached coverage can fetch missing tiles. Outside-region
+cameras hide the layer without finalizing it; returning reuses retained resources.
+Large scenes should avoid running this sampling policy
 on every pointer movement.
 
 ## Next steps
 
-Screen-space strokes need a separate projection-aware width contract. Labels, feature picking, lighting, height, adaptive geometry pixel-error LOD,
+Conservative Albers camera coverage remains a follow-up. Screen-space strokes need a separate projection-aware width contract. Labels, feature picking, lighting, height, adaptive geometry pixel-error LOD,
 projection morphing and arbitrary projection domains are not implemented by this entry.
 Existing Mercator, GlobeView and FirstPersonView integrations remain unchanged.

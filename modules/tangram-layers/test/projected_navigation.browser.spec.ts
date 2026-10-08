@@ -14,6 +14,122 @@ const types: ProjectedBasemapType[] = ['equal-earth', 'albers', 'equirectangular
 const createNavigation = () => new ProjectedBasemapNavigation(createProjectedExampleProjectionEngine());
 const createViewport = (zoom = -1) => new OrthographicViewport({width: 800, height: 600, target: [0, 0, 0], zoom, flipY: false});
 
+test.each(types)('%s camera coverage contains independently projected visible ground', async type => {
+    const navigation = createNavigation();
+    const region = getProjectedGeographicBounds(type);
+    for (const latitude of [-60, 0, 60]) {
+        const focus = [-100, Math.max(region[1], Math.min(region[3], latitude))];
+        const target = await navigation.projectPosition([focus[0], focus[1]], type);
+        const viewport = new OrthographicViewport({width: 320, height: 200, target, zoom: 2, flipY: false});
+        const coverage = await navigation.getCameraCoverage(viewport, type);
+        expect(coverage.bounds).not.toBeNull();
+        if (!coverage.bounds) throw new Error('Missing camera coverage');
+        expect(coverage.domainFallback).toBe(type === 'albers');
+        if (type !== 'albers') expect(coverage.bounds[2] - coverage.bounds[0]).toBeLessThan(360);
+        const pairs: number[] = [];
+        for (let column = 0; column <= 80; column++) for (let row = 0; row <= 80; row++) {
+            pairs.push(region[0] + (region[2] - region[0]) * column / 80, region[1] + (region[3] - region[1]) * row / 80);
+        }
+        const projected = await navigation.projectPositions(new Float64Array(pairs), type);
+        for (let index = 0; index < pairs.length; index += 2) {
+            const pixel = viewport.project([projected[index], projected[index + 1], 0]);
+            if (pixel[0] >= 0 && pixel[0] <= viewport.width && pixel[1] >= 0 && pixel[1] <= viewport.height) {
+                expect(pairs[index]).toBeGreaterThanOrEqual(coverage.bounds[0]);
+                expect(pairs[index]).toBeLessThanOrEqual(coverage.bounds[2]);
+                expect(pairs[index + 1]).toBeGreaterThanOrEqual(coverage.bounds[1]);
+                expect(pairs[index + 1]).toBeLessThanOrEqual(coverage.bounds[3]);
+            }
+        }
+    }
+    navigation.dispose();
+});
+
+test.each(['equal-earth', 'equirectangular', 'mercator', 'web-mercator'] satisfies ProjectedBasemapType[])(
+    '%s coverage clips seams, overview and off-domain cameras without wrapping', async type => {
+        const navigation = createNavigation();
+        const domain = getProjectedGeographicBounds(type);
+        expect((await navigation.getCameraCoverage(createViewport(-5), type)).bounds).toEqual(domain);
+        for (const longitude of [-180, 180]) {
+            const target = await navigation.projectPosition([longitude, 20], type);
+            const viewport = new OrthographicViewport({width: 800, height: 600, target, zoom: 2, flipY: false});
+            const coverage = await navigation.getCameraCoverage(viewport, type);
+            expect(coverage.bounds?.[longitude < 0 ? 0 : 2]).toBe(longitude);
+        }
+        const targets: [number, number, number][] = [[1e6, 0, 0], [0, 1e6, 0]];
+        for (const target of targets) {
+            const viewport = new OrthographicViewport({width: 800, height: 600, target, zoom: 2, flipY: false});
+            expect((await navigation.getCameraCoverage(viewport, type)).bounds).toBeNull();
+        }
+        const region: [number, number, number, number] = [-120, 20, -80, 50];
+        expect((await navigation.getCameraCoverage(createViewport(-5), type, region)).bounds).toEqual(region);
+    });
+
+test.each(types)('%s transition retains geographic focus across every destination', async from => {
+    const navigation = createNavigation();
+    const target = await navigation.projectPosition([-100, 40], from);
+    const state = {target, zoom: 2.5};
+    for (const to of types) {
+        const transition = await navigation.reprojectViewState(state, from, to);
+        expect(transition.focus[0]).toBeCloseTo(-100, 6);
+        expect(transition.focus[1]).toBeCloseTo(40, 6);
+        expect(transition.clamped).toBe(false);
+        expect(transition.domainFallback).toBe(false);
+        expect(transition.viewState.zoom).toBe(state.zoom);
+        expect(transition.viewState.target).toEqual(await navigation.projectPosition(transition.focus, to));
+    }
+    expect(state).toEqual({target, zoom: 2.5});
+});
+
+test('transitions clamp restricted domains, report finite outside-domain targets and snapshot pending input', async () => {
+    const navigation = createNavigation();
+    const target = await navigation.projectPosition([100, -20], 'equirectangular');
+    const transition = await navigation.reprojectViewState({target, zoom: 1}, 'equirectangular', 'albers');
+    expect(transition.focus).toEqual([-40, 5]);
+    expect(transition.clamped).toBe(true);
+    const fallback = await navigation.reprojectViewState({target: [1e6, 0, 0], zoom: 1}, 'web-mercator', 'albers');
+    expect(fallback.focus).toEqual([-105, 40]);
+    expect(fallback.domainFallback).toBe(true);
+    const state = {target: await navigation.projectPosition([-90, 40], 'equirectangular'), zoom: 3};
+    const pending = navigation.reprojectViewState(state, 'equirectangular', 'equal-earth');
+    state.target.fill(NaN); state.zoom = NaN;
+    expect((await pending).viewState.zoom).toBe(3);
+    await expect(navigation.reprojectViewState(state, 'equirectangular', 'equal-earth')).rejects.toThrow('finite');
+    await expect(navigation.getCameraCoverage(new WebMercatorViewport({width: 800, height: 600}), 'equal-earth')).rejects.toThrow('Orthographic');
+    await expect(navigation.getCameraCoverage(createViewport(), 'albers', [-180, -80, 180, 80])).rejects.toThrow('domain');
+    await expect(navigation.getCameraCoverage({...createViewport(), constructor: {displayName: 'OrthographicViewport'},
+        unproject: () => [NaN, 0], project: () => [0, 0]}, 'equal-earth')).rejects.toThrow('finite ground');
+});
+
+test('coverage snapshots the source rectangle and camera before asynchronous projection work', async () => {
+    const engine = createProjectedExampleProjectionEngine();
+    let release = () => {};
+    const waiting = new Promise<void>(resolve => {release = resolve;});
+    const navigation = new ProjectedBasemapNavigation({createProjection: engine.createProjection.bind(engine),
+        createProjectionAsync: async options => {await waiting; return engine.createProjection(options);}});
+    const region: [number, number, number, number] = [-120, 20, -80, 50];
+    const viewport = createViewport(-5);
+    const pending = navigation.getCameraCoverage(viewport, 'equal-earth', region);
+    region.fill(NaN);
+    viewport.width = NaN;
+    release();
+    expect((await pending).bounds).toEqual([-120, 20, -80, 50]);
+});
+
+test('coverage does not suppress broken engine contracts or compilation failures', async () => {
+    const navigation = createNavigation();
+    vi.spyOn(navigation, 'unprojectPosition').mockResolvedValueOnce(null);
+    await expect(navigation.getCameraCoverage(createViewport(), 'equal-earth')).rejects.toThrow('latitude envelope');
+    vi.restoreAllMocks();
+    vi.spyOn(navigation, 'projectPosition').mockResolvedValue([0, 0, 0]);
+    await expect(navigation.getCameraCoverage(createViewport(), 'equal-earth')).rejects.toThrow('longitude scale');
+    vi.restoreAllMocks();
+    const engine = createProjectedExampleProjectionEngine();
+    const failing = new ProjectedBasemapNavigation({createProjection: engine.createProjection.bind(engine),
+        createProjectionAsync: async () => {throw new Error('missing kernel');}});
+    await expect(failing.getCameraCoverage(createViewport(), 'equal-earth')).rejects.toThrow('missing kernel');
+    await expect(failing.reprojectViewState({target: [0, 0, 0], zoom: 0}, 'equal-earth', 'mercator')).rejects.toThrow('missing kernel');
+});
+
 test.each(types)('%s forward/inverse, screen probing and fitting share the renderer coordinate contract', async type => {
     const navigation = createNavigation();
     const bounds = getProjectedGeographicBounds(type);
