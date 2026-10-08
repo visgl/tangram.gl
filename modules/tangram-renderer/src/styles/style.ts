@@ -186,7 +186,7 @@ export var Style = {
             }
 
             // Fully clipped meshes need neither GPU buffers nor raster texture acquisition.
-            if (Object.keys(tile_data.meshes).length === 0) return null;
+            if (this.cpu_projection && Object.keys(tile_data.meshes).length === 0) return null;
 
             // Load raster tiles passed from data source
             // Blocks mesh completion to avoid flickering
