@@ -149,7 +149,12 @@ test.each([
     expect(Reflect.get(initialScene, 'workers')).toBe(workers);
     expect((await initialScene.getTileSourceStatistics()).map(value => value.acquisitions))
       .toEqual(statistics.map(value => value.acquisitions));
+    const preparation = (await initialScene.getTileSourceStatistics()).map(value => value.projectionPreparation);
+    expect(preparation.every(value => value && value.entries <= 64 && value.bytes <= 16 * 1024 * 1024)).toBe(true);
   }
+  const finalStatistics = await initialScene.getTileSourceStatistics();
+  expect(finalStatistics.reduce((hits, value) => hits + (value.projectionPreparation?.hits ?? 0), 0))
+    .toBeGreaterThan(statistics.reduce((hits, value) => hits + (value.projectionPreparation?.hits ?? 0), 0));
   if (injected) expect(compiledTypes).toHaveLength(5);
 });
 

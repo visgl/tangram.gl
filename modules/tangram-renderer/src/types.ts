@@ -136,6 +136,8 @@ export type TileSourceStatistics = DecodedTileStatistics & {
   workerId: number;
   /** False for workers with external source scripts; custom pipelines always bypass sharing. */
   sharingEnabled: boolean;
+  /** Present only for the opt-in projected worker; separate from decoded-source and GPU residency. */
+  projectionPreparation?: import('./procedures/mesh-projector').MeshPreparationStatistics;
 };
 
 export type HostFrameOptions = {

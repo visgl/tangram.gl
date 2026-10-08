@@ -181,8 +181,12 @@ export var Style = {
                             `${this.projection_target}.projectPositions`, WorkerBroker.withTransferables(coordinates, this.cpu_projection.type)) : undefined});
                     mesh.vertex_data = projected.vertices;
                     mesh.vertex_elements = projected.indices;
+                    if (projected.indices.length === 0) delete tile_data.meshes[variant];
                 }
             }
+
+            // Fully clipped meshes need neither GPU buffers nor raster texture acquisition.
+            if (this.cpu_projection && Object.keys(tile_data.meshes).length === 0) return null;
 
             // Load raster tiles passed from data source
             // Blocks mesh completion to avoid flickering

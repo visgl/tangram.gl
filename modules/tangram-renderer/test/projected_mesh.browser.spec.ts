@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
+import {Style} from '../src/styles/style';
 import {projectBasemapMesh, projectBasemapMeshWithEngine, projectBasemapPosition} from '../src/experimental/projected-mesh';
 import {HostProjectionEngineAdapter} from '../src/procedures/projected-coordinate-transform';
 import {createProjectionEngine} from '@math.gl/projection/core';
@@ -29,7 +30,7 @@ const projections: ProjectedBasemapOptions['type'][] = ['equal-earth', 'albers',
 
 /** A buffered tile quad with nonzero byte offset, exact selection bytes, original UVs and layer order. */
 function createRequest(type: ProjectedBasemapOptions['type'], x = 2): MeshProjectionRequest {
-    const coords = {x, y: 1, z: 2};
+    const coords = type === 'albers' ? {x: x + 20, y: 20, z: 6} : {x, y: 1, z: 2};
     const vertices = new Uint8Array(new ArrayBuffer(layout.stride * 4 + 16), 8, layout.stride * 4);
     const view = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
     [[0, 0], [4096, 0], [4096, -4096], [0, -4096]].forEach(([localX, localY], index) => {
@@ -83,7 +84,7 @@ describe('opt-in worker CPU projection', () => {
             {name: 'a_color', size: 4, type: 5121},
             {name: 'a_projected_position', size: 3, type: 5126}
         ]);
-        const coords = {x: 1, y: 1, z: 2};
+        const coords = type === 'albers' ? {x: 20, y: 20, z: 6} : {x: 1, y: 1, z: 2};
         const vertices = new Uint8Array(ribbonLayout.stride * 4);
         const input = new DataView(vertices.buffer);
         [[0, 0, 128], [4096, -4096, 128], [4096, -4096, -128], [0, 0, -128]].forEach(([x, y, extrusion], index) => {
@@ -105,15 +106,15 @@ describe('opt-in worker CPU projection', () => {
         // The same buffered ribbon expressed in the neighboring tile must land
         // on identical ground corners and refine identically across the seam.
         const adjacent = projectBasemapMesh({...request, vertices: neighbor, tile: {...request.tile,
-            min: Geo.metersForTile({...coords, x: 2})}});
+            min: Geo.metersForTile({...coords, x: coords.x + 1})}});
         expect(adjacent.indices).toEqual(result.indices);
         const adjacentView = new DataView(adjacent.vertices.buffer);
         const output = new DataView(result.vertices.buffer);
         for (let offset = 0; offset < output.byteLength; offset += ribbonLayout.stride) {
             const x = output.getInt16(offset, true) + output.getInt16(offset + ribbonLayout.offset.a_extrude, true) / 4;
             const y = output.getInt16(offset + 2, true) + output.getInt16(offset + ribbonLayout.offset.a_extrude + 2, true) / 4;
-            const geographic = Geo.metersToLatLng([request.tile.min.x + x / Geo.unitsPerMeter(2),
-                request.tile.min.y + y / Geo.unitsPerMeter(2)]);
+            const geographic = Geo.metersToLatLng([request.tile.min.x + x / Geo.unitsPerMeter(coords.z),
+                request.tile.min.y + y / Geo.unitsPerMeter(coords.z)]);
             const expected = projectBasemapPosition([geographic[0], geographic[1]], type);
             expected.forEach((value, component) => expect(output.getFloat32(offset + ribbonLayout.offset.a_projected_position + component * 4, true)).toBeCloseTo(value, 4));
             expected.forEach((value, component) => expect(adjacentView.getFloat32(offset + ribbonLayout.offset.a_projected_position + component * 4, true)).toBeCloseTo(value, 4));
@@ -211,6 +212,18 @@ describe('opt-in worker CPU projection', () => {
         registerMeshProjector(projectBasemapMesh);
         expect(projectTileMesh(request)).toEqual(projectBasemapMesh(request));
         expect(() => registerMeshProjector(projectBasemapMesh)).toThrow('already registered');
+    });
+
+    test('fully clipped style meshes skip raster texture acquisition and GPU transfer', async () => {
+        const request = createRequest('equirectangular', 5);
+        const buildRasterTextures = vi.fn();
+        const style = {tile_data: {1: {meshes: {ground: {
+            variant: {}, vertex_elements: request.indices,
+            vertex_data: {vertex_count: 4, end: () => {}, vertex_buffer: request.vertices, element_buffer: request.indices}
+        }}}}, cpu_projection: request.projection, baseStyle: () => 'raster',
+        vertexLayoutForMeshVariant: () => layout, buildRasterTextures};
+        expect(await Style.endData.call(style, {...request.tile, id: 1})).toBeNull();
+        expect(buildRasterTextures).not.toHaveBeenCalled();
     });
 
     test.each([-80, -45, 0, 45, 80, 85.0511287798066])('Mercator variants follow their analytic equations at latitude %s', latitude => {

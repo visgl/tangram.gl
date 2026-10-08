@@ -32,7 +32,7 @@ import Texture from '../gl/texture';
 import VertexElements from '../gl/vertex_elements';
 import Label from '../labels/label';
 
-import {registerMeshProjector} from '../procedures/mesh-projector';
+import {registerMeshProjector, clearMeshProjectorPreparation, getMeshProjectorPreparationStatistics} from '../procedures/mesh-projector';
 
 const SceneWorker = Object.assign(self, {
 
@@ -259,7 +259,9 @@ const SceneWorker = Object.assign(self, {
 
     /** Internal diagnostics distinguish decoded acquisition from styled mesh/build residency. */
     getTileSourceStatistics() {
-        return {...this.sharedTileSources.store.getStatistics(), sharingEnabled: this.sharedTileSources.sharingEnabled};
+        const projectionPreparation = getMeshProjectorPreparationStatistics();
+        return {...this.sharedTileSources.store.getStatistics(), sharingEnabled: this.sharedTileSources.sharingEnabled,
+            ...(projectionPreparation ? {projectionPreparation} : {})};
     },
 
     /** Return current source capabilities; external provider factories are registered only in workers. */
@@ -278,6 +280,7 @@ const SceneWorker = Object.assign(self, {
 
     /** Explicit cleanup for worker reset; native worker termination also releases its isolated heap. */
     finalizeTileSources() {
+        clearMeshProjectorPreparation();
         for (const key in this.tiles) this.removeTile(key);
         this.sharedTileSources.finalize();
         for (const source of Object.values(this.sources)) source.dispose?.();

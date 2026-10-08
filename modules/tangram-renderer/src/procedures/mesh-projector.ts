@@ -4,6 +4,18 @@
 
 import type VertexLayout from '../gl/vertex_layout';
 
+/** Detached accounting for optional projection-independent worker preparation. */
+export interface MeshPreparationStatistics {
+    /** Number of retained source meshes. */
+    entries: number;
+    /** Retained original/prepared typed-array bytes. */
+    bytes: number;
+    /** Successful preparation reuses. */
+    hits: number;
+    /** Requests requiring a new preparation. */
+    misses: number;
+}
+
 /** Initial CPU basemap projections; no arbitrary CRS or dynamic camera projection. */
 export type ProjectedBasemapOptions = {
     /** Projection with fixed documented ellipsoid, origin and standard parallels. */
@@ -42,12 +54,27 @@ export type ProjectedMesh = {
 export type MeshProjector = (request: MeshProjectionRequest) => ProjectedMesh | Promise<ProjectedMesh>;
 
 let meshProjector: MeshProjector | undefined;
+let clearPreparation: (() => void) | undefined;
+let getPreparationStatistics: (() => MeshPreparationStatistics) | undefined;
 
 /** Install the optional CPU projector in this worker without importing math.gl into normal bundles. */
-export function registerMeshProjector(projector: MeshProjector): void {
+export function registerMeshProjector(projector: MeshProjector, clear?: () => void,
+    getStatistics?: () => MeshPreparationStatistics): void {
     if (typeof projector !== 'function') throw new Error('Mesh projector requires a function');
     if (meshProjector) throw new Error('Mesh projector is already registered');
     meshProjector = projector;
+    clearPreparation = clear;
+    getPreparationStatistics = getStatistics;
+}
+
+/** Release optional worker preparation at reset without importing its implementation in the core. */
+export function clearMeshProjectorPreparation(): void {
+    clearPreparation?.();
+}
+
+/** Snapshot optional preparation diagnostics without importing the projected worker in the core. */
+export function getMeshProjectorPreparationStatistics(): MeshPreparationStatistics | undefined {
+    return getPreparationStatistics?.();
 }
 
 /** Fail explicitly when a projected scene omitted its opt-in worker script. */
