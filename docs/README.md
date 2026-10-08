@@ -6,6 +6,12 @@ Copyright (c) vis.gl contributors
 
 # Overview
 
+[![CI](https://github.com/visgl/tangram.gl/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/visgl/tangram.gl/actions/workflows/test.yml)
+[![Coverage](https://coveralls.io/repos/github/visgl/tangram.gl/badge.svg?branch=master)](https://coveralls.io/github/visgl/tangram.gl?branch=master)
+[![TypeScript](https://img.shields.io/badge/Typed-TypeScript-3178c6?logo=typescript&logoColor=white)](https://github.com/visgl/tangram.gl/tree/master/modules)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://github.com/visgl/tangram.gl/blob/master/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/visgl/tangram.gl?style=flat)](https://github.com/visgl/tangram.gl/stargazers)
+
 This site documents the vis.gl-oriented Tangram monorepo: a standalone
 luma.gl-backed renderer and a deck.gl adapter that can compose it as a basemap.
 The project is an experimental custodian fork and is not the official Tangram

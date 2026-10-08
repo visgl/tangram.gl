@@ -28,6 +28,8 @@ export type GlobeMeshOptions = {
     getPosition?: (vertex: DataView) => [number, number];
     /** Optional additional edge decision; callers must use the same criterion across adjacent meshes. */
     shouldSplitEdge?: (first: DataView, second: DataView) => boolean;
+    /** Fan partial-edge refinements around an interior vertex instead of introducing a long diagonal. */
+    splitRemainderInterior?: boolean;
 };
 
 const INTERPOLATED_ATTRIBUTES = new Set([
@@ -136,7 +138,40 @@ export function refineGlobeMesh(
             const start = triangle[edge];
             const end = triangle[(edge + 1) % 3];
             const opposite = triangle[(edge + 2) % 3];
-            if (count === 1) {
+            if (options.splitRemainderInterior) {
+                // Repeated green triangulation can alternate long diagonals
+                // without converging. A centroid fan contracts interior edges
+                // and leaves every shared boundary midpoint unchanged.
+                const boundary = [start];
+                if (split[edge]) boundary.push(getMidpoint(start, end));
+                boundary.push(end);
+                if (split[(edge + 1) % 3]) boundary.push(getMidpoint(end, opposite));
+                boundary.push(opposite);
+                if (split[(edge + 2) % 3]) boundary.push(getMidpoint(opposite, start));
+                if (records.length >= originalCount + budget) {
+                    throw new RangeError('Globe mesh: refinement vertex budget exceeded');
+                }
+                const record = interpolatePackedVertex(
+                    interpolatePackedVertex(records[start], records[end], layout, 0.5),
+                    records[opposite], layout, 1 / 3);
+                const view = new DataView(record.buffer);
+                const point: [number, number] = options.getPosition ? options.getPosition(view) :
+                    [readComponent(view, position, 0), readComponent(view, position, 1)];
+                const cross = (first: number[], second: number[], third: number[]): number =>
+                    (second[0] - first[0]) * (third[1] - first[1]) - (second[1] - first[1]) * (third[0] - first[0]);
+                const orientation = cross(positions[start], positions[end], positions[opposite]);
+                if (boundary.some((corner, boundaryEdge) =>
+                    cross(positions[corner], positions[boundary[(boundaryEdge + 1) % boundary.length]], point) * orientation <= 0)) {
+                    throw new RangeError('Globe mesh: refinement exceeds packed position precision');
+                }
+                const center = records.length;
+                records.push(record);
+                positions.push(point);
+                for (let boundaryEdge = 0; boundaryEdge < boundary.length; boundaryEdge++) {
+                    pending.push([boundary[boundaryEdge], boundary[(boundaryEdge + 1) % boundary.length], center]);
+                }
+            }
+            else if (count === 1) {
                 const midpoint = getMidpoint(start, end);
                 pending.push([start, midpoint, opposite], [midpoint, end, opposite]);
             }

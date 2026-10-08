@@ -5,13 +5,25 @@
 import {interpolatePackedVertex, refineGlobeMesh} from '../gl/globe_mesh';
 import type {MeshProjectionRequest, ProjectedMesh} from '../procedures/mesh-projector';
 
+/** Per-request refinement work, separate from cached source preparation. */
+export interface ProjectedRefinementWork {
+    /** Rounds that subdivide curved edges. */
+    edgeRounds: number;
+    /** Rounds that add strictly interior triangle vertices. */
+    interiorRounds: number;
+}
+
+const INTERIOR_WEIGHTS = [[1 / 3, 1 / 3, 1 / 3], [0.5, 0.25, 0.25],
+    [0.25, 0.5, 0.25], [0.25, 0.25, 0.5]] as const;
+
 /** Batch projection samples per refinement round; local and caller-owned kernels use identical topology decisions.
- * Quarter/midpoint chord tests are sampled error estimates, not a certified bound for arbitrary kernels.
+ * Edge and barycentric interior probes are sampled estimates, not certified bounds for arbitrary kernels.
  * Indexed neighbors share decisions. Independent source tiles use identical packed midpoint rules and tolerance.
  */
 export function* refineProjectedMesh(mesh: ProjectedMesh, request: MeshProjectionRequest,
     geographicPosition: (vertex: DataView, displacement?: readonly [number, number]) => readonly [number, number],
-    readPosition: (vertex: DataView) => [number, number]): Generator<Float64Array, ProjectedMesh, Float64Array> {
+    readPosition: (vertex: DataView) => [number, number],
+    work: ProjectedRefinementWork = {edgeRounds: 0, interiorRounds: 0}): Generator<Float64Array, ProjectedMesh, Float64Array> {
     const tolerance = request.projection.maxProjectedError;
     if (tolerance === undefined || mesh.indices.length === 0) return mesh;
     const {layout} = request;
@@ -47,6 +59,24 @@ export function* refineProjectedMesh(mesh: ProjectedMesh, request: MeshProjectio
                     start[1] * (1 - fraction) + end[1] * fraction - packed[1]]));
             }
         }
+        const edgeCoordinateCount = coordinates.length;
+        // Ribbons are parameterized around centerlines; their pixel-width/fan
+        // reconstruction is not a geographic surface interpolant.
+        const inspectInteriors = request.geometry !== 'lines';
+        if (inspectInteriors) for (let index = 0; index < result.indices.length; index += 3) {
+            const corners = [0, 1, 2].map(component => result.vertices.subarray(
+                result.indices[index + component] * layout.stride, (result.indices[index + component] + 1) * layout.stride));
+            const points = corners.map(record => readPosition(new DataView(record.buffer, record.byteOffset, layout.stride)));
+            for (const corner of corners) coordinates.push(...geographicPosition(new DataView(corner.buffer, corner.byteOffset, layout.stride)));
+            for (const weights of INTERIOR_WEIGHTS) {
+                const sample = interpolateTriangle(corners, request, weights);
+                const view = new DataView(sample.buffer, sample.byteOffset, layout.stride);
+                const packed = readPosition(view);
+                coordinates.push(...geographicPosition(view, [
+                    points.reduce((sum, point, component) => sum + point[0] * weights[component], 0) - packed[0],
+                    points.reduce((sum, point, component) => sum + point[1] * weights[component], 0) - packed[1]]));
+            }
+        }
         const projected = yield new Float64Array(coordinates);
         if (!(projected instanceof Float64Array) || projected.length !== coordinates.length || !projected.every(Number.isFinite)) {
             throw new Error('Projection refinement returned an invalid common-position batch');
@@ -60,9 +90,12 @@ export function* refineProjectedMesh(mesh: ProjectedMesh, request: MeshProjectio
             for (let sample = 1; sample < 4; sample++) {
                 // Packed samples round to the source grid. Movement along a straight
                 // chord is not curvature, even when it no longer equals sample / 4.
-                const fraction = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
+                const fraction = request.geometry !== 'lines' ? sample / 4 : lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
                     ((projected[offset + sample * 2] - projected[offset]) * differenceX +
                     (projected[offset + sample * 2 + 1] - projected[offset + 1]) * differenceY) / lengthSquared));
+                // Surfaces need parameterized interpolation accuracy for raster
+                // UVs, not just perpendicular silhouette error. Exact source
+                // probes above keep packed rounding out of this measurement.
                 const error = Math.hypot(projected[offset + sample * 2] -
                     (projected[offset] * (1 - fraction) + projected[offset + 8] * fraction),
                 projected[offset + sample * 2 + 1] -
@@ -71,14 +104,72 @@ export function* refineProjectedMesh(mesh: ProjectedMesh, request: MeshProjectio
             }
             offset += 10;
         }
-        if (split.size === 0) return result;
+        if (split.size === 0) {
+            const interiors = new Set<number>();
+            offset = edgeCoordinateCount;
+            if (inspectInteriors) for (let index = 0; index < result.indices.length; index += 3) {
+                for (const [sample, weights] of INTERIOR_WEIGHTS.entries()) {
+                    const expected = [0, 1].map(component => weights.reduce((sum, weight, corner) =>
+                        sum + weight * projected[offset + corner * 2 + component], 0));
+                    const actual = offset + 6 + sample * 2;
+                    if (Math.hypot(projected[actual] - expected[0], projected[actual + 1] - expected[1]) > tolerance) {
+                        interiors.add(index);
+                    }
+                }
+                offset += 14;
+            }
+            if (interiors.size === 0) return result;
+            result = splitTriangleInteriors(result, request, interiors, readPosition,
+                budget - (result.vertices.byteLength / layout.stride - originalCount));
+            work.interiorRounds++;
+            continue;
+        }
         const refined = refineGlobeMesh(result.vertices, result.indices, layout, {tileZoom: request.tile.coords.z,
             maxAngularSpan: 180, maxAdditionalVertices: budget - (result.vertices.byteLength / layout.stride - originalCount),
+            splitRemainderInterior: inspectInteriors,
             getPosition: readPosition, shouldSplitEdge: (first, second) => split.has(edgeKey(first, second))});
         if (refined.vertices.byteLength === result.vertices.byteLength) {
             throw new RangeError('Projected error tolerance exceeds packed coordinate precision');
         }
         result = refined;
+        work.edgeRounds++;
     }
     throw new RangeError('Projected refinement iteration budget exceeded');
+}
+
+/** Interpolate all supported varying attributes while retaining flat feature provenance. */
+function interpolateTriangle(corners: Uint8Array[], request: MeshProjectionRequest, weights: readonly number[]): Uint8Array {
+    return interpolatePackedVertex(interpolatePackedVertex(corners[0], corners[1], request.layout,
+        weights[1] / (weights[0] + weights[1])), corners[2], request.layout, weights[2]);
+}
+
+/** Insert strictly interior packed centers without changing any shared edge or its neighbors. */
+function splitTriangleInteriors(mesh: ProjectedMesh, request: MeshProjectionRequest, selected: Set<number>,
+    readPosition: (vertex: DataView) => [number, number], remainingBudget: number): ProjectedMesh {
+    if (selected.size > remainingBudget) throw new RangeError('Projected interior refinement vertex budget exceeded');
+    const {stride} = request.layout;
+    const vertexCount = mesh.vertices.byteLength / stride;
+    const vertices = new Uint8Array(mesh.vertices.byteLength + selected.size * stride);
+    vertices.set(mesh.vertices);
+    const indices: number[] = [];
+    let inserted = 0;
+    for (let index = 0; index < mesh.indices.length; index += 3) {
+        const triangle = [mesh.indices[index], mesh.indices[index + 1], mesh.indices[index + 2]];
+        if (!selected.has(index)) {indices.push(...triangle); continue;}
+        const corners = triangle.map(vertex => mesh.vertices.subarray(vertex * stride, (vertex + 1) * stride));
+        const center = interpolateTriangle(corners, request, INTERIOR_WEIGHTS[0]);
+        const point = readPosition(new DataView(center.buffer, center.byteOffset, stride));
+        const points = corners.map(vertex => readPosition(new DataView(vertex.buffer, vertex.byteOffset, stride)));
+        const cross = (first: number[], second: number[], third: number[]) =>
+            (second[0] - first[0]) * (third[1] - first[1]) - (second[1] - first[1]) * (third[0] - first[0]);
+        const orientation = cross(points[0], points[1], points[2]);
+        if (points.some((start, edge) => cross(start, points[(edge + 1) % 3], point) * orientation <= 0)) {
+            throw new RangeError('Projected interior tolerance exceeds packed coordinate precision');
+        }
+        const centerIndex = vertexCount + inserted++;
+        vertices.set(center, centerIndex * stride);
+        indices.push(triangle[0], triangle[1], centerIndex, triangle[1], triangle[2], centerIndex,
+            triangle[2], triangle[0], centerIndex);
+    }
+    return {vertices, indices: vertexCount + selected.size <= 65536 ? new Uint16Array(indices) : new Uint32Array(indices)};
 }

@@ -179,6 +179,15 @@ are not an atomic global snapshot. An absent worker pool returns `[]`; transport
 failure or replacement of the sampled worker pool rejects rather than returning
 partial/stale counts.
 
+Projected-basemap workers additionally expose optional `projectionPreparation`
+cache counts and `projectionWork: MeshProjectionStatistics`. Work counts include
+`completedMeshes`, `failedMeshes`, `sourceVertices`, `outputVertices`,
+`outputTriangles`, `projectionBatches`, `projectedPositions`, `edgeRounds`, and
+`interiorRounds`. Geometry/round totals count completed requests only; batches and
+positions also include failed work. These are cumulative per-worker counts, reset
+with source preparation, not resident geometry or GPU memory. Ordinary workers
+omit the fields. See [refinement diagnostics](../developer-guide/projected-basemaps.md#refinement-diagnostics).
+
 ### `renderer.getTileResourceStatistics()`
 
 Returns a detached snapshot of `activeBuilds`, `queuedBuilds`, `residentTiles`,

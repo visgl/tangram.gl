@@ -211,7 +211,7 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     const canvas = harness.canvas;
     const workerUrl = new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href;
     const createLayer = (raster: boolean) => new FixtureLayer({id: 'projected-fixture', projectedTileZoom: 2,
-      scene: createProjectedBasemapScene(raster ? createRasterScene() : createPolygonScene(), {type}, workerUrl),
+      scene: createProjectedBasemapScene(raster ? createRasterScene() : createPolygonScene(), {type, maxProjectedError: 2}, workerUrl),
       onSceneError: error => errors.push(error.message)});
     deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
       views: new OrthographicView({id: 'projected', flipY: false}),
@@ -289,6 +289,9 @@ test.each([
     expect(preparation.every(value => value && value.entries <= 64 && value.bytes <= 16 * 1024 * 1024)).toBe(true);
   }
   const finalStatistics = await initialScene.getTileSourceStatistics();
+  expect(finalStatistics.every(value => value.projectionWork !== undefined && value.projectionWork.failedMeshes === 0)).toBe(true);
+  expect(finalStatistics.reduce((count, value) => count + (value.projectionWork?.completedMeshes ?? 0), 0))
+    .toBeGreaterThan(statistics.reduce((count, value) => count + (value.projectionWork?.completedMeshes ?? 0), 0));
   expect(finalStatistics.reduce((hits, value) => hits + (value.projectionPreparation?.hits ?? 0), 0))
     .toBeGreaterThan(statistics.reduce((hits, value) => hits + (value.projectionPreparation?.hits ?? 0), 0));
   if (injected) expect(compiledTypes).toHaveLength(5);

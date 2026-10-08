@@ -59,6 +59,7 @@ export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmb
     TangramPositionalLightExtensions, TangramLightColor, NormalizedTangramLight} from './lights/light-definitions';
 export type {Light as LumaLight} from '@luma.gl/shadertools';
 export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
+export type {MeshProjectionStatistics} from './procedures/mesh-projector';
 
 export declare class Scene {
   static create(config: SceneDefinition, options?: RendererOptions): Scene;

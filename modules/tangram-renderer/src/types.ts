@@ -138,6 +138,8 @@ export type TileSourceStatistics = DecodedTileStatistics & {
   sharingEnabled: boolean;
   /** Present only for the opt-in projected worker; separate from decoded-source and GPU residency. */
   projectionPreparation?: import('./procedures/mesh-projector').MeshPreparationStatistics;
+  /** Optional cumulative CPU projection/refinement work, reset when the worker source lifecycle resets. */
+  projectionWork?: import('./procedures/mesh-projector').MeshProjectionStatistics;
 };
 
 export type HostFrameOptions = {
