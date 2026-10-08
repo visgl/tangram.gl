@@ -128,6 +128,22 @@ test('discarded triangles never reach the host engine and clipping obeys the sha
         .toThrow('clipping vertex budget');
 });
 
+const outsideTriangles: [number, number][][] = [
+    [[-100, 100], [100, 100], [100, 300]],
+    [[-100, -4196], [100, -4196], [100, -4296]],
+    [[4196, 100], [4196, -100], [4296, -100]],
+    [[-100, 100], [-100, -100], [-300, -100]]
+];
+test.each(outsideTriangles.map(points => ({points})))('outside triangles crossing another plane consume no clipping budget: $points', async ({points}) => {
+    const input = request(points);
+    const host = vi.fn(async (coordinates: Float64Array) => coordinates);
+    const result = await projectBasemapMeshWithEngine({...input,
+        projection: {...input.projection, maxAdditionalVertices: 0}, projectPositions: host});
+    expect(result.vertices).toHaveLength(0);
+    expect(result.indices).toHaveLength(0);
+    expect(host).toHaveBeenCalledWith(new Float64Array(0));
+});
+
 test('Albers clips coarse tiles to the documented region and retains finite positions', () => {
     const input = request([[0, 0], [4096, 0], [4096, -4096]], 0, 0, 0);
     const result = projectBasemapMesh({...input, projection: {type: 'albers', maxAngularSpan: 30}});

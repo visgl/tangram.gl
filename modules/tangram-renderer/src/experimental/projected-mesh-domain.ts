@@ -43,6 +43,10 @@ export function clipProjectedMesh(mesh: ProjectedMesh, request: MeshProjectionRe
     const triangles: number[] = [];
     for (let offset = 0; offset < mesh.indices.length; offset += 3) {
         let polygon = Array.from(mesh.indices.subarray(offset, offset + 3));
+        // Reject against every plane first: an early cut must not spend budget on
+        // a triangle that a later plane will discard entirely.
+        if (bounds.some((boundary, plane) => polygon.every(index =>
+            (positions[index][plane % 2] - boundary) * (plane < 2 ? 1 : -1) < 0))) continue;
         for (let plane = 0; plane < 4 && polygon.length; plane++) {
             const axis = plane % 2;
             const boundary = bounds[plane];
