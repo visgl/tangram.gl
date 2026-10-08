@@ -5,7 +5,8 @@
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Deck, OrthographicView, type Layer, type LayerProps} from '@deck.gl/core';
-import {ProjectedBasemapLayer, createProjectedBasemapScene} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+import {ProjectedBasemapLayer, createProjectedBasemapScene, ProjectedBasemapNavigation,
+  selectProjectedTileDetail} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {createRasterScene} from './scene';
 import type Scene from '../../modules/tangram-renderer/src/scene/scene';
@@ -64,6 +65,59 @@ afterEach(async () => {
       harness?.destroy();
       harness = undefined;
     }
+  }
+});
+
+test.each(['equal-earth', 'albers'] as const)(`${DEVICE_TYPE}: %s fit, inverse probe and camera detail keep one warm scene`, async type => {
+  harness = new RenderingHarness();
+  await harness.initializeDevice();
+  const errors = harness.errors;
+  const canvas = harness.canvas;
+  const projectionEngine = createProjectedExampleProjectionEngine();
+  const navigation = new ProjectedBasemapNavigation(projectionEngine);
+  const bounds = [-170, 5, -40, 75] as const;
+  const fitted = await navigation.fitBounds(bounds, {width: 512, height: 320}, type);
+  const scene = createProjectedBasemapScene(createPolygonScene(), {type},
+    new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  let loadedScene: Scene | undefined;
+  let loads = 0;
+  const createLayer = (detail: number) => new FixtureLayer({id: 'navigate-projected-fixture', scene, projectionEngine,
+    projectedTileZoom: detail, projectedStyleZoom: 6, projectedMaxTiles: 256, projectedVisibleBounds: bounds,
+    onSceneLoad: value => {loadedScene = value; loads++;}, onSceneError: error => errors.push(error.message)});
+  deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
+    views: new OrthographicView({id: 'projected', flipY: false, controller: true}), viewState: fitted,
+    onError: error => {errors.push(error.message);}, _animate: true, layers: [createLayer(1)]});
+  try {
+    const waitForGround = async () => expect.poll(async () => {
+      expect(errors).toEqual([]);
+      return coloredPixels(await readCanvasPixels(canvas));
+    }, {timeout: 20000}).toBeGreaterThan(500);
+    await waitForGround();
+    if (!loadedScene) throw new Error('Projected scene did not load');
+    const initialScene = loadedScene;
+    const workers = Reflect.get(initialScene, 'workers');
+    const viewport = deck.getViewports()[0];
+    const focus = await navigation.projectPosition([-125, 35], type);
+    const screen = viewport.project(focus);
+    const geographic = await navigation.unprojectScreenPosition(viewport, [screen[0], screen[1]], type);
+    expect(geographic?.[0]).toBeCloseTo(-125, 6);
+    expect(geographic?.[1]).toBeCloseTo(35, 6);
+    const options = {visibleBounds: bounds, minZoom: 1, maxZoom: 3, maxTiles: 256, targetTilePixels: 512};
+    const coarse = await selectProjectedTileDetail(navigation, viewport, type, options);
+    deck.setProps({viewState: {target: focus, zoom: fitted.zoom + 2}});
+    await expect.poll(() => deck?.getViewports()[0].zoom).toBeCloseTo(fitted.zoom + 2);
+    const fine = await selectProjectedTileDetail(navigation, deck.getViewports()[0], type, options);
+    expect(fine.tileZoom).toBeGreaterThan(coarse.tileZoom);
+    expect(fine.candidateCount).toBeLessThanOrEqual(256);
+    deck.setProps({layers: [createLayer(fine.tileZoom)]});
+    await waitForGround();
+    deck.setProps({viewState: fitted, layers: [createLayer(1)]});
+    await waitForGround();
+    expect(loadedScene).toBe(initialScene);
+    expect(Reflect.get(initialScene, 'workers')).toBe(workers);
+    expect(loads).toBe(1);
+  } finally {
+    navigation.dispose();
   }
 });
 

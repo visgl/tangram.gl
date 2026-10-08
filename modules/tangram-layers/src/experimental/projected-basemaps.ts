@@ -8,6 +8,12 @@ import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTil
 import type {HostFrameOptions, HostTileResourceOptions, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
 import createTangramLayerClass from '../tangram-layer.js';
 
+export {ProjectedBasemapNavigation, getProjectedGeographicBounds} from './projected-navigation';
+export type {ProjectedNavigationViewport, ProjectedBasemapType, ProjectedGeographicBounds,
+    ProjectedGeographicPosition, ProjectedFitOptions, ProjectedFitViewState} from './projected-navigation';
+export {selectProjectedTileDetail} from './projected-detail';
+export type {ProjectedTileDetailOptions, ProjectedTileDetail} from './projected-detail';
+
 /** The public, non-geospatial OrthographicViewport camera consumed by the adapter. */
 export interface ProjectedViewport {
     /** Viewports must use Cartesian common-space positions, not automatic Mercator offsets. */

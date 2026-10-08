@@ -249,8 +249,88 @@ Offsets, outlines, pixel widths, zoom-stop/function widths, textures, dashes,
 shader injection and animated traffic are deliberately rejected in this entry.
 Existing geographic-view roads retain their current dynamic styling and animation.
 
+## Geographic navigation and coordinate probing
+
+The optional entry exports `ProjectedBasemapNavigation`, which uses a caller-owned
+factory and the same CRS pairs and meter/common scaling as the renderer:
+
+```ts
+import {ProjectedBasemapNavigation, getProjectedGeographicBounds}
+  from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+
+const navigation = new ProjectedBasemapNavigation(projectionEngine);
+const type = 'equal-earth';
+const target = await navigation.projectPosition([-75, 40], type);
+const fitted = await navigation.fitBounds(getProjectedGeographicBounds(type),
+  {width: 800, height: 600}, type, {padding: 24});
+deck.setProps({viewState: fitted});
+const viewport = deck.getViewports()[0];
+const geographic = await navigation.unprojectScreenPosition(viewport, [400, 300], type);
+// On application teardown; does not dispose the supplied engine.
+navigation.dispose();
+```
+
+`projectPositions(Float64Array, type)` projects detached longitude/latitude pairs,
+captured before asynchronous compilation; inverse inputs are captured the same way.
+`unprojectPosition([x, y], type)` inverts common ground coordinates, compiling a
+separate reverse CRS pair. Forward and reverse compilation is shared across
+concurrent requests, supports lazy factories and retries failed compilation.
+Finite inverse results outside the current geographic domain, or failing a
+forward round trip, return `null`. The two antimeridian edges stay distinct even
+when a kernel wraps +180° onto −180°: the opposite edge must pass the same forward
+round-trip check. This does not accept additional world copies. Engine compilation, domain and convergence
+exceptions propagate: applications should handle them when probing outside the
+drawn outline. Disposed helpers reject pending work without destroying the engine.
+
+Screen probes require an `OrthographicViewport` and top-left **viewport-local CSS
+pixels**, independent of device-pixel ratio. Positions outside its rectangle
+return `null`. Probing returns geographic ground coordinates, **not feature picking**:
+it does not inspect tiles, feature IDs, depth or rendered transparency.
+`fitBounds` projects a 33×33 geographic grid and fits its sampled extent, with
+default padding 24 and zoom limits −10 to 10. It is a navigation aid, not a
+conservative visibility or arbitrary curved-domain guarantee. An explicit zoom
+clamp can prevent a full fit. Albers bounds must stay inside its documented region.
+
+## Opt-in camera-driven source detail
+
+`selectProjectedTileDetail` is an application policy; the renderer's default
+explicit detail and fixed footprint remain unchanged:
+
+```ts
+import {selectProjectedTileDetail}
+  from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+
+const detail = await selectProjectedTileDetail(navigation, deck.getViewports()[0],
+  type, {visibleBounds: getProjectedGeographicBounds(type),
+    minZoom: 0, maxZoom: 6, targetTilePixels: 256, maxTiles: 256,
+    currentTileZoom: previousDetail, hysteresis: 0.15});
+// Update the same scene/id/engine; keep projectedStyleZoom fixed independently.
+// new ProjectedBasemapLayer({...existingProps, projectedTileZoom: detail.tileZoom});
+```
+
+For each eligible XYZ level, the helper projects nine samples per tile footprint,
+clipped to the supplied loading region, and measures its maximum CSS screen span.
+It chooses the coarsest level meeting the target, bounded by integer levels 0–6
+and the same per-source candidate count used by `projectedMaxTiles`. The previous
+eligible level is retained near adjacent thresholds with optional hysteresis;
+the coarser footprint is measured too, because clipping need not halve tile spans.
+Hysteresis
+(default 0.15, range [0, 0.5)). A minimum level exceeding the candidate budget
+throws instead of silently violating it. The result reports `candidateCount`,
+`estimatedTilePixels`, `budgetLimited` and `detailLimited`; limit diagnostics use
+the hysteresis upper bound. This is **uniform sampled tile-span LOD**, not a
+per-triangle pixel-error guarantee or a screen-derived visible footprint.
+
+The example defaults to Manual, with an optional Camera-driven policy and Fit
+loading region button. OpenFreeMap retains minimum zoom 4; Blue Marble can use
+zoom 0–6. Styling stays at 6. Camera updates are coalesced and obsolete calculations
+are discarded. Loaded scene/workers remain warm, subject to cache limits; changing
+detail can fetch missing tiles. Panning outside the fixed region does not load
+new geographic coverage. Large scenes should avoid running this sampling policy
+on every pointer movement.
+
 ## Next steps
 
-Screen-space strokes need a separate projection-aware width contract. Labels, picking, lighting, height, camera-dependent LOD,
+Screen-space strokes need a separate projection-aware width contract. Labels, feature picking, lighting, height, adaptive geometry pixel-error LOD,
 projection morphing and arbitrary projection domains are not implemented by this entry.
 Existing Mercator, GlobeView and FirstPersonView integrations remain unchanged.

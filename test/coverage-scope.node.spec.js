@@ -73,7 +73,9 @@ describe('coverage scope guard', () => {
     expect(sourceFiles.some(filePath => filePath.endsWith('selection/selection-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('index.d.ts'))).toBe(false);
     const layerFiles = collectAuthoredSourceFiles('modules/tangram-layers/src');
-    expect(layerFiles).toHaveLength(15);
+    expect(layerFiles).toHaveLength(17);
+    expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-navigation.ts'))).toBe(true);
+    expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-detail.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-basemaps.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/webxr/grabbing.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('.d.ts'))).toBe(false);

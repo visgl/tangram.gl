@@ -7,3 +7,5 @@
 html { height: 100%; }
 #projected-map { position: absolute; inset: 0; }
 #controls { max-height: calc(100% - 80px); overflow: auto; }
+.projected-fit { width: 100%; margin: 12px 0; padding: 8px; cursor: pointer; }
+#coordinates { display: block; margin-top: 12px; font-variant-numeric: tabular-nums; }
