@@ -39,7 +39,10 @@ const scene = createProjectedBasemapScene({
 new Deck({
   views: new OrthographicView({flipY: false, controller: true}),
   initialViewState: {target: [0, 0, 0], zoom: -1.5},
-  layers: [new ProjectedBasemapLayer({scene, projectedTileZoom: 2})]
+  layers: [new ProjectedBasemapLayer({id: 'projected-basemap', scene,
+    projectedTileZoom: 2, projectedStyleZoom: 4, projectedMaxTiles: 256,
+    tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256,
+      maxCachedMeshBytes: 32 * 1024 * 1024}})]
 });
 ```
 
@@ -129,8 +132,14 @@ and Z is zero. Unlike a geographic deck view, OrthographicView's zoom measures
 pixels per common unit, not tile or styling zoom. Equal Earth, equirectangular and both Mercator variants
 are centered on 0°, 0°; Albers is centered on its geographic origin.
 
-`projectedTileZoom` explicitly selects data and style detail, defaults to 2, and
-must be in [0, 6]. `projectedVisibleBounds` can reduce geographic loading coverage
+`projectedTileZoom` explicitly selects source data detail, defaults to 2, and
+must be an integer in [0, 6]. `projectedStyleZoom` independently sets the integer
+styling level in [0, 22], at least as high as data detail. When omitted it follows
+`projectedTileZoom`, retaining the original behavior. To refine data without
+restyling cached meshes, keep `projectedStyleZoom`, the layer `id` and prepared
+`scene` stable and change only `projectedTileZoom`.
+
+`projectedVisibleBounds` can reduce geographic loading coverage
 but does not follow orthographic panning automatically. The footprint is a finite,
 ordered west/south/east/north rectangle in a single world; latitude cannot exceed
 ±85.0511287798066°. There is no pole completion, wrapped world, or arbitrary cut
@@ -139,9 +148,29 @@ Both Mercator variants retain this tile latitude limit rather than extending to 
 Source tiles remain EPSG:3857; `mercator` changes output geometry, not the source grid.
 The example uses zoom 2 for Blue Marble and zoom 4 for OpenFreeMap, whose
 transportation layer starts at zoom 4. Its full-world vector footprint therefore
-loads up to 256 source tiles, retained across projection changes.
+loads up to 256 logical tile candidates per source. Its controls keep styling at
+zoom 6, expose finer detail within North America, and disable choices exceeding
+the example's 256-candidate budget. Projection and detail changes reuse the
+scene and workers; returning to cached detail avoids source reacquisition when
+the entries have not been evicted.
 
-`getProjectedViewFrame(viewport, {projection, visibleBounds, tileZoom})` exposes the
+`projectedMaxTiles` is an optional positive integer guard checked before installing
+a frame. It counts the finite footprint with the renderer's actual XYZ endpoint
+and single-world clamping rules, before allocating tile coordinates. It is a
+per-source logical candidate bound, not a total across multiple sources or a
+network-request limit. An oversized request fails explicitly; detail is never
+silently lowered. The renderer core also exports
+`countProjectedTileCoordinates(bounds, tileZoom)` for application controls.
+
+The existing layer `tileResources` property forwards `HostTileResourceOptions`: `maxConcurrentBuilds`,
+`maxCachedTiles` and `maxCachedMeshBytes`. Build concurrency is shared across sources;
+cache limits cover completed offscreen meshes, not visible or pinned tiles.
+Textures, decoded CPU data and GPU driver overhead are not counted. Neither
+these limits nor `projectedMaxTiles` imply a total memory cap. Defaults remain
+unlimited when these opt-in properties are omitted.
+
+`getProjectedViewFrame(viewport, {projection, visibleBounds, tileZoom, styleZoom,
+maxTiles, tileResources})` exposes the
 adapter for custom hosts. Its `HostFrame` uses `projection.type: 'projected'` with
 an explicit footprint and common-space matrices. It does not label these matrices
 as EPSG:3857 meters or use the Mercator/globe surface helpers. The scene's

@@ -9,7 +9,7 @@ import {ProjectedBasemapLayer, createProjectedBasemapScene} from '@vis.gl/tangra
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {createRasterScene} from './scene';
 import type Scene from '../../modules/tangram-renderer/src/scene/scene';
-import type {ProjectedBasemapOptions, Renderer} from '@vis.gl/tangram-renderer/core';
+import type {HostTileResourceOptions, ProjectedBasemapOptions, Renderer} from '@vis.gl/tangram-renderer/core';
 import type {ProjectionEngine} from '@math.gl/projection/types';
 import {createProjectedExampleProjectionEngine} from '../../examples/projected/projection-engine.js';
 
@@ -19,6 +19,7 @@ let deck: Deck<OrthographicView> | undefined;
 type FixtureProperties = {scene: Record<string, unknown>; projectedTileZoom: number; onSceneError: (error: Error) => void;
   projectionEngine?: ProjectionEngine;
   projectedVisibleBounds?: readonly [number, number, number, number];
+  projectedStyleZoom?: number; projectedMaxTiles?: number; tileResources?: HostTileResourceOptions;
   projectedProjection?: ProjectedBasemapOptions; onProjectionChange?: () => void; onSceneLoad?: (scene: Scene) => void};
 const FixtureLayer = ProjectedBasemapLayer as unknown as new (properties: FixtureProperties & LayerProps) => Layer;
 
@@ -150,6 +151,68 @@ test.each([
       .toEqual(statistics.map(value => value.acquisitions));
   }
   if (injected) expect(compiledTypes).toHaveLength(5);
+});
+
+test.each([false, true])(`${DEVICE_TYPE}: source detail round trips retain style zoom, workers and warm tile meshes (injected %s)`, async injected => {
+  harness = new RenderingHarness();
+  await harness.initializeDevice();
+  const errors = harness.errors;
+  const canvas = harness.canvas;
+  const scene = createProjectedBasemapScene(createPolygonScene(), {type: 'equal-earth'},
+    new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  const projectionEngine = injected ? createProjectedExampleProjectionEngine() : undefined;
+  let loadedScene: Scene | undefined;
+  let loads = 0;
+  const createLayer = (detail: number) => new FixtureLayer({id: 'detail-fixture', scene, projectionEngine,
+    projectedTileZoom: detail, projectedStyleZoom: 4, projectedMaxTiles: 16,
+    projectedVisibleBounds: [-170, 5, -40, 75],
+    tileResources: {maxConcurrentBuilds: 2, maxCachedTiles: 16, maxCachedMeshBytes: 32 * 1024 * 1024},
+    onSceneLoad: value => {loadedScene = value; loads++;}, onSceneError: error => errors.push(error.message)});
+  deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
+    views: new OrthographicView({id: 'projected', flipY: false}), initialViewState: {target: [0, 0, 0], zoom: -2},
+    onError: error => {errors.push(error.message);}, _animate: true, layers: [createLayer(1)]});
+  await expect.poll(() => loadedScene, {timeout: 20000}).toBeDefined();
+  if (!loadedScene) throw new Error('Expected a loaded detail scene');
+  const initialScene = loadedScene;
+  const workers = Reflect.get(initialScene, 'workers');
+  /** Observe real scene tiles without widening its public API solely for a fixture. */
+  const getVisibleTiles = () => Object.values(initialScene.tile_manager.tiles).filter(tile => tile.visible);
+  /** Wait for installed detail and every scheduled build, not only a fallback's first pixel. */
+  const waitForDetail = async (detail: number) => {
+    // Auto-tiled GeoJSON uses 512px tiles: normalized data is one level below logical detail.
+    const sourceZoom = Math.max(0, detail - 1);
+    await expect.poll(() => {
+      const tiles = getVisibleTiles();
+      return tiles.length > 0 && tiles.every(tile => Reflect.get(tile, 'coords').z === sourceZoom && tile.built && Reflect.get(tile, 'style_z') === 4);
+    }, {timeout: 20000}).toBe(true);
+    await expect.poll(() => {
+      const resources = initialScene.tile_manager.getResourceStatistics();
+      return resources.activeBuilds + resources.queuedBuilds;
+    }, {timeout: 20000}).toBe(0);
+    await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas)), {timeout: 20000}).toBeGreaterThan(500);
+    expect(errors).toEqual([]);
+    expect(initialScene.view.zoom).toBe(4);
+    const resources = initialScene.tile_manager.getResourceStatistics();
+    expect(resources.activeBuilds).toBeLessThanOrEqual(2);
+    expect(resources.cachedTiles).toBeLessThanOrEqual(16);
+    expect(resources.cachedMeshBytes).toBeLessThanOrEqual(32 * 1024 * 1024);
+  };
+  await waitForDetail(1);
+  const coarse = getVisibleTiles().map(tile => ({tile, meshes: tile.meshes, generation: tile.generation}));
+  deck.setProps({layers: [createLayer(2)]});
+  await waitForDetail(2);
+  expect(getVisibleTiles().every(tile => !coarse.some(value => value.tile === tile))).toBe(true);
+  deck.setProps({layers: [createLayer(1)]});
+  await waitForDetail(1);
+  expect(getVisibleTiles()).toHaveLength(coarse.length);
+  for (const {tile, meshes, generation} of coarse) {
+    expect(getVisibleTiles()).toContain(tile);
+    expect(tile.meshes).toBe(meshes);
+    expect(tile.generation).toBe(generation);
+  }
+  expect(loadedScene).toBe(initialScene);
+  expect(Reflect.get(initialScene, 'workers')).toBe(workers);
+  expect(loads).toBe(1);
 });
 
 test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(

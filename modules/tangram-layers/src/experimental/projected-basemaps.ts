@@ -4,8 +4,8 @@
 
 import {Layer} from '@deck.gl/core';
 import {Matrix4} from '@math.gl/core';
-import {HostFrame, Renderer, normalizeProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
-import type {HostFrameOptions, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
+import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates} from '@vis.gl/tangram-renderer/core';
+import type {HostFrameOptions, HostTileResourceOptions, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
 import createTangramLayerClass from '../tangram-layer.js';
 
 /** The public, non-geospatial OrthographicViewport camera consumed by the adapter. */
@@ -30,8 +30,14 @@ export interface ProjectedViewOptions {
     projection: ProjectedBasemapOptions;
     /** Single-world west/south/east/north degrees; no poles or arbitrary-cut meridians. */
     visibleBounds: readonly [number, number, number, number];
-    /** Data/style level in [0, 6], deliberately independent of OrthographicView zoom. */
+    /** Source data detail in [0, 6], deliberately independent of OrthographicView zoom. */
     tileZoom: number;
+    /** Styling level in [0, 22], no lower than data detail; defaults to tileZoom. */
+    styleZoom?: number;
+    /** Optional positive per-source candidate limit checked before any tile allocation. */
+    maxTiles?: number;
+    /** Shared worker concurrency and completed off-screen mesh cache limits. */
+    tileResources?: HostTileResourceOptions;
 }
 
 /** Supply a common-space orthographic camera without claiming its matrices contain EPSG:3857 meters. */
@@ -44,20 +50,34 @@ export function getProjectedViewFrame(viewport: ProjectedViewport, options: Proj
     const cameraProjection = new Matrix4(Array.from(viewport.projectionMatrix)).multiplyRight(Array.from(viewport.viewMatrix));
     const [west, south, east, north] = options.visibleBounds;
     const projection = normalizeProjectedBasemapOptions(options.projection);
+    const styleZoom = options.styleZoom ?? options.tileZoom;
+    if (!Number.isSafeInteger(styleZoom) || styleZoom < 0 || styleZoom > 22) {
+        throw new Error('Projected styleZoom must be an integer in [0, 22]');
+    }
+    if (options.maxTiles !== undefined && (!Number.isSafeInteger(options.maxTiles) || options.maxTiles < 1)) {
+        throw new Error('Projected maxTiles must be a positive safe integer');
+    }
     if (projection.type === 'albers' && (west < -170 || east > -40 || south < 5 || north > 75)) {
         throw new Error('Initial Albers coverage must remain within [-170, 5, -40, 75] degrees');
     }
     const frame: HostFrameOptions = {
         viewport: dimensions,
         projection: {type: 'projected', visibleBounds: options.visibleBounds},
-        geographicAnchor: {longitude: (west + east) / 2, latitude: (south + north) / 2, zoom: options.tileZoom},
+        geographicAnchor: {longitude: (west + east) / 2, latitude: (south + north) / 2, zoom: styleZoom},
         tileZoom: options.tileZoom,
         tileBuffer: 0,
+        ...(options.tileResources === undefined ? {} : {tileResources: options.tileResources}),
         renderViews: [{id: 'projected', camera: {view: new Float64Array(new Matrix4()),
             projection: new Float64Array(cameraProjection), position: [0, 0, 1]}}]
     };
     // Validate before any renderer frame or tile state is modified.
     new HostFrame(frame);
+    if (options.maxTiles !== undefined) {
+        const count = countProjectedTileCoordinates(options.visibleBounds, options.tileZoom);
+        if (count > options.maxTiles) {
+            throw new Error(`Projected footprint requires ${count} tiles per source, exceeding maxTiles ${options.maxTiles}`);
+        }
+    }
     return frame;
 }
 
@@ -154,7 +174,9 @@ function validateRoadDraw(draw: Record<string, unknown>, requireWidth: boolean):
 const BaseProjectedBasemapLayer = createTangramLayerClass({Layer, ClassicWebGLRenderer: Renderer,
     Renderer: undefined}, {
         getFrame(viewport: ProjectedViewport, properties: {scene: unknown; projectedVisibleBounds?: ProjectedViewOptions['visibleBounds'];
-            projectedTileZoom?: number; projectedProjection?: ProjectedBasemapOptions}, dimensions: {width: number; height: number}) {
+            projectedTileZoom?: number; projectedProjection?: ProjectedBasemapOptions;
+            projectedStyleZoom?: number | null; projectedMaxTiles?: number | null;
+            tileResources?: HostTileResourceOptions | null}, dimensions: {width: number; height: number}) {
             const scene = readRecord(properties.scene, 'scene');
             const settings = readRecord(scene.scene, 'scene settings');
             const projection = normalizeProjectedBasemapOptions(properties.projectedProjection ?? settings.cpu_projection);
@@ -162,7 +184,10 @@ const BaseProjectedBasemapLayer = createTangramLayerClass({Layer, ClassicWebGLRe
                 projection,
                 visibleBounds: properties.projectedVisibleBounds ?? (projection.type === 'albers' ? [-170, 5, -40, 75] :
                     [-180, -85.0511287798066, 180, 85.0511287798066]),
-                tileZoom: properties.projectedTileZoom ?? 2
+                tileZoom: properties.projectedTileZoom ?? 2,
+                ...(properties.projectedStyleZoom == null ? {} : {styleZoom: properties.projectedStyleZoom}),
+                ...(properties.projectedMaxTiles == null ? {} : {maxTiles: properties.projectedMaxTiles}),
+                ...(properties.tileResources == null ? {} : {tileResources: properties.tileResources})
             }, dimensions);
         }
     });
@@ -174,6 +199,7 @@ export class ProjectedBasemapLayer extends BaseProjectedBasemapLayer {
     /** Optional projection override and completion notification, independent of source scene identity. */
     static defaultProps = {...BaseProjectedBasemapLayer.defaultProps,
         projectedVisibleBounds: null, projectedTileZoom: 2, projectedProjection: null,
+        projectedStyleZoom: null, projectedMaxTiles: null,
         onProjectionChange: {type: 'function', value: () => {}}};
 
     /** Keep the ordinary scene lifecycle, then queue an opt-in projection-only update after loading. */

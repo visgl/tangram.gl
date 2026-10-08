@@ -53,6 +53,54 @@ function createViewport(target: [number, number, number] = [0, 0, 0], zoom = -1)
         viewState: {target, zoom}})!;
 }
 
+test('projected style, source detail and resource budgets are independent of camera zoom', () => {
+    const resources = {maxConcurrentBuilds: 2, maxCachedTiles: 16, maxCachedMeshBytes: 1024};
+    for (const cameraZoom of [-2, 3]) {
+        const host = new HostFrame(getProjectedViewFrame(createViewport([0, 0, 0], cameraZoom), {
+            projection: {type: 'equal-earth'}, visibleBounds: [-180, -80, 180, 80],
+            tileZoom: 2, styleZoom: 8, maxTiles: 16, tileResources: resources}));
+        expect(host.tileZoom).toBe(2);
+        expect(host.geographicAnchor.zoom).toBe(8);
+        expect(host.tileResources).toEqual(resources);
+        expect(host.tileResources).not.toBe(resources);
+    }
+});
+
+test('candidate limits reject over-budget frames and resource/style errors before installation', () => {
+    const options = {projection: {type: 'equal-earth' as const}, visibleBounds: [-180, -80, 180, 80] as const, tileZoom: 2};
+    expect(() => getProjectedViewFrame(createViewport(), {...options, maxTiles: 15})).toThrow('16 tiles per source');
+    expect(() => getProjectedViewFrame(createViewport(), {...options, maxTiles: 16})).not.toThrow();
+    for (const maxTiles of [0, -1, 1.5, Infinity, NaN]) {
+        expect(() => getProjectedViewFrame(createViewport(), {...options, maxTiles})).toThrow('maxTiles');
+    }
+    for (const styleZoom of [-1, 1.5, 23, Infinity, NaN]) {
+        expect(() => getProjectedViewFrame(createViewport(), {...options, styleZoom})).toThrow('styleZoom');
+    }
+    expect(() => getProjectedViewFrame(createViewport(), {...options, styleZoom: 1})).toThrow();
+    expect(() => getProjectedViewFrame(createViewport(), {...options, tileResources: {maxConcurrentBuilds: 0}})).toThrow();
+    const scene = createProjectedBasemapScene({sources: {}, layers: {}}, {type: 'equal-earth'}, 'https://example.test/projection.js');
+    const layer = new ProjectedBasemapLayer({id: 'budget', scene, projectedTileZoom: 2, projectedStyleZoom: 5,
+        projectedMaxTiles: 16, tileResources: {maxCachedTiles: 0}});
+    const viewport = createViewport();
+    layer.context = {viewport, deck: {getViewports: () => [viewport]}};
+    layer.raiseError = vi.fn();
+    const setFrame = vi.fn();
+    const record = {renderer: {setFrame}, deckCanvas: {clientWidth: 0, clientHeight: 0},
+        lastViewportError: null, reportedViewportError: null};
+    layer._synchronizeTangramScene(record);
+    expect(new HostFrame(setFrame.mock.calls[0][0])).toMatchObject({tileZoom: 2,
+        geographicAnchor: {zoom: 5}, tileResources: {maxCachedTiles: 0}});
+    layer.props = {...layer.props, projectedMaxTiles: 15};
+    layer._synchronizeTangramScene(record);
+    expect(setFrame).toHaveBeenCalledOnce();
+    expect(layer.raiseError).toHaveBeenCalledOnce();
+    expect(record.lastViewportError).toContain('maxTiles');
+    layer.props = {...layer.props, projectedMaxTiles: 16};
+    layer._synchronizeTangramScene(record);
+    expect(setFrame).toHaveBeenCalledTimes(2);
+    expect(record.lastViewportError).toBeNull();
+});
+
 test('orthographic host camera projects common positions exactly as deck.gl does', () => {
     for (const [target, zoom] of [[[0, 0, 0], -1], [[100, -50, 0], 1]] as const) {
         const viewport = createViewport([...target], zoom);

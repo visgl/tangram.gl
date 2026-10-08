@@ -6,8 +6,23 @@ import {expect, test, vi} from 'vitest';
 import {createProjectedExampleScene, getProjectedExampleTileZoom} from '../examples/projected/scene.js';
 import {BLUE_MARBLE_URL} from '../examples/classic/app/nasa-basemap.js';
 import {OPENFREEMAP_TILEJSON} from '../examples/classic/app/vector-providers.js';
+import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from '../examples/projected/detail.js';
+import {countProjectedTileCoordinates} from '../modules/tangram-renderer/src/tile/tile_traversal_adapter';
 import {createProjectedExampleProjectionEngine} from '../examples/projected/projection-engine.js';
 import {HostProjectionEngineAdapter, getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from '../modules/tangram-renderer/src/procedures/projected-coordinate-transform';
+
+test('detail controls guard full-world loading and allow finer regional coverage', () => {
+  expect(getProjectedExampleBounds(true)).toEqual([-170, 5, -40, 75]);
+  for (const raster of [true, false]) {
+    const world = getProjectedExampleDetailChoices(raster, false, countProjectedTileCoordinates);
+    const region = getProjectedExampleDetailChoices(raster, true, countProjectedTileCoordinates);
+    expect(world.find(choice => choice.zoom === 4)).toEqual({zoom: 4, tiles: 256, disabled: false});
+    expect(world.find(choice => choice.zoom === 5)).toEqual({zoom: 5, tiles: 1024, disabled: true});
+    expect(region.find(choice => choice.zoom === 5)).toMatchObject({disabled: false});
+    expect(region.filter(choice => !choice.disabled).every(choice => choice.tiles <= 256)).toBe(true);
+    expect(world.every(choice => raster || choice.zoom >= 4)).toBe(true);
+  }
+});
 
 test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
   'the example supplies an engine that compiles and reuses %s across projection switches', async type => {
