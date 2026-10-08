@@ -67,6 +67,31 @@ describe('atomic multi-view host contract', () => {
         renderer.destroy();
     });
 
+    test('Mercator pruning keeps buffered nearby tiles at mixed data zooms but evicts distant tiles', () => {
+        const renderer = new Renderer({});
+        const view = renderer.scene.view;
+        const removed: string[] = [];
+        const tiles = [
+            {key: 'near', x: 8, y: 8, z: 4}, {key: 'near-coarse', x: 4, y: 4, z: 3},
+            {key: 'distant', x: 0, y: 0, z: 4}, {key: 'distant-coarse', x: 0, y: 0, z: 3},
+            {key: 'visible', x: 0, y: 0, z: 4}, {key: 'proxy', x: 0, y: 0, z: 4},
+            {key: 'pinned', x: 0, y: 0, z: 4}
+        ].map(({key, x, y, z}) => ({key, coords: TileID.coord({x, y, z}),
+            visible: key === 'visible', loading: false, style_z: 4,
+            isProxy: () => key === 'proxy', setupProgram: () => {}}));
+        vi.spyOn(view.scene.tile_manager, 'isTilePreloaded').mockImplementation(key => key === 'pinned');
+        vi.spyOn(view.scene.tile_manager, 'removeTiles').mockImplementation(filter => {
+            for (const tile of tiles) if (filter(tile)) removed.push(tile.key);
+        });
+        try {
+            renderer.setFrame(frame({geographicAnchor: {longitude: 0, latitude: 0, zoom: 4},
+                renderViews: [{camera: camera()}]}));
+            removed.length = 0;
+            view.pruneTilesForView();
+            expect(removed).toEqual(['distant', 'distant-coarse']);
+        } finally { renderer.destroy(); }
+    });
+
     test.each([0, 2, 6])('projected full-world detail %s selects only valid finite-world coordinates', tileZoom => {
         const renderer = new Renderer({});
         renderer.setFrame(frame({tileZoom, geographicAnchor: {longitude: 0, latitude: 0, zoom: tileZoom},

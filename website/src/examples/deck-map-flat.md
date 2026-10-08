@@ -3,6 +3,7 @@ sidebar_position: 3
 title: MapView flat
 description: A flat deck.gl MapView powered by Tangram.
 hide_title: true
+hide_table_of_contents: true
 ---
 
 {/*

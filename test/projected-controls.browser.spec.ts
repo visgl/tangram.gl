@@ -79,6 +79,17 @@ test('example controls coalesce navigation, discard stale results and release re
     expect(getElement('#coordinates').textContent).toBe('-75.0000°, 40.0000°');
     getElement('#projected-map').dispatchEvent(new PointerEvent('pointerleave'));
     expect(getElement('#coordinates').textContent).toContain('Move over');
+    change('#refinement', 'adaptive');
+    await vi.advanceTimersByTimeAsync(0);
+    invoke('onViewStateChange', {viewState: {target: [0, 0, 0], zoom: 1.2}});
+    await vi.advanceTimersByTimeAsync(120);
+    const layers = fixtures.properties.layers;
+    if (!Array.isArray(layers)) throw new Error('Missing projected layers');
+    expect(layers[0].props.projectedProjection.maxProjectedError).toBe(0.5);
+    expect(fixtures.detail).not.toHaveBeenCalled();
+    expect(fixtures.properties._animate).toBe(true);
+    change('#refinement', 'angular');
+    await vi.advanceTimersByTimeAsync(0);
     change('#detail-mode', 'camera');
     invoke('onViewStateChange', {viewState: {target: [0, 0, 0], zoom: 1}});
     invoke('onViewStateChange', {viewState: {target: [0, 0, 0], zoom: 2}});

@@ -34,6 +34,16 @@ const packageImports = collectPackageImports(new URL('../modules/tangram-layers/
 const rendererPackage = JSON.parse(readFileSync(new URL('../modules/tangram-renderer/package.json', import.meta.url), 'utf8'));
 const mathVersion = rendererPackage.dependencies['@math.gl/core'];
 
+test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'])(
+  '%s preserves deck/luma 9.4 private math dependencies alongside Tangram math 5', filePath => {
+    const source = readFileSync(new URL(`../${filePath}`, import.meta.url), 'utf8');
+    // Those releases still import gl-matrix namespaces that math.gl 5 removed.
+    // Do not redirect their internal imports to Tangram's public math.gl mapping.
+    expect(source).not.toContain('external=@luma.gl/core,@math.gl/core');
+    expect(source).toContain('deck.gl@9.4.0?bundle&external=@luma.gl/core');
+    expect(source).toContain(`https://esm.sh/@math.gl/core@${mathVersion}?bundle`);
+  });
+
 test('projected example resolves its caller-owned factory and the engine spheroid leaf', () => {
   const source = readFileSync(new URL('../examples/projected/index.html', import.meta.url), 'utf8');
   const factoryImports = collectPackageImports(new URL('../examples/projected/projection-engine.js', import.meta.url));

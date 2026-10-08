@@ -51,7 +51,7 @@ export interface ProjectedFitOptions {
 export interface ProjectedCameraCoverage {
     /** Conservative geographic envelope, or null when the ground rectangle misses the source domain. */
     bounds: ProjectedGeographicBounds | null;
-    /** Albers currently retains the complete source region rather than guessing curved extrema. */
+    /** True only when an unsupported coverage contract requires a complete source region. */
     domainFallback: boolean;
 }
 
@@ -164,7 +164,7 @@ export class ProjectedBasemapNavigation {
 
     /** Bound the viewport's ground rectangle using the fixed projections' separable latitude and longitude scales.
      * Equal Earth's longitude factor decreases with absolute latitude, so both latitude endpoints bound its envelope.
-     * Albers has curved, nonseparable extrema; keep the supplied domain until conservative conic coverage is implemented.
+     * Albers uses radial/angular interval bounds about the conic apex, not sparse inverse samples.
      * This does not support wrapped worlds or arbitrary custom projection kernels.
      */
     async getCameraCoverage(viewport: ProjectedNavigationViewport, type: ProjectedBasemapType,
@@ -178,7 +178,7 @@ export class ProjectedBasemapNavigation {
         if (!corners.every(point => point.length >= 2 && point.slice(0, 2).every(Number.isFinite))) {
             throw new Error('Projected coverage requires finite ground corners');
         }
-        if (type === 'albers') return {bounds: region, domainFallback: true};
+        if (type === 'albers') return this.getAlbersCoverage(corners, region);
         const minimumX = Math.min(...corners.map(point => point[0]));
         const maximumX = Math.max(...corners.map(point => point[0]));
         const minimumY = Math.min(...corners.map(point => point[1]));
@@ -204,6 +204,40 @@ export class ProjectedBasemapNavigation {
         const margin = 1e-7;
         return {bounds: [Math.max(region[0], west - margin), Math.max(region[1], south[1] - margin),
             Math.min(region[2], east + margin), Math.min(region[3], north[1] + margin)], domainFallback: false};
+    }
+
+    /** Bound the fixed northern Albers cone: radius decreases with latitude, angle increases with longitude. */
+    private async getAlbersCoverage(corners: number[][], region: ProjectedGeographicBounds): Promise<ProjectedCameraCoverage> {
+        // Recover the circle center from the caller's forward kernel, keeping false origins and common units consistent.
+        const reference = await this.projectPositions(new Float64Array([-96, 5, -86, 5, -96, 75]), 'albers');
+        const apex = (reference[2] ** 2 + reference[3] ** 2 - reference[1] ** 2) / (2 * (reference[3] - reference[1]));
+        const cone = (Math.sin(29.5 * Math.PI / 180) + Math.sin(45.5 * Math.PI / 180)) / 2;
+        if (!Number.isFinite(apex) || apex <= reference[5]) throw new Error('Projected coverage requires a northern Albers cone');
+        const south = await this.projectPosition([-96, region[1]], 'albers');
+        const north = await this.projectPosition([-96, region[3]], 'albers');
+        const minimumRadius = apex - north[1], maximumRadius = apex - south[1];
+        const firstAngle = (region[0] + 96) * Math.PI / 180 * cone;
+        const lastAngle = (region[2] + 96) * Math.PI / 180 * cone;
+        const angles = [firstAngle, lastAngle];
+        if (firstAngle <= 0 && lastAngle >= 0) angles.push(0);
+        const minimumCosine = Math.min(...angles.map(Math.cos));
+        const maximumCosine = Math.max(...angles.map(Math.cos));
+        const x = [Math.min(...corners.map(point => point[0])), Math.max(...corners.map(point => point[0]))];
+        const down = [Math.max(minimumRadius * minimumCosine, apex - Math.max(...corners.map(point => point[1]))),
+            Math.min(maximumRadius * maximumCosine, apex - Math.min(...corners.map(point => point[1])))];
+        if (down[0] > down[1]) return {bounds: null, domainFallback: false};
+        const closestX = Math.max(x[0], Math.min(x[1], 0));
+        const nearRadius = Math.max(minimumRadius, Math.hypot(closestX, down[0]));
+        const farRadius = Math.min(maximumRadius, Math.max(...x.map(value => Math.hypot(value, down[1]))));
+        const longitude = x.flatMap(value => down.map(distance => Math.atan2(value, distance) / cone * 180 / Math.PI - 96));
+        const west = Math.max(region[0], Math.min(...longitude)), east = Math.min(region[2], Math.max(...longitude));
+        if (nearRadius > farRadius || west > east) return {bounds: null, domainFallback: false};
+        const southern = await this.unprojectPosition([0, apex - farRadius], 'albers');
+        const northern = await this.unprojectPosition([0, apex - nearRadius], 'albers');
+        if (!southern || !northern) throw new Error('Projection engine could not invert the Albers radius envelope');
+        const margin = 1e-7;
+        return {bounds: [Math.max(region[0], west - margin), Math.max(region[1], southern[1] - margin),
+            Math.min(region[2], east + margin), Math.min(region[3], northern[1] + margin)], domainFallback: false};
     }
 
     /** Preserve geographic focus and numeric zoom; clamp to a smaller destination domain, never mutate the input.

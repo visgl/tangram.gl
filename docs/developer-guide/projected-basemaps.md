@@ -7,7 +7,7 @@ Copyright (c) vis.gl contributors
 # Experimental projected basemaps
 
 The optional `@vis.gl/tangram-layers/experimental/projected-basemaps` entry renders
-flat Tangram polygons, raster meshes and fixed-meter road ribbons in deck.gl's `OrthographicView`. Workers
+flat Tangram polygons, raster meshes and static meter/pixel roads in deck.gl's `OrthographicView`. Workers
 subdivide the packed tile geometry and project it with math.gl before transferring
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
@@ -232,22 +232,21 @@ queue drains. Restore a valid budget and request the projection again to rebuild
 even restoring the previous options retries after a failed update. Other queued
 updates remain usable, and late failed batches release their texture references.
 
-## Fixed-meter roads
+## Static projected roads
 
 Line draws require an explicit positive width, either a number (Tangram's default
-meter unit) or a meter string such as `width: '5000m'`. Style-level draw defaults
+meter unit), a meter string such as `width: '5000m'`, or a pixel string such as `width: '6px'`. Style-level draw defaults
 may supply that width. Standard butt/square/round caps and miter/bevel/round joins
 use Tangram's existing ribbon builder. Workers expand each corner using its packed
 extrusion vector, compensate for source overzoom, refine the expanded triangles,
 and project the resulting ground surface. The shader consumes those projected
 corners without applying extrusion again.
 
-Widths are measured in the source EPSG:3857 plane, not screen pixels or true
-geodesic distance. They distort with the rest of the map and grow on screen when
-the orthographic camera zooms in. The overview example deliberately exaggerates
-road widths to 150,000 meters; it is not a street-scale styling recommendation.
-Offsets, outlines, pixel widths, zoom-stop/function widths, textures, dashes,
-shader injection and animated traffic are deliberately rejected in this entry.
+Meter widths are measured in the source EPSG:3857 plane, not true geodesic distance.
+They distort with the rest of the map and grow on screen when the orthographic
+camera zooms in. Pixel widths retain their CSS radius through shader-side extrusion.
+Static same-unit offsets and outlines, dash arrays and portable animated traffic
+are supported. See the road styling contract below for deliberate restrictions.
 Existing geographic-view roads retain their current dynamic styling and animation.
 
 ## Geographic navigation and coordinate probing
@@ -335,8 +334,10 @@ The envelope is conservative, not an exact visible polygon. It may load extra
 tiles at curved outlines. Longitude and latitude are clipped to the source region
 with a small outward numerical margin; seam edges remain separate and additional
 worlds are not wrapped. A viewport beyond that domain returns `bounds: null`.
-Albers currently returns the complete allowed source region with
-`domainFallback: true`, because conic extrema need a separate conservative policy.
+Albers bounds radius and longitude angle around the fixed northern cone's apex.
+The apex is recovered from the supplied engine's forward transform; radial and
+angular extrema over the camera rectangle are clipped against the source region.
+It now returns a bounded envelope or `null`, rather than retaining the entire region.
 Neither this method nor focus transitions change renderer defaults or import
 projection kernels into the normal package entry.
 
@@ -381,8 +382,43 @@ cameras hide the layer without finalizing it; returning reuses retained resource
 Large scenes should avoid running this sampling policy
 on every pointer movement.
 
+## Geometry refinement and road styling
+
+### Adaptive projected geometry
+
+`ProjectedBasemapOptions.maxProjectedError` optionally sets a positive chord-error
+tolerance in projected common units. Each round batches endpoints and quarter,
+midpoint and three-quarter packed edge samples through the same selected engine.
+Edges exceeding the tolerance split with shared indexed midpoints, preserving UVs,
+colors, layer order and feature IDs. The existing angular limit and vertex budget
+still apply; exhausting a budget or packed-coordinate precision fails explicitly.
+The preparation cache remains projection-independent; adaptive results are not
+inserted into that cache. The host engine uses batched RPCs, not one call per vertex.
+
+The example's optional adaptive mode targets sampled 2 CSS-pixel chord error,
+quantized upward in log2 camera scale and debounced. Adjacent equal-detail tiles
+use one shared tolerance and midpoint arithmetic. This is a **sampled error
+estimate**, not a mathematical surface-error guarantee. Mixed-level stitching,
+centroid/interior error bounds and terrain refinement remain follow-ups; source
+detail is still uniform, independent of mesh refinement.
+
+### Projected road styling
+
+Static widths accept meters (`'1000m'` or a numeric meter width) or CSS pixels
+(`'6px'`). Packed projected centers and corners give the shader a direction;
+pixel strokes then apply their radius in screen space in both GLSL and WGSL,
+without scaling width when the orthographic camera zooms. Caps and joins retain
+their packed shape. Static offsets and parent-style outlines must use the same
+units as the width. Dash arrays use Tangram's existing generated textures.
+Styles with `animated: true` receive portable two-lane traffic using frame time
+on both backends. The vector example uses pixel roads, outlines and traffic.
+
+Dynamic width/offset expressions, mixed-unit outlines, alternate outline styles,
+external road textures and arbitrary shader blocks remain explicitly unsupported.
+This is the portable traffic effect, not unrestricted execution of legacy TRON mixins.
+
 ## Next steps
 
-Conservative Albers camera coverage remains a follow-up. Screen-space strokes need a separate projection-aware width contract. Labels, feature picking, lighting, height, adaptive geometry pixel-error LOD,
+Labels, feature picking, lighting, height,
 projection morphing and arbitrary projection domains are not implemented by this entry.
 Existing Mercator, GlobeView and FirstPersonView integrations remain unchanged.

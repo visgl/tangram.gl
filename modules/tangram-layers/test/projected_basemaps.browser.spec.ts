@@ -205,21 +205,31 @@ test('fixed-meter roads accept style defaults, aliases and ordinary caps/joins',
     }
 });
 
-test.each([undefined, 0, -1, Infinity, '4px', '3km', [1, 2], [[2, '5m']], 'function() {return 10;}'])(
+test.each([undefined, 0, -1, Infinity, '3km', [1, 2], [[2, '5m']], 'function() {return 10;}'])(
     'projected roads reject nonfixed or missing width %j before starting workers', width => {
         const scene = {layers: {roads: {draw: {lines: {width, order: 1}}}}};
         expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('fixed-meter');
     });
 
-test.each(['outline', 'texture', 'dash', 'animated', 'offset', 'next_width', 'next_offset'])(
+test.each(['outline', 'texture', 'dash', 'animated', 'next_width', 'next_offset'])(
     'projected road %s cannot enter through draws or inherited style configuration', key => {
         const draw = {width: '1000m', order: 1, [key]: 1};
         for (const scene of [
             {layers: {roads: {draw: {lines: draw}}}},
             {styles: {road: {base: 'lines', draw}}, layers: {roads: {draw: {road: {order: 1}}}}},
             {styles: {road: {base: 'lines', [key]: 1}}, layers: {roads: {draw: {road: {width: '1000m'}}}}}
-        ]) expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('ribbons');
+        ]) expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow();
     });
+
+test.each(['12px', '12000m'])('static %s roads accept offsets, parent outlines, dashes and portable traffic', width => {
+    const suffix = width.endsWith('px') ? 'px' : 'm';
+    const scene = {styles: {traffic: {base: 'lines', animated: true, dash: [2, 1]}},
+        layers: {roads: {draw: {traffic: {width, offset: `-2${suffix}`, color: '#0ff',
+            outline: {width: `1${suffix}`, color: '#80f'}}}}}};
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+    scene.layers.roads.draw.traffic.outline.width = suffix === 'px' ? '1m' : '1px';
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow('width unit');
+});
 
 test('explicit draw style cannot bypass supported-style validation', () => {
     expect(() => createProjectedBasemapScene({layers: {ground: {draw: {polygons: {style: 'text'}}}}},
@@ -231,7 +241,7 @@ test('road widths inherit through child layers, while unsupported child override
         primary: {filter: {class: 'primary'}, draw: {lines: {color: '#fff'}}}}}};
     expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).not.toThrow();
     expect(() => createProjectedBasemapScene({layers: {roads: {...scene.layers.roads,
-        primary: {draw: {lines: {width: '2px'}}}}}}, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('fixed-meter');
+        primary: {draw: {lines: {width: [[2, '2px']]}}}}}}, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('fixed-meter');
 });
 
 test('custom ground styles and explicit bounds are supported, but invalid settings and Albers footprints fail', () => {

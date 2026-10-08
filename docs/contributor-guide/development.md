@@ -91,6 +91,11 @@ renderer and playground before serving them.
 Use `yarn website:start` for the integrated development preview, or build with
 `yarn website:build` and run `yarn workspace tangram-layers-website serve`.
 Open the clean example route, such as `/tangram.gl/examples/classic?scene=styles/projection-morph.yaml#4/39/-96`.
+Live example canvases fill the documentation content area beside the sidebar and
+resize with the viewport. Deck, projected and WebXR information cards have a
+keyboard-accessible collapse button; the classic/Leaflet playground uses the
+community editor's sidebar handle. Collapsing either keeps its current controls,
+tabs and editor model mounted. Fullscreen is available from the canvas toolbar.
 Website asset assembly excludes standalone `index.html` pages: Docusaurus owns
 the example routes, and a copied directory index would shadow those pages and
 redirect away from the selected scene. Standalone example builds retain their

@@ -164,16 +164,33 @@ function readRecord(value: unknown, label: string): Record<string, unknown> {
     return Object.fromEntries(Object.entries(value));
 }
 
-/** Initial ribbons use explicit EPSG:3857 meter widths, not screen-pixel or zoom-dependent widths. */
+/** Static meter/pixel roads share the existing builder; reject dynamic widths and mixed-unit offsets/outlines. */
 function validateRoadDraw(draw: Record<string, unknown>, requireWidth: boolean): void {
-    if (['offset', 'next_width', 'next_offset', 'outline', 'texture', 'dash', 'animated'].some(key => draw[key] !== undefined)) {
-        throw new Error('Projected roads require fixed-meter ground ribbons without offsets, outlines, textures or animation');
+    if (draw.outline !== undefined) readRecord(draw.outline, 'road outline');
+    if (['next_width', 'next_offset', 'texture'].some(key => draw[key] !== undefined)) {
+        throw new Error('Projected roads require static ribbons without dynamic widths or external textures');
     }
+    const parse = (value: unknown, positive: boolean): 'm' | 'px' => {
+        const match = typeof value === 'string' ? /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(m|px)\s*$/.exec(value) : null;
+        const number = typeof value === 'number' ? value : match ? Number(match[1]) : NaN;
+        if (!Number.isFinite(number) || (positive && number <= 0)) throw new Error('Projected roads require an explicit positive fixed-meter or pixel width');
+        return match?.[2] === 'px' ? 'px' : 'm';
+    };
     if (draw.width !== undefined || requireWidth) {
-        const width = typeof draw.width === 'number' ? draw.width :
-            typeof draw.width === 'string' && /^\s*(?:\d+(?:\.\d*)?|\.\d+)\s*m\s*$/.test(draw.width) ?
-                Number.parseFloat(draw.width) : NaN;
-        if (!Number.isFinite(width) || width <= 0) throw new Error('Projected roads require an explicit positive fixed-meter width');
+        const unit = parse(draw.width, true);
+        if (draw.offset !== undefined && parse(draw.offset, false) !== unit) throw new Error('Projected road offsets must use the width unit');
+        if (draw.outline !== undefined) {
+            const outline = readRecord(draw.outline, 'road outline');
+            validateFlatDraw(outline);
+            if (outline.style !== undefined) throw new Error('Projected road outlines must use the parent line style');
+            if (parse(outline.width, true) !== unit) throw new Error('Projected road outlines must use the width unit');
+            validateRoadDraw(outline, true);
+        }
+    }
+    if (draw.animated !== undefined && typeof draw.animated !== 'boolean') throw new Error('Projected road animated must be boolean');
+    if (draw.dash !== undefined && (!Array.isArray(draw.dash) || draw.dash.length === 0 ||
+        !draw.dash.every(value => typeof value === 'number' && Number.isFinite(value) && value > 0))) {
+        throw new Error('Projected road dash must contain positive finite lengths');
     }
 }
 

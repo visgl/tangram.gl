@@ -24,8 +24,8 @@ test.each(types)('%s camera coverage contains independently projected visible gr
         const coverage = await navigation.getCameraCoverage(viewport, type);
         expect(coverage.bounds).not.toBeNull();
         if (!coverage.bounds) throw new Error('Missing camera coverage');
-        expect(coverage.domainFallback).toBe(type === 'albers');
-        if (type !== 'albers') expect(coverage.bounds[2] - coverage.bounds[0]).toBeLessThan(360);
+        expect(coverage.domainFallback).toBe(false);
+        expect(coverage.bounds[2] - coverage.bounds[0]).toBeLessThan(region[2] - region[0]);
         const pairs: number[] = [];
         for (let column = 0; column <= 80; column++) for (let row = 0; row <= 80; row++) {
             pairs.push(region[0] + (region[2] - region[0]) * column / 80, region[1] + (region[3] - region[1]) * row / 80);
@@ -63,6 +63,30 @@ test.each(['equal-earth', 'equirectangular', 'mercator', 'web-mercator'] satisfi
         const region: [number, number, number, number] = [-120, 20, -80, 50];
         expect((await navigation.getCameraCoverage(createViewport(-5), type, region)).bounds).toEqual(region);
     });
+
+test('Albers conic coverage clips restricted regions, misses and cameras spanning the conic apex', async () => {
+    const navigation = createNavigation();
+    const region = [-120, 20, -80, 50] as const;
+    expect((await navigation.getCameraCoverage(createViewport(-5), 'albers', region)).bounds).toEqual(region);
+    for (const target of [[1e6, 0, 0], [0, 1e6, 0], [0, -1e6, 0]] as [number, number, number][]) {
+        expect((await navigation.getCameraCoverage(new OrthographicViewport({width: 400, height: 300,
+            target, zoom: 2, flipY: false}), 'albers')).bounds).toBeNull();
+    }
+    for (const longitude of [-170, -96, -40]) for (const latitude of [5, 40, 75]) {
+        const target = await navigation.projectPosition([longitude, latitude], 'albers');
+        const viewport = new OrthographicViewport({width: 320, height: 120, target, zoom: 3, flipY: false});
+        const coverage = await navigation.getCameraCoverage(viewport, 'albers');
+        expect(coverage.bounds?.[0]).toBeLessThanOrEqual(longitude);
+        expect(coverage.bounds?.[2]).toBeGreaterThanOrEqual(longitude);
+        expect(coverage.bounds?.[1]).toBeLessThanOrEqual(latitude);
+        expect(coverage.bounds?.[3]).toBeGreaterThanOrEqual(latitude);
+    }
+    vi.spyOn(navigation, 'projectPositions').mockResolvedValue(new Float64Array(6));
+    await expect(navigation.getCameraCoverage(createViewport(), 'albers')).rejects.toThrow('cone');
+    vi.restoreAllMocks();
+    vi.spyOn(navigation, 'unprojectPosition').mockResolvedValue(null);
+    await expect(navigation.getCameraCoverage(createViewport(-5), 'albers')).rejects.toThrow('radius envelope');
+});
 
 test.each(types)('%s transition retains geographic focus across every destination', async from => {
     const navigation = createNavigation();

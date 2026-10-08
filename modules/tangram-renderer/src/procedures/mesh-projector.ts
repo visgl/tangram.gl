@@ -24,6 +24,8 @@ export type ProjectedBasemapOptions = {
     maxAngularSpan?: number;
     /** Per-mesh additional vertex budget; defaults to 65,536. */
     maxAdditionalVertices?: number;
+    /** Optional sampled projected chord-error tolerance in common units; camera adapters convert CSS pixels. */
+    maxProjectedError?: number;
 };
 
 /** Worker-local packed triangle input; the original tile coordinates must survive. */
@@ -35,7 +37,7 @@ export interface MeshProjectionRequest {
     /** Layout shared by main-thread and worker polygon styles. */
     layout: VertexLayout;
     /** Source tile's north-west EPSG:3857 origin and actual data zoom. */
-    tile: {min: {x: number; y: number}; coords: {z: number}; overzoom2?: number};
+    tile: {min: {x: number; y: number}; coords: {z: number}; overzoom2?: number; style_z?: number};
     /** Lines carry centerline positions and separate packed extrusion; other meshes are already expanded. */
     geometry?: 'polygons' | 'raster' | 'lines';
     /** Validated scene-wide projection and refinement limits. */
@@ -91,6 +93,10 @@ export function normalizeProjectedBasemapOptions(value: unknown): ProjectedBasem
     }
     const maxAngularSpan = 'maxAngularSpan' in value ? value.maxAngularSpan : 4;
     const maxAdditionalVertices = 'maxAdditionalVertices' in value ? value.maxAdditionalVertices : 65536;
+    const maxProjectedError = 'maxProjectedError' in value ? value.maxProjectedError : undefined;
+    if (maxProjectedError !== undefined && (typeof maxProjectedError !== 'number' || !Number.isFinite(maxProjectedError) || maxProjectedError <= 0)) {
+        throw new Error('CPU projection requires a positive finite projected error');
+    }
     if (typeof maxAngularSpan !== 'number' || !Number.isFinite(maxAngularSpan) || maxAngularSpan < 1 || maxAngularSpan > 30 ||
         typeof maxAdditionalVertices !== 'number' || !Number.isSafeInteger(maxAdditionalVertices) ||
         maxAdditionalVertices < 0 || maxAdditionalVertices > 262144) {
@@ -99,5 +105,5 @@ export function normalizeProjectedBasemapOptions(value: unknown): ProjectedBasem
     const type = value.type;
     if (type !== 'equal-earth' && type !== 'albers' && type !== 'equirectangular' &&
         type !== 'mercator' && type !== 'web-mercator') throw new Error('Invalid CPU projection');
-    return {type, maxAngularSpan, maxAdditionalVertices};
+    return {type, maxAngularSpan, maxAdditionalVertices, ...(maxProjectedError === undefined ? {} : {maxProjectedError})};
 }

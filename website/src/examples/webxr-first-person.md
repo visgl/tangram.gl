@@ -3,6 +3,7 @@ sidebar_position: 5
 title: WebXR FirstPersonView
 description: Experimental stereoscopic Tangram FirstPersonView rendering through luma.gl WebXR.
 hide_title: true
+hide_table_of_contents: true
 ---
 
 {/*

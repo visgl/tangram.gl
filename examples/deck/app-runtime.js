@@ -7,6 +7,7 @@ import {PathLayer, ScatterplotLayer} from '@deck.gl/layers';
 import {webgpuAdapter} from 'https://esm.sh/@luma.gl/webgpu@9.4.0?bundle&external=@luma.gl/core';
 import {TangramLayer} from '@vis.gl/tangram-layers';
 import {resolveDeckExampleViewMode} from './app-loader.js';
+import {createCollapsibleInfoCard} from './info-card.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
@@ -158,6 +159,7 @@ export function initializeDeckExample({
   };
 
   const statusElement = document.getElementById('status');
+  const destroyInfoCard = createCollapsibleInfoCard(document.getElementById('controls'));
   const visibilityInput = document.getElementById('basemap-visible');
   const basemapSelect = document.getElementById('basemap-style');
   const providerSelect = document.getElementById('vector-provider');
@@ -893,6 +895,7 @@ export function initializeDeckExample({
   }
 
   window.tangramDeckExampleDestroy = function destroyTangramDeckExample() {
+    destroyInfoCard();
     document.removeEventListener('fullscreenchange', updateFullscreenButton);
     if (deckInstance) {
       deckInstance.finalize();

@@ -3,6 +3,7 @@ sidebar_position: 4
 title: WebXR MapView
 description: Experimental stereoscopic Tangram MapView rendering through luma.gl WebXR.
 hide_title: true
+hide_table_of_contents: true
 ---
 
 {/*

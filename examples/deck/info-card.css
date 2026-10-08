@@ -1,0 +1,54 @@
+/*
+ * tangram-layers
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) vis.gl contributors
+ */
+
+#controls[data-info-card],
+.webxr-panel[data-info-card] {
+  box-sizing: border-box;
+  max-width: min(342px, calc(100% - 32px));
+}
+
+[data-info-card] > h1 {
+  padding-right: 32px;
+}
+
+[data-info-card] > .info-card-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+}
+
+[data-info-card] > .info-card-toggle:hover {
+  background: rgb(128 128 128 / 15%);
+}
+
+[data-info-card] > .info-card-toggle:focus-visible {
+  outline: 2px solid #1967d2;
+  outline-offset: 2px;
+}
+
+[data-info-card].info-card-collapsed > :not(h1):not(.info-card-toggle) {
+  display: none !important;
+}
+
+#controls[data-info-card].info-card-collapsed,
+.webxr-panel[data-info-card].info-card-collapsed {
+  width: fit-content;
+}
+
+[data-info-card].info-card-collapsed > h1 {
+  margin-bottom: 0;
+}

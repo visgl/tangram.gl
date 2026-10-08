@@ -93,7 +93,7 @@ struct LineAttributes {
     @location(3) a_z_and_offset_scale: vec2<i32>,
     @location(4) a_texcoord: vec2<f32>,
     @location(5) a_color: vec4<f32>,
-    ${cpuProjection ? '@location(6) a_projected_position: vec3<f32>,' : ''}
+    ${cpuProjection ? '@location(6) a_projected_position: vec3<f32>, @location(7) a_projected_stroke: vec4<f32>,' : ''}
 };
 
 struct LineVaryings {
@@ -144,6 +144,18 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
     let eye_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};
     var clip_position = TangramCamera.u_projection * eye_position;
     ${cpuProjection ? 'clip_position.z = (clip_position.z + clip_position.w) * 0.5;' : ''}
+    ${cpuProjection ? `
+    if (attributes.a_projected_stroke.w > 0.0) {
+        let center = TangramCamera.u_projection * vec4<f32>(attributes.a_projected_stroke.xy, 0.0, 1.0);
+        let direction = (clip_position.xy / clip_position.w - center.xy / center.w) * TangramView.u_resolution;
+        let magnitude = length(direction);
+        let normalized_direction = direction / max(magnitude, 0.000001);
+        clip_position.x = center.x + normalized_direction.x * attributes.a_projected_stroke.z *
+            TangramView.u_device_pixel_ratio * 2.0 / TangramView.u_resolution.x * center.w;
+        clip_position.y = center.y + normalized_direction.y * attributes.a_projected_stroke.z *
+            TangramView.u_device_pixel_ratio * 2.0 / TangramView.u_resolution.y * center.w;
+    }
+    ` : ''}
     let layer = f32(attributes.a_position.w) +
         TangramTile.u_tile_proxy_order_offset + 1.0;
     clip_position.z -= layer * ${cpuProjection ? LAYER_DELTA * 0.5 : LAYER_DELTA} * clip_position.w;

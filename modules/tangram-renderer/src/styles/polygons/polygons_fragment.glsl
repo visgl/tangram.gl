@@ -121,6 +121,24 @@ void main (void) {
     }
     #endif
 
+    #ifdef TANGRAM_PROJECTED_TRAFFIC
+        float direction = v_texcoord.x < .5 ? 1. : -1.;
+        float phase = direction > 0. ? 2.75 : 0.;
+        float coordinate = v_texcoord.y * .125 - u_time * 1.8 * direction + phase;
+        float vehicle_position = fract(coordinate / 6.);
+        float derivative = max(fwidth(vehicle_position), .001);
+        float half_length = max(.022, derivative * 1.35);
+        float distance = abs(vehicle_position - .5);
+        float body = 1. - smoothstep(half_length, half_length + derivative, distance);
+        float halo = 1. - smoothstep(half_length + derivative, half_length + derivative * 2.5, distance);
+        float lane_center = direction > 0. ? .28 : .72;
+        float lane_derivative = max(fwidth(v_texcoord.x), .01);
+        float half_width = clamp(lane_derivative * .45, .10, .22);
+        float lane_edge = clamp(lane_derivative * .35, .02, .18);
+        float lane = 1. - smoothstep(half_width, half_width + lane_edge, abs(v_texcoord.x - lane_center));
+        color.rgb = mix(color.rgb, vec3(.62, 1., .98), max(body, halo * .35) * lane * .98);
+    #endif
+
     // First, get normal from raster tile (if applicable)
     #ifdef TANGRAM_RASTER_TEXTURE_NORMAL
         normal = normalize(sampleRaster(0).rgb * 2. - 1.);

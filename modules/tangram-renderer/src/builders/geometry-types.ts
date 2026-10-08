@@ -30,6 +30,9 @@ export interface PolylineVertexIndices {
     a_extrude: number;
     a_offset?: number;
     a_texcoord?: number | null;
+    /** Optional CPU-projection source normals and authored stroke dimensions. */
+    a_projected_normals?: number;
+    a_projected_widths?: number;
 }
 /** Per-build mutable state; deferred segments retain the same geometry sink. */
 export interface PolylineBuildContext {
@@ -50,4 +53,8 @@ export interface PolylineBuildContext {
     offset: number;
     geom_count: number;
     extra_lines?: GeometryLine[];
+    /** Adjacent source normals retained only by opt-in projected line layouts. */
+    projected_normals_index?: number;
+    projected_widths_index?: number;
+    projected_normals?: number[];
 }

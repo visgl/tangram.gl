@@ -11,6 +11,7 @@ import {createProjectedExampleScene, getProjectedExampleTileZoom} from './scene.
 import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from './detail.js';
 import {createProjectedExampleProjectionEngine} from './projection-engine.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
+import {createCollapsibleInfoCard} from '../deck/info-card.js';
 
 const parameters = new URLSearchParams(location.search);
 // The caller owns one stable factory; the renderer caches independent compiled CRS transforms.
@@ -22,12 +23,15 @@ const basemapSelector = document.querySelector('#basemap');
 const coverageSelector = document.querySelector('#coverage');
 const detailSelector = document.querySelector('#detail');
 const detailMode = document.querySelector('#detail-mode');
+const refinementSelector = document.querySelector('#refinement');
 const coordinateProbe = document.querySelector('#coordinates');
 const status = document.querySelector('#status');
+const destroyInfoCard = createCollapsibleInfoCard(document.querySelector('#controls'));
 projectionSelector.value = parameters.get('projection') || 'equal-earth';
 basemapSelector.value = parameters.get('basemap') === 'vector' ? 'vector' : 'raster';
 coverageSelector.value = parameters.get('coverage') === 'regional' ? 'regional' : 'world';
 detailMode.value = parameters.get('detailMode') === 'camera' ? 'camera' : 'manual';
+refinementSelector.value = parameters.get('refinement') === 'adaptive' ? 'adaptive' : 'angular';
 let selectedDetail = parameters.has('detail') ? Number(parameters.get('detail')) : undefined;
 let deck;
 let preparedScene;
@@ -43,16 +47,20 @@ let viewState = {target: [0, 0, 0], zoom: projectionSelector.value === 'albers' 
 let activeProjection = projectionSelector.value;
 let loadingBounds;
 let coverageEmpty = false;
+let refinementError;
 
 /** Coalesce camera updates and discard obsolete projection, coverage or camera calculations. */
 function scheduleDetail() {
   const generation = ++navigationGeneration;
   clearTimeout(detailTimer);
-  if (disposed || projectionPending || detailMode.value !== 'camera') return;
+  if (disposed || projectionPending || (detailMode.value !== 'camera' && refinementSelector.value !== 'adaptive')) return;
   detailTimer = setTimeout(async () => {
     const viewport = deck?.getViewports()[0];
     if (!viewport) return;
     try {
+      const error = refinementSelector.value === 'adaptive' ? 2 / 2 ** Math.ceil(viewState.zoom) : undefined;
+      if (error !== refinementError) {await initialize(false); return;}
+      if (detailMode.value !== 'camera') return;
       const coverage = await navigation.getCameraCoverage(viewport, activeProjection,
         getProjectedExampleBounds(coverageSelector.value === 'regional'));
       if (disposed || generation !== navigationGeneration) return;
@@ -201,9 +209,12 @@ async function initialize(resetCoverage = true) {
   url.searchParams.set('detail', String(selectedDetail));
   url.searchParams.set('detailMode', detailMode.value);
   history.replaceState(null, '', url);
+  refinementError = refinementSelector.value === 'adaptive' ? 2 / 2 ** Math.ceil(viewState.zoom) : undefined;
+  url.searchParams.set('refinement', refinementSelector.value);
+  history.replaceState(null, '', url);
   const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene, projectionEngine,
     // OpenFreeMap transportation starts at zoom 4; overview imagery only needs zoom 2.
-    projectedProjection: {type}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
+    projectedProjection: {type, ...(refinementError === undefined ? {} : {maxProjectedError: refinementError})}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
     projectedVisibleBounds: loadingBounds, projectedMaxTiles: 256, visible: !coverageEmpty,
     tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256, maxCachedMeshBytes: 32 * 1024 * 1024},
     onProjectionChange: () => {
@@ -231,6 +242,7 @@ async function initialize(resetCoverage = true) {
     onLoad: scheduleDetail,
     onResize: scheduleDetail,
     layers,
+    _animate: true,
     onError: error => {setStatus(error.message, true); return true;}});
 }
 
@@ -255,6 +267,7 @@ detailSelector.addEventListener('change', () => {
   initialize().catch(error => setStatus(error.message, true));
 });
 detailMode.addEventListener('change', () => initialize().catch(error => setStatus(error.message, true)));
+refinementSelector.addEventListener('change', () => initialize(false).catch(error => setStatus(error.message, true)));
 document.querySelector('#fit-region').addEventListener('click', fitLoadingRegion);
 document.querySelector('#projected-map').addEventListener('pointermove', probeCoordinates);
 document.querySelector('#projected-map').addEventListener('pointerleave', () => {
@@ -278,6 +291,7 @@ document.querySelectorAll('[data-example-tab]').forEach(button => button.addEven
 }));
 window.addEventListener('pagehide', () => {
   disposed = true;
+  destroyInfoCard();
   projectionGeneration++;
   navigationGeneration++;
   probeGeneration++;

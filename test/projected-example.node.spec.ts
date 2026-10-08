@@ -48,7 +48,7 @@ test('projected vector example requests the source zoom where transportation sta
   // A 512-pixel source would subtract one zoom, silently requesting road-free zoom 3.
   expect(scene.sources).toMatchObject({map: {tile_size: 256, max_zoom: 6, tilejson: OPENFREEMAP_TILEJSON}});
   expect(scene.layers).toMatchObject({roads: {data: {layer: 'transportation'},
-    draw: {lines: {width: '150000m', cap: 'round', join: 'round'}}}});
+    draw: {traffic: {width: '6px', cap: 'round', join: 'round', outline: {width: '1px'}}}}});
   expect(createProjectedExampleScene(false)).not.toBe(scene);
 });
 

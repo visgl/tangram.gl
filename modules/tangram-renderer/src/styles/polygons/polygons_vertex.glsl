@@ -41,6 +41,9 @@ attribute vec4 a_color;
     // All lines have a width scaling factor, but only some have a height (position.z) or offset.
     // The vertex height is stored in different attributes to account for this.
     attribute vec2 a_z_and_offset_scale; // stores vertex height in x, and offset scaling factor in y
+    #ifdef TANGRAM_CPU_PROJECTED
+        attribute vec4 a_projected_stroke; // projected center.xy, CSS radius, nonzero pixel marker
+    #endif
     #define TANGRAM_POSITION_Z a_z_and_offset_scale.x // vertex height is stored in separate line-specific attrib
     #define TANGRAM_OFFSET_SCALING a_z_and_offset_scale.y // zoom scaling factor for line offset
     #define TANGRAM_WIDTH_SCALING a_position.z // zoom scaling factor for line width (stored in position attrib)
@@ -172,6 +175,16 @@ void main() {
 
     // Camera
     cameraProjection(position);
+    #if defined(TANGRAM_CPU_PROJECTED) && defined(TANGRAM_EXTRUDE_LINES)
+        if (a_projected_stroke.w > 0.) {
+            vec4 center = vec4(a_projected_stroke.xy, 0., 1.);
+            cameraProjection(center);
+            vec2 direction = (position.xy / position.w - center.xy / center.w) * u_resolution;
+            float magnitude = length(direction);
+            position.xy = center.xy + (magnitude > 0. ? direction / magnitude : vec2(0.)) *
+                a_projected_stroke.z * u_device_pixel_ratio * 2. / u_resolution * center.w;
+        }
+    #endif
 
     // +1 is to keep all layers including proxies > 0
     applyLayerOrder(a_position.w + u_tile_proxy_order_offset + 1., position);
