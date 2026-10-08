@@ -61,6 +61,8 @@ test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with out
   const engine = createProjectedExampleProjectionEngine();
   const navigation = new ProjectedBasemapNavigation(engine);
   const target = await navigation.projectPosition([-100, 40], 'equal-earth');
+  let sceneLoads = 0;
+  let loadedScene: Scene | undefined;
   const createScene = (animated: boolean, dashed: boolean) => createProjectedBasemapScene({
     scene: {background: {color: '#000000'}}, styles: {traffic: {base: 'lines', animated}},
     sources: {roads: {type: 'GeoJSON', url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`, max_zoom: 6}},
@@ -70,6 +72,7 @@ test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with out
   new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
   const layer = (scene: Record<string, unknown>) => new FixtureLayer({id: 'pixel-roads', scene, projectionEngine: engine,
     projectedTileZoom: 4, projectedStyleZoom: 6, projectedVisibleBounds: [-130, 30, -70, 50],
+    onSceneLoad: value => {loadedScene = value; sceneLoads++;},
     onSceneError: error => errors.push(error.message)});
   deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
     views: new OrthographicView({id: 'projected', flipY: false}), viewState: {target, zoom: 1},
@@ -98,13 +101,21 @@ test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with out
   const solidPixels = await greenPixels();
   expect(solidPixels).toBeGreaterThan(500);
   deck.setProps({layers: [layer(createScene(false, true))]});
+  await expect.poll(() => sceneLoads, {timeout: 20000}).toBe(2);
   // Static gaps must remove substantial road area; animation alone cannot satisfy this.
   await expect.poll(async () => {
     const count = await greenPixels();
     return count > solidPixels * 0.1 && count < solidPixels * 0.8;
   }, {timeout: 20000, message: 'Static dashes must render visible strokes and gaps, not a loading frame'}).toBe(true);
   deck.setProps({layers: [layer(createScene(true, true))]});
+  await expect.poll(() => sceneLoads, {timeout: 20000}).toBe(3);
   await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas)), {timeout: 20000}).toBeGreaterThan(100);
+  await expect.poll(() => {
+    const resources = loadedScene?.tile_manager.getResourceStatistics();
+    return resources ? resources.activeBuilds + resources.queuedBuilds : -1;
+  }, {timeout: 20000}).toBe(0);
+  // Capture only after the animated scene has loaded and finished building;
+  // replacing the static scene must not count as shader animation.
   const previous = (await readCanvasPixels(canvas)).data;
   await expect.poll(async () => {
     const current = (await readCanvasPixels(canvas)).data;
