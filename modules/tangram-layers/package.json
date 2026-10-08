@@ -7,8 +7,10 @@
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
+  "types": "dist/types/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/types/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
@@ -18,7 +20,7 @@
       "default": "./dist/experimental/webxr.js"
     },
     "./experimental/projected-basemaps": {
-      "types": "./src/experimental/projected-basemaps.ts",
+      "types": "./dist/types/experimental/projected-basemaps.d.ts",
       "import": "./dist/experimental/projected-basemaps.js",
       "default": "./dist/experimental/projected-basemaps.js"
     },
@@ -39,7 +41,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "yarn build:bundle",
+    "build": "yarn build:types && yarn build:bundle",
+    "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-layers index.ts experimental/projected-basemaps.ts",
     "build:bundle": "yarn build:bundle:main && yarn build:bundle:webxr && yarn build:bundle:projected",
     "build:bundle:projected": "ocular-bundle ./experimental-projected-basemaps.js --env=dev --output=dist/experimental/projected-basemaps.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "build:bundle:main": "ocular-bundle ./bundle.js --env=dev --output=dist/index.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
@@ -58,7 +61,13 @@
     "@deck.gl/core": "^9.4.0",
     "@luma.gl/core": "^9.4.0",
     "@luma.gl/experimental": "^9.4.0",
-    "@math.gl/core": "5.0.0-alpha.12",
+    "@math.gl/core": "5.0.0-alpha.13",
+    "@math.gl/projection": "5.0.0-alpha.13",
     "mjolnir.js": "^3.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@math.gl/projection": {
+      "optional": true
+    }
   }
 }

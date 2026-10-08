@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {ProjectionEngine} from '@math.gl/projection/core';
+import {ProjectionTransform} from '@math.gl/projection/core';
 import {equalEarth} from '@math.gl/projection/projections/eqearth';
 import {albersEqualArea} from '@math.gl/projection/projections/aea';
 import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
 import {mercator} from '@math.gl/projection/projections/merc';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
-import type {MeshProjectionRequest, MeshProjector, ProjectedBasemapOptions} from '../procedures/mesh-projector';
+import {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from '../procedures/projected-coordinate-transform';
+import type {MeshProjectionRequest, ProjectedMesh, ProjectedBasemapOptions} from '../procedures/mesh-projector';
 
 const SPHERE_RADIUS = 6378137;
-const COMMON_SCALE = 256 / SPHERE_RADIUS;
-const transforms = new Map<ProjectedBasemapOptions['type'], ProjectionEngine>();
+const transforms = new Map<ProjectedBasemapOptions['type'], ProjectionTransform>();
 
 /** Project ground degrees to north-positive common coordinates (256 units per sphere radius). */
 export function projectBasemapPosition(position: readonly [number, number], type: ProjectedBasemapOptions['type']): [number, number, number] {
@@ -23,24 +23,50 @@ export function projectBasemapPosition(position: readonly [number, number], type
     normalizeProjectedBasemapOptions({type});
     let transform = transforms.get(type);
     if (!transform) {
-        const parameters = type === 'equal-earth' ? '+proj=eqearth +lon_0=0' :
-            type === 'albers' ? '+proj=aea +lon_0=-96 +lat_0=37.5 +lat_1=29.5 +lat_2=45.5' :
-                type === 'mercator' || type === 'web-mercator' ? '+proj=merc +lon_0=0 +k_0=1 +over' :
-                    '+proj=eqc +lon_0=0 +lat_0=0 +lat_ts=0';
         // EPSG:3395 uses the WGS84 ellipsoid; EPSG:3857 uses the same major radius as a sphere.
         // Use matching geographic CRS geometry so this is projection, not a datum conversion.
-        const geometry = type === 'mercator' ? '+ellps=WGS84' : `+R=${SPHERE_RADIUS}`;
-        transform = new ProjectionEngine({projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator],
-            from: `+proj=longlat ${geometry}`, to: `${parameters} ${geometry} +units=m`});
+        transform = new ProjectionTransform({projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator],
+            ...getProjectedCoordinateOptions(type)});
         transforms.set(type, transform);
     }
     const projected = transform.projectSync([position[0], position[1]]);
     if (!projected.every(Number.isFinite)) throw new Error('Projected basemap produced a nonfinite position');
-    return [projected[0] * COMMON_SCALE, projected[1] * COMMON_SCALE, 0];
+    return [projected[0] * PROJECTED_COMMON_SCALE, projected[1] * PROJECTED_COMMON_SCALE, 0];
 }
 
 /** Refine in packed tile space, then write separate projected positions, preserving UVs and feature IDs. */
-export const projectBasemapMesh: MeshProjector = (request: MeshProjectionRequest) => {
+export function projectBasemapMesh(request: MeshProjectionRequest): ProjectedMesh {
+    return prepareProjectedMesh(request, position => projectBasemapPosition(position, request.projection.type));
+}
+
+/** Batch all refined vertices through the injected host engine, never one RPC per vertex. */
+export async function projectBasemapMeshWithEngine(request: MeshProjectionRequest): Promise<ProjectedMesh> {
+    if (!request.projectPositions) throw new Error('Injected projection requires a host batch callback');
+    const coordinates: number[] = [];
+    const result = prepareProjectedMesh(request, position => {
+        coordinates.push(position[0], position[1]);
+        return [0, 0, 0];
+    });
+    const projected = await request.projectPositions(new Float64Array(coordinates));
+    if (!(projected instanceof Float64Array) || projected.length !== coordinates.length ||
+        !projected.every(value => Number.isFinite(value) && Math.abs(value) <= 3.4028234663852886e38)) {
+        throw new Error('Projection engine returned an invalid common-position batch');
+    }
+    const projectedAttribute = request.layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_position');
+    if (projectedAttribute?.offset === undefined) throw new Error('Missing projected position layout');
+    const output = new DataView(result.vertices.buffer, result.vertices.byteOffset, result.vertices.byteLength);
+    for (let vertex = 0; vertex < projected.length / 2; vertex++) {
+        const offset = vertex * request.layout.stride + projectedAttribute.offset;
+        output.setFloat32(offset, projected[vertex * 2], true);
+        output.setFloat32(offset + 4, projected[vertex * 2 + 1], true);
+        output.setFloat32(offset + 8, 0, true);
+    }
+    return result;
+}
+
+/** Share refinement and tile conventions between worker-local and host-injected transforms. */
+function prepareProjectedMesh(request: MeshProjectionRequest,
+    projectPosition: (position: readonly [number, number]) => readonly [number, number, number]): ProjectedMesh {
     const projection = normalizeProjectedBasemapOptions(request.projection);
     const {tile, layout} = request;
     const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * Math.PI * SPHERE_RADIUS);
@@ -102,8 +128,8 @@ export const projectBasemapMesh: MeshProjector = (request: MeshProjectionRequest
         const longitude = Math.max(-180, Math.min(180, x / SPHERE_RADIUS * 180 / Math.PI));
         const latitude = Math.max(-85.0511287798066, Math.min(85.0511287798066,
             (2 * Math.atan(Math.exp(y / SPHERE_RADIUS)) - Math.PI / 2) * 180 / Math.PI));
-        const point = projectBasemapPosition([longitude, latitude], projection.type);
+        const point = projectPosition([longitude, latitude]);
         point.forEach((value, index) => output.setFloat32(offset + projectedOffset + index * 4, value, true));
     }
     return result;
-};
+}

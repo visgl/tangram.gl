@@ -74,6 +74,30 @@ depth-write settings are translated by `LumaDeviceRenderer` into luma.gl
 `RenderPipelineParameters`. Classic rendering continues to apply the equivalent
 state through its existing WebGL state manager.
 
+## `projectionEngine` constructor option
+
+`Renderer.create(scene, {projectionEngine})` (also named `ClassicWebGLRenderer`)
+accepts an optional math.gl-compatible `ProjectionEngine` factory. Tangram's
+structural type is exported from `@vis.gl/tangram-renderer/core`, so ordinary
+consumers do not need the optional math.gl projection peer. The option applies
+to scenes using `scene.cpu_projection` and the opt-in projection worker; it
+does not replace built-in Mercator/globe cameras or change `HostFrame`.
+
+Each renderer compiles independent transforms with `createProjectionAsync` and
+caches them by the supported projection type. Workers retain refinement, source
+tiles, UVs and feature IDs, then transfer packed longitude/latitude batches to
+a scene-local host endpoint. The engine converts the documented CRS pairs from
+degrees to north-positive meters; Tangram converts those meters to common space.
+Compilation and projection errors propagate through the existing tile-error
+channel. A failed compilation can be retried by rebuilding.
+
+Tangram releases its transforms and broker endpoint on destruction, including
+rejecting late compilations. It does not dispose or modify the caller's engine.
+Omitting the option keeps the existing worker-local projection implementation,
+with no runtime import of math.gl's projection catalog into the core entry.
+Engine identity is fixed for the renderer's lifetime; create a new renderer to
+replace it. See [experimental projected basemaps](../developer-guide/projected-basemaps.md#injecting-a-projection-engine).
+
 ## Source attribution
 
 ### `renderer.getAttributions()`

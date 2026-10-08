@@ -8,8 +8,10 @@ Copyright (c) vis.gl contributors
 
 ## Development dependency baseline
 
-The development line uses math.gl `5.0.0-alpha.12` and the renderer's optional
-loaders.gl adapters use `5.0.0-alpha.9`. The layer's math.gl peer dependency and
+The development line uses math.gl `5.0.0-alpha.13` and the renderer's optional
+loaders.gl core, configuration, loader utilities and tiles use `5.0.0-alpha.10`.
+MVT, MLT and PMTiles remain on `5.0.0-alpha.9`, their latest published alphas.
+The layer's math.gl peer dependency and
 the standalone and embedded examples use the same math.gl version. These are
 prerelease dependencies; the production YAML and MVT parser selection is unchanged.
 

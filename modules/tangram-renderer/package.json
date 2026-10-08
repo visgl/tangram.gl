@@ -7,16 +7,16 @@
   "type": "module",
   "main": "dist/index.js",
   "module": "dist/index.js",
-  "types": "src/index.d.ts",
+  "types": "dist/types/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.d.ts",
+      "types": "./dist/types/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./dist/*": "./dist/*",
     "./core": {
-      "types": "./src/core.d.ts",
+      "types": "./dist/types/core.d.ts",
       "import": "./dist/core.js",
       "default": "./dist/core.js"
     },
@@ -40,7 +40,8 @@
     "access": "public"
   },
   "scripts": {
-    "build": "node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:projection-worker && yarn build:size",
+    "build": "yarn build:types && node scripts/build.mjs && yarn build:entry && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:projection-worker && yarn build:size",
+    "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-renderer index.d.ts core.d.ts types.ts",
     "build:projection-worker": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/experimental/projected-basemaps-worker.ts --format=iife --globalName=TangramProjectedBasemaps --output=modules/tangram-renderer/dist/projected-basemaps-worker.js --externals=@vis.gl/tangram-layers --sourcemap=true --sourcesContent=false",
     "build:entry": "node scripts/write-package-entry.mjs",
     "build:style-schema": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/styles/style-schema.ts --env=dev --format=esm --output=modules/tangram-renderer/dist/style-schema.js --externals=zod --sourcemap=true --sourcesContent=false",
@@ -52,23 +53,23 @@
     "test-build-worker": "node scripts/build.mjs --test-worker"
   },
   "devDependencies": {
-    "@loaders.gl/config": "5.0.0-alpha.9",
-    "@loaders.gl/core": "5.0.0-alpha.9",
-    "@loaders.gl/loader-utils": "5.0.0-alpha.9",
+    "@loaders.gl/config": "5.0.0-alpha.10",
+    "@loaders.gl/core": "5.0.0-alpha.10",
+    "@loaders.gl/loader-utils": "5.0.0-alpha.10",
     "@loaders.gl/mlt": "5.0.0-alpha.9",
     "@loaders.gl/mvt": "5.0.0-alpha.9",
     "@loaders.gl/pmtiles": "5.0.0-alpha.9",
-    "@loaders.gl/tiles": "5.0.0-alpha.9",
-    "@math.gl/geospatial": "5.0.0-alpha.12",
-    "@math.gl/projection": "5.0.0-alpha.12",
+    "@loaders.gl/tiles": "5.0.0-alpha.10",
+    "@math.gl/geospatial": "5.0.0-alpha.13",
+    "@math.gl/projection": "5.0.0-alpha.13",
     "esbuild": "^0.28.1"
   },
   "dependencies": {
     "@luma.gl/core": "^9.4.0",
     "@luma.gl/shadertools": "^9.4.0",
     "@mapbox/vector-tile": "1.3.0",
-    "@math.gl/core": "5.0.0-alpha.12",
-    "@math.gl/web-mercator": "5.0.0-alpha.12",
+    "@math.gl/core": "5.0.0-alpha.13",
+    "@math.gl/web-mercator": "5.0.0-alpha.13",
     "core-js": "^3.39.0",
     "csscolorparser": "1.0.3",
     "earcut": "2.2.2",
@@ -81,5 +82,13 @@
     "quickselect": "3.0.0",
     "topojson-client": "https://github.com/tangrams/topojson-client.git#read-only",
     "zod": "^4.1.12"
+  },
+  "peerDependencies": {
+    "@math.gl/projection": "5.0.0-alpha.13"
+  },
+  "peerDependenciesMeta": {
+    "@math.gl/projection": {
+      "optional": true
+    }
   }
 }

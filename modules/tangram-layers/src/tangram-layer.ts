@@ -4,13 +4,26 @@
 
 // @ts-nocheck
 
-import WebMercatorViewAdapter from './web_mercator_view_adapter';
-import FirstPersonViewAdapter from './first_person_view_adapter';
-import GlobeViewAdapter from './globe_view_adapter';
-import type {GlobeViewAdapterOptions} from './globe_view_adapter';
-import type {FirstPersonViewAdapterOptions} from './first_person_view_adapter';
-import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types';
+import WebMercatorViewAdapter from './web_mercator_view_adapter.js';
+import FirstPersonViewAdapter from './first_person_view_adapter.js';
+import GlobeViewAdapter from './globe_view_adapter.js';
+import type {GlobeViewAdapterOptions} from './globe_view_adapter.js';
+import type {FirstPersonViewAdapterOptions} from './first_person_view_adapter.js';
+import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types.js';
 import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
+import type {ProjectionEngine} from '@vis.gl/tangram-renderer/core';
+import type {LayerProps} from '@deck.gl/core';
+import type {SceneDefinition} from '@vis.gl/tangram-renderer/core';
+
+/** Tangram-specific properties in addition to ordinary deck.gl layer properties. */
+export type TangramLayerProps = LayerProps & {
+  /** Inline scene or URL loaded by the renderer. */
+  scene: SceneDefinition;
+  /** Caller-owned CRS factory for CPU-projected basemaps; omitted keeps worker-local math.gl transforms. */
+  projectionEngine?: ProjectionEngine;
+  /** Remaining existing Tangram bridge properties. */
+  [property: string]: unknown;
+};
 
 /** Opt-in host adapter, kept independent of the ordinary geographic view dispatch. */
 export interface TangramHostViewAdapter {
@@ -53,7 +66,7 @@ export function injectNextzenApiKey(config, apiKey) {
  * @param {object} viewport deck.gl WebMercatorViewport.
  * @returns {{view: Float64Array, projection: Float32Array, position: number[]}}
  */
-export function getExternalCameraFrame(viewport) {
+export function getExternalCameraFrame(viewport): {view: Float64Array; projection: Float32Array; position: [number, number, number]} {
   return WebMercatorViewAdapter.getCameraFrame(viewport);
 }
 
@@ -87,7 +100,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
 
   class TangramLayer extends Layer {
     /** Forward deck.gl's property objects without changing its constructor semantics. */
-    constructor(...properties: unknown[]) {
+    constructor(...properties: Partial<TangramLayerProps>[]) {
       super(...properties);
     }
 
@@ -102,6 +115,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         record.sceneSource !== props.scene ||
         record.sceneBasePath !== props.sceneBasePath ||
         record.apiKey !== props.apiKey ||
+        record.projectionEngine !== (props.projectionEngine ?? undefined) ||
         record.maxConcurrentTileLoadsPerWorker !== (props.maxConcurrentTileLoadsPerWorker ?? undefined);
 
       if (shouldCreateScene) {
@@ -222,6 +236,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         sceneSource: props.scene,
         sceneBasePath: props.sceneBasePath,
         apiKey: props.apiKey,
+        projectionEngine: props.projectionEngine ?? undefined,
         maxConcurrentTileLoadsPerWorker: props.maxConcurrentTileLoadsPerWorker ?? undefined,
         canvasWidth: null,
         canvasHeight: null,
@@ -242,6 +257,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         const renderer_options = {
           device,
           canvas: deckCanvas,
+          projectionEngine: record.projectionEngine,
           maxConcurrentTileLoadsPerWorker: record.maxConcurrentTileLoadsPerWorker,
           requestRedraw: () => {
             if (!record.disposed && record.owner.setNeedsRedraw) {
@@ -454,6 +470,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
 
   TangramLayer.layerName = 'TangramLayer';
   TangramLayer.defaultProps = {
+    projectionEngine: null,
     scene: null,
     sceneBasePath: null,
     apiKey: null,

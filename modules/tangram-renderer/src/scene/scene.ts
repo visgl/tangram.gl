@@ -42,6 +42,7 @@ import type {SceneListeners, SceneDefinition, SceneLoadOptions, TileSourceStatis
 import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 import type {RenderPass} from '@luma.gl/core';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
+import {HostProjectionEngineAdapter, validateProjectionEngine} from '../procedures/projected-coordinate-transform';
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
@@ -57,9 +58,14 @@ export default class Scene {
     declare host_animation_time: number | null;
     /** Shared source-procedure limit applies independently to each worker, not to mesh builds. */
     readonly maxConcurrentTileLoadsPerWorker: number | undefined;
+    /** Scene-local broker endpoint; only this string crosses into workers. */
+    private readonly projectionTarget: string | undefined;
+    /** Scene owns compiled transforms, not the caller's reusable engine. */
+    private readonly projectionAdapter: HostProjectionEngineAdapter | undefined;
 
     constructor(config_source, options) {
         options = options || {};
+        validateProjectionEngine(options.projectionEngine);
         this.maxConcurrentTileLoadsPerWorker = validateConcurrentTileLoads(options.maxConcurrentTileLoadsPerWorker);
         subscribeMixin(this);
 
@@ -156,6 +162,14 @@ export default class Scene {
         this.log_level = options.logLevel || 'warn';
         log.setLevel(this.log_level);
         log.reset();
+        if (options.projectionEngine) {
+            this.projectionAdapter = new HostProjectionEngineAdapter(options.projectionEngine);
+            this.projectionTarget = `ProjectionEngine_${this.id}`;
+            WorkerBroker.addTarget(this.projectionTarget, {
+                projectPositions: async (coordinates, type) => WorkerBroker.withTransferables(
+                    await this.projectionAdapter.projectPositions(coordinates, type))
+            });
+        }
     }
 
     static create (config, options = {}) {
@@ -262,6 +276,8 @@ export default class Scene {
     }
 
     destroyScene() {
+        this.projectionAdapter?.dispose();
+        WorkerBroker.removeTarget(this.projectionTarget);
         this.initialized = false;
         this.render_loop_stop = true; // schedule render loop to stop
 
@@ -1655,6 +1671,7 @@ export default class Scene {
             config: config_serialized,
             generation: this.generation,
             introspection: this.introspection,
+            projection_target: this.projectionTarget,
             shader_language: this.shader_language
         }, debugSettings);
     }

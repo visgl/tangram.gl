@@ -16,7 +16,13 @@ Copyright (c) vis.gl contributors
       {"imports": {
         "@deck.gl/core": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
         "@luma.gl/core": "https://esm.sh/@luma.gl/core@9.4.0?bundle",
-        "@math.gl/core": "https://esm.sh/@math.gl/core@5.0.0-alpha.12?bundle",
+        "@math.gl/core": "https://esm.sh/@math.gl/core@5.0.0-alpha.13?bundle",
+        "@math.gl/core/spheroid": "https://esm.sh/@math.gl/core@5.0.0-alpha.13/spheroid?bundle",
+        "@math.gl/projection/core": "https://esm.sh/@math.gl/projection@5.0.0-alpha.13/core?bundle&external=@math.gl/core",
+        "@math.gl/projection/projections/eqearth": "https://esm.sh/@math.gl/projection@5.0.0-alpha.13/projections/eqearth?bundle&external=@math.gl/core",
+        "@math.gl/projection/projections/aea": "https://esm.sh/@math.gl/projection@5.0.0-alpha.13/projections/aea?bundle&external=@math.gl/core",
+        "@math.gl/projection/projections/eqc": "https://esm.sh/@math.gl/projection@5.0.0-alpha.13/projections/eqc?bundle&external=@math.gl/core",
+        "@math.gl/projection/projections/merc": "https://esm.sh/@math.gl/projection@5.0.0-alpha.13/projections/merc?bundle&external=@math.gl/core",
         "@vis.gl/tangram-renderer/core": "../../modules/tangram-renderer/dist/core.js",
         "@vis.gl/tangram-layers/experimental/projected-basemaps": "../../modules/tangram-layers/dist/experimental/projected-basemaps.js"
       }}
@@ -46,7 +52,7 @@ Copyright (c) vis.gl contributors
         <p class="hint">Camera zoom is independent of tile detail. Loaded tiles are retained within the cache budget. Regional coverage allows finer detail; pan outside it to see the loading boundary.</p>
         </section>
         <section data-example-tab-panel="about" hidden>
-          <p class="example-description">math.gl CPU projection in Tangram workers; deck.gl OrthographicView controls the camera.</p>
+          <p class="example-description">A caller-supplied math.gl ProjectionEngine projects batched coordinates. Tangram workers refine meshes and retain loaded tiles; deck.gl OrthographicView controls the camera.</p>
           <p class="hint">Ground polygons and fixed-meter road ribbons. OpenFreeMap starts at zoom 4 because roads are absent from lower zooms; Blue Marble starts at zoom 2. Styling remains at zoom 6 while detail changes. The example limits coverage to 256 tile candidates per source, 8 concurrent mesh builds and a 32 MB / 256-tile offscreen mesh cache. These are not total memory or download limits. Road widths are exaggerated for overview visibility; screen-pixel strokes, labels, elevations and picking are deferred. Blue Marble is overview imagery, not street-level photography.</p>
         </section>
       </aside>

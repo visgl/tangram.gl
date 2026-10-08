@@ -8,9 +8,12 @@ import {ProjectedBasemapLayer, createProjectedBasemapScene} from '@vis.gl/tangra
 import {countProjectedTileCoordinates} from '@vis.gl/tangram-renderer/core';
 import {createProjectedExampleScene, getProjectedExampleTileZoom} from './scene.js';
 import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from './detail.js';
+import {createProjectedExampleProjectionEngine} from './projection-engine.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 const parameters = new URLSearchParams(location.search);
+// The caller owns one stable factory; the renderer caches independent compiled CRS transforms.
+const projectionEngine = createProjectedExampleProjectionEngine();
 const device = parameters.get('device') || (navigator.gpu ? 'webgpu' : 'webgl');
 const projectionSelector = document.querySelector('#projection');
 const basemapSelector = document.querySelector('#basemap');
@@ -64,13 +67,13 @@ async function initialize() {
   url.searchParams.set('coverage', coverageSelector.value);
   url.searchParams.set('detail', String(selectedDetail));
   history.replaceState(null, '', url);
-  const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene,
+  const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene, projectionEngine,
     // OpenFreeMap transportation starts at zoom 4; overview imagery only needs zoom 2.
     projectedProjection: {type}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
     projectedVisibleBounds: getProjectedExampleBounds(regional), projectedMaxTiles: 256,
     tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256, maxCachedMeshBytes: 32 * 1024 * 1024},
     onProjectionChange: () => {
-      if (generation === updateGeneration) setStatus('Worker CPU projection enabled. Drag to pan and scroll to zoom.');
+      if (generation === updateGeneration) setStatus('Caller-supplied math.gl engine enabled. Drag to pan and scroll to zoom.');
     },
     onSceneError: error => {
       if (generation === updateGeneration) setStatus(error.message, true);

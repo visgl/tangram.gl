@@ -22,7 +22,7 @@ function collectPackageImports(entry: URL, visited = new Set<string>()): Set<str
       imports.add(importName);
       continue;
     }
-    const candidates = [importName, `${importName}.ts`, `${importName}/index.ts`];
+    const candidates = [importName, importName.replace(/\.js$/, '.ts'), `${importName}.ts`, `${importName}/index.ts`];
     const dependency = candidates.map(path => new URL(path, entry)).find(path => existsSync(path));
     if (!dependency) throw new Error(`Unable to resolve ${importName} from ${entry.href}`);
     for (const packageImport of collectPackageImports(dependency, visited)) imports.add(packageImport);
@@ -34,9 +34,21 @@ const packageImports = collectPackageImports(new URL('../modules/tangram-layers/
 const rendererPackage = JSON.parse(readFileSync(new URL('../modules/tangram-renderer/package.json', import.meta.url), 'utf8'));
 const mathVersion = rendererPackage.dependencies['@math.gl/core'];
 
+test('projected example resolves its caller-owned factory and the engine spheroid leaf', () => {
+  const source = readFileSync(new URL('../examples/projected/index.html', import.meta.url), 'utf8');
+  const factoryImports = collectPackageImports(new URL('../examples/projected/projection-engine.js', import.meta.url));
+  for (const importName of factoryImports) {
+    expect(source).toContain(`"${importName}":`);
+    const subpath = importName.replace('@math.gl/projection/', '');
+    expect(source).toContain(`https://esm.sh/@math.gl/projection@${mathVersion}/${subpath}?bundle`);
+  }
+  expect(source).toContain(`"@math.gl/core/spheroid": "https://esm.sh/@math.gl/core@${mathVersion}/spheroid?bundle"`);
+});
+
 test.each([
   'examples/deck/index.html',
   'examples/webxr/index.html',
+  'examples/projected/index.html',
   'website/src/components/DeckExample.js',
   'website/src/components/TronHeroBackground.js',
   'website/src/components/WebXRExample.js'
@@ -51,14 +63,19 @@ test.each([
   expect(source).toContain(`https://esm.sh/@math.gl/core@${mathVersion}?bundle`);
 });
 
-test('renderer loaders use one pinned v5 release and layer math peers match the renderer', () => {
+test('renderer loaders use pinned v5 alphas and layer math peers match the renderer', () => {
   const loadersVersions = Object.entries(rendererPackage.devDependencies)
     .filter(([name]) => name.startsWith('@loaders.gl/'))
     .map(([, version]) => version);
   expect(loadersVersions.length).toBeGreaterThan(0);
-  expect(new Set(loadersVersions).size).toBe(1);
-  expect(loadersVersions[0]).toMatch(/^5\.0\.0-alpha\.\d+$/);
+  // Loader packages are published independently; alpha.10 is not yet available for MVT/MLT/PMTiles.
+  for (const version of loadersVersions) expect(version).toMatch(/^5\.0\.0-alpha\.\d+$/);
+  const coordinatedVersions = ['core', 'config', 'loader-utils', 'tiles']
+    .map(name => rendererPackage.devDependencies[`@loaders.gl/${name}`]);
+  expect(new Set(coordinatedVersions).size).toBe(1);
   expect(rendererPackage.dependencies['@math.gl/web-mercator']).toBe(mathVersion);
+  expect(rendererPackage.devDependencies['@math.gl/geospatial']).toBe(mathVersion);
+  expect(rendererPackage.devDependencies['@math.gl/projection']).toBe(mathVersion);
   const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
   const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
   expect(layerPackage.peerDependencies['@math.gl/core']).toBe(mathVersion);

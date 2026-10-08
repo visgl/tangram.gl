@@ -65,7 +65,7 @@ export default function WebXRExample({viewMode = 'globe'}) {
           'https://esm.sh/@luma.gl/webgl@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/webgpu':
           'https://esm.sh/@luma.gl/webgpu@9.4.0?bundle&external=@luma.gl/core',
-        '@math.gl/core': 'https://esm.sh/@math.gl/core@5.0.0-alpha.12?bundle',
+        '@math.gl/core': 'https://esm.sh/@math.gl/core@5.0.0-alpha.13?bundle',
         '@mediapipe/tasks-vision':
           'https://esm.sh/@mediapipe/tasks-vision@0.10.22-rc.20250304?bundle',
         react: 'https://esm.sh/react@19.1.1?bundle',

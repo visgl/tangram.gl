@@ -6,7 +6,7 @@ import {Layer} from '@deck.gl/core';
 import {Matrix4} from '@math.gl/core';
 import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates} from '@vis.gl/tangram-renderer/core';
 import type {HostFrameOptions, HostTileResourceOptions, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
-import createTangramLayerClass from '../tangram-layer';
+import createTangramLayerClass from '../tangram-layer.js';
 
 /** The public, non-geospatial OrthographicViewport camera consumed by the adapter. */
 export interface ProjectedViewport {

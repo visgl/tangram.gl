@@ -47,7 +47,7 @@ interface TangramFeature {
     properties: Record<string, unknown>;
 }
 
-interface TangramFeatureCollection {
+export interface TangramFeatureCollection {
     type: 'FeatureCollection';
     features: TangramFeature[];
 }
