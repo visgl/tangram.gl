@@ -10,19 +10,33 @@ import {mercator} from '@math.gl/projection/projections/merc';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from '../procedures/projected-coordinate-transform';
-import type {MeshProjectionRequest, ProjectedMesh, ProjectedBasemapOptions} from '../procedures/mesh-projector';
+import type {MeshProjectionRequest, ProjectedMesh, ProjectedBasemapOptions, MeshProjectionStatistics} from '../procedures/mesh-projector';
 import {ProjectedMeshPreparationCache} from './projected-mesh-cache';
 import {clipProjectedMesh, getProjectedSourceDomain} from './projected-mesh-domain';
 import {refineProjectedMesh} from './projected-mesh-refinement';
+import type {ProjectedRefinementWork} from './projected-mesh-refinement';
 
 const SPHERE_RADIUS = 6378137;
 const transforms = new Map<ProjectedBasemapOptions['type'], ProjectionTransform>();
 const preparationCache = new ProjectedMeshPreparationCache();
+let projectionStatistics = createProjectionStatistics();
+
+/** Start a new worker-lifecycle snapshot; pending requests retain their old accounting epoch. */
+function createProjectionStatistics(): MeshProjectionStatistics {
+    return {completedMeshes: 0, failedMeshes: 0, sourceVertices: 0, outputVertices: 0,
+        outputTriangles: 0, projectionBatches: 0, projectedPositions: 0, edgeRounds: 0, interiorRounds: 0};
+}
 
 /** Release optional worker-owned preparation and compiled local transforms on worker reset. */
 export function clearProjectedMeshPreparation(): void {
     preparationCache.clear();
     transforms.clear();
+    projectionStatistics = createProjectionStatistics();
+}
+
+/** Detached cumulative projection/refinement work, never mutable mesh or cache records. */
+export function getProjectedMeshWorkStatistics(): MeshProjectionStatistics {
+    return {...projectionStatistics};
 }
 
 /** Internal worker diagnostics for verifying warm source topology independently of target projection. */
@@ -51,30 +65,67 @@ export function projectBasemapPosition(position: readonly [number, number], type
 
 /** Refine in packed tile space, then write separate projected positions, preserving UVs and feature IDs. */
 export function projectBasemapMesh(request: MeshProjectionRequest): ProjectedMesh {
-    const refinement = prepareProjectedMesh(request);
-    let step = refinement.next();
-    while (!step.done) {
-        const positions = step.value.slice();
-        for (let index = 0; index < positions.length; index += 2) {
-            const point = projectBasemapPosition([positions[index], positions[index + 1]], request.projection.type);
-            positions[index] = point[0]; positions[index + 1] = point[1];
+    const work = {edgeRounds: 0, interiorRounds: 0};
+    const statistics = projectionStatistics;
+    try {
+        const refinement = prepareProjectedMesh(request, work);
+        let step = refinement.next();
+        while (!step.done) {
+            countProjectionBatch(step.value, statistics);
+            const positions = step.value.slice();
+            for (let index = 0; index < positions.length; index += 2) {
+                const point = projectBasemapPosition([positions[index], positions[index + 1]], request.projection.type);
+                positions[index] = point[0]; positions[index + 1] = point[1];
+            }
+            step = refinement.next(positions);
         }
-        step = refinement.next(positions);
+        recordCompletedProjection(request, step.value, work, statistics);
+        return step.value;
+    } catch (error) {
+        statistics.failedMeshes++;
+        throw error;
     }
-    return step.value;
 }
 
 /** Batch all refined vertices through the injected host engine, never one RPC per vertex. */
 export async function projectBasemapMeshWithEngine(request: MeshProjectionRequest): Promise<ProjectedMesh> {
-    if (!request.projectPositions) throw new Error('Injected projection requires a host batch callback');
-    const refinement = prepareProjectedMesh(request);
-    let step = refinement.next();
-    while (!step.done) step = refinement.next(await request.projectPositions(step.value));
-    return step.value;
+    const work = {edgeRounds: 0, interiorRounds: 0};
+    const statistics = projectionStatistics;
+    try {
+        if (!request.projectPositions) throw new Error('Injected projection requires a host batch callback');
+        const refinement = prepareProjectedMesh(request, work);
+        let step = refinement.next();
+        while (!step.done) {
+            countProjectionBatch(step.value, statistics);
+            step = refinement.next(await request.projectPositions(step.value));
+        }
+        recordCompletedProjection(request, step.value, work, statistics);
+        return step.value;
+    } catch (error) {
+        statistics.failedMeshes++;
+        throw error;
+    }
+}
+
+/** Account submitted work even if its engine rejects the request. */
+function countProjectionBatch(coordinates: Float64Array, statistics: MeshProjectionStatistics): void {
+    statistics.projectionBatches++;
+    statistics.projectedPositions += coordinates.length / 2;
+}
+
+/** Count returned meshes only, not partially refined or failed output. */
+function recordCompletedProjection(request: MeshProjectionRequest, result: ProjectedMesh, work: ProjectedRefinementWork,
+    statistics: MeshProjectionStatistics): void {
+    statistics.completedMeshes++;
+    statistics.sourceVertices += request.vertices.byteLength / request.layout.stride;
+    statistics.outputVertices += result.vertices.byteLength / request.layout.stride;
+    statistics.outputTriangles += result.indices.length / 3;
+    statistics.edgeRounds += work.edgeRounds;
+    statistics.interiorRounds += work.interiorRounds;
 }
 
 /** Share refinement and tile conventions between worker-local and host-injected transforms. */
-function* prepareProjectedMesh(request: MeshProjectionRequest): Generator<Float64Array, ProjectedMesh, Float64Array> {
+function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRefinementWork): Generator<Float64Array, ProjectedMesh, Float64Array> {
     const projection = normalizeProjectedBasemapOptions(request.projection);
     const {tile, layout} = request;
     const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * Math.PI * SPHERE_RADIUS);
@@ -157,7 +208,7 @@ function* prepareProjectedMesh(request: MeshProjectionRequest): Generator<Float6
         return [longitude, latitude];
     };
     const refined = yield* refineProjectedMesh(clipped, request,
-        (vertex, displacement) => geographicPosition(vertex, false, displacement), readPosition);
+        (vertex, displacement) => geographicPosition(vertex, false, displacement), readPosition, work);
     const result = {vertices: refined.vertices.slice(), indices: refined.indices.slice()};
     const coordinates: number[] = [];
     for (let offset = 0; offset < result.vertices.byteLength; offset += layout.stride) {

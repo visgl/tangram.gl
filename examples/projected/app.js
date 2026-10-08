@@ -12,6 +12,7 @@ import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from './det
 import {createProjectedExampleProjectionEngine} from './projection-engine.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
+import {createProjectedDiagnosticsPoller} from './diagnostics.js';
 
 const parameters = new URLSearchParams(location.search);
 // The caller owns one stable factory; the renderer caches independent compiled CRS transforms.
@@ -25,6 +26,7 @@ const detailSelector = document.querySelector('#detail');
 const detailMode = document.querySelector('#detail-mode');
 const refinementSelector = document.querySelector('#refinement');
 const coordinateProbe = document.querySelector('#coordinates');
+const diagnostics = document.querySelector('#diagnostics');
 const status = document.querySelector('#status');
 const destroyInfoCard = createCollapsibleInfoCard(document.querySelector('#controls'));
 projectionSelector.value = parameters.get('projection') || 'equal-earth';
@@ -48,6 +50,9 @@ let activeProjection = projectionSelector.value;
 let loadingBounds;
 let coverageEmpty = false;
 let refinementError;
+let loadedScene;
+const diagnosticsPoller = createProjectedDiagnosticsPoller(() => loadedScene,
+  text => {diagnostics.textContent = text;});
 
 /** Coalesce camera updates and discard obsolete projection, coverage or camera calculations. */
 function scheduleDetail() {
@@ -197,6 +202,8 @@ async function initialize(resetCoverage = true) {
   // Detail/coverage changes do not emit onProjectionChange; describe settings, not pending work.
   setStatus(`Data zoom ${selectedDetail}; style zoom stays at 6. Drag to pan and scroll to zoom.`);
   if (preparedBasemap !== basemapSelector.value) {
+    loadedScene = undefined;
+    diagnostics.textContent = 'Waiting for projected-worker diagnostics…';
     preparedBasemap = basemapSelector.value;
     preparedScene = createProjectedBasemapScene(createProjectedExampleScene(raster), {type},
       new URL('../../modules/tangram-renderer/dist/projected-basemaps-worker.js', import.meta.url).href);
@@ -217,6 +224,9 @@ async function initialize(resetCoverage = true) {
     projectedProjection: {type, ...(refinementError === undefined ? {} : {maxProjectedError: refinementError})}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
     projectedVisibleBounds: loadingBounds, projectedMaxTiles: 256, visible: !coverageEmpty,
     tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256, maxCachedMeshBytes: 32 * 1024 * 1024},
+    onSceneLoad: scene => {
+      if (!disposed && generation === updateGeneration) {loadedScene = scene; diagnosticsPoller.update();}
+    },
     onProjectionChange: () => {
       if (!disposed && !projectionPending && generation === updateGeneration && detailMode.value === 'manual') setStatus('Caller-supplied math.gl engine enabled. Drag to pan and scroll to zoom.');
     },
@@ -296,6 +306,7 @@ window.addEventListener('pagehide', () => {
   navigationGeneration++;
   probeGeneration++;
   clearTimeout(detailTimer);
+  diagnosticsPoller.destroy();
   navigation.dispose();
   deck?.finalize();
 });

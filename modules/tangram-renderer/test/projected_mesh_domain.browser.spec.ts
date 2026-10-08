@@ -6,7 +6,7 @@ import {beforeEach, expect, test, vi} from 'vitest';
 import VertexLayout from '../src/gl/vertex_layout';
 import Geo from '../src/utils/geo';
 import {projectBasemapMesh, projectBasemapMeshWithEngine, clearProjectedMeshPreparation,
-    getProjectedMeshPreparationStatistics} from '../src/experimental/projected-mesh';
+    getProjectedMeshPreparationStatistics, getProjectedMeshWorkStatistics} from '../src/experimental/projected-mesh';
 import {clipProjectedMesh} from '../src/experimental/projected-mesh-domain';
 import type {MeshProjectionRequest} from '../src/procedures/mesh-projector';
 
@@ -41,6 +41,37 @@ function readPosition(vertex: DataView): [number, number] {
 }
 
 beforeEach(() => clearProjectedMeshPreparation());
+
+test('projection work snapshots count submitted samples, completed meshes and rejected batches separately', async () => {
+    const input = request([[0, 0], [100, 0], [0, -100]], 1, 1, 6);
+    const result = projectBasemapMesh(input);
+    expect(getProjectedMeshWorkStatistics()).toEqual({completedMeshes: 1, failedMeshes: 0,
+        sourceVertices: 3, outputVertices: result.vertices.byteLength / layout.stride,
+        outputTriangles: result.indices.length / 3, projectionBatches: 1, projectedPositions: 3,
+        edgeRounds: 0, interiorRounds: 0});
+    const detached = getProjectedMeshWorkStatistics();
+    detached.completedMeshes = 999;
+    await expect(projectBasemapMeshWithEngine({...input, projectPositions: async () => {
+        throw new Error('test engine failure');
+    }})).rejects.toThrow('test engine failure');
+    expect(getProjectedMeshWorkStatistics()).toMatchObject({completedMeshes: 1, failedMeshes: 1,
+        sourceVertices: 3, projectionBatches: 2, projectedPositions: 6});
+    clearProjectedMeshPreparation();
+    expect(Object.values(getProjectedMeshWorkStatistics())).toEqual(new Array(9).fill(0));
+});
+
+test('a late rejected host batch cannot contaminate reset worker diagnostics', async () => {
+    let rejectPending: (reason: Error) => void = () => {throw new Error('Promise not initialized');};
+    const pending = new Promise<Float64Array>((_resolve, reject) => {rejectPending = reject;});
+    const input = request([[0, 0], [100, 0], [0, -100]], 1, 1, 6);
+    const result = projectBasemapMeshWithEngine({...input, projectPositions: () => pending});
+    const rejected = expect(result).rejects.toThrow('late failure');
+    expect(getProjectedMeshWorkStatistics().projectionBatches).toBe(1);
+    clearProjectedMeshPreparation();
+    rejectPending(new Error('late failure'));
+    await rejected;
+    expect(Object.values(getProjectedMeshWorkStatistics())).toEqual(new Array(9).fill(0));
+});
 
 test('projection switches reuse prepared source topology, without caching host results', async () => {
     const input = request([[0, 0], [4096, 0], [0, -4096]]);

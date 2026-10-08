@@ -386,21 +386,47 @@ on every pointer movement.
 
 ### Adaptive projected geometry
 
-`ProjectedBasemapOptions.maxProjectedError` optionally sets a positive chord-error
+`ProjectedBasemapOptions.maxProjectedError` optionally sets a positive sampled-error
 tolerance in projected common units. Each round batches endpoints and quarter,
-midpoint and three-quarter packed edge samples through the same selected engine.
+midpoint and three-quarter edge samples through the same selected engine.
+Polygon and raster surfaces also sample the centroid and three barycentric interior
+points, comparing projected positions against triangle interpolation. Surface edge
+checks compare parameterized interpolation, so straight but nonuniformly stretched
+edges still refine for raster UV accuracy. Road ribbons retain perpendicular chord
+checks rather than surface interpolation checks.
 Edges exceeding the tolerance split with shared indexed midpoints, preserving UVs,
 colors, layer order and feature IDs. The existing angular limit and vertex budget
 still apply; exhausting a budget or packed-coordinate precision fails explicitly.
+Interior-only errors insert packed triangle centers without changing shared edges.
+Partial edge subdivisions use interior fans to avoid alternating long diagonals;
+all added vertices count against the same per-mesh budget. Degenerate rounded
+centers are rejected rather than silently accepting an unmet tolerance.
 The preparation cache remains projection-independent; adaptive results are not
 inserted into that cache. The host engine uses batched RPCs, not one call per vertex.
 
-The example's optional adaptive mode targets sampled 2 CSS-pixel chord error,
+The example's optional adaptive mode targets sampled 2 CSS-pixel error,
 quantized upward in log2 camera scale and debounced. Adjacent equal-detail tiles
 use one shared tolerance and midpoint arithmetic. This is a **sampled error
 estimate**, not a mathematical surface-error guarantee. Mixed-level stitching,
-centroid/interior error bounds and terrain refinement remain follow-ups; source
+certified surface bounds and terrain refinement remain follow-ups; source
 detail is still uniform, independent of mesh refinement.
+
+### Refinement diagnostics
+
+The example's About tab polls `scene.getTileSourceStatistics()` once per second,
+without overlapping requests. Optional `projectionWork` snapshots report completed
+and failed meshes, input/output vertices and triangles, projection batches and
+positions, and edge/interior refinement rounds. Counts are cumulative work, not
+current residency or GPU memory; rebuilding a mesh adds another completed request.
+Batch/position counters include rejected work, while geometry and round totals
+include only completed meshes. Counters reset with worker source preparation;
+late replies from a previous reset do not enter the new counters.
+
+The card reports current build queues and evictable mesh-buffer residency separately,
+using `getResourceStatistics()`. These byte counts exclude textures and driver
+memory. Diagnostics failures do not interrupt rendering. Normal workers without
+the projected entry omit `projectionWork`; they do not load projection kernels to
+provide diagnostics.
 
 ### Projected road styling
 

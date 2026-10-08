@@ -4,14 +4,14 @@
 
 import {describe, expect, test, vi} from 'vitest';
 import {Style} from '../src/styles/style';
-import {projectBasemapMesh, projectBasemapMeshWithEngine, projectBasemapPosition} from '../src/experimental/projected-mesh';
+import {projectBasemapMesh, projectBasemapMeshWithEngine, projectBasemapPosition, getProjectedMeshWorkStatistics, clearProjectedMeshPreparation} from '../src/experimental/projected-mesh';
 import {HostProjectionEngineAdapter} from '../src/procedures/projected-coordinate-transform';
 import {createProjectionEngine} from '@math.gl/projection/core';
 import {equalEarth} from '@math.gl/projection/projections/eqearth';
 import {albersEqualArea} from '@math.gl/projection/projections/aea';
 import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
 import {mercator} from '@math.gl/projection/projections/merc';
-import {normalizeProjectedBasemapOptions, projectTileMesh, registerMeshProjector} from '../src/procedures/mesh-projector';
+import {normalizeProjectedBasemapOptions, projectTileMesh, registerMeshProjector, getMeshProjectorWorkStatistics} from '../src/procedures/mesh-projector';
 import type {MeshProjectionRequest, ProjectedBasemapOptions} from '../src/procedures/mesh-projector';
 import VertexLayout from '../src/gl/vertex_layout';
 import Geo from '../src/utils/geo';
@@ -256,8 +256,11 @@ describe('opt-in worker CPU projection', () => {
     test('requires explicit worker registration instead of silently using the classic projector', () => {
         const request = createRequest('equirectangular');
         expect(() => projectTileMesh(request)).toThrow('worker script');
-        registerMeshProjector(projectBasemapMesh);
+        expect(getMeshProjectorWorkStatistics()).toBeUndefined();
+        clearProjectedMeshPreparation();
+        registerMeshProjector(projectBasemapMesh, clearProjectedMeshPreparation, undefined, getProjectedMeshWorkStatistics);
         expect(projectTileMesh(request)).toEqual(projectBasemapMesh(request));
+        expect(getMeshProjectorWorkStatistics()).toMatchObject({completedMeshes: 2, failedMeshes: 0});
         expect(() => registerMeshProjector(projectBasemapMesh)).toThrow('already registered');
     });
 

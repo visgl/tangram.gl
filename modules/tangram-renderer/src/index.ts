@@ -10,6 +10,7 @@ import ClassicWebGLRenderer from './scene/renderer';
 import HostFrame from './scene/host_frame';
 import LumaDeviceRenderer from './gpu/luma_device_renderer';
 export type {HostTileResourceOptions, TileResourceStatistics, TileSourceStatistics} from './types';
+export type {MeshProjectionStatistics} from './procedures/mesh-projector';
 
 // Additional modules are exposed for debugging
 import version from './utils/version';

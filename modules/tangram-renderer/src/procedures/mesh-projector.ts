@@ -16,6 +16,28 @@ export interface MeshPreparationStatistics {
     misses: number;
 }
 
+/** Cumulative projection work in one worker, reset with source preparation; not resident GPU memory. */
+export interface MeshProjectionStatistics {
+    /** Meshes whose projection completed successfully. */
+    completedMeshes: number;
+    /** Requests rejected by preparation, refinement or the projection engine. */
+    failedMeshes: number;
+    /** Original packed vertices across completed requests. */
+    sourceVertices: number;
+    /** Final vertices across completed requests, including unchanged originals. */
+    outputVertices: number;
+    /** Final triangles across completed requests. */
+    outputTriangles: number;
+    /** Projector batches submitted, including samples and failed requests. */
+    projectionBatches: number;
+    /** Coordinate pairs submitted to local or host kernels. */
+    projectedPositions: number;
+    /** Successful sampled edge-refinement rounds. */
+    edgeRounds: number;
+    /** Successful sampled interior-refinement rounds. */
+    interiorRounds: number;
+}
+
 /** Initial CPU basemap projections; no arbitrary CRS or dynamic camera projection. */
 export type ProjectedBasemapOptions = {
     /** Projection with fixed documented ellipsoid, origin and standard parallels. */
@@ -24,7 +46,7 @@ export type ProjectedBasemapOptions = {
     maxAngularSpan?: number;
     /** Per-mesh additional vertex budget; defaults to 65,536. */
     maxAdditionalVertices?: number;
-    /** Optional sampled projected chord-error tolerance in common units; camera adapters convert CSS pixels. */
+    /** Optional sampled edge/interior error in common units; ribbons use edges only. */
     maxProjectedError?: number;
 };
 
@@ -58,15 +80,17 @@ export type MeshProjector = (request: MeshProjectionRequest) => ProjectedMesh | 
 let meshProjector: MeshProjector | undefined;
 let clearPreparation: (() => void) | undefined;
 let getPreparationStatistics: (() => MeshPreparationStatistics) | undefined;
+let getProjectionStatistics: (() => MeshProjectionStatistics) | undefined;
 
 /** Install the optional CPU projector in this worker without importing math.gl into normal bundles. */
 export function registerMeshProjector(projector: MeshProjector, clear?: () => void,
-    getStatistics?: () => MeshPreparationStatistics): void {
+    getStatistics?: () => MeshPreparationStatistics, getWorkStatistics?: () => MeshProjectionStatistics): void {
     if (typeof projector !== 'function') throw new Error('Mesh projector requires a function');
     if (meshProjector) throw new Error('Mesh projector is already registered');
     meshProjector = projector;
     clearPreparation = clear;
     getPreparationStatistics = getStatistics;
+    getProjectionStatistics = getWorkStatistics;
 }
 
 /** Release optional worker preparation at reset without importing its implementation in the core. */
@@ -77,6 +101,11 @@ export function clearMeshProjectorPreparation(): void {
 /** Snapshot optional preparation diagnostics without importing the projected worker in the core. */
 export function getMeshProjectorPreparationStatistics(): MeshPreparationStatistics | undefined {
     return getPreparationStatistics?.();
+}
+
+/** Snapshot optional projection work without importing projection kernels into renderer core. */
+export function getMeshProjectorWorkStatistics(): MeshProjectionStatistics | undefined {
+    return getProjectionStatistics?.();
 }
 
 /** Fail explicitly when a projected scene omitted its opt-in worker script. */
