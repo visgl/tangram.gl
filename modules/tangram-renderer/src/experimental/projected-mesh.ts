@@ -11,9 +11,23 @@ import {refineGlobeMesh} from '../gl/globe_mesh';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from '../procedures/projected-coordinate-transform';
 import type {MeshProjectionRequest, ProjectedMesh, ProjectedBasemapOptions} from '../procedures/mesh-projector';
+import {ProjectedMeshPreparationCache} from './projected-mesh-cache';
+import {clipProjectedMesh, getProjectedSourceDomain} from './projected-mesh-domain';
 
 const SPHERE_RADIUS = 6378137;
 const transforms = new Map<ProjectedBasemapOptions['type'], ProjectionTransform>();
+const preparationCache = new ProjectedMeshPreparationCache();
+
+/** Release optional worker-owned preparation and compiled local transforms on worker reset. */
+export function clearProjectedMeshPreparation(): void {
+    preparationCache.clear();
+    transforms.clear();
+}
+
+/** Internal worker diagnostics for verifying warm source topology independently of target projection. */
+export function getProjectedMeshPreparationStatistics(): ReturnType<ProjectedMeshPreparationCache['getStatistics']> {
+    return preparationCache.getStatistics();
+}
 
 /** Project ground degrees to north-positive common coordinates (256 units per sphere radius). */
 export function projectBasemapPosition(position: readonly [number, number], type: ProjectedBasemapOptions['type']): [number, number, number] {
@@ -113,18 +127,28 @@ function prepareProjectedMesh(request: MeshProjectionRequest,
         vertex.getInt16(positionOffset, true) + (line ? vertex.getInt16(extrusionOffset, true) / overzoom : 0),
         vertex.getInt16(positionOffset + 2, true) + (line ? vertex.getInt16(extrusionOffset + 2, true) / overzoom : 0)
     ];
-    const result = refineGlobeMesh(request.vertices, request.indices, layout, {
-        tileZoom: tile.coords.z, maxAngularSpan: projection.maxAngularSpan,
-        maxAdditionalVertices: projection.maxAdditionalVertices,
-        ...(line ? {getPosition: readPosition} : {})
-    });
+    const metadata = JSON.stringify({geometry: request.geometry, tileZoom: tile.coords.z, min: tile.min, overzoom,
+        stride: layout.stride, attributes: layout.dynamic_attribs.map(attribute =>
+            [attribute.name, attribute.type, attribute.size, attribute.offset, attribute.normalized]),
+        maxAngularSpan: projection.maxAngularSpan, maxAdditionalVertices: projection.maxAdditionalVertices});
+    const prepared = preparationCache.getOrCreate(metadata, request.vertices, request.indices, () =>
+        refineGlobeMesh(request.vertices, request.indices, layout, {
+            tileZoom: tile.coords.z, maxAngularSpan: projection.maxAngularSpan,
+            maxAdditionalVertices: projection.maxAdditionalVertices,
+            ...(line ? {getPosition: readPosition} : {})
+        }));
+    const clipped = clipProjectedMesh(prepared, request, readPosition, projection.maxAdditionalVertices! -
+        (prepared.vertices.byteLength - request.vertices.byteLength) / layout.stride);
+    // Never mutate or transfer cached/source buffers, even when refinement adds no vertices.
+    const result = {vertices: clipped.vertices.slice(), indices: clipped.indices.slice()};
     const output = new DataView(result.vertices.buffer, result.vertices.byteOffset, result.vertices.byteLength);
     const projectedOffset = projected.offset;
+    const domain = getProjectedSourceDomain(projection.type);
     for (let offset = 0; offset < output.byteLength; offset += layout.stride) {
         const [localX, localY] = readPosition(new DataView(output.buffer, output.byteOffset + offset, layout.stride));
-        const x = tile.min.x + localX / unitsPerMeter;
-        const y = tile.min.y + localY / unitsPerMeter;
-        // Clamp world-border padding instead of wrapping seam vertices to the opposite side.
+        // Clipping handled whole triangles. Clamp only packed-coordinate rounding at cut intersections.
+        const x = Math.max(domain[0], Math.min(domain[2], tile.min.x + localX / unitsPerMeter));
+        const y = Math.max(domain[1], Math.min(domain[3], tile.min.y + localY / unitsPerMeter));
         const longitude = Math.max(-180, Math.min(180, x / SPHERE_RADIUS * 180 / Math.PI));
         const latitude = Math.max(-85.0511287798066, Math.min(85.0511287798066,
             (2 * Math.atan(Math.exp(y / SPHERE_RADIUS)) - Math.PI / 2) * 180 / Math.PI));

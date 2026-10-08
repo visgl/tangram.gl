@@ -101,26 +101,8 @@ export function refineGlobeMesh(
         if (records.length >= originalCount + budget) {
             throw new RangeError('Globe mesh: refinement vertex budget exceeded');
         }
-        const record = records[first].slice();
-        const firstView = new DataView(records[first].buffer, records[first].byteOffset, layout.stride);
-        const secondView = new DataView(records[second].buffer, records[second].byteOffset, layout.stride);
+        const record = interpolatePackedVertex(records[first], records[second], layout, 0.5);
         const outputView = new DataView(record.buffer);
-        for (const attribute of layout.dynamic_attribs) {
-            for (let component = 0; component < attribute.size; component++) {
-                const firstValue = readComponent(firstView, attribute, component);
-                const secondValue = readComponent(secondView, attribute, component);
-                const flat = attribute.name === 'a_selection_color' ||
-                    (attribute.name === 'a_position' && component === 3);
-                if (flat || !INTERPOLATED_ATTRIBUTES.has(attribute.name)) {
-                    if (firstValue !== secondValue) {
-                        throw new Error(`Globe mesh: varying flat attribute ${attribute.name} is unsupported`);
-                    }
-                }
-                else {
-                    writeComponent(outputView, attribute, component, (firstValue + secondValue) / 2);
-                }
-            }
-        }
         const midpoint = records.length;
         records.push(record);
         positions.push(options.getPosition ? options.getPosition(outputView) :
@@ -173,6 +155,31 @@ export function refineGlobeMesh(
         vertices: refinedVertices,
         indices: records.length <= 65536 ? new Uint16Array(output) : new Uint32Array(output)
     };
+}
+
+/** Preserve Tangram's packed interpolation and flat IDs at refinement or clipping intersections. */
+export function interpolatePackedVertex(first: Uint8Array, second: Uint8Array,
+    layout: {stride: number; dynamic_attribs: VertexAttribute[]}, fraction: number): Uint8Array {
+    const record = first.slice();
+    const firstView = new DataView(first.buffer, first.byteOffset, layout.stride);
+    const secondView = new DataView(second.buffer, second.byteOffset, layout.stride);
+    const outputView = new DataView(record.buffer);
+    for (const attribute of layout.dynamic_attribs) {
+        for (let component = 0; component < attribute.size; component++) {
+            const firstValue = readComponent(firstView, attribute, component);
+            const secondValue = readComponent(secondView, attribute, component);
+            const flat = attribute.name === 'a_selection_color' || (attribute.name === 'a_position' && component === 3);
+            if (flat || !INTERPOLATED_ATTRIBUTES.has(attribute.name)) {
+                if (firstValue !== secondValue) throw new Error(`Globe mesh: varying flat attribute ${attribute.name} is unsupported`);
+            }
+            else {
+                // Keep the exact existing midpoint arithmetic, including integer rounding.
+                writeComponent(outputView, attribute, component, fraction === 0.5 ?
+                    (firstValue + secondValue) / 2 : firstValue * (1 - fraction) + secondValue * fraction);
+            }
+        }
+    }
+    return record;
 }
 
 /** Read a component without assuming the interleaved buffer starts at byte zero. */

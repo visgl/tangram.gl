@@ -114,6 +114,24 @@ textures are reused too. Only changing basemap sources requires a new scene.
 Geographic footprint changes retain loaded tiles subject to the configured
 cache budgets; new source detail or an expanded footprint may still fetch missing tiles.
 
+Workers also retain **projection-independent source preparation**: packed attributes
+and refined triangle topology. Byte-identical source geometry can reuse this work
+across target projection changes, including returning to an earlier projection.
+The lookup includes layout, geometry kind, source tile origin/detail, overzoom,
+and refinement limits; exact byte comparisons prevent hash collisions from
+substituting another feature's geometry. Styling or source-content changes miss
+the cache. Each worker retains at most 64 preparations and 16 MiB of accounted
+original/prepared buffers, evicting least-recently-used entries. Oversized meshes
+are processed without retention. These limits are independent of GPU tile caches
+and do not cap total scene memory. Worker reset releases the preparation cache.
+`renderer.getTileSourceStatistics()` includes optional per-worker
+`projectionPreparation: {entries, bytes, hits, misses}` diagnostics for this entry.
+
+Target positions are always recomputed, including for a caller-owned engine;
+mutable engine registrations/results are not cached. Every output owns separate
+transferable buffers. This avoids repeated refinement, not all styling/build work:
+styles are still evaluated during a rebuild, and region clipping is target-specific.
+
 | `type` | Projection parameters | Initial coverage |
 | --- | --- | --- |
 | `equal-earth` | Central longitude 0° | One Mercator tile world |
@@ -146,6 +164,25 @@ ordered west/south/east/north rectangle in a single world; latitude cannot excee
 meridian in this preview. Albers cannot request coverage outside the region above.
 Both Mercator variants retain this tile latitude limit rather than extending to the poles.
 Source tiles remain EPSG:3857; `mercator` changes output geometry, not the source grid.
+
+### Seam and domain clipping
+
+Before projection, workers clip ground triangles against the single source world
+in EPSG:3857 meters. Albers additionally clips to its documented North American
+region. Outside triangles are discarded; intersecting triangles are cut and
+triangulated in their original winding order. Raster UVs and varying packed
+attributes interpolate at intersections, while feature IDs and layer order stay
+flat. Polygon holes remain holes because clipping operates on the existing
+triangulation, not on newly reconstructed rings. Fixed-meter ribbon corners use
+the same clipping path. Source buffers remain untouched.
+
+The west and east antimeridian edges remain separate; padding is not wrapped to
+the other side or collapsed into a border triangle. Only rounding of packed cut
+positions is clamped to the exact boundary. Cut vertices share the existing
+`maxAdditionalVertices` budget with refinement, and exhausting it rejects the
+build rather than silently deleting geometry. Geographic poles beyond the source
+tile domain remain absent. Custom cut meridians, interrupted projections, and
+arbitrary engine-defined valid regions still require a separate domain contract.
 The example uses zoom 2 for Blue Marble and zoom 4 for OpenFreeMap, whose
 transportation layer starts at zoom 4. Its full-world vector footprint therefore
 loads up to 256 logical tile candidates per source. Its controls keep styling at
@@ -215,5 +252,5 @@ Existing geographic-view roads retain their current dynamic styling and animatio
 ## Next steps
 
 Screen-space strokes need a separate projection-aware width contract. Labels, picking, lighting, height, camera-dependent LOD,
-projection morphing and general seam management are not implemented by this entry.
+projection morphing and arbitrary projection domains are not implemented by this entry.
 Existing Mercator, GlobeView and FirstPersonView integrations remain unchanged.
