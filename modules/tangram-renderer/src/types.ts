@@ -13,6 +13,28 @@ export type Matrix4 = readonly number[] | Float32Array | Float64Array;
 export type Vector3 = readonly [number, number, number];
 export type SceneDefinition = string | Record<string, unknown> | readonly SceneDefinition[];
 
+/** Minimal CRS options accepted by a caller-owned math.gl-compatible projection factory. */
+export interface ProjectionEngineOptions {
+  /** Source CRS, supplied by Tangram as geographic degrees. */
+  from?: string;
+  /** Destination CRS, supplied by Tangram as north-positive projected meters. */
+  to?: string;
+}
+
+/** Compiled projection surface used for packed worker mesh coordinates. */
+export interface ProjectionEngineTransform {
+  /** Project packed coordinates in place, preserving their typed-array representation. */
+  projectFlatSync(coordinates: Float64Array, dimension?: number): Float64Array;
+}
+
+/** Structural subset of math.gl's factory; ordinary consumers need not install the optional peer. */
+export interface ProjectionEngine {
+  /** Compile an independent transform synchronously. */
+  createProjection(options?: ProjectionEngineOptions): ProjectionEngineTransform;
+  /** Compile a transform after loading any registered lazy projection implementations. */
+  createProjectionAsync(options?: ProjectionEngineOptions): Promise<ProjectionEngineTransform>;
+}
+
 export type Viewport = {
   x?: number;
   y?: number;
@@ -154,6 +176,8 @@ export type LegacyHostFrame = {
 };
 
 export type RendererOptions = {
+  /** Optional caller-owned CRS factory for CPU-projected basemaps; ordinary Mercator/globe cameras are unchanged. */
+  projectionEngine?: ProjectionEngine;
   device?: Device;
   /** Optional worker script URL; otherwise the package uses its embedded worker. */
   workerURL?: string;

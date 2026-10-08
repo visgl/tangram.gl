@@ -3,5 +3,8 @@
   "version": "1.0.0-alpha.0",
   "private": true,
   "type": "module",
-  "description": "Experimental worker-projected Tangram basemaps with deck.gl OrthographicView"
+  "description": "Experimental worker-projected Tangram basemaps with deck.gl OrthographicView",
+  "dependencies": {
+    "@math.gl/projection": "5.0.0-alpha.13"
+  }
 }

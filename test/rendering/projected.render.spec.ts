@@ -10,11 +10,14 @@ import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './
 import {createRasterScene} from './scene';
 import type Scene from '../../modules/tangram-renderer/src/scene/scene';
 import type {ProjectedBasemapOptions, Renderer} from '@vis.gl/tangram-renderer/core';
+import type {ProjectionEngine} from '@math.gl/projection/types';
+import {createProjectedExampleProjectionEngine} from '../../examples/projected/projection-engine.js';
 
 let harness: RenderingHarness | undefined;
 let deck: Deck<OrthographicView> | undefined;
 /** Dynamic layer factories do not yet emit a public subclass declaration. */
 type FixtureProperties = {scene: Record<string, unknown>; projectedTileZoom: number; onSceneError: (error: Error) => void;
+  projectionEngine?: ProjectionEngine;
   projectedVisibleBounds?: readonly [number, number, number, number];
   projectedProjection?: ProjectedBasemapOptions; onProjectionChange?: () => void; onSceneLoad?: (scene: Scene) => void};
 const FixtureLayer = ProjectedBasemapLayer as unknown as new (properties: FixtureProperties & LayerProps) => Layer;
@@ -94,7 +97,10 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
   }
 );
 
-test.each([false, true])(`${DEVICE_TYPE}: projection switches reuse decoded tiles and workers (raster=%s)`, async raster => {
+test.each([
+  {raster: false, injected: false}, {raster: true, injected: false},
+  {raster: false, injected: true}, {raster: true, injected: true}
+])(`${DEVICE_TYPE}: projection switches retain tiles/workers (raster=$raster, injected=$injected)`, async ({raster, injected}) => {
   harness = new RenderingHarness();
   await harness.initializeDevice();
   const errors = harness.errors;
@@ -104,8 +110,14 @@ test.each([false, true])(`${DEVICE_TYPE}: projection switches reuse decoded tile
   let loadedScene: Scene | undefined;
   let completedProjection = '';
   let loadCount = 0;
+  const engine = createProjectedExampleProjectionEngine();
+  const compiledTypes: unknown[] = [];
+  const projectionEngine: ProjectionEngine | undefined = injected ? {
+    createProjection: options => engine.createProjection(options),
+    createProjectionAsync: options => {compiledTypes.push(options); return engine.createProjectionAsync(options);}
+  } : undefined;
   const createLayer = (type: ProjectedBasemapOptions['type']) => new FixtureLayer({id: 'warm-projected-fixture',
-    scene, projectedTileZoom: 2, projectedProjection: {type},
+    scene, projectedTileZoom: 2, projectedProjection: {type}, projectionEngine,
     onSceneLoad: value => {loadedScene = value; loadCount++;},
     onProjectionChange: () => {completedProjection = type;}, onSceneError: error => errors.push(error.message)});
   deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
@@ -117,6 +129,7 @@ test.each([false, true])(`${DEVICE_TYPE}: projection switches reuse decoded tile
     return coloredPixels(await readCanvasPixels(canvas));
   }, {timeout: 20000, interval: 100}).toBeGreaterThan(500);
   await expect.poll(() => completedProjection).toBe('equal-earth');
+  if (injected) expect(compiledTypes).toHaveLength(1);
   if (!loadedScene) throw new Error('Expected a loaded projected scene');
   const initialScene = loadedScene;
   const workers = Reflect.get(initialScene, 'workers');
@@ -136,6 +149,7 @@ test.each([false, true])(`${DEVICE_TYPE}: projection switches reuse decoded tile
     expect((await initialScene.getTileSourceStatistics()).map(value => value.acquisitions))
       .toEqual(statistics.map(value => value.acquisitions));
   }
+  if (injected) expect(compiledTypes).toHaveLength(5);
 });
 
 test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
@@ -146,11 +160,17 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     const canvas = harness.canvas;
     let loadedScene: Scene | undefined;
     let completed = '';
+    const engine = createProjectedExampleProjectionEngine();
+    let engineCompilations = 0;
+    const projectionEngine: ProjectionEngine | undefined = type === 'albers' ? {
+      createProjection: options => engine.createProjection(options),
+      createProjectionAsync: options => {engineCompilations++; return engine.createProjectionAsync(options);}
+    } : undefined;
     // Force style zoom 2 over data zoom 1 to check packed extrusion overzoom.
     const scene = createProjectedBasemapScene(createRoadScene(1), {type},
       new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
     const createLayer = (projection: ProjectedBasemapOptions['type']) => new FixtureLayer({id: 'projected-road-fixture',
-      scene, projectedTileZoom: 2, projectedProjection: {type: projection},
+      scene, projectedTileZoom: 2, projectedProjection: {type: projection}, projectionEngine,
       projectedVisibleBounds: [-170, 5, -40, 75],
       onSceneLoad: value => {loadedScene = value;}, onProjectionChange: () => {completed = projection;},
       onSceneError: error => errors.push(error.message)});
@@ -173,6 +193,7 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     };
     await waitForRoads();
     await expect.poll(() => completed).toBe(type);
+    if (projectionEngine) expect(engineCompilations).toBe(1);
     if (!loadedScene) throw new Error('Road scene did not load');
     const firstScene = loadedScene;
     const acquisitions = (await firstScene.getTileSourceStatistics()).map(value => value.acquisitions);
@@ -182,6 +203,7 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     await waitForRoads();
     expect(loadedScene).toBe(firstScene);
     expect((await firstScene.getTileSourceStatistics()).map(value => value.acquisitions)).toEqual(acquisitions);
+    if (projectionEngine) expect(engineCompilations).toBe(2);
   });
 
 test(`${DEVICE_TYPE}: a worker refinement failure rejects and a queued projection correction renders`, async () => {

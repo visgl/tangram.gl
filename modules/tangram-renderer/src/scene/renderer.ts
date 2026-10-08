@@ -11,6 +11,7 @@ import type {TangramLightMapping} from '../lights/light-definitions';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
 import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
+import {validateProjectionEngine} from '../procedures/projected-coordinate-transform';
 import type {ProjectedBasemapOptions} from '../procedures/mesh-projector';
 
 
@@ -71,6 +72,7 @@ export default class Renderer {
 
     constructor(config: SceneDefinition, options: RendererOptions = {}) {
         validateConcurrentTileLoads(options.maxConcurrentTileLoadsPerWorker);
+        validateProjectionEngine(options.projectionEngine);
         this.gpuBackend = options.device ? new LumaDeviceRenderer(options.device) : null;
         // Retain the historical field while integrations migrate to gpuBackend.
         this.device_renderer = this.gpuBackend;

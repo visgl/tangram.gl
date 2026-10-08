@@ -4,8 +4,8 @@
 
 import {Matrix4} from '@math.gl/core';
 import {calculatePlanarGroundBounds, type HostCamera, type LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
-import WebMercatorViewAdapter from './web_mercator_view_adapter';
-import type {FirstPersonViewport} from './view_adapter_types';
+import WebMercatorViewAdapter from './web_mercator_view_adapter.js';
+import type {FirstPersonViewport} from './view_adapter_types.js';
 
 const DECK_WORLD_SIZE = 512;
 const HALF_WORLD_METERS = 20037508.342789244;

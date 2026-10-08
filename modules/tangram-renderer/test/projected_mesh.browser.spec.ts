@@ -3,7 +3,13 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, test} from 'vitest';
-import {projectBasemapMesh, projectBasemapPosition} from '../src/experimental/projected-mesh';
+import {projectBasemapMesh, projectBasemapMeshWithEngine, projectBasemapPosition} from '../src/experimental/projected-mesh';
+import {HostProjectionEngineAdapter} from '../src/procedures/projected-coordinate-transform';
+import {createProjectionEngine} from '@math.gl/projection/core';
+import {equalEarth} from '@math.gl/projection/projections/eqearth';
+import {albersEqualArea} from '@math.gl/projection/projections/aea';
+import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
+import {mercator} from '@math.gl/projection/projections/merc';
 import {normalizeProjectedBasemapOptions, projectTileMesh, registerMeshProjector} from '../src/procedures/mesh-projector';
 import type {MeshProjectionRequest, ProjectedBasemapOptions} from '../src/procedures/mesh-projector';
 import VertexLayout from '../src/gl/vertex_layout';
@@ -39,6 +45,35 @@ function createRequest(type: ProjectedBasemapOptions['type'], x = 2): MeshProjec
 }
 
 describe('opt-in worker CPU projection', () => {
+    test.each(projections)('%s host-engine batches produce byte-identical refined meshes', async type => {
+        const request = createRequest(type);
+        const original = request.vertices.slice();
+        const engine = new HostProjectionEngineAdapter(createProjectionEngine({
+            projections: [equalEarth, albersEqualArea, equidistantCylindrical, mercator]}));
+        let batches = 0;
+        const remote = await projectBasemapMeshWithEngine({...request, projectPositions: coordinates => {
+            batches++;
+            return engine.projectPositions(coordinates, type);
+        }});
+        const local = projectBasemapMesh(request);
+        expect(remote).toEqual(local);
+        expect(batches).toBe(1);
+        expect(request.vertices).toEqual(original);
+    });
+
+    test.each([new Float64Array(0), new Float64Array([NaN, 0]), new Float64Array([1e50, 0])])(
+        'rejects malformed host-engine response batches', async result => {
+            await expect(projectBasemapMeshWithEngine({...createRequest('equal-earth'),
+                projectPositions: async coordinates => result.length ? new Float64Array(coordinates.length).fill(result[0]) : result}))
+                .rejects.toThrow('invalid common-position batch');
+        }
+    );
+
+    test('propagates host-engine errors and rejects a missing callback', async () => {
+        await expect(projectBasemapMeshWithEngine({...createRequest('equal-earth'),
+            projectPositions: async () => {throw new Error('engine unavailable');}})).rejects.toThrow('engine unavailable');
+        await expect(projectBasemapMeshWithEngine(createRequest('equal-earth'))).rejects.toThrow('host batch callback');
+    });
     test.each(projections)('%s projects refined ribbon corners, preserving centerlines, widths and ordering', type => {
         const ribbonLayout = new VertexLayout([
             {name: 'a_position', size: 4, type: 5122},

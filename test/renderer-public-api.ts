@@ -6,6 +6,17 @@ import {ClassicWebGLRenderer, HostFrame} from '@vis.gl/tangram-renderer';
 import type {HostFrameOptions, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, RendererOptions} from '@vis.gl/tangram-renderer';
 import type {LumaLight, TangramLight, TangramPointLight, TangramLightMapping} from '@vis.gl/tangram-renderer';
 import {convertLumaLight} from '@vis.gl/tangram-renderer/core';
+import type {ProjectionEngine} from '@vis.gl/tangram-renderer/core';
+import type {TangramLayerProps} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@vis.gl/tangram-layers';
+
+declare const projectionEngine: ProjectionEngine;
+const projectedRendererOptions = {projectionEngine} satisfies RendererOptions;
+const projectedLayerProperties = {id: 'projected', scene: 'projected.yaml', projectionEngine} satisfies TangramLayerProps;
+ClassicWebGLRenderer.create('projected.yaml', projectedRendererOptions);
+new TangramLayer(projectedLayerProperties);
+// @ts-expect-error A single transform or unrelated object is not a ProjectionEngine factory.
+new TangramLayer({scene: 'projected.yaml', projectionEngine: {projectSync: () => []}});
 
 const frameOptions = {
   viewport: {width: 800, height: 600},

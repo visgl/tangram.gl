@@ -28,13 +28,18 @@ export interface MeshProjectionRequest {
     geometry?: 'polygons' | 'raster' | 'lines';
     /** Validated scene-wide projection and refinement limits. */
     projection: ProjectedBasemapOptions;
+    /** Optional worker-local bridge to a caller-owned host engine; never serialized with the scene. */
+    projectPositions?: (coordinates: Float64Array) => Promise<Float64Array>;
 }
 
-/** Synchronous worker procedure; returned bytes are transferred through the existing mesh protocol. */
-export type MeshProjector = (request: MeshProjectionRequest) => {
+/** Completed packed mesh, independent of projection backend ownership. */
+export type ProjectedMesh = {
     vertices: Uint8Array;
     indices: Uint16Array | Uint32Array;
 };
+
+/** Worker procedure; a host-injected backend may require an asynchronous batch round trip. */
+export type MeshProjector = (request: MeshProjectionRequest) => ProjectedMesh | Promise<ProjectedMesh>;
 
 let meshProjector: MeshProjector | undefined;
 
