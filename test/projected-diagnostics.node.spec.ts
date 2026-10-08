@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, expect, test, vi} from 'vitest';
-import {createProjectedDiagnosticsPoller, formatProjectedDiagnostics} from '../examples/projected/diagnostics.js';
+import {createProjectedDiagnosticsPoller, createProjectedSceneLoadHandler, formatProjectedDiagnostics} from '../examples/projected/diagnostics.js';
 
 const resources = {activeBuilds: 1, queuedBuilds: 2, cachedTiles: 3, cachedMeshBytes: 1200000};
 const projectionWork = {completedMeshes: 2, failedMeshes: 1, sourceVertices: 6, outputVertices: 12,
@@ -16,6 +16,33 @@ function deferred<T>() {
   const promise = new Promise<T>(resolvePromise => {resolve = resolvePromise;});
   return {promise, resolve};
 }
+
+test('scene loads survive settings changes but reject replaced sources and disposed examples', () => {
+  const configuration = {sources: {blueMarble: {}}};
+  let currentConfiguration: typeof configuration | undefined = configuration;
+  let disposed = false;
+  const onSceneLoad = vi.fn();
+  const pendingLoad = createProjectedSceneLoadHandler(configuration,
+    () => disposed ? undefined : currentConfiguration, onSceneLoad);
+  // New detail/refinement props keep the same source configuration, even before deck applies them.
+  const nextLayerProps = {scene: currentConfiguration, projectedTileZoom: 3, maxProjectedError: 2};
+  currentConfiguration = nextLayerProps.scene;
+  const scene = {id: 'loaded-raster-scene'};
+  pendingLoad(scene);
+  expect(onSceneLoad).toHaveBeenCalledExactlyOnceWith(scene);
+  // Basemap replacement creates a different scene, so its predecessor must not attach diagnostics.
+  currentConfiguration = {sources: {blueMarble: {}}};
+  pendingLoad(scene);
+  expect(onSceneLoad).toHaveBeenCalledTimes(1);
+  const replacementLoad = createProjectedSceneLoadHandler(currentConfiguration,
+    () => disposed ? undefined : currentConfiguration, onSceneLoad);
+  const replacementScene = {id: 'replacement-scene'};
+  replacementLoad(replacementScene);
+  expect(onSceneLoad).toHaveBeenLastCalledWith(replacementScene);
+  disposed = true;
+  replacementLoad(replacementScene);
+  expect(onSceneLoad).toHaveBeenCalledTimes(2);
+});
 
 test('diagnostics sum optional work snapshots without conflating current cache residency or mutating inputs', () => {
   const workers = [{workerId: 0}, {projectionWork}, {projectionWork: {...projectionWork}}];

@@ -12,7 +12,7 @@ import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from './det
 import {createProjectedExampleProjectionEngine} from './projection-engine.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
-import {createProjectedDiagnosticsPoller} from './diagnostics.js';
+import {createProjectedDiagnosticsPoller, createProjectedSceneLoadHandler} from './diagnostics.js';
 
 const parameters = new URLSearchParams(location.search);
 // The caller owns one stable factory; the renderer caches independent compiled CRS transforms.
@@ -224,9 +224,9 @@ async function initialize(resetCoverage = true) {
     projectedProjection: {type, ...(refinementError === undefined ? {} : {maxProjectedError: refinementError})}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
     projectedVisibleBounds: loadingBounds, projectedMaxTiles: 256, visible: !coverageEmpty,
     tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256, maxCachedMeshBytes: 32 * 1024 * 1024},
-    onSceneLoad: scene => {
-      if (!disposed && generation === updateGeneration) {loadedScene = scene; diagnosticsPoller.update();}
-    },
+    onSceneLoad: createProjectedSceneLoadHandler(preparedScene,
+      () => disposed ? undefined : preparedScene,
+      scene => {loadedScene = scene; diagnosticsPoller.update();}),
     onProjectionChange: () => {
       if (!disposed && !projectionPending && generation === updateGeneration && detailMode.value === 'manual') setStatus('Caller-supplied math.gl engine enabled. Drag to pan and scroll to zoom.');
     },

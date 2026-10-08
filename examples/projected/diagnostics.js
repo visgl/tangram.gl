@@ -2,6 +2,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+/** Accept loads for the current source scene, even if its projection/detail settings changed. */
+export function createProjectedSceneLoadHandler(configuration, getCurrentConfiguration, onSceneLoad) {
+  return scene => {
+    if (getCurrentConfiguration() === configuration) onSceneLoad(scene);
+  };
+}
+
 /** Format detached worker work counters separately from current renderer residency. */
 export function formatProjectedDiagnostics(workers, resources) {
   const totals = {completedMeshes: 0, failedMeshes: 0, sourceVertices: 0, outputVertices: 0,
