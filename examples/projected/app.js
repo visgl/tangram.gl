@@ -11,6 +11,7 @@ import {createProjectedExampleScene, getProjectedExampleTileZoom} from './scene.
 import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from './detail.js';
 import {createProjectedExampleProjectionEngine} from './projection-engine.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
+import {createCollapsibleInfoCard} from '../deck/info-card.js';
 
 const parameters = new URLSearchParams(location.search);
 // The caller owns one stable factory; the renderer caches independent compiled CRS transforms.
@@ -25,6 +26,7 @@ const detailMode = document.querySelector('#detail-mode');
 const refinementSelector = document.querySelector('#refinement');
 const coordinateProbe = document.querySelector('#coordinates');
 const status = document.querySelector('#status');
+const destroyInfoCard = createCollapsibleInfoCard(document.querySelector('#controls'));
 projectionSelector.value = parameters.get('projection') || 'equal-earth';
 basemapSelector.value = parameters.get('basemap') === 'vector' ? 'vector' : 'raster';
 coverageSelector.value = parameters.get('coverage') === 'regional' ? 'regional' : 'world';
@@ -289,6 +291,7 @@ document.querySelectorAll('[data-example-tab]').forEach(button => button.addEven
 }));
 window.addEventListener('pagehide', () => {
   disposed = true;
+  destroyInfoCard();
   projectionGeneration++;
   navigationGeneration++;
   probeGeneration++;

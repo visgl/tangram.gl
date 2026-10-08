@@ -9,6 +9,7 @@ import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import {createStereoControls} from './stereo-controls.js';
+import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {submitEyeRenderPass} from './submit-eye.js';
 import {createSurfacePicker} from './surface-picking.js';
 import {createSurfaceGrabControls, bindReferenceSpaceReset} from './surface-grabbing.js';
@@ -65,6 +66,7 @@ const VIEW_MODES = {
 };
 const canvas = document.getElementById('webxr-canvas');
 const container = document.getElementById('webxr-container');
+const destroyInfoCard = createCollapsibleInfoCard(document.querySelector('.webxr-panel'));
 const enterButton = document.getElementById('webxr-enter');
 const exitButton = document.getElementById('webxr-exit');
 const monoButton = document.getElementById('webxr-mono');
@@ -703,6 +705,7 @@ function destroy() {
     return;
   }
   destroyed = true;
+  destroyInfoCard();
   surfacePicker.destroy();
   surfaceGrabControls.reset();
   lastPickingContext = null;

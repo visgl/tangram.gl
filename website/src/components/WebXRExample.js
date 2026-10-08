@@ -55,12 +55,12 @@ export default function WebXRExample({viewMode = 'globe'}) {
     importMapElement.textContent = JSON.stringify({
       imports: {
         '@deck.gl/core':
-          'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core,@math.gl/core',
+          'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.0?bundle',
         '@luma.gl/engine':
-          'https://esm.sh/@luma.gl/engine@9.4.0?bundle&external=@luma.gl/core,@math.gl/core',
+          'https://esm.sh/@luma.gl/engine@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/experimental':
-          'https://esm.sh/@luma.gl/experimental@9.4.0?bundle&external=@luma.gl/core,@math.gl/core',
+          'https://esm.sh/@luma.gl/experimental@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/webgl':
           'https://esm.sh/@luma.gl/webgl@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/webgpu':

@@ -105,6 +105,13 @@ function* prepareProjectedMesh(request: MeshProjectionRequest): Generator<Float6
         }
         return attribute.offset;
     }) : [];
+    for (const [name, size] of [['a_projected_stroke', 4], ['a_projected_normals', 4], ['a_projected_widths', 2]] as const) {
+        const attribute = layout.dynamic_attribs.find(attribute => attribute.name === name);
+        if (attribute && (attribute.type !== 5126 || attribute.size !== size || attribute.offset === undefined ||
+            attribute.offset < 0 || attribute.offset + size * 4 > layout.stride)) {
+            throw new Error('CPU projected stroke attributes require a valid float layout');
+        }
+    }
     const source = new DataView(request.vertices.buffer, request.vertices.byteOffset, request.vertices.byteLength);
     for (let offset = 0; offset < source.byteLength; offset += layout.stride) {
         const heightOffset = line ? layout.dynamic_attribs.find(attribute => attribute.name === 'a_z_and_offset_scale')?.offset : position.offset + 4;
@@ -138,8 +145,9 @@ function* prepareProjectedMesh(request: MeshProjectionRequest): Generator<Float6
         (prepared.vertices.byteLength - request.vertices.byteLength) / layout.stride);
     // Never mutate or transfer cached/source buffers, even when refinement adds no vertices.
     const domain = getProjectedSourceDomain(projection.type);
-    const geographicPosition = (vertex: DataView, center = false): [number, number] => {
-        const [localX, localY] = center ? [vertex.getInt16(positionOffset, true), vertex.getInt16(positionOffset + 2, true)] : readPosition(vertex);
+    const geographicPosition = (vertex: DataView, center = false, displacement: readonly [number, number] = [0, 0]): [number, number] => {
+        let [localX, localY] = center ? [vertex.getInt16(positionOffset, true), vertex.getInt16(positionOffset + 2, true)] : readPosition(vertex);
+        localX += displacement[0]; localY += displacement[1];
         // Clipping handled whole triangles. Clamp only packed-coordinate rounding at cut intersections.
         const x = Math.max(domain[0], Math.min(domain[2], tile.min.x + localX / unitsPerMeter));
         const y = Math.max(domain[1], Math.min(domain[3], tile.min.y + localY / unitsPerMeter));
@@ -148,16 +156,32 @@ function* prepareProjectedMesh(request: MeshProjectionRequest): Generator<Float6
             (2 * Math.atan(Math.exp(y / SPHERE_RADIUS)) - Math.PI / 2) * 180 / Math.PI));
         return [longitude, latitude];
     };
-    const refined = yield* refineProjectedMesh(clipped, request, geographicPosition, readPosition);
+    const refined = yield* refineProjectedMesh(clipped, request,
+        (vertex, displacement) => geographicPosition(vertex, false, displacement), readPosition);
     const result = {vertices: refined.vertices.slice(), indices: refined.indices.slice()};
     const coordinates: number[] = [];
     for (let offset = 0; offset < result.vertices.byteLength; offset += layout.stride) {
         coordinates.push(...geographicPosition(new DataView(result.vertices.buffer, result.vertices.byteOffset + offset, layout.stride)));
     }
     const stroke = layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_stroke');
+    const normals = layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_normals');
+    const widths = layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_widths');
     const vertexCount = result.vertices.byteLength / layout.stride;
     if (line && stroke?.offset !== undefined) for (let offset = 0; offset < result.vertices.byteLength; offset += layout.stride) {
         coordinates.push(...geographicPosition(new DataView(result.vertices.buffer, result.vertices.byteOffset + offset, layout.stride), true));
+    }
+    // Project adjacent road tangents, not source normals. Their perpendiculars
+    // define CSS widths even under anisotropic high-latitude projections.
+    if (line && stroke?.offset !== undefined && normals?.offset !== undefined && widths?.offset !== undefined) {
+        for (let offset = 0; offset < result.vertices.byteLength; offset += layout.stride) {
+            const vertex = new DataView(result.vertices.buffer, result.vertices.byteOffset + offset, layout.stride);
+            for (let normal = 0; normal < 2; normal++) {
+                const normalX = vertex.getFloat32(normals.offset + normal * 8, true);
+                const normalY = vertex.getFloat32(normals.offset + normal * 8 + 4, true);
+                for (const direction of [-8, 8]) coordinates.push(...geographicPosition(vertex, true,
+                    [normalY * direction, -normalX * direction]));
+            }
+        }
     }
     const positions = yield new Float64Array(coordinates);
     if (!(positions instanceof Float64Array) || positions.length !== coordinates.length ||
@@ -173,12 +197,76 @@ function* prepareProjectedMesh(request: MeshProjectionRequest): Generator<Float6
         if (line && stroke?.offset !== undefined) {
             const vertex = new DataView(result.vertices.buffer, result.vertices.byteOffset + index * layout.stride, layout.stride);
             const pixelScale = vertex.getFloat32(stroke.offset + 12, true);
-            const radius = Math.hypot(readPosition(vertex)[0] - vertex.getInt16(positionOffset, true),
+            let radius = Math.hypot(readPosition(vertex)[0] - vertex.getInt16(positionOffset, true),
                 readPosition(vertex)[1] - vertex.getInt16(positionOffset + 2, true)) * overzoom * pixelScale;
+            if (pixelScale > 0 && normals?.offset !== undefined && widths?.offset !== undefined) {
+                const normalsOffset = normals.offset;
+                const sourceNormals = [0, 1].map(normal => [vertex.getFloat32(normalsOffset + normal * 8, true),
+                    vertex.getFloat32(normalsOffset + normal * 8 + 4, true)]);
+                const projectedNormals = [0, 1].map(normal => {
+                    const sample = (2 * vertexCount + index * 4 + normal * 2) * 2;
+                    const tangentX = positions[sample + 2] - positions[sample];
+                    const tangentY = positions[sample + 3] - positions[sample + 1];
+                    const length = Math.hypot(tangentX, tangentY);
+                    return length === 0 ? [0, 0] : [-tangentY / length, tangentX / length];
+                });
+                const halfWidth = vertex.getFloat32(widths.offset, true);
+                const offsetWidth = vertex.getFloat32(widths.offset + 4, true);
+                const extrusion = [vertex.getInt16(extrusionOffset, true), vertex.getInt16(extrusionOffset + 2, true)];
+                const shape = reorientProjectedStroke(extrusion, halfWidth, sourceNormals, projectedNormals);
+                const offsetShape = reorientProjectedStroke([
+                    (offsetAttribute?.offset === undefined ? 0 : vertex.getInt16(offsetAttribute.offset, true)),
+                    (offsetAttribute?.offset === undefined ? 0 : vertex.getInt16(offsetAttribute.offset + 2, true))],
+                Math.abs(offsetWidth), sourceNormals, projectedNormals);
+                const displacement = shape.map((value, component) =>
+                    (value * widthFactor(vertex) + offsetShape[component]) * pixelScale);
+                const centerOffset = (vertexCount + index) * 2;
+                output.setFloat32(offset, positions[centerOffset] + displacement[0], true);
+                output.setFloat32(offset + 4, positions[centerOffset + 1] + displacement[1], true);
+                radius = Math.hypot(...displacement);
+            }
             output.setFloat32(index * layout.stride + stroke.offset, positions[(vertexCount + index) * 2], true);
             output.setFloat32(index * layout.stride + stroke.offset + 4, positions[(vertexCount + index) * 2 + 1], true);
             output.setFloat32(index * layout.stride + stroke.offset + 8, radius, true);
         }
     }
     return result;
+}
+
+/** Retain cap/fan shape and Tangram's miter convention around projected segment perpendiculars. */
+function reorientProjectedStroke(vector: number[], halfWidth: number, sourceNormals: number[][],
+    projectedNormals: number[][]): number[] {
+    const length = Math.hypot(...vector);
+    if (length === 0 || halfWidth === 0) return [0, 0];
+    const normalize = (normal: number[]) => {
+        const magnitude = Math.hypot(...normal);
+        return magnitude === 0 ? [0, 0] : normal.map(value => value / magnitude);
+    };
+    const [first, second] = sourceNormals.map(normalize);
+    const [projectedFirst, projectedSecond] = projectedNormals;
+    const cross = (first: number[], second: number[]) => first[0] * second[1] - first[1] * second[0];
+    const dot = (first: number[], second: number[]) => first[0] * second[0] + first[1] * second[1];
+    const angle = Math.atan2(cross(first, second), dot(first, second));
+    if (Math.abs(angle) < 0.0001) {
+        // Restore authored radii at the packed edge, rather than carrying a
+        // direction-dependent integer-rounding loss into CSS-pixel widths.
+        const snap = (distance: number) => Math.abs(Math.abs(distance) - halfWidth) <= 1 ?
+            Math.sign(distance) * halfWidth : Math.abs(distance) <= 1 ? 0 : distance;
+        const normalDistance = snap(dot(vector, first));
+        const tangentDistance = snap(vector[0] * first[1] - vector[1] * first[0]);
+        return [projectedFirst[0] * normalDistance + projectedFirst[1] * tangentDistance,
+            projectedFirst[1] * normalDistance - projectedFirst[0] * tangentDistance];
+    }
+    const side = Math.sign(dot(vector, [first[0] + second[0], first[1] + second[1]]));
+    if (length > halfWidth * 1.01) {
+        const bisector = normalize([projectedFirst[0] + projectedSecond[0], projectedFirst[1] + projectedSecond[1]]);
+        const scale = 2 / (1 + Math.abs(dot(projectedFirst, bisector)));
+        return bisector.map(value => value * scale ** 2 * halfWidth * side);
+    }
+    const direction = vector.map(value => value * side / length);
+    const fraction = Math.max(0, Math.min(1, Math.atan2(cross(first, direction), dot(first, direction)) / angle));
+    const projectedAngle = Math.atan2(cross(projectedFirst, projectedSecond), dot(projectedFirst, projectedSecond)) * fraction;
+    const cosine = Math.cos(projectedAngle), sine = Math.sin(projectedAngle);
+    return [(projectedFirst[0] * cosine - projectedFirst[1] * sine) * length * side,
+        (projectedFirst[0] * sine + projectedFirst[1] * cosine) * length * side];
 }

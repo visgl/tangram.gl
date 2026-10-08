@@ -260,3 +260,22 @@ test('the editor fills the canvas and stays above Leaflet pane z-indices', async
   const hit = document.elementFromPoint(bounds.left + 40, bounds.top + 40);
   expect(hit?.closest('.monaco-editor')).toBe(editor);
 });
+
+test('the built-in editor sidebar collapses and reopens without replacing edited text', async () => {
+  await mountPanels();
+  const model = getPlaygroundModel();
+  if (!model) throw new Error('Missing editor model');
+  const text = model.getValue();
+  const getHandle = () => {
+    const button = frame.querySelector<HTMLButtonElement>('[data-sidebar-handle-button]');
+    if (!button) throw new Error('Missing sidebar handle');
+    return button;
+  };
+  expect(getHandle().getAttribute('aria-label')).toContain('Close');
+  getHandle().click();
+  await expect.poll(() => getHandle().getAttribute('aria-label')).not.toContain('Close');
+  getHandle().click();
+  await expect.poll(() => getHandle().getAttribute('aria-label')).toContain('Close');
+  expect(getPlaygroundModel()).toBe(model);
+  expect(model.getValue()).toBe(text);
+});

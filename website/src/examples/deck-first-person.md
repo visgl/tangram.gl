@@ -3,6 +3,7 @@ sidebar_position: 5
 title: FirstPersonView
 description: A Tangram basemap driven by deck.gl's FirstPersonView.
 hide_title: true
+hide_table_of_contents: true
 ---
 
 {/*

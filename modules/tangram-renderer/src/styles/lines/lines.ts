@@ -583,6 +583,8 @@ Object.assign(Lines, {
             if (this.cpu_projection) {
                 attribs.push({name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false});
                 attribs.push({name: 'a_projected_stroke', size: 4, type: gl.FLOAT, normalized: false});
+                attribs.push({name: 'a_projected_normals', size: 4, type: gl.FLOAT, normalized: false});
+                attribs.push({name: 'a_projected_widths', size: 2, type: gl.FLOAT, normalized: false});
             }
             this.vertex_layouts[variant.key] = new VertexLayout(attribs);
         }

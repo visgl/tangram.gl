@@ -10,7 +10,7 @@ import type {MeshProjectionRequest, ProjectedMesh} from '../procedures/mesh-proj
  * Indexed neighbors share decisions. Independent source tiles use identical packed midpoint rules and tolerance.
  */
 export function* refineProjectedMesh(mesh: ProjectedMesh, request: MeshProjectionRequest,
-    geographicPosition: (vertex: DataView) => readonly [number, number],
+    geographicPosition: (vertex: DataView, displacement?: readonly [number, number]) => readonly [number, number],
     readPosition: (vertex: DataView) => [number, number]): Generator<Float64Array, ProjectedMesh, Float64Array> {
     const tolerance = request.projection.maxProjectedError;
     if (tolerance === undefined || mesh.indices.length === 0) return mesh;
@@ -34,9 +34,18 @@ export function* refineProjectedMesh(mesh: ProjectedMesh, request: MeshProjectio
                 new DataView(second.buffer, second.byteOffset, second.byteLength)), [first, second]);
         }
         const coordinates: number[] = [];
-        for (const [first, second] of edges.values()) for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
-            const sample = fraction === 0 ? first : fraction === 1 ? second : interpolatePackedVertex(first, second, layout, fraction);
-            coordinates.push(...geographicPosition(new DataView(sample.buffer, sample.byteOffset, sample.byteLength)));
+        for (const [first, second] of edges.values()) {
+            const start = readPosition(new DataView(first.buffer, first.byteOffset, first.byteLength));
+            const end = readPosition(new DataView(second.buffer, second.byteOffset, second.byteLength));
+            for (const fraction of [0, 0.25, 0.5, 0.75, 1]) {
+                const sample = fraction === 0 ? first : fraction === 1 ? second : interpolatePackedVertex(first, second, layout, fraction);
+                const view = new DataView(sample.buffer, sample.byteOffset, sample.byteLength);
+                const packed = readPosition(view);
+                // Test the exact source chord, not off-chord integer rounding of
+                // its probes. Generated vertices still retain the packed rules.
+                coordinates.push(...geographicPosition(view, [start[0] * (1 - fraction) + end[0] * fraction - packed[0],
+                    start[1] * (1 - fraction) + end[1] * fraction - packed[1]]));
+            }
         }
         const projected = yield new Float64Array(coordinates);
         if (!(projected instanceof Float64Array) || projected.length !== coordinates.length || !projected.every(Number.isFinite)) {
@@ -45,8 +54,15 @@ export function* refineProjectedMesh(mesh: ProjectedMesh, request: MeshProjectio
         const split = new Set<string>();
         let offset = 0;
         for (const edge of edges.keys()) {
+            const differenceX = projected[offset + 8] - projected[offset];
+            const differenceY = projected[offset + 9] - projected[offset + 1];
+            const lengthSquared = differenceX ** 2 + differenceY ** 2;
             for (let sample = 1; sample < 4; sample++) {
-                const fraction = sample / 4;
+                // Packed samples round to the source grid. Movement along a straight
+                // chord is not curvature, even when it no longer equals sample / 4.
+                const fraction = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1,
+                    ((projected[offset + sample * 2] - projected[offset]) * differenceX +
+                    (projected[offset + sample * 2 + 1] - projected[offset + 1]) * differenceY) / lengthSquared));
                 const error = Math.hypot(projected[offset + sample * 2] -
                     (projected[offset] * (1 - fraction) + projected[offset + 8] * fraction),
                 projected[offset + sample * 2 + 1] -

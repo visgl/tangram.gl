@@ -3,6 +3,7 @@ sidebar_position: 3
 title: WebXR GlobeView
 description: Experimental stereoscopic Tangram GlobeView rendering through luma.gl WebXR.
 hide_title: true
+hide_table_of_contents: true
 ---
 
 {/*

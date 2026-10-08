@@ -114,8 +114,8 @@
 .webxr-example-embed,
 .classic-playground-embed {
   position: relative;
-  height: 680px;
-  min-height: 680px;
+  height: calc(100dvh - var(--ifm-navbar-height) - 4rem);
+  min-height: 280px;
   margin: 0;
   overflow: hidden;
   border: 1px solid var(--ifm-color-emphasis-300);
@@ -124,11 +124,11 @@
 }
 
 .deck-example-embed #deck-container {
-  height: 680px;
+  height: 100%;
 }
 
 .webxr-example-embed #webxr-container {
-  height: 680px;
+  height: 100%;
 }
 
 .webxr-example-embed #webxr-canvas {
@@ -137,13 +137,36 @@
 
 .classic-playground-embed #classic-playground-frame {
   position: relative;
-  height: 680px;
+  height: 100%;
   background: #08111f;
 }
 
 .classic-playground-embed #classic-playground-frame:fullscreen {
   width: 100vw;
   height: 100vh;
+}
+
+.deck-example-embed #deck-container:fullscreen,
+.webxr-example-embed #webxr-container:fullscreen {
+  width: 100vw;
+  height: 100dvh;
+}
+
+.projected-example-frame {
+  display: block;
+  width: 100%;
+  height: calc(100dvh - var(--ifm-navbar-height) - 4rem);
+  min-height: 280px;
+  border: 0;
+}
+
+/* Live examples use the space beside the sidebar, not a prose/TOC column. */
+.plugin-id-examples main > .container:has(.deck-example-embed, .webxr-example-embed, .classic-playground-embed, .projected-example-frame) {
+  max-width: none;
+}
+
+.plugin-id-examples .col:has(.deck-example-embed, .webxr-example-embed, .classic-playground-embed, .projected-example-frame) {
+  max-width: 100% !important;
 }
 
 .classic-playground-embed .canvas-fullscreen {
@@ -245,13 +268,4 @@
     min-height: 560px;
   }
 
-  .deck-example-embed,
-  .webxr-example-embed,
-  .classic-playground-embed,
-  .deck-example-embed #deck-container,
-  .webxr-example-embed #webxr-container,
-  .classic-playground-embed #classic-playground-frame {
-    min-height: 560px;
-    height: 560px;
-  }
 }

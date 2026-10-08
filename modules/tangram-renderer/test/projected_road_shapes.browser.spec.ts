@@ -8,6 +8,47 @@ import VertexLayout from '../src/gl/vertex_layout';
 import {projectBasemapMesh, projectBasemapPosition} from '../src/experimental/projected-mesh';
 import Geo from '../src/utils/geo';
 
+test('high-latitude diagonal pixel roads use projected perpendiculars for widths and offsets', () => {
+    const layout = new VertexLayout([
+        {name: 'a_position', size: 4, type: 5122}, {name: 'a_extrude', size: 2, type: 5122},
+        {name: 'a_offset', size: 2, type: 5122}, {name: 'a_z_and_offset_scale', size: 2, type: 5122},
+        {name: 'a_projected_position', size: 3, type: 5126}, {name: 'a_projected_stroke', size: 4, type: 5126},
+        {name: 'a_projected_normals', size: 4, type: 5126}, {name: 'a_projected_widths', size: 2, type: 5126}
+    ]);
+    const data = layout.createVertexData();
+    const template = new Array(layout.index.a_projected_widths + 2).fill(0);
+    template[layout.index.a_projected_stroke + 3] = 0.25;
+    buildPolylines([[[1024, -1024], [3072, -3072]]],
+        {width: 40, texcoord_width: 40, offset: 12, cap: 'butt', join: 'miter'}, data, template,
+        {a_extrude: layout.index.a_extrude, a_offset: layout.index.a_offset, a_texcoord: null,
+            a_projected_normals: layout.index.a_projected_normals, a_projected_widths: layout.index.a_projected_widths},
+        false, false, 0);
+    data.end();
+    if (!data.element_buffer) throw new Error('Missing road geometry');
+    const coords = {x: 4, y: 1, z: 4};
+    const minimum = Geo.metersForTile(coords);
+    const project = (x: number, y: number) => {
+        const geographic = Geo.metersToLatLng([minimum.x + x / Geo.unitsPerMeter(coords.z), minimum.y + y / Geo.unitsPerMeter(coords.z)]);
+        return projectBasemapPosition([geographic[0], geographic[1]], 'equirectangular');
+    };
+    const center = project(1024, -1024);
+    // A local tangent, rather than the long curved segment's endpoint chord.
+    const next = project(1025, -1025), previous = project(1023, -1023);
+    const tangent = [next[0] - previous[0], next[1] - previous[1]];
+    const length = Math.hypot(...tangent);
+    const result = projectBasemapMesh({vertices: data.vertex_buffer, indices: data.element_buffer, layout,
+        geometry: 'lines', tile: {coords, min: minimum}, projection: {type: 'equirectangular', maxAngularSpan: 30}});
+    const output = new DataView(result.vertices.buffer, result.vertices.byteOffset, result.vertices.byteLength);
+    const distances = [0, 1].map(index => {
+        const offset = index * layout.stride + layout.offset.a_projected_position;
+        const displacement = [output.getFloat32(offset, true) - center[0], output.getFloat32(offset + 4, true) - center[1]];
+        expect(Math.abs((displacement[0] * tangent[0] + displacement[1] * tangent[1]) / length)).toBeLessThan(0.001);
+        return (displacement[0] * -tangent[1] + displacement[1] * tangent[0]) / length;
+    });
+    expect(Math.abs(distances[0] - distances[1])).toBeCloseTo(10, 3);
+    expect(Math.abs((distances[0] + distances[1]) / 2)).toBeCloseTo(3, 3);
+});
+
 test.each([
     ['butt', 'miter'], ['square', 'bevel'], ['round', 'round']
 ] as const)('projected builder output preserves %s caps, %s joins and the requested ribbon width', (cap, join) => {

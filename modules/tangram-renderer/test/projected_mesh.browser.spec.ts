@@ -46,6 +46,18 @@ function createRequest(type: ProjectedBasemapOptions['type'], x = 2): MeshProjec
 }
 
 describe('opt-in worker CPU projection', () => {
+    test('packed quarter-sample rounding does not refine a straight Mercator edge', () => {
+        const request = createRequest('web-mercator');
+        request.tile.coords = {z: 4};
+        request.tile.min = Geo.metersForTile({x: 8, y: 8, z: 4});
+        request.projection = {type: 'web-mercator', maxAngularSpan: 30, maxProjectedError: 0.005};
+        const view = new DataView(request.vertices.buffer, request.vertices.byteOffset, request.vertices.byteLength);
+        [[0, 0], [3, 0], [3, -3], [0, -3]].forEach(([x, y], index) => {
+            view.setInt16(index * layout.stride, x, true);
+            view.setInt16(index * layout.stride + 2, y, true);
+        });
+        expect(projectBasemapMesh(request).vertices.byteLength).toBe(request.vertices.byteLength);
+    });
     test.each(projections)('%s adaptive chord refinement is identical with a caller engine and respects budgets', async type => {
         const request = createRequest(type);
         request.projection = {type, maxAngularSpan: 30, maxProjectedError: 0.05};

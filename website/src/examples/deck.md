@@ -3,6 +3,7 @@ sidebar_position: 2
 title: MapView perspective
 description: A perspective deck.gl MapView powered by Tangram.
 hide_title: true
+hide_table_of_contents: true
 ---
 
 {/*

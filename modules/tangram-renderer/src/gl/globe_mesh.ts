@@ -32,7 +32,7 @@ export type GlobeMeshOptions = {
 
 const INTERPOLATED_ATTRIBUTES = new Set([
     'a_position', 'a_normal', 'a_color', 'a_texcoord', 'a_extrude', 'a_offset',
-    'a_z_and_offset_scale', 'a_projected_position', 'a_projected_stroke'
+    'a_z_and_offset_scale', 'a_projected_position', 'a_projected_stroke', 'a_projected_normals', 'a_projected_widths'
 ]);
 
 /**

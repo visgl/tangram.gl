@@ -4,6 +4,8 @@
  * Copyright (c) vis.gl contributors
  */
 
+@import '../deck/info-card.css';
+
 html:has(body.tangram-webxr-standalone),
 body.tangram-webxr-standalone {
   width: 100%;

@@ -4,6 +4,8 @@
  * Copyright (c) vis.gl contributors
  */
 
+@import './info-card.css';
+
 .tangram-deck-standalone,
 .tangram-deck-standalone #deck-container,
 .tangram-deck-embedded #deck-container {

@@ -75,6 +75,8 @@ export function buildPolylines (
         texcoord_index: vindex.a_texcoord,
         texcoord_width: style.texcoord_width,
         offset: style.offset,
+        projected_normals_index: vindex.a_projected_normals,
+        projected_widths_index: vindex.a_projected_widths,
         geom_count: 0
     };
 
@@ -150,6 +152,7 @@ function buildPolyline(line: GeometryLine, context: PolylineBuildContext): void 
     }
 
     normNext = Vector.normalize(Vector.perp(coordCurr, coordNext));
+    if (context.projected_normals_index !== undefined) context.projected_normals = [...normNext, ...normNext];
 
     // Skip tile boundary lines and append a new line if needed
     if (remove_tile_edges && outsideTile(coordCurr, coordNext, tile_edge_tolerance)) {
@@ -164,6 +167,7 @@ function buildPolyline(line: GeometryLine, context: PolylineBuildContext): void 
     if (closed_polygon){
         // Begin the polygon with a join (connecting the first and last segments)
         normPrev = Vector.normalize(Vector.perp(line[index_end - 1], coordCurr));
+        if (context.projected_normals_index !== undefined) context.projected_normals = [...normPrev, ...normNext];
         startPolygon(coordCurr, normPrev, normNext, join_type, context);
     }
     else {
@@ -198,6 +202,7 @@ function buildPolyline(line: GeometryLine, context: PolylineBuildContext): void 
 
         // Remove tile boundaries
         if (remove_tile_edges && outsideTile(coordCurr, coordNext, tile_edge_tolerance)) {
+            if (context.projected_normals_index !== undefined) context.projected_normals = [...normNext, ...normNext];
             addVertex(coordCurr, normNext, normNext, 1, v, context, 1);
             addVertex(coordCurr, normNext, normNext, 0, v, context, -1);
 
@@ -213,6 +218,7 @@ function buildPolyline(line: GeometryLine, context: PolylineBuildContext): void 
 
         normPrev = normNext;
         normNext = Vector.normalize(Vector.perp(coordCurr, coordNext));
+        if (context.projected_normals_index !== undefined) context.projected_normals = [...normPrev, ...normNext];
 
         // Add join
         if (join_type === JOIN_TYPE.miter) {
@@ -230,10 +236,12 @@ function buildPolyline(line: GeometryLine, context: PolylineBuildContext): void 
     // LAST POINT
     coordCurr = coordNext;
     normPrev = normNext;
+    if (context.projected_normals_index !== undefined) context.projected_normals = [...normPrev, ...normPrev];
 
     if (closed_polygon) {
         // Close the polygon with a miter joint or butt cap if on a tile boundary
         normNext = Vector.normalize(Vector.perp(coordCurr, line[1]));
+        if (context.projected_normals_index !== undefined) context.projected_normals = [...normPrev, ...normNext];
         endPolygon(coordCurr, normPrev, normNext, join_type, v, context);
     }
     else {
@@ -281,6 +289,7 @@ function getNextNonBoundarySegment (line: GeometryLine, startIndex: number, tole
 function startPolygon(coordCurr: GeometryCoordinate, normPrev: number[], normNext: number[], join_type: number | undefined, context: PolylineBuildContext): void {
     // If polygon starts on a tile boundary, don't add a join
     if (join_type === undefined || isCoordOutsideTile(coordCurr)) {
+        if (context.projected_normals_index !== undefined) context.projected_normals = [...normNext, ...normNext];
         addVertex(coordCurr, normNext, normNext, 1, 0, context, 1);
         addVertex(coordCurr, normNext, normNext, 0, 0, context, -1);
     }
@@ -300,6 +309,7 @@ function startPolygon(coordCurr: GeometryCoordinate, normPrev: number[], normNex
 function endPolygon(coordCurr: GeometryCoordinate, normPrev: number[], normNext: number[], join_type: number, v: number, context: PolylineBuildContext): void {
     // If polygon ends on a tile boundary, don't add a join
     if (isCoordOutsideTile(coordCurr)) {
+        if (context.projected_normals_index !== undefined) context.projected_normals = [...normPrev, ...normPrev];
         addVertex(coordCurr, normPrev, normPrev, 1, v, context, 1);
         addVertex(coordCurr, normPrev, normPrev, 0, v, context, -1);
         indexPairs(1, context);
@@ -318,6 +328,7 @@ function endPolygon(coordCurr: GeometryCoordinate, normPrev: number[], normNext:
             indexPairs(1, context);
         }
         else {
+            if (context.projected_normals_index !== undefined) context.projected_normals = [...normPrev, ...normPrev];
             addVertex(coordCurr, normPrev, normPrev, 1, v, context, 1);
             addVertex(coordCurr, normPrev, normPrev, 0, v, context, -1);
             indexPairs(1, context);
@@ -438,6 +449,16 @@ function addVertex(position: GeometryCoordinate, extrude: number[], normal: numb
     let len = context.half_width * flip;
     vertex_template[context.extrude_index + 0] = extrude[0] * len;
     vertex_template[context.extrude_index + 1] = extrude[1] * len;
+
+    if (context.projected_normals_index !== undefined && context.projected_normals) {
+        for (let component = 0; component < 4; component++) {
+            vertex_template[context.projected_normals_index + component] = context.projected_normals[component];
+        }
+    }
+    if (context.projected_widths_index !== undefined) {
+        vertex_template[context.projected_widths_index] = context.half_width;
+        vertex_template[context.projected_widths_index + 1] = context.offset;
+    }
 
     // set line offset vector
     if (context.offset) {

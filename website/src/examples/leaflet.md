@@ -3,6 +3,7 @@ sidebar_position: 4
 title: Leaflet integration
 description: Run the packaged Tangram renderer as a Leaflet layer.
 hide_title: true
+hide_table_of_contents: true
 ---
 
 {/*

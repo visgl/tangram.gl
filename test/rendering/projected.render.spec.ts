@@ -89,6 +89,20 @@ test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with out
   deck.setProps({viewState: {target, zoom: 3}});
   await expect.poll(thickness).toBeGreaterThan(8);
   expect(Math.abs(await thickness() - before)).toBeLessThanOrEqual(2);
+  const greenPixels = async () => {
+    const pixels = (await readCanvasPixels(canvas)).data;
+    let count = 0;
+    for (let index = 0; index < pixels.length; index += 4) if (pixels[index + 1] > 80 && pixels[index + 1] > pixels[index] * 1.5) count++;
+    return count;
+  };
+  const solidPixels = await greenPixels();
+  expect(solidPixels).toBeGreaterThan(500);
+  deck.setProps({layers: [layer(createScene(false, true))]});
+  // Static gaps must remove substantial road area; animation alone cannot satisfy this.
+  await expect.poll(async () => {
+    const count = await greenPixels();
+    return count > solidPixels * 0.1 && count < solidPixels * 0.8;
+  }, {timeout: 20000, message: 'Static dashes must render visible strokes and gaps, not a loading frame'}).toBe(true);
   deck.setProps({layers: [layer(createScene(true, true))]});
   await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas)), {timeout: 20000}).toBeGreaterThan(100);
   const previous = (await readCanvasPixels(canvas)).data;
