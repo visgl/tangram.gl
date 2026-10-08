@@ -32,6 +32,7 @@ function createRequest(points = [[0, 0], [120, 0], [0, 120]], budget = 1000): Me
 
 /** Test kernel whose three boundary edges are exactly straight but whose interior bulges. */
 function projectPosition(x: number, y: number): [number, number] {
+    if (x < 0 || y < 0 || x + y > 120) return [x, y];
     return [x, y + 27 * (x / 120) * (y / 120) * (1 - (x + y) / 120)];
 }
 
@@ -41,8 +42,10 @@ function readPosition(vertex: DataView): [number, number] {
 }
 
 /** Drive the same batched generator used by local and injected engines. */
-function refine(request: MeshProjectionRequest, work: ProjectedRefinementWork = {edgeRounds: 0, interiorRounds: 0}): ProjectedMesh {
-    const generator = refineProjectedMesh({vertices: request.vertices, indices: new Uint16Array([0, 1, 2])}, request,
+function refine(request: MeshProjectionRequest, work: ProjectedRefinementWork = {edgeRounds: 0, interiorRounds: 0},
+    project: (x: number, y: number) => [number, number] = projectPosition): ProjectedMesh {
+    const indices = request.indices || Uint32Array.from({length: request.vertices.byteLength / layout.stride}, (_, index) => index);
+    const generator = refineProjectedMesh({vertices: request.vertices, indices}, request,
         (vertex, displacement = [0, 0]) => {
             const point = readPosition(vertex);
             return [point[0] + displacement[0], point[1] + displacement[1]];
@@ -51,7 +54,7 @@ function refine(request: MeshProjectionRequest, work: ProjectedRefinementWork = 
     while (!step.done) {
         const batch = step.value.slice();
         for (let index = 0; index < batch.length; index += 2) {
-            [batch[index], batch[index + 1]] = projectPosition(batch[index], batch[index + 1]);
+            [batch[index], batch[index + 1]] = project(batch[index], batch[index + 1]);
         }
         step = generator.next(batch);
     }
@@ -103,14 +106,30 @@ test.each([
     }
 });
 
-test('interior refinement fails explicitly when its shared additional-vertex budget is exhausted', () => {
-    expect(() => refine(createRequest(undefined, 0))).toThrow('interior refinement vertex budget');
+test.each([0, 1, 2, 3])('interior and partial-edge fans share the same additional-vertex budget (%s)', budget => {
+    expect(() => refine(createRequest(undefined, budget))).toThrow(/refinement vertex budget/);
+});
+
+test('refinement retains unaffected triangles and distinct flat feature provenance in draw order', () => {
+    const request = createRequest([[0, 0], [120, 0], [0, 120], [150, 0], [270, 0], [150, 120]]);
+    request.indices = new Uint16Array([0, 1, 2, 3, 4, 5]);
+    const view = new DataView(request.vertices.buffer);
+    for (let index = 3; index < 6; index++) {
+        view.setInt16(index * layout.stride + 6, 9, true);
+        request.vertices.set([5, 6, 7, 255], index * layout.stride + layout.offset.a_selection_color);
+    }
+    const original = request.vertices.slice();
+    const result = refine(request);
+    expect(result.vertices.subarray(0, original.byteLength)).toEqual(original);
+    expect([...result.indices.slice(-3)]).toEqual([3, 4, 5]);
+    expect([...result.indices.slice(0, -3)].every(index => index < 3 || index >= 6)).toBe(true);
 });
 
 test('interior refinement cannot insert a rounded center on a triangle edge', () => {
     const request = createRequest([[0, 0], [2, 0], [0, 1]]);
     request.projection.maxProjectedError = 1e-8;
-    expect(() => refine(request)).toThrow(/packed (coordinate|position) precision/);
+    expect(() => refine(request, {edgeRounds: 0, interiorRounds: 0},
+        (x, y) => [x, y + 27 * (x / 2) * y * (1 - x / 2 - y)])).toThrow('Projected interior tolerance exceeds packed coordinate precision');
 });
 
 test('ribbons keep edge-only refinement and opt-out surfaces retain their original topology', () => {
