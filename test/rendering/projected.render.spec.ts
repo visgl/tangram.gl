@@ -81,8 +81,8 @@ test.each(['equal-earth', 'albers'] as const)(`${DEVICE_TYPE}: %s fit, inverse p
     new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
   let loadedScene: Scene | undefined;
   let loads = 0;
-  const createLayer = (detail: number) => new FixtureLayer({id: 'navigate-projected-fixture', scene, projectionEngine,
-    projectedTileZoom: detail, projectedStyleZoom: 6, projectedMaxTiles: 256, projectedVisibleBounds: bounds,
+  const createLayer = (detail: number, visibleBounds: readonly [number, number, number, number] = bounds, visible = true) => new FixtureLayer({id: 'navigate-projected-fixture', scene, projectionEngine,
+    projectedTileZoom: detail, projectedStyleZoom: 6, projectedMaxTiles: 256, projectedVisibleBounds: visibleBounds, visible,
     onSceneLoad: value => {loadedScene = value; loads++;}, onSceneError: error => errors.push(error.message)});
   deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
     views: new OrthographicView({id: 'projected', flipY: false, controller: true}), viewState: fitted,
@@ -109,8 +109,15 @@ test.each(['equal-earth', 'albers'] as const)(`${DEVICE_TYPE}: %s fit, inverse p
     const fine = await selectProjectedTileDetail(navigation, deck.getViewports()[0], type, options);
     expect(fine.tileZoom).toBeGreaterThan(coarse.tileZoom);
     expect(fine.candidateCount).toBeLessThanOrEqual(256);
-    deck.setProps({layers: [createLayer(fine.tileZoom)]});
+    const coverage = await navigation.getCameraCoverage(deck.getViewports()[0], type, bounds);
+    if (!coverage.bounds) throw new Error('Expected visible projected coverage');
+    expect(coverage.domainFallback).toBe(type === 'albers');
+    if (type === 'equal-earth') expect(coverage.bounds[2] - coverage.bounds[0]).toBeLessThan(bounds[2] - bounds[0]);
+    deck.setProps({layers: [createLayer(fine.tileZoom, coverage.bounds)]});
     await waitForGround();
+    // Off-domain cameras hide the layer without destroying its warm renderer and workers.
+    deck.setProps({layers: [createLayer(fine.tileZoom, coverage.bounds, false)]});
+    await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas))).toBe(0);
     deck.setProps({viewState: fitted, layers: [createLayer(1)]});
     await waitForGround();
     expect(loadedScene).toBe(initialScene);

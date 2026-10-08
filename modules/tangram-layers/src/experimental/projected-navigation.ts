@@ -47,6 +47,26 @@ export interface ProjectedFitOptions {
     maxZoom?: number;
 }
 
+/** Camera loading result, always restricted to the caller's single-world source region. */
+export interface ProjectedCameraCoverage {
+    /** Conservative geographic envelope, or null when the ground rectangle misses the source domain. */
+    bounds: ProjectedGeographicBounds | null;
+    /** Albers currently retains the complete source region rather than guessing curved extrema. */
+    domainFallback: boolean;
+}
+
+/** Geographic focus retained while changing the worker's projection. */
+export interface ProjectedFocusTransition {
+    /** New common-space target with the existing orthographic zoom. */
+    viewState: ProjectedFitViewState;
+    /** Geographic focus used for the new target. */
+    focus: ProjectedGeographicPosition;
+    /** True when the destination's smaller domain requires clamping the focus. */
+    clamped: boolean;
+    /** True when the old target has no valid geographic inverse. */
+    domainFallback: boolean;
+}
+
 /** Geographic domain shared by navigation and the existing projected preview. */
 export function getProjectedGeographicBounds(type: ProjectedBasemapType): ProjectedGeographicBounds {
     normalizeProjectedBasemapOptions({type});
@@ -140,6 +160,69 @@ export class ProjectedBasemapNavigation {
         if (pixel[0] < 0 || pixel[1] < 0 || pixel[0] > viewport.width || pixel[1] > viewport.height) return null;
         const position = viewport.unproject([...pixel], {targetZ: 0});
         return this.unprojectPosition([position[0], position[1]], type);
+    }
+
+    /** Bound the viewport's ground rectangle using the fixed projections' separable latitude and longitude scales.
+     * Equal Earth's longitude factor decreases with absolute latitude, so both latitude endpoints bound its envelope.
+     * Albers has curved, nonseparable extrema; keep the supplied domain until conservative conic coverage is implemented.
+     * This does not support wrapped worlds or arbitrary custom projection kernels.
+     */
+    async getCameraCoverage(viewport: ProjectedNavigationViewport, type: ProjectedBasemapType,
+        sourceBounds: ProjectedGeographicBounds = getProjectedGeographicBounds(type)): Promise<ProjectedCameraCoverage> {
+        if (this.disposed) throw new Error('Projected navigation is disposed');
+        validateProjectedNavigationViewport(viewport);
+        validateProjectedGeographicBounds(sourceBounds, type);
+        const region: [number, number, number, number] = [...sourceBounds];
+        const corners = [[0, 0], [viewport.width, 0], [0, viewport.height], [viewport.width, viewport.height]]
+            .map(pixel => viewport.unproject(pixel, {targetZ: 0}));
+        if (!corners.every(point => point.length >= 2 && point.slice(0, 2).every(Number.isFinite))) {
+            throw new Error('Projected coverage requires finite ground corners');
+        }
+        if (type === 'albers') return {bounds: region, domainFallback: true};
+        const minimumX = Math.min(...corners.map(point => point[0]));
+        const maximumX = Math.max(...corners.map(point => point[0]));
+        const minimumY = Math.min(...corners.map(point => point[1]));
+        const maximumY = Math.max(...corners.map(point => point[1]));
+        const southernEdge = await this.projectPosition([0, region[1]], type);
+        const northernEdge = await this.projectPosition([0, region[3]], type);
+        if (maximumY < southernEdge[1] || minimumY > northernEdge[1]) return {bounds: null, domainFallback: false};
+        const south = await this.unprojectPosition([0, Math.max(minimumY, southernEdge[1])], type);
+        const north = await this.unprojectPosition([0, Math.min(maximumY, northernEdge[1])], type);
+        if (!south || !north) throw new Error('Projection engine could not invert the bounded latitude envelope');
+        const southernScale = (await this.projectPosition([180, south[1]], type))[0] / 180;
+        const northernScale = (await this.projectPosition([180, north[1]], type))[0] / 180;
+        if (![southernScale, northernScale].every(value => Number.isFinite(value) && value > 0)) {
+            throw new Error('Projected coverage requires a positive longitude scale');
+        }
+        // The equator supplies the largest Equal Earth scale if the rectangle crosses it.
+        const scales = [southernScale, northernScale];
+        if (south[1] < 0 && north[1] > 0) scales.push((await this.projectPosition([180, 0], type))[0] / 180);
+        const west = Math.max(region[0], Math.min(...scales.map(scale => minimumX / scale)));
+        const east = Math.min(region[2], Math.max(...scales.map(scale => maximumX / scale)));
+        if (west > east) return {bounds: null, domainFallback: false};
+        // An outward numerical margin protects exact tile edges without introducing an extra wrapped world.
+        const margin = 1e-7;
+        return {bounds: [Math.max(region[0], west - margin), Math.max(region[1], south[1] - margin),
+            Math.min(region[2], east + margin), Math.min(region[3], north[1] + margin)], domainFallback: false};
+    }
+
+    /** Preserve geographic focus and numeric zoom; clamp to a smaller destination domain, never mutate the input.
+     * A finite outside-domain target falls back to the destination domain center. Engine errors still propagate.
+     * Keeping zoom does not imply preserving local ground scale across differently distorted projections.
+     */
+    async reprojectViewState(state: ProjectedFitViewState, from: ProjectedBasemapType,
+        to: ProjectedBasemapType): Promise<ProjectedFocusTransition> {
+        if (state.target.length !== 3 || ![...state.target, state.zoom].every(Number.isFinite)) {
+            throw new Error('Projection transition requires a finite target and zoom');
+        }
+        const point: [number, number] = [state.target[0], state.target[1]];
+        const zoom = state.zoom;
+        const domain = getProjectedGeographicBounds(to);
+        const previous = await this.unprojectPosition(point, from);
+        const focus: [number, number] = previous ? [Math.max(domain[0], Math.min(domain[2], previous[0])),
+            Math.max(domain[1], Math.min(domain[3], previous[1]))] : [(domain[0] + domain[2]) / 2, (domain[1] + domain[3]) / 2];
+        return {viewState: {target: await this.projectPosition(focus, to), zoom}, focus,
+            clamped: Boolean(previous && (focus[0] !== previous[0] || focus[1] !== previous[1])), domainFallback: previous === null};
     }
 
     /** Fit a sampled geographic extent; this is navigation, not a conservative visibility proof. */

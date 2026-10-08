@@ -50,9 +50,9 @@ Copyright (c) vis.gl contributors
           <select id="coverage"><option value="world">Whole world</option><option value="regional">North America</option></select>
         </label>
         <button id="fit-region" class="projected-fit">Fit loading region</button>
-        <label class="control"><span>Source detail policy</span><select id="detail-mode"><option value="manual">Manual</option><option value="camera">Camera-driven (experimental)</option></select></label>
+        <label class="control"><span>Loading and detail policy</span><select id="detail-mode"><option value="manual">Fixed coverage / manual detail</option><option value="camera">Camera-driven (experimental)</option></select></label>
         <label class="control"><span>Source tile detail</span><select id="detail"></select></label>
-        <p class="hint">Camera-driven detail targets a sampled 256 CSS-pixel tile span within the 256-candidate budget. Loading coverage remains fixed; styling stays at zoom 6. Manual is the default.</p>
+        <p class="hint">Camera-driven mode restricts loading to the camera inside the selected region and targets a sampled 256 CSS-pixel tile span within the 256-candidate budget. Albers retains the full region until conservative conic coverage is available. Styling stays at zoom 6. Fixed coverage / manual detail is the default.</p>
         <output id="coordinates" class="hint">Move over the map to inspect coordinates</output>
         </section>
         <section data-example-tab-panel="about" hidden>

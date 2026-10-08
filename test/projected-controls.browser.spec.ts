@@ -10,6 +10,9 @@ const fixtures = vi.hoisted(() => ({
   finalize: vi.fn(), dispose: vi.fn(),
   fit: vi.fn(async () => ({target: [50, 60, 0], zoom: -1})),
   probe: vi.fn(async () => [-75, 40]),
+  coverage: vi.fn(async (_viewport: unknown, _type: string, bounds: readonly [number, number, number, number]):
+    Promise<{bounds: readonly [number, number, number, number] | null; domainFallback: boolean}> => ({bounds, domainFallback: false})),
+  transition: vi.fn(async (state: unknown) => ({viewState: state, focus: [-75, 40], clamped: false, domainFallback: false})),
   detail: vi.fn(async () => ({tileZoom: 2, candidateCount: 16, estimatedTilePixels: 200,
     budgetLimited: false, detailLimited: false}))
 }));
@@ -26,7 +29,10 @@ vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
 vi.mock('@vis.gl/tangram-layers/experimental/projected-basemaps', () => ({
   ProjectedBasemapLayer: class {constructor(readonly props: Record<string, unknown>) {}},
   createProjectedBasemapScene: (scene: unknown) => scene,
-  ProjectedBasemapNavigation: class {fitBounds = fixtures.fit; unprojectScreenPosition = fixtures.probe; dispose = fixtures.dispose;},
+  ProjectedBasemapNavigation: class {
+    fitBounds = fixtures.fit; unprojectScreenPosition = fixtures.probe;
+    getCameraCoverage = fixtures.coverage; reprojectViewState = fixtures.transition; dispose = fixtures.dispose;
+  },
   selectProjectedTileDetail: fixtures.detail
 }));
 vi.mock('@vis.gl/tangram-renderer/core', () => ({countProjectedTileCoordinates: (_bounds: unknown, zoom: number) => 4 ** zoom}));
@@ -64,6 +70,7 @@ test('example controls coalesce navigation, discard stale results and release re
     await import('../examples/projected/app.js');
     change('#detail-mode', 'manual');
     expect(fixtures.detail).not.toHaveBeenCalled();
+    expect(fixtures.coverage).not.toHaveBeenCalled();
     getElement('#fit-region').click();
     await vi.advanceTimersByTimeAsync(0);
     expect(fixtures.properties.viewState).toEqual({target: [50, 60, 0], zoom: -1});
@@ -96,9 +103,49 @@ test('example controls coalesce navigation, discard stale results and release re
     rejectFit(new Error('obsolete fit failure'));
     await vi.advanceTimersByTimeAsync(0);
     expect(getElement('#status').textContent).not.toContain('obsolete fit failure');
+    let finishTransition = (_result: Awaited<ReturnType<typeof fixtures.transition>>) => {};
+    fixtures.transition.mockImplementationOnce(() => new Promise(resolve => {finishTransition = resolve;}));
+    change('#projection', 'web-mercator');
+    const coverageCalls = fixtures.coverage.mock.calls.length;
+    invoke('onViewStateChange', {viewState: {target: [25, 30, 0], zoom: 3}});
+    // The old race only occurred when the camera timer finished before the async transition.
+    await vi.advanceTimersByTimeAsync(120);
+    expect(fixtures.coverage).toHaveBeenCalledTimes(coverageCalls);
+    expect(getElement('#projection')).toHaveProperty('value', 'web-mercator');
+    // An independent configuration update must not reset or cancel the requested projection either.
+    change('#coverage', 'world');
+    expect(getElement('#projection')).toHaveProperty('value', 'web-mercator');
+    finishTransition({viewState: {target: [999, 999, 0], zoom: 9}, focus: [-75, 40], clamped: false, domainFallback: false});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fixtures.properties.viewState).toEqual({target: [25, 30, 0], zoom: 3});
+    expect(getElement('#projection')).toHaveProperty('value', 'web-mercator');
+    fixtures.transition.mockRejectedValueOnce(new Error('unavailable projection descriptor'));
+    change('#projection', 'mercator');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getElement('#projection')).toHaveProperty('value', 'web-mercator');
+    expect(getElement('#status').textContent).toContain('unavailable projection descriptor');
+    const layerScene = () => {
+      const layers = fixtures.properties.layers;
+      if (!Array.isArray(layers)) throw new Error('Missing example layer');
+      return Reflect.get(layers[0], 'props');
+    };
+    const preparedScene = layerScene().scene;
+    fixtures.coverage.mockResolvedValue({bounds: null, domainFallback: false});
+    invoke('onResize');
+    await vi.advanceTimersByTimeAsync(120);
+    expect(layerScene().visible).toBe(false);
+    expect(layerScene().scene).toBe(preparedScene);
+    expect(getElement('#status').textContent).toContain('outside the loading region');
+    fixtures.coverage.mockResolvedValue({bounds: [-120, 20, -80, 50], domainFallback: false});
+    invoke('onViewStateChange', {viewState: {target: [0, 0, 0], zoom: 2}});
+    await vi.advanceTimersByTimeAsync(120);
+    expect(layerScene().visible).toBe(true);
+    expect(layerScene().projectedVisibleBounds).toEqual([-120, 20, -80, 50]);
+    expect(layerScene().scene).toBe(preparedScene);
+    const detailCalls = fixtures.detail.mock.calls.length;
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     await vi.advanceTimersByTimeAsync(1000);
-    expect(fixtures.detail).toHaveBeenCalledTimes(2);
+    expect(fixtures.detail).toHaveBeenCalledTimes(detailCalls);
     expect(fixtures.dispose).toHaveBeenCalledOnce();
     expect(fixtures.finalize).toHaveBeenCalledOnce();
   } finally {
