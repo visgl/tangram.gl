@@ -48,11 +48,14 @@ Copyright (c) vis.gl contributors
         <label class="control"><span>Loading coverage</span>
           <select id="coverage"><option value="world">Whole world</option><option value="regional">North America</option></select>
         </label>
+        <button id="fit-region" class="projected-fit">Fit loading region</button>
+        <label class="control"><span>Source detail policy</span><select id="detail-mode"><option value="manual">Manual</option><option value="camera">Camera-driven (experimental)</option></select></label>
         <label class="control"><span>Source tile detail</span><select id="detail"></select></label>
-        <p class="hint">Camera zoom is independent of tile detail. Loaded tiles are retained within the cache budget. Regional coverage allows finer detail; pan outside it to see the loading boundary.</p>
+        <p class="hint">Camera-driven detail targets a sampled 256 CSS-pixel tile span within the 256-candidate budget. Loading coverage remains fixed; styling stays at zoom 6. Manual is the default.</p>
+        <output id="coordinates" class="hint">Move over the map to inspect coordinates</output>
         </section>
         <section data-example-tab-panel="about" hidden>
-          <p class="example-description">A caller-supplied math.gl ProjectionEngine projects batched coordinates. Tangram workers refine meshes and retain loaded tiles; deck.gl OrthographicView controls the camera.</p>
+          <p class="example-description">A caller-supplied math.gl ProjectionEngine projects batched coordinates and inverts cursor positions. Tangram workers refine meshes and retain loaded tiles; deck.gl OrthographicView controls the camera. Fit uses sampled geographic bounds, not feature picking or automatic visible-footprint selection.</p>
           <p class="hint">Ground polygons and fixed-meter road ribbons. OpenFreeMap starts at zoom 4 because roads are absent from lower zooms; Blue Marble starts at zoom 2. Styling remains at zoom 6 while detail changes. The example limits coverage to 256 tile candidates per source, 8 concurrent mesh builds and a 32 MB / 256-tile offscreen mesh cache. These are not total memory or download limits. Road widths are exaggerated for overview visibility; screen-pixel strokes, labels, elevations and picking are deferred. Blue Marble is overview imagery, not street-level photography.</p>
         </section>
       </aside>
