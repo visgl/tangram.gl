@@ -106,10 +106,19 @@ test('example controls coalesce navigation, discard stale results and release re
     let finishTransition = (_result: Awaited<ReturnType<typeof fixtures.transition>>) => {};
     fixtures.transition.mockImplementationOnce(() => new Promise(resolve => {finishTransition = resolve;}));
     change('#projection', 'web-mercator');
+    const coverageCalls = fixtures.coverage.mock.calls.length;
     invoke('onViewStateChange', {viewState: {target: [25, 30, 0], zoom: 3}});
+    // The old race only occurred when the camera timer finished before the async transition.
+    await vi.advanceTimersByTimeAsync(120);
+    expect(fixtures.coverage).toHaveBeenCalledTimes(coverageCalls);
+    expect(getElement('#projection')).toHaveProperty('value', 'web-mercator');
+    // An independent configuration update must not reset or cancel the requested projection either.
+    change('#coverage', 'world');
+    expect(getElement('#projection')).toHaveProperty('value', 'web-mercator');
     finishTransition({viewState: {target: [999, 999, 0], zoom: 9}, focus: [-75, 40], clamped: false, domainFallback: false});
     await vi.advanceTimersByTimeAsync(0);
     expect(fixtures.properties.viewState).toEqual({target: [25, 30, 0], zoom: 3});
+    expect(getElement('#projection')).toHaveProperty('value', 'web-mercator');
     fixtures.transition.mockRejectedValueOnce(new Error('unavailable projection descriptor'));
     change('#projection', 'mercator');
     await vi.advanceTimersByTimeAsync(0);

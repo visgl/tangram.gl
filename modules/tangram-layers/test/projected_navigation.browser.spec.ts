@@ -128,6 +128,9 @@ test('coverage does not suppress broken engine contracts or compilation failures
         createProjectionAsync: async () => {throw new Error('missing kernel');}});
     await expect(failing.getCameraCoverage(createViewport(), 'equal-earth')).rejects.toThrow('missing kernel');
     await expect(failing.reprojectViewState({target: [0, 0, 0], zoom: 0}, 'equal-earth', 'mercator')).rejects.toThrow('missing kernel');
+    navigation.dispose();
+    await expect(navigation.getCameraCoverage(createViewport(), 'albers')).rejects.toThrow('disposed');
+    await expect(navigation.getCameraCoverage(createViewport(), 'equal-earth')).rejects.toThrow('disposed');
 });
 
 test.each(types)('%s forward/inverse, screen probing and fitting share the renderer coordinate contract', async type => {

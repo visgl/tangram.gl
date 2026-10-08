@@ -33,6 +33,8 @@ let deck;
 let preparedScene;
 let preparedBasemap;
 let updateGeneration = 0;
+let projectionGeneration = 0;
+let projectionPending = false;
 let navigationGeneration = 0;
 let probeGeneration = 0;
 let detailTimer;
@@ -46,7 +48,7 @@ let coverageEmpty = false;
 function scheduleDetail() {
   const generation = ++navigationGeneration;
   clearTimeout(detailTimer);
-  if (disposed || detailMode.value !== 'camera') return;
+  if (disposed || projectionPending || detailMode.value !== 'camera') return;
   detailTimer = setTimeout(async () => {
     const viewport = deck?.getViewports()[0];
     if (!viewport) return;
@@ -80,28 +82,35 @@ function scheduleDetail() {
 
 /** Keep the geographic focus when replacing a projection, without rebuilding the source scene. */
 async function changeProjection() {
-  const generation = ++updateGeneration;
+  const generation = ++projectionGeneration;
+  projectionPending = true;
   navigationGeneration++;
   probeGeneration++;
   clearTimeout(detailTimer);
   const type = projectionSelector.value;
-  const previousState = viewState;
   try {
-    const transition = await navigation.reprojectViewState(previousState, activeProjection, type);
-    if (disposed || generation !== updateGeneration) return;
-    // A drag during asynchronous compilation needs a fresh transition, not an obsolete camera target.
-    if (previousState !== viewState) {await changeProjection(); return;}
+    let previousState;
+    let transition;
+    do {
+      previousState = viewState;
+      transition = await navigation.reprojectViewState(previousState, activeProjection, type);
+      if (disposed || generation !== projectionGeneration) return;
+      // Recompute against the latest drag/fit without replacing the user's requested projection.
+    } while (previousState !== viewState);
+    projectionPending = false;
     viewState = {...viewState, ...transition.viewState};
     activeProjection = type;
     deck?.setProps({viewState});
     await initialize();
-    if (generation + 1 === updateGeneration && (transition.clamped || transition.domainFallback)) {
+    if (generation === projectionGeneration && (transition.clamped || transition.domainFallback)) {
       setStatus(transition.clamped ? 'Geographic focus clamped to the destination projection domain.' : 'Outside-domain focus reset to the destination region center.');
     }
   } catch (error) {
-    if (!disposed && generation === updateGeneration) {
+    if (!disposed && generation === projectionGeneration) {
+      projectionPending = false;
       projectionSelector.value = activeProjection;
       setStatus(error.message, true);
+      scheduleDetail();
     }
   }
 }
@@ -154,7 +163,7 @@ async function initialize(resetCoverage = true) {
   probeGeneration++;
   clearTimeout(detailTimer);
   const type = activeProjection;
-  projectionSelector.value = type;
+  if (!projectionPending) projectionSelector.value = type;
   const generation = ++updateGeneration;
   const raster = basemapSelector.value === 'raster';
   if (type === 'albers') coverageSelector.value = 'regional';
@@ -198,7 +207,7 @@ async function initialize(resetCoverage = true) {
     projectedVisibleBounds: loadingBounds, projectedMaxTiles: 256, visible: !coverageEmpty,
     tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256, maxCachedMeshBytes: 32 * 1024 * 1024},
     onProjectionChange: () => {
-      if (!disposed && generation === updateGeneration && detailMode.value === 'manual') setStatus('Caller-supplied math.gl engine enabled. Drag to pan and scroll to zoom.');
+      if (!disposed && !projectionPending && generation === updateGeneration && detailMode.value === 'manual') setStatus('Caller-supplied math.gl engine enabled. Drag to pan and scroll to zoom.');
     },
     onSceneError: error => {
       if (!disposed && generation === updateGeneration) setStatus(error.message, true);
@@ -269,6 +278,7 @@ document.querySelectorAll('[data-example-tab]').forEach(button => button.addEven
 }));
 window.addEventListener('pagehide', () => {
   disposed = true;
+  projectionGeneration++;
   navigationGeneration++;
   probeGeneration++;
   clearTimeout(detailTimer);

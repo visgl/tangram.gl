@@ -169,6 +169,7 @@ export class ProjectedBasemapNavigation {
      */
     async getCameraCoverage(viewport: ProjectedNavigationViewport, type: ProjectedBasemapType,
         sourceBounds: ProjectedGeographicBounds = getProjectedGeographicBounds(type)): Promise<ProjectedCameraCoverage> {
+        if (this.disposed) throw new Error('Projected navigation is disposed');
         validateProjectedNavigationViewport(viewport);
         validateProjectedGeographicBounds(sourceBounds, type);
         const region: [number, number, number, number] = [...sourceBounds];
