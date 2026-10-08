@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, OrthographicView} from '@deck.gl/core';
-import {webgpuAdapter} from 'https://esm.sh/@luma.gl/webgpu@9.4.0?bundle&external=@luma.gl/core';
+import {webgpuAdapter} from '@luma.gl/webgpu';
 import {ProjectedBasemapLayer, createProjectedBasemapScene, ProjectedBasemapNavigation,
   selectProjectedTileDetail} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
 import {countProjectedTileCoordinates} from '@vis.gl/tangram-renderer/core';
