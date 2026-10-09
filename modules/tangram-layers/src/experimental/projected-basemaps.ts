@@ -128,7 +128,7 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
     const effectiveDraws = {...inheritedDraws};
     if (node.draw !== undefined) {
         for (const [name, value] of Object.entries(readRecord(node.draw, 'draw'))) {
-            const draw = {...effectiveDraws[name], ...readRecord(value, 'draw style')};
+            const draw = mergeAnnotationDraws(effectiveDraws[name] ?? {}, readRecord(value, 'draw style'));
             effectiveDraws[name] = draw;
             const styleName = String(draw.style ?? name);
             const style = styleName in styles ? readRecord(styles[styleName], 'draw style definition') : {base: styleName};
@@ -138,7 +138,7 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
             validateFlatDraw(draw);
             if (style.base === 'points' || style.base === 'text') {
                 const defaults = style.draw === undefined ? {} : readRecord(style.draw, 'annotation defaults');
-                const annotation = {...defaults, ...draw};
+                const annotation = mergeAnnotationDraws(defaults, draw);
                 if (annotation.collide !== false) throw new Error('Projected annotations require explicit collide: false');
                 if (annotation.text !== undefined) {
                     const text = readRecord(annotation.text, 'attached text');
@@ -159,6 +159,15 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
             validateProjectedDraws(readRecord(value, 'layer'), styles, effectiveDraws);
         }
     }
+}
+
+/** Preserve nested attached-text settings when applying style defaults or child-layer overrides. */
+function mergeAnnotationDraws(defaults: Record<string, unknown>, draw: Record<string, unknown>): Record<string, unknown> {
+    const merged = {...defaults, ...draw};
+    if (defaults.text !== undefined && draw.text !== undefined) {
+        merged.text = {...readRecord(defaults.text, 'attached text defaults'), ...readRecord(draw.text, 'attached text')};
+    }
+    return merged;
 }
 
 /** Apply the same ground-only restrictions to layer draws and inherited style defaults. */

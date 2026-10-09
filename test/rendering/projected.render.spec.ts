@@ -62,11 +62,12 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     const source = {type: 'FeatureCollection', features: [{type: 'Feature', properties: {name: 'Ground label'},
       geometry: {type: 'Point', coordinates: [-100, 40]}}]};
     const scene = createProjectedBasemapScene({scene: {background: {color: '#000'}},
+      styles: {markers: {base: 'points', draw: {collide: false, text: {collide: false}}}},
       sources: {annotations: {type: 'GeoJSON',
         url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`}},
       layers: {annotations: {data: {source: 'annotations'}, draw: {
-        points: {order: 10, size: '20px', color: '#00ff00', collide: false,
-          text: {text_source: 'name', collide: false, anchor: 'top', offset: [0, -20],
+        markers: {order: 10, size: '20px', color: '#00ff00',
+          text: {text_source: 'name', anchor: 'top', offset: [0, -20],
             font: {family: 'sans-serif', size: '18px', fill: '#ffffff'}}},
         text: {order: 11, text_source: 'name', collide: false, offset: [0, 25],
           font: {family: 'sans-serif', size: '18px', fill: '#ff0000'}}

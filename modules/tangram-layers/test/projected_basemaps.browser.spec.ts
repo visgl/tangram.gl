@@ -35,6 +35,29 @@ test('projected point/text annotations require explicit noncolliding, noninterac
     }
 });
 
+test('attached text merges noncolliding style defaults without mutating the authored scene', () => {
+    const scene = {styles: {markers: {base: 'points', draw: {collide: false, text: {collide: false}}}},
+        layers: {markers: {draw: {markers: {text: {text_source: 'name'}}}}}};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+    for (const text of [{collide: true}, {collide: false, interactive: true}, {collide: false, z: 1}, null, []]) {
+        expect(() => createProjectedBasemapScene({...scene, layers: {markers: {draw: {markers: {text}}}}},
+            {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow();
+    }
+});
+
+test('child annotation draws preserve attached-text collision settings and explicit overrides', () => {
+    const scene = {layers: {markers: {draw: {points: {collide: false, text: {collide: false}}},
+        child: {draw: {points: {text: {text_source: 'name'}}}}}}};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+    expect(() => createProjectedBasemapScene({layers: {markers: {...scene.layers.markers,
+        child: {draw: {points: {text: {collide: true}}}}}}},
+        {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow('collide');
+});
+
 test('projection-only property updates are deduplicated, restore the authored default and ignore disposed records', async () => {
     const scene = createProjectedBasemapScene({sources: {}, layers: {}}, {type: 'equal-earth'}, 'https://example.test/projection.js');
     vi.spyOn(Object.getPrototypeOf(ProjectedBasemapLayer.prototype), 'updateState').mockImplementation(() => {});
