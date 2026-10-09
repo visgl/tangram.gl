@@ -110,7 +110,7 @@ also identify **NASA GIBS** as the tile service. NASA's
 [media-use guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
 permit factual, informational use without implying endorsement. This is not
 a blanket license for NASA logos or separately credited third-party material.
-See the [Blue Marble publication and credit](https://science.nasa.gov/earth/earth-observatory/blue-marble/)
+See the [Blue Marble publication and credit](https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/)
 and [GIBS tile API](https://nasa-gibs.github.io/gibs-api-docs/map-library-usage/).
 The imagery is not relicensed under this repository's MIT license. Display
 credits when exporting images and in immersive presentation as well as the DOM.
