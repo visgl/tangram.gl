@@ -72,33 +72,11 @@ bundled fixtures on these live vector scenes, without a second Leaflet raster
 layer. The Albers morph is a standalone bundled GeoJSON example, while terrain
 shading retains its separate elevation source.
 
-## NASA Blue Marble imagery
-
-The deck.gl and WebXR MapView, GlobeView and FirstPersonView examples, classic
-playground and experimental projections offer Blue Marble. The projections
-example defaults to it; other examples retain their vector defaults.
-The shared raster source uses NASA GIBS's EPSG:3857 WMTS JPEG tiles at levels
-0–8 and overzooms higher views. This is overview imagery, not a street-level
-satellite basemap. It inherits the source grid's ±85.0511287798066° latitude limit.
-
-Blue Marble's publisher requests **NASA Earth Observatory** credit; the examples
-also identify **NASA GIBS** as the tile service. NASA's
-[media-use guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
-permit factual, informational use without implying endorsement. This is not
-a blanket license for NASA logos or separately credited third-party material.
-See the [Blue Marble publication and credit](https://earthobservatory.nasa.gov/features/BlueMarble/BlueMarble.php)
-and [GIBS tile API](https://nasa-gibs.github.io/gibs-api-docs/map-library-usage/).
-The imagery is not relicensed under this repository's MIT license. Display
-credits when exporting images and in immersive presentation as well as the DOM.
-
 The shared source factory uses TileJSON rather than a hard-coded dated URL,
 clears inherited `url`/URL parameters, sets maximum data zoom 14 and tile size
 512 for deck/WebXR, and declares loading-time credits before metadata arrives.
 At higher view zooms Tangram overzooms level-14 data rather than requesting
 nonexistent higher levels. Recheck service metadata before changing these limits.
-
-The immersive headset/export attribution limitations above still apply. This
-provider migration does not establish immersive-VR attribution compliance.
 
 [OpenFreeMap](https://openfreemap.org/) offers a public instance without API keys
 or registration, and publishes an unmodified OpenMapTiles schema. Its
@@ -118,7 +96,26 @@ TileJSON credit is the straightforward choice. The public service currently
 offers no SLA guarantee. Follow the provider's current instructions rather than
 treating this document as a substitute for its terms.
 
-### Compatibility and follow-up validation
+## NASA Blue Marble imagery
+
+The deck.gl and WebXR MapView, GlobeView and FirstPersonView examples, classic
+playground and experimental projections offer Blue Marble. The projections
+example defaults to it; other examples retain their vector defaults.
+The shared raster source uses NASA GIBS's EPSG:3857 WMTS JPEG tiles at levels
+0–8 and overzooms higher views. This is overview imagery, not a street-level
+satellite basemap. It inherits the source grid's ±85.0511287798066° latitude limit.
+
+Blue Marble's publisher requests **NASA Earth Observatory** credit; the examples
+also identify **NASA GIBS** as the tile service. NASA's
+[media-use guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/)
+permit factual, informational use without implying endorsement. This is not
+a blanket license for NASA logos or separately credited third-party material.
+See the [Blue Marble publication and credit](https://science.nasa.gov/earth/earth-observatory/blue-marble/)
+and [GIBS tile API](https://nasa-gibs.github.io/gibs-api-docs/map-library-usage/).
+The imagery is not relicensed under this repository's MIT license. Display
+credits when exporting images and in immersive presentation as well as the DOM.
+
+## Compatibility and follow-up validation
 
 1. Use OpenFreeMap for vector choices and NASA Blue Marble for overview imagery;
    retain explicit old provider bookmarks only for compatibility.

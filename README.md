@@ -2,9 +2,10 @@
 Tangram
 SPDX-License-Identifier: MIT
 Copyright (c) 2013-2016 Brett Camper and Mapzen
+Copyright (c) 2026 vis.gl contributors
 -->
 
-# Tangram layers
+# tangram.gl
 
 [![Coverage Status](https://coveralls.io/repos/github/visgl/tangram.gl/badge.svg?branch=master)](https://coveralls.io/github/visgl/tangram.gl?branch=master)
 
@@ -34,21 +35,23 @@ yarn build
 yarn test
 ```
 
-The root scripts use [`@vis.gl/dev-tools`](https://github.com/visgl/dev-tools)
-for workspace bootstrap, cleaning, and Biome linting. Tangram's renderer still
-uses its dedicated Rollup pipeline because it emits both the browser runtime
-and the worker bundle; the package entrypoint is generated as part of that
-build. `yarn lint:fix` applies the shared formatter and safe fixes.
+All workspaces are private and unpublished. The root scripts use
+[`@vis.gl/dev-tools`](https://github.com/visgl/dev-tools) for build orchestration,
+Vitest testing and Biome linting. Ocular/esbuild produce ES modules and worker
+bundles; generated `dist/` output is not committed. `yarn lint:fix` applies
+license-header and safe formatting fixes.
 
-To serve the deck example locally:
+To run the documentation and integrated examples:
 
 ```sh
-yarn start
+yarn website:start --host 127.0.0.1 --port 3000
 ```
 
-Then open [`http://localhost:8000/examples/deck/`](http://localhost:8000/examples/deck/).
+Then open [`http://127.0.0.1:3000/tangram.gl/examples/deck`](http://127.0.0.1:3000/tangram.gl/examples/deck).
 The deck demo defaults to WebGPU with the animated TRON style when the
 browser supports WebGPU. Use `?device=webgl` to exercise the WebGL path.
+For standalone examples, run `yarn build` first, then `yarn start` to watch the
+renderer and serve the repository at `http://127.0.0.1:8000/examples/deck/`.
 
 The full documentation is in [`docs/`](docs/), and the runnable examples are
 in [`examples/`](examples/). The classic style gallery is a workspace package

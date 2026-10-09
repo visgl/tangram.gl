@@ -19,5 +19,12 @@ explore it.
 </div>
 
 The example defaults to WebGPU and the vector-backed TRON style when available.
-It also supports WebGL, vector and raster styles, deck.gl camera controls,
-and runtime `?api_key=...` handling for the original Nextzen style.
+It also supports WebGL 2, vector and raster styles, and deck.gl camera controls.
+Use the password field for an existing Nextzen key when testing the original
+TRON scene; do not place credentials in shared URLs.
+
+Compare [flat MapView](/tangram.gl/examples/deck-map-flat),
+[GlobeView](/tangram.gl/examples/deck-globe),
+[FirstPersonView](/tangram.gl/examples/deck-first-person), and the
+[experimental projections](/tangram.gl/examples/deck-projected).
+See [TangramLayer](../api-reference/tangram-layer.md) for supported geometry and lifecycle.

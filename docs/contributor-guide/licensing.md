@@ -31,6 +31,12 @@ The distinction is based on file provenance, not on the current directory. A
 modernized original renderer file continues to credit Tangram even when it has
 subsequently been modified by vis.gl contributors.
 
+Substantive vis.gl modifications add `Copyright (c) 2026 vis.gl contributors`
+alongside, not instead of, the inherited notice. Maintain the modification set
+in `scripts/check-license-headers.mjs` when that distinction changes. Newly
+authored files should not acquire Brett Camper / Mapzen attribution solely
+because they live in the renderer directory.
+
 ## Enforcement
 
 Run `yarn lint:licenses` to check all tracked project text formats that support

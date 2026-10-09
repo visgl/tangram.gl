@@ -2,47 +2,56 @@
 Tangram
 SPDX-License-Identifier: MIT
 Copyright (c) 2013-2016 Brett Camper and Mapzen
+Copyright (c) 2026 vis.gl contributors
 -->
 
-# Contributing to Tangram layers
+# Contributing to tangram.gl
 
-This repository is organized as a Yarn workspace monorepo. The renderer lives
-in `modules/tangram-renderer`, the deck.gl adapter lives in
-`modules/tangram-layers`, and runnable applications live in `examples/`.
+The renderer lives in `modules/tangram-renderer`, the deck.gl adapter in
+`modules/tangram-layers`, and applications in `examples/`. Workspaces are
+private; generated bundles and schemas must not be committed.
 
-## Quickstart
+## Start locally
+
+Use the Node version in `.nvmrc` and Yarn version in `package.json`:
 
 ```sh
-yarn install
-yarn bootstrap
+corepack enable
+yarn install --immutable
+yarn website:start --host 127.0.0.1 --port 3000
+```
+
+Open `http://127.0.0.1:3000/tangram.gl/`. The website command builds required
+example assets. For the standalone deck example, run `yarn build`, then
+`yarn start` and open `http://localhost:8000/examples/deck/`.
+
+## Validate changes
+
+```sh
 yarn build
-yarn start
+yarn typecheck
+yarn lint:fix
+yarn lint
+yarn test-node
+yarn test-headless
+git diff --check
 ```
 
-Open `http://localhost:8000/examples/deck/` to run the deck.gl integration.
-
-## Testing
-
-Run the full lint and browser test suite with:
-
-```sh
-yarn test
-```
-
-`yarn clean` and `yarn lint` are provided by `@vis.gl/dev-tools`. Use
-`yarn lint:fix` while developing to apply the repository's shared Biome
-configuration. The renderer's Rollup build remains the package-specific build
-step invoked by the root `yarn build` command.
-
-The renderer worker bundle is built automatically before the headless Vitest
-project starts. Use `yarn test-node` for Node-only tests, `yarn test-browser`
-for the browser project, and `yarn test-headless` for the Chromium-backed
-integration suite. Coverage is collected with `yarn test-coverage`.
+New tests use Vitest. Chromium is required for browser coverage; install it with
+`yarn playwright:install`. GPU changes also require WebGL and WebGPU rendering
+tests; docs/example changes require `yarn website:build`. Build, bundling and
+formatting use `@vis.gl/dev-tools` / Ocular, not a separate Rollup pipeline.
 
 ## Pull requests
 
-Keep renderer changes independent from deck.gl adapter changes when possible.
-Add or update tests with each behavioral change, and include documentation for
-new public exports. The deck example is intentionally an integration fixture:
-it should continue to exercise both WebGL and WebGPU devices with one shared
-luma.gl runtime.
+Keep the renderer independent of deck.gl and Leaflet. Preserve Tangram's source
+and styling conventions, add regression coverage for behavior changes, and
+document public APIs. Retain upstream copyright notices and add vis.gl
+modification attribution where appropriate.
+
+Push branches directly to `visgl/tangram.gl`. Describe goals, actual changes
+and validation; keep the branch current with master. Address review threads
+and verify required CI/coverage on the latest revision before requesting merge.
+
+See the [Contributor Guide](docs/contributor-guide/development.md) for rendering,
+workers, coverage and build contracts, and [AGENTS.md](AGENTS.md) for agent workflow.

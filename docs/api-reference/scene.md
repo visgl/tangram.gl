@@ -12,8 +12,8 @@ Copyright (c) vis.gl contributors
 > this repository.
 
 `Scene` owns loaded configuration, sources, tiles, styles, labels, selection,
-workers, and render resources. A classic Leaflet layer exposes it as
-the example adapter as `layer.scene`; `ClassicWebGLRenderer` exposes it as
+workers, and render resources. The classic Leaflet adapter exposes it as
+`layer.scene`; `ClassicWebGLRenderer` exposes it as
 `renderer.scene`.
 
 ## Creation and lifetime
@@ -42,7 +42,11 @@ Loads a YAML/JSON URL or configuration object. Important options are:
 
 - `base_path`: alternate base URL for scene-relative resources;
 - `file_type`: explicitly select a format such as `zip`; and
-- `blocking`: control whether the load waits for all dependent work.
+- `blocking` (default `true`): pause rendering while the configuration loads.
+
+A resolved load does not mean every visible tile has finished. Use
+`view_complete` for a rendered, settled view; metadata and attribution can still
+need separate asynchronous discovery.
 
 Calling `load()` without a new source reloads the current scene.
 
@@ -234,9 +238,13 @@ Use `scene.subscribe({...})` and `scene.unsubscribe({...})`. Public events
 retained from the original API include:
 
 - `load`: scene configuration finished loading;
-- `error`: unrecoverable scene processing failure;
+- `update`: configuration/source updates were applied;
+- `error`: a scene/import processing error (some import errors are recoverable);
 - `warning`: recoverable source, texture, or configuration issue; and
 - `view_complete`: visible geometry is rendered and tile loading is at rest.
+
+`pre_update` and `post_update` receive a `willRender` boolean around an update;
+`move` reports view movement. These are scene events, not DOM input handlers.
 
 ```js
 const listeners = {

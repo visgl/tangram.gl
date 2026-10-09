@@ -66,7 +66,9 @@ The TRON scene uses separate OpenMapTiles layers and reads `render_height`
 and `render_min_height` for building extrusion. It keeps the original animated
 traffic shaders on WebGL and the portable traffic implementation on WebGPU.
 
-The globe starts framed to fit the preview and requests at least regional-detail
-vector tiles. This reduces the long triangle artifacts from projecting world-level
-polygons onto a sphere. Curvature-aware polygon subdivision and polar caps remain
-renderer work; Mercator tiles do not cover the poles.
+The globe starts framed to fit the preview and preloads a coarse global fallback.
+Polygon, road and raster meshes use bounded curvature refinement; mixed-level
+seams remain experimental and Mercator tiles do not cover the poles.
+
+For placement, controller lifecycle and picking contracts, see the
+[WebXR presentation API](../../docs/api-reference/webxr-presentation.md).

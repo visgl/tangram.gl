@@ -6,19 +6,15 @@ Copyright (c) vis.gl contributors
 
 # Renderer API
 
-For opt-in CPU-projected ground scenes, `setProjectedBasemapProjection(options)`
-returns a promise for a mesh-only worker rebuild. It retains loaded source tiles
-and renderer ownership instead of reloading the scene. See
-[experimental projected basemaps](../developer-guide/projected-basemaps.md) for
-projection types, restrictions and cache budgets. Other scenes reject this method.
-
-`@vis.gl/tangram-renderer` exports the classic Tangram default object and named
-integration primitives:
+Use the host-only core entry when your application owns the camera, device and
+render passes. The package root also exports this renderer as
+`ClassicWebGLRenderer` (and the historical `Renderer` alias), alongside the
+standalone default Tangram object.
 
 ```js
-import {ClassicWebGLRenderer, HostFrame} from '@vis.gl/tangram-renderer';
+import {Renderer, HostFrame} from '@vis.gl/tangram-renderer/core';
 
-const renderer = ClassicWebGLRenderer.create(scene, {
+const renderer = Renderer.create(scene, {
   device,
   canvas,
   requestRedraw: () => deck.redraw()
@@ -36,7 +32,10 @@ const frame = new HostFrame({
 });
 
 renderer.setFrame(frame);
+await renderer.load();
+// In the host's draw callback, with a live host-owned render pass:
 renderer.render({renderPass, force: true});
+// On application teardown, after submitted GPU work is safe to retire:
 renderer.destroy();
 ```
 
@@ -44,7 +43,55 @@ The host supplies the frame and owns scheduling. `LumaDeviceRenderer` provides
 resource factories for luma.gl devices, including the WebGPU backend. The
 renderer does not depend on deck.gl and does not create a second host device.
 
-### GPU backend ownership
+## Lifecycle
+
+### `Renderer.create(config, options)` / `new Renderer(config, options)`
+
+Creates the scene without loading it. `config` is a scene URL, object or array
+of scene definitions. Supply
+the host's `device`, optional `canvas`, and `requestRedraw` callback; `numWorkers`
+and the source/projection options below configure worker execution. A custom
+`workerURL` overrides the normal embedded scene-worker Blob. This renderer forces
+external cameras and disables the standalone render loop.
+
+### `renderer.load(config?, options?)`
+
+Loads or reloads the scene. Call after setting the initial frame. Options use
+the [Scene load contract](./scene.md#loadconfig-options), including `base_path`.
+Completion means configuration is ready, not that every visible tile has arrived.
+Subscribe to `error` and `view_complete` for later work; attribution/metadata
+discovery is also asynchronous.
+
+### `renderer.setFrame(frame, {renderViewId}?)`
+
+Validates and applies a `HostFrame`, plain frame options or the legacy shape,
+returning the normalized frame. The complete frame describes all eyes; the ID
+selects the draw eye. The host still owns render-pass viewport/scissor placement.
+See [HostFrame](./host-frame.md) for coordinates and visibility policy.
+
+### `renderer.render({frame?, renderViewId?, renderPass?, force?})`
+
+Applies an optional frame, updates the scene and returns whether a draw occurred.
+Reuse the frame for each eye; `force: true` marks the scene dirty. Device-backed
+draws use the host's active render pass; the host submits/ends that pass. A redraw
+request is a scheduling notification, not an internal animation loop.
+
+### `renderer.subscribe(listeners)` / `renderer.destroy()`
+
+Subscriptions use [Scene events](./scene.md#events). Destruction releases the
+scene's workers/resources and renderer-owned caches, not the host's device/pass.
+Do not use the renderer afterward; unsubscribe scene listeners through
+`renderer.scene.unsubscribe(listeners)` while the scene is live.
+
+### `renderer.setProjectedBasemapProjection(options)`
+
+For loaded CPU-projected scenes, returns a promise for a mesh-only rebuild,
+retaining source tiles and renderer ownership. Failures reject and a later valid
+request can retry. Other scenes reject this method. See
+[projected basemaps](../developer-guide/projected-basemaps.md) for restrictions
+and cache budgets.
+
+## GPU backend ownership
 
 Passing `device` creates one renderer-owned `LumaDeviceRenderer` for draw
 submission and GPU caches. `renderer.destroy()` releases scene-owned buffers,
@@ -382,6 +429,8 @@ lighting convention. Tangram retains its denominator floor, explicit equal-cone
 limit, independent material contributions and multiplicative legacy radius/exponent
 falloff. This is not a wholesale replacement with luma's lighting uniform block:
 that would change Tangram's light layout, supported count and legacy semantics.
+
+## Backend compatibility and selection
 
 The portable WebGL 2 shader compiler no longer queries raw shader precision;
 high precision is required by WebGL 2. Classic WebGL 1 retains its capability

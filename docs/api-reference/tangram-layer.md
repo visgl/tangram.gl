@@ -37,15 +37,16 @@ import {TangramLayer} from '@vis.gl/tangram-layers';
 const scene = {
   sources: {
     basemap: {
-      type: 'Raster',
-      url: 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      max_zoom: 20
+      type: 'MVT',
+      tilejson: 'https://tiles.openfreemap.org/planet',
+      tile_size: 512,
+      max_zoom: 14
     }
   },
   layers: {
     basemap: {
-      data: {source: 'basemap'},
-      draw: {raster: {order: 0}}
+      data: {source: 'basemap', layer: 'water'},
+      draw: {polygons: {order: 0, color: '#388ab3'}}
     }
   }
 };
@@ -96,15 +97,16 @@ type Route = {
 const scene: SceneDefinition = {
   sources: {
     basemap: {
-      type: 'Raster',
-      url: 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      max_zoom: 20
+      type: 'MVT',
+      tilejson: 'https://tiles.openfreemap.org/planet',
+      tile_size: 512,
+      max_zoom: 14
     }
   },
   layers: {
     basemap: {
-      data: {source: 'basemap'},
-      draw: {raster: {order: 0}}
+      data: {source: 'basemap', layer: 'water'},
+      draw: {polygons: {order: 0, color: '#388ab3'}}
     }
   }
 };
@@ -159,15 +161,16 @@ const INITIAL_VIEW_STATE = {
 const SCENE = {
   sources: {
     basemap: {
-      type: 'Raster',
-      url: 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-      max_zoom: 20
+      type: 'MVT',
+      tilejson: 'https://tiles.openfreemap.org/planet',
+      tile_size: 512,
+      max_zoom: 14
     }
   },
   layers: {
     basemap: {
-      data: {source: 'basemap'},
-      draw: {raster: {order: 0}}
+      data: {source: 'basemap', layer: 'water'},
+      draw: {polygons: {order: 0, color: '#388ab3'}}
     }
   }
 };
@@ -198,6 +201,11 @@ export function App() {
   </TabItem>
 </Tabs>
 
+These minimal scenes draw only OpenFreeMap water polygons. Use the embedded
+example's scene for streets and buildings. In an application, handle
+`onAttributionChange` and display safe linked credits; retrieving TileJSON does
+not display attribution. See [provider requirements](../developer-guide/tile-providers.md).
+
 ## Installation
 
 The current alpha packages are private workspace packages and are not published to npm. In a
@@ -216,8 +224,7 @@ import {TangramLayer} from '@vis.gl/tangram-layers';
 new TangramLayer({...props});
 ```
 
-Publishing will be enabled after the alpha API and package boundaries stabilize. `TangramLayer`
-is an ES module and does not currently provide a pre-bundled script-tag build.
+`TangramLayer` is an ES module; it does not provide a script-tag build.
 
 ## Properties
 
@@ -308,7 +315,7 @@ Called once after the Tangram scene finishes loading:
 ```
 
 The callback receives the renderer-owned Tangram [`Scene`](./scene.md). At this point
-`layer.isLoaded` is `true`.
+`layer.isLoaded` is `true`, but visible tiles and source metadata may still be loading.
 
 #### `onSceneError` (function, optional) {/* #onsceneerror */}
 
@@ -471,8 +478,10 @@ This keeps shader effects such as TRON traffic moving without an application ani
 ### Scene identity and lifecycle
 
 The layer owns the Tangram renderer and all scene GPU resources that it creates. It destroys them
-when the layer is finalized or when `scene`, `sceneBasePath`, or `apiKey` changes. The deck-owned
-luma.gl device, canvas, and render pass are never destroyed by `TangramLayer`.
+when the layer is finalized or a creation-time property changes: `scene`,
+`sceneBasePath`, `apiKey`, `projectionEngine`, `projectionEngineExecution`, or
+`maxConcurrentTileLoadsPerWorker`. Keep object identities stable to retain caches.
+The deck-owned device, canvas, and render pass are never destroyed by `TangramLayer`.
 
 ### Picking
 

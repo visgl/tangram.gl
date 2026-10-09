@@ -9,57 +9,51 @@ Copyright (c) vis.gl contributors
 The renderer owns Tangram scenes and GPU resources. The layer package adapts it
 to deck.gl's device, viewport, and render-pass lifecycle.
 
-The monorepo has two intentionally separate layers:
+## Package boundaries
 
-1. `@vis.gl/tangram-renderer` contains scene loading, tile management, style
-   evaluation, labels, and luma.gl resource/draw submission. Its
-   `ClassicWebGLRenderer` receives a host-owned frame and render pass.
-2. `@vis.gl/tangram-layers` adapts that renderer to deck.gl's layer lifecycle.
-   deck.gl supplies the device, viewport, resize events, and render pass; the
-   adapter forwards them to Tangram and keeps the package dependency one-way.
+- `@vis.gl/tangram-renderer/core` contains scene loading, tiles, styles, labels,
+  external cameras and luma.gl draw submission. It excludes deck.gl, Leaflet
+  and Tangram's classic perspective/flat/isometric camera factory. A build-time
+  dependency-graph check enforces that separation.
+- `@vis.gl/tangram-renderer` retains the default Tangram object and standalone
+  `Scene` API, including classic scene cameras. The Leaflet adapter lives in
+  `examples/classic`, not in either renderer entry.
+- `@vis.gl/tangram-layers` supplies deck.gl view adapters and `TangramLayer`.
+  Optional projected-basemap and WebXR APIs have separate experimental subpaths.
 
-The split is a foundation for future shared-device and WebGPU work. It avoids
-making the standalone Tangram renderer know about deck.gl while allowing a
-deck.gl application to compose Tangram basemaps with ordinary overlay layers.
+The dependency direction is layer → renderer, never renderer → deck.gl.
+The core is host-independent, **not dependency-free**: it still uses luma.gl,
+math.gl and Tangram's parsing/geometry dependencies. Schemas and optional loader
+workers are separate entries or assets; see [bundling](./bundling.md).
 
-Tile acquisition/reuse and resident scheduling/cache policy now have separate
-internal source and tileset boundaries. Renderer-specific traversal, refinement,
-styles and GPU content remain in Tangram adapters. See
-[tile loading and tileset alignment](./tile-loading.md) for the loaders.gl
-pre-alignment and the remaining compatibility work.
+## Ownership and lifetime
 
-## Camera ownership
+For host-driven rendering, the host owns interaction, scheduling, the canvas,
+luma.gl device and render passes. Tangram owns its scene, workers, GPU resources
+and renderer-created backend caches. Destroying the renderer releases those
+resources, not the host's device or pass.
 
-The host-driven renderer uses `cameraMode: 'external'`. In this mode the host
-owns interaction, animation scheduling, view selection, and projection
-matrices. `TangramLayer` converts the active deck.gl viewport into Tangram's
-geographic frame and supplies deck.gl's view and projection matrices for every
-draw. A scene's `cameras` block cannot replace those matrices.
+`HostFrame` separates shared geographic/style state from named camera views.
+Apply the complete frame before drawing either stereo eye: tile selection uses
+the union of their footprints, while camera uniforms are eye-specific. The host
+sets render-target viewports/scissors and submits its passes.
 
-The package root also retains Tangram's perspective, flat, and isometric scene
-cameras for the classic Leaflet integration. Those compatibility cameras and
-their interaction helpers should move behind optional `cameras` and `leaflet`
-entrypoints as the renderer is decomposed. The intended package boundary is:
+Tile acquisition and decoded reuse have worker-local source boundaries;
+mesh-build scheduling and off-screen residency have a separate tileset boundary.
+Tangram still owns styling, refinement, labels and GPU disposal. These are not
+a production switch to loaders.gl `Tileset2D`; see [tile loading](./tile-loading.md).
 
-- `@vis.gl/tangram-renderer/core`: scene loading, tiles, styles, labels, GPU
-  resources, draw submission, geographic frame state, and externally supplied
-  matrices;
-- `@vis.gl/tangram-renderer/cameras`: Tangram's perspective, flat, and
-  isometric camera implementations;
-- `@vis.gl/tangram-renderer/leaflet`: Leaflet interaction, URL synchronization,
-  and standalone render-loop ownership.
+## Camera and style animation
 
-Host-driven scene loading no longer synthesizes a default Tangram camera;
-classic scene loading retains that behavior. `Scene` still constructs `View`,
-and `View` still imports the classic camera factory. Therefore adding a `core`
-export today would only be a name, not a camera-free package boundary. The next
-structural tranche should inject view/camera policy into `Scene`, then expose
-the new subpath once its dependency graph no longer reaches Leaflet or the
-classic cameras.
+Host-driven scenes use `cameraMode: 'external'`. deck.gl adapters supply the view
+and projection matrices; a scene's `cameras` block cannot replace them. Classic
+scene loading retains its built-in camera behavior.
 
-Style animation is separate from camera ownership. Animated styles continue to
-request host frames and may transform geometry using `u_time`, zoom, or custom
-shader uniforms. For example, the Albers projection example morphs vertices in
-its shader according to zoom; it does not animate or replace the camera. This
-means projection effects remain usable with deck.gl views, provided they do not
-assume a specific built-in Tangram projection matrix.
+Style animation is separate from camera ownership. Animated scenes request host
+frames and use time, zoom or shader uniforms. The classic Albers morph transforms
+vertices, not the host camera; it is distinct from the experimental CPU-projected
+basemap entry. Custom GLSL blocks are not automatically portable to WebGPU.
+
+See [view integration](./view-integration.md) for supported views and limitations,
+[projection conventions](./projection-conventions.md) for units, and
+[Renderer](../api-reference/renderer.md) for the host API.

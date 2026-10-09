@@ -12,7 +12,7 @@ geometry, color, and effects needed by the active rendering device.
 
 ## Smallest useful style
 
-The following scene draws roads from a vector-tile source. The YAML and JSON
+The following scene draws the OpenMapTiles `transportation` collection. The YAML and JSON
 forms are equivalent; use whichever is easier to generate or edit in your
 application.
 
@@ -26,11 +26,13 @@ import TabItem from '@theme/TabItem';
 sources:
   map:
     type: MVT
-    url: https://tiles.example.test/{z}/{x}/{y}.mvt
+    tilejson: https://tiles.openfreemap.org/planet
+    tile_size: 512
+    max_zoom: 14
 
 layers:
   roads:
-    data: {source: map}
+    data: {source: map, layer: transportation}
     draw:
       lines:
         color: '#58e6ff'
@@ -46,12 +48,14 @@ layers:
   "sources": {
     "map": {
       "type": "MVT",
-      "url": "https://tiles.example.test/{z}/{x}/{y}.mvt"
+      "tilejson": "https://tiles.openfreemap.org/planet",
+      "tile_size": 512,
+      "max_zoom": 14
     }
   },
   "layers": {
     "roads": {
-      "data": {"source": "map"},
+      "data": {"source": "map", "layer": "transportation"},
       "draw": {
         "lines": {
           "color": "#58e6ff",
@@ -67,6 +71,9 @@ layers:
   </TabItem>
 </Tabs>
 
+Display the source's required [attribution](../developer-guide/tile-providers.md)
+in your map UI; drawing a scene does not create a credit control.
+
 ## Scene structure
 
 - `sources` describes where feature data comes from. Common source types are
@@ -76,8 +83,14 @@ layers:
 - `draw` chooses a primitive such as `polygons`, `lines`, `points`, or `text`.
   Draw rules support paint properties such as `color`, `width`, `outline`, and
   `order`.
-- `scene` contains global settings such as background color, camera behavior,
-  and texture declarations.
+- `styles`, `textures` and `fonts` define reusable rendering assets.
+- `cameras` and `lights` are top-level sections. Host-driven cameras come from
+  `HostFrame`, not the scene's camera definitions.
+- `scene` contains settings such as background, animation and worker scripts.
+- `global` supplies shared values; `import` composes scene documents.
+
+Scene expressions and worker scripts execute code. Treat remote scene files as
+trusted application inputs, not safe data to load from arbitrary users.
 
 ## Vector tile decoders
 
@@ -107,102 +120,48 @@ Tangram-local tile coordinates and preserve `parse_json` and source-transform
 behavior. `decoder: tangram` selects the built-in parser. An unregistered name
 produces an error in the scene worker.
 
-### Tile format examples
+### Format and container choices
 
-The examples gallery includes a direct MVT service, an MVT tileset stored in a
-PMTiles archive, and a direct MLT tile service. All three load the optional
-worker; it provides the loaders.gl MVT and MLT decoders, while PMTiles uses its
-tile provider. The examples use public demo sources and may require network
-access; they are subject to the services' availability and usage policies.
+A PMTiles archive is a container, not a tile encoding. Select the decoder that
+matches its contents; using `loaders-mlt` on an MVT archive is invalid.
 
-For PMTiles, the loaders.gl source's `getTile({x, y, z})` returns the encoded
-tile `ArrayBuffer`. The example selects the loaders.gl MVT decoder, exercising
-both the PMTiles provider and MVT decoder without changing the tile format.
-The source is created without a `shape` option because that option applies to
-the higher-level `getVectorTile()` method, not the raw `getTile()` method.
+| Example | Acquisition | Decoder |
+| --- | --- | --- |
+| [OpenFreeMap MVT](/tangram.gl/examples/classic?scene=styles/loaders-mvt.yaml) | TileJSON/XYZ service | `loaders-mvt` |
+| [Protomaps PMTiles](/tangram.gl/examples/classic?scene=styles/loaders-pmtiles.yaml) | `tile_provider: loaders-pmtiles` | `loaders-mvt` (the example archive contains MVT) |
+| [MapLibre MLT](/tangram.gl/examples/classic?scene=styles/loaders-mlt.yaml) | XYZ MLT service | `loaders-mlt` |
 
-### PMTiles archives with MLT tiles
+All three examples load the optional worker and use public demo data. Service
+availability, data schemas and licenses are independent of format support.
+For an archive containing MLT, combine `loaders-pmtiles` with `loaders-mlt`.
 
-An optional worker add-on registers loaders.gl's PMTiles tile source and MLT
-decoder. The renderer build emits it as a separate sidecar; to build only this
-worker, run `yarn workspace @vis.gl/tangram-renderer build:loaders-gl-worker`.
-Serve `dist/loaders-gl-worker.js` alongside the renderer package. It is a
-separate worker script and is not included in the standard Tangram bundle.
-
-```yaml
-scene:
-  scripts:
-    - https://example.test/tangram/dist/loaders-gl-worker.js
-sources:
-  map:
-    type: MVT
-    url: https://demo-bucket.protomaps.com/v4.pmtiles
-    tile_provider: loaders-pmtiles
-    decoder: loaders-mlt
-```
-
-The PMTiles provider retrieves raw `{z,x,y}` tile bytes from the archive; the
-MLT decoder groups features by layer and converts normalized local coordinates
-to Tangram's tile coordinate scale. Standard builds do not include the optional
-loaders.gl dependencies or add them to the renderer's main bundle. The direct
-MLT service example uses MapLibre's public `plain` demo tiles at
-`https://demotiles.maplibre.org/tiles-mlt/plain/{z}/{x}/{y}.mlt`.
-
-### Tile format examples
-
-The examples gallery includes a baseline MVT source, an MVT tileset stored in a
-PMTiles archive, and a direct MLT tile service. The source URLs are public demos
-documented by OpenFreeMap, Protomaps, and MapLibre; they may require network
-access and can be subject to those services' availability and usage policies.
-
-For PMTiles, the loaders.gl source's `getTile({x, y, z})` returns the encoded
-tile `ArrayBuffer`. The example selects Tangram's existing MVT decoder, so this
-demonstrates the archive container without changing the encoded tile format.
-The source is created without a `shape` option because that option applies to
-the higher-level `getVectorTile()` method, not the raw `getTile()` method.
-
-### PMTiles archives with MLT tiles
-
-An optional worker add-on registers loaders.gl's PMTiles tile source and MLT
-decoder. The renderer build emits it as a separate sidecar; to build only this
-worker, run `yarn workspace @vis.gl/tangram-renderer build:loaders-gl-worker`.
-Serve `dist/loaders-gl-worker.js` alongside the renderer package. It is a
-separate worker script and is not included in the standard Tangram bundle.
-
-```yaml
-scene:
-  scripts:
-    - https://example.test/tangram/dist/loaders-gl-worker.js
-sources:
-  map:
-    type: MVT
-    url: https://demo-bucket.protomaps.com/v4.pmtiles
-    tile_provider: loaders-pmtiles
-    decoder: loaders-mlt
-```
-
-The PMTiles provider retrieves raw `{z,x,y}` tile bytes from the archive; the
-MLT decoder groups features by layer and converts normalized local coordinates
-to Tangram's tile coordinate scale. Standard builds do not include the optional
-loaders.gl dependencies or add them to the renderer's main bundle. The direct
-MLT service example uses MapLibre's public `plain` demo tiles at
-`https://demotiles.maplibre.org/tiles-mlt/plain/{z}/{x}/{y}.mlt`.
+Build the sidecar with
+`yarn workspace @vis.gl/tangram-renderer build:loaders-gl-worker`.
+Serve it at the absolute URL in `scene.scripts`; the URL above assumes the
+website's assembled asset layout. A custom host must copy the asset itself.
+The provider acquires encoded bytes; decoders return named feature collections
+in Tangram's local coordinates. See [tile loading](../developer-guide/tile-loading.md)
+for capabilities, metadata and cancellation.
 
 ## Validation and editor tooling
 
-The renderer publishes a Zod schema for runtime validation and a generated
+The renderer exports a Zod schema for runtime validation and a generated
 Draft 7 JSON Schema for editors and language servers:
 
 ```js
 import {TangramStyleSheetSchema} from '@vis.gl/tangram-renderer/style-schema';
-import tangramStyleJsonSchema from '@vis.gl/tangram-renderer/tangram-style.schema.json';
+import tangramStyleJsonSchema from '@vis.gl/tangram-renderer/tangram-style.schema.json'
+  with {type: 'json'};
 
 const result = TangramStyleSheetSchema.safeParse(sceneDocument);
 console.log(tangramStyleJsonSchema.$id);
 ```
 
-The schema accepts the standard scene sections while preserving Tangram's
-open-ended style, shader, and renderer-specific properties.
+Builds generate both schema entries; they are not checked into Git. JSON import
+syntax must be supported by your host/bundler, or load the copied JSON asset over
+HTTP. The schema preserves open-ended style/shader fields: passing validation
+is not a guarantee of compatible shaders, valid URLs or supported projections.
+The scene loader does not automatically run Zod validation.
 
 The website playground passes this schema to the deck.gl-community
 `TextEditorPanel`, enabling Monaco diagnostics and completion for the editable
@@ -218,8 +177,8 @@ following rule highlights primary roads and increases their width gradually:
 ```yaml
 layers:
   roads:
-    data: {source: map}
-    filter: {kind: primary}
+    data: {source: map, layer: transportation}
+    filter: {class: primary}
     draw:
       lines:
         color: '#ff4fd8'
@@ -238,7 +197,7 @@ before styling.
 
 ## Rendering notes
 
-`order` determines draw ordering within a layer. For coplanar geometry, use
+`order` determines draw ordering within the Tangram scene. For coplanar geometry, use
 different orders or a small `z` offset instead of relying on depth precision.
 Text and line widths are expressed in screen-aware units by the renderer. The
 same scene document can therefore be passed to `@vis.gl/tangram-renderer` or
@@ -246,4 +205,6 @@ to `@vis.gl/tangram-layers` without changing the style format.
 
 For a complete working document, see the scene files in
 [`examples/classic/styles`](https://github.com/visgl/tangram.gl/tree/master/examples/classic/styles)
-and the [classic playground](../examples/classic).
+and the [classic playground](/tangram.gl/examples/classic).
+The [legacy scene reference](https://tangrams.readthedocs.io/en/latest/)
+describes the wider language; use this fork's API pages for backend restrictions.

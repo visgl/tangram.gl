@@ -48,6 +48,51 @@ xrProjection × xrView × placement × projectedPosition
 
 The renderer stays independent from deck.gl and WebXR. It only consumes the resulting host frame.
 
+## Lifecycle and modes
+
+```ts
+const presentation = new WebXRPresentation({
+  view: new WebXRMapView({id: 'map', controller: true}),
+  viewState: {longitude: -74, latitude: 40.7, zoom: 14, pitch: 45},
+  mode: 'auto'
+});
+presentation.attachController({element: canvas, timeline});
+
+// Once per host animation frame, using current canvas dimensions:
+presentation.updateTransitions();
+const frame = presentation.createFrame({width, height, frameState});
+presentation.updateController({width, height}, frame.mode);
+renderer.setFrame(frame.hostFrame);
+// Draw each frame.renderViews entry in its matching host render pass.
+// After stopping the host loop:
+presentation.finalize();
+renderer.destroy();
+```
+
+`timeline` is the host's luma.gl animation timeline. `frameState` is a luma.gl XR
+frame snapshot, omitted for desktop preview. The host owns session creation,
+frame scheduling, render targets and per-eye submission; constructing a
+presentation does not start VR. `finalize()` releases its desktop input resources,
+not the host's view, renderer or XR session.
+
+| Requested mode | Without XR eye poses | With XR eye poses |
+| --- | --- | --- |
+| `auto` | Interactive mono | Immersive VR |
+| `mono` | Interactive mono | Mono preview |
+| `stereo-preview` | Interactive split stereo | Split preview; does not use headset poses |
+| `immersive-vr` | Split-stereo fallback | Immersive VR |
+
+Change navigation with `setViewState`, room placement with `setPlacement`, and
+presentation policy with `setMode`. Keep one shared view state for both eyes.
+Use a secure context (HTTPS or browser-recognized localhost) and a user gesture
+to request VR. Embedded hosts must also grant the appropriate XR permissions.
+Native immersive WebGPU requires a browser exposing `XRGPUBinding`; desktop
+mono/stereo does not require that API.
+
+The examples show linked credits in desktop/fullscreen UI. DOM overlays are not
+an immersive credit surface; see [provider attribution](../developer-guide/tile-providers.md)
+before headset use or image export.
+
 `createFrame` also accepts `tileResources: {maxConcurrentBuilds, maxCachedTiles,
 maxCachedMeshBytes}`. The [renderer resource policy](./host-frame.md#tileresources)
 is shared by both stereo or immersive eyes; the wrapper does not duplicate budgets
