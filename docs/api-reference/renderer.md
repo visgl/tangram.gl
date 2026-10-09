@@ -486,6 +486,14 @@ is normalized to a single-view `HostFrame`.
 
 ### Multiple views and stereo
 
+For custom planar cameras, `calculatePlanarGroundBounds(camera, limits?)`
+intersects the finite frustum with ground. Use
+`calculatePlanarVolumeBounds(camera, [minimumHeight, maximumHeight], limits?)`
+for conservative tile candidates that include elevated geometry. Heights are
+physical meters and horizontal bounds use EPSG:3857 meters. Both helpers return
+`null` for an empty footprint and are exported from the root and `/core` entries.
+They do not query terrain or change the supplied camera matrices.
+
 A host can share scene and tile state while submitting separate render passes:
 
 ```js

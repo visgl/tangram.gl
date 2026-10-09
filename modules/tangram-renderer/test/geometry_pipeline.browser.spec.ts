@@ -50,6 +50,24 @@ afterEach(() => {
 });
 
 describe('checked geometry pipeline', () => {
+  test.each(['glsl', 'wgsl'] as const)('validates projected %s height before signed-short packing', shaderLanguage => {
+    const style = createStyle(shaderLanguage, 'polygons');
+    style.init({generation: 1, styles: {polygons: style}, shader_language: shaderLanguage,
+      config: {scene: {cpu_projection: {type: 'equal-earth', allowElevation: true}}}});
+    const context = createContext();
+    const draw = style._preprocess(createDraw({extrude: true, z: 10}));
+    expect(style._parseFeature(context.feature, draw, context)!.height).toBe(320);
+    for (const height of [2048, -3000, NaN, Infinity]) {
+      context.feature.properties.height = height;
+      if (Number.isNaN(height)) {
+        // Legacy falsey fallback still chooses the default height; no behavior change.
+        expect(style._parseFeature(context.feature, draw, context)!.height).toBe(320);
+      } else expect(() => style._parseFeature(context.feature, draw, context)).toThrow('16-bit');
+    }
+    context.feature.properties.height = 20;
+    style.cpu_projection = {type: 'equal-earth'};
+    expect(() => style._parseFeature(context.feature, draw, context)).toThrow('allowElevation');
+  });
   test.each(['glsl', 'wgsl'] as const)('packs an untextured %s line from authored properties', shaderLanguage => {
     const style = createStyle(shaderLanguage, 'lines');
     const context = createContext();

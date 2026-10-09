@@ -70,6 +70,7 @@ for (const exportName of [
   'HostFrame',
   'LumaDeviceRenderer',
   'calculatePlanarGroundBounds',
+  'calculatePlanarVolumeBounds',
   'convertLumaLight',
   'mapTangramLight',
   'debug',
@@ -91,7 +92,7 @@ for (const bundlePath of ['dist/tangram.debug.mjs', 'dist/tangram.min.mjs', 'dis
       match[1].split(',').map(specifier => specifier.trim().split(/\s+as\s+/).at(-1))
     )
   );
-  for (const exportName of ['convertLumaLight', 'mapTangramLight']) {
+  for (const exportName of ['convertLumaLight', 'mapTangramLight', 'calculatePlanarVolumeBounds']) {
     if (!bundleExportNames.has(exportName)) {
       throw new Error(`${bundlePath} is missing export: ${exportName}`);
     }

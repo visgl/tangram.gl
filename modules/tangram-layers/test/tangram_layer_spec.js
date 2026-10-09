@@ -18,7 +18,9 @@ const IDENTITY_MATRIX = [
 
 class FakeLayer {
     constructor(props = {}) {
-        this.props = Object.assign({ visible: true, opacity: 1 }, this.constructor.defaultProps, props);
+        const defaults = Object.fromEntries(Object.entries(this.constructor.defaultProps).map(([name, value]) =>
+            [name, value && typeof value === 'object' && 'value' in value ? value.value : value]));
+        this.props = Object.assign({ visible: true, opacity: 1 }, defaults, props);
         this.state = {};
         this.errors = [];
         this.redrawCount = 0;

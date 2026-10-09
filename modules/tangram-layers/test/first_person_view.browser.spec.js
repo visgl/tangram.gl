@@ -22,6 +22,16 @@ function createViewport({latitude = 40.705319, longitude = -74.009764, pitch = 6
 }
 
 describe('getFirstPersonViewFrame', () => {
+  test.each([0, 60])('elevation slab retains sky-facing buildings at latitude %s without changing the eye', latitude => {
+    const viewport = createViewport({pitch: -80, latitude});
+    const ground = getFirstPersonViewFrame(viewport);
+    const elevated = getFirstPersonViewFrame(viewport, {elevationRange: [0, 1500]});
+    expect(ground.projection.visibleBounds).toBeNull();
+    expect(elevated.projection.visibleBounds).not.toBeNull();
+    expect(elevated.camera).toEqual(ground.camera);
+    expect(elevated.view.altitude).toBeCloseTo(ground.view.altitude, 6);
+    expect(elevated.projection.visibleBounds.every(Number.isFinite)).toBe(true);
+  });
   test('derives a Tangram frame from the visible ground footprint', () => {
     const frame = getFirstPersonViewFrame(createViewport());
 

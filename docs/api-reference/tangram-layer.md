@@ -415,15 +415,31 @@ Changing either property updates visibility without reloading the scene.
 
 Positive finite east/north extent from the eye, per axis, in local geographic
 meters. Applies only to FirstPersonView. The adapter intersects the finite camera
-frustum with flat ground, then clips it to this eye-centered square. The camera's
+frustum with the declared elevation range (ground only by default), then clips it to this eye-centered square. The camera's
 near and far planes remain authoritative. Horizon-crossing views no longer
 require every screen corner to hit ground, while fully sky-facing views supply
 explicit empty visibility. Camera matrices and Tangram shaders are unchanged.
 
 The footprint determines the current tile/style zoom estimate; this is not yet
-screen-space-error LOD. Terrain intersections and elevated geometry visible
-without a ground footprint require a future height-aware policy. Changing the
-extent updates visibility without reloading the scene.
+screen-space-error LOD. Changing the extent updates visibility without reloading the scene.
+
+#### `firstPersonElevationRange` (array, optional) {/* #firstpersonelevationrange */}
+
+* Default: `[0, 0]`
+
+Conservative `[minimum, maximum]` physical heights in meters, both finite and
+ordered. For example, `[0, 1500]` retains buildings whose ground footprints are
+outside a sky-facing frustum. Negative heights are allowed. Horizontal bounds
+remain clipped by `firstPersonMaxGroundExtent`; the camera matrices are unchanged.
+The range affects tile candidates and the footprint-based zoom estimate, not
+terrain intersection, occlusion, or geometry height. Declare the complete height
+range of your content. Changing it updates visibility without reloading sources.
+
+`getFirstPersonViewFrame(viewport, {elevationRange: [0, 1500]})` exposes the same
+policy. `WebXRFirstPersonView` accepts `firstPersonElevationRange` and applies it
+to each actual eye camera before the renderer unions their visibility.
+First-person pitch supports the full `[-90, 90]` range, including upward-looking
+cameras; the ordinary MapView pitch contract remains unchanged.
 
 ### Inherited presentation properties
 

@@ -89,6 +89,15 @@ Object.assign(Polygons, {
             style.min_height *= Geo.height_scale;
         }
 
+        if (this.cpu_projection) {
+            const heights = style.extrude ? [style.z + style.min_height, style.z + style.height] : [style.z];
+            if (heights.some(height => !Number.isFinite(height) || height < -32768 || height > 32767)) {
+                throw new Error('Projected polygon height exceeds signed 16-bit meter packing');
+            }
+            if (!this.cpu_projection.allowElevation && heights.some(height => height !== 0)) {
+                throw new Error('Projected polygon elevation requires allowElevation');
+            }
+        }
         style.tile_edges = draw.tile_edges; // usually activated for debugging, or rare visualization needs
 
         return style;
@@ -149,6 +158,7 @@ Object.assign(Polygons, {
             this.addCustomAttributesToAttributeList(attribs);
             if (this.cpu_projection && ['polygons', 'raster'].includes(this.baseStyle())) {
                 attribs.push({name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false});
+                attribs.push({name: 'a_projected_normal', size: 3, type: gl.FLOAT, normalized: false});
             }
             this.vertex_layouts[variant.key] = new VertexLayout(attribs);
         }
@@ -211,6 +221,12 @@ Object.assign(Polygons, {
             this.vertex_template[projectedIndex] = 0;
             this.vertex_template[projectedIndex + 1] = 0;
             this.vertex_template[projectedIndex + 2] = 0;
+            const normalIndex = mesh.vertex_data.vertex_layout.index.a_projected_normal;
+            if (normalIndex !== undefined) {
+                this.vertex_template[normalIndex] = 0;
+                this.vertex_template[normalIndex + 1] = 0;
+                this.vertex_template[normalIndex + 2] = 1;
+            }
         }
         return this.vertex_template;
     },

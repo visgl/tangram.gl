@@ -53,6 +53,39 @@ function createRoadScene(maximumSourceZoom = 6) {
 
 beforeEach(() => commands.startRenderingDiagnostics());
 
+test.each(['vertex', 'fragment'] as const)(`${DEVICE_TYPE}: elevated projected polygons render configured %s lighting`, async lighting => {
+    harness = new RenderingHarness();
+    await harness.initializeDevice();
+    const navigation = new ProjectedBasemapNavigation(createProjectedExampleProjectionEngine());
+    const point = await navigation.projectPosition([-100, 40], 'equal-earth');
+    const source = `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features: [{
+        type: 'Feature', properties: {height: 100}, geometry: {type: 'Polygon', coordinates: [[
+            [-100.005, 39.995], [-99.995, 39.995], [-99.995, 40.005], [-100.005, 40.005], [-100.005, 39.995]
+        ]]}
+    }]}))}`;
+    const scene = createProjectedBasemapScene({sources: {building: {type: 'GeoJSON', url: source, max_zoom: 6}},
+        lights: [{type: 'directional', color: [255, 0, 0], intensity: 0.5, direction: [0, 0, -1]}],
+        styles: {building: {base: 'polygons', lighting, material: {ambient: 0, diffuse: 1, specular: 0}}},
+        layers: {building: {data: {source: 'building'}, draw: {building: {order: 0, color: '#fff', extrude: true}}}}},
+        {type: 'equal-earth', allowElevation: true}, `${location.origin}/modules/tangram-renderer/dist/projected-basemaps-worker.js`);
+    const errors: Error[] = [];
+    deck = new Deck({canvas: harness.canvas, width: '100%', height: '100%', device: harness.device!, useDevicePixels: 1,
+        views: new OrthographicView({id: 'projected', flipY: false}),
+        initialViewState: {target: [point[0], point[1], 0.02], zoom: 12},
+        layers: [new FixtureLayer({id: 'elevated', scene, projectedTileZoom: 6,
+            projectedVisibleBounds: [-101, 39, -99, 41], onSceneError: error => errors.push(error)})],
+        onError: error => errors.push(error)});
+    await expect.poll(async () => {
+        const pixels = (await readCanvasPixels(harness!.canvas)).data;
+        let lit = 0;
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+            if (pixels[offset] > 115 && pixels[offset] < 140 && pixels[offset + 1] < 10 && pixels[offset + 2] < 10) lit++;
+        }
+        return lit;
+    }, {timeout: 15000}).toBeGreaterThan(100);
+    expect(errors).toEqual([]);
+});
+
 test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
   `${DEVICE_TYPE}: projected %s annotations retain pixel size and render attached/standalone atlas text`, async type => {
     harness = new RenderingHarness();
@@ -142,6 +175,9 @@ test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with out
   const before = await thickness();
   expect(before).toBeLessThanOrEqual(20);
   deck.setProps({viewState: {target, zoom: 3}});
+  // Thickness is deliberately zoom-invariant; polling it can accept the old
+  // frame. Draw the new camera before recording the solid-area comparison.
+  deck.redraw('sample projected road camera');
   await expect.poll(thickness).toBeGreaterThan(8);
   expect(Math.abs(await thickness() - before)).toBeLessThanOrEqual(2);
   const greenPixels = async () => {

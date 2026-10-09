@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 export {ClassicWebGLRenderer as Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from '@vis.gl/tangram-renderer';
-export {calculatePlanarGroundBounds} from './scene/ground_footprint';
+export {calculatePlanarGroundBounds, calculatePlanarVolumeBounds} from './scene/ground_footprint';
+export {validateProjectedLights} from './procedures/mesh-projector';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
 export {getProjectedRoadUnit} from './procedures/mesh-projector';
 export {countProjectedTileCoordinates, getTileGeographicBounds} from './tile/tile_traversal_adapter';

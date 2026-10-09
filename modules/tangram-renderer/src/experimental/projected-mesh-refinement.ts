@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {interpolatePackedVertex, refineGlobeMesh} from '../gl/globe_mesh';
+import {interpolatePackedVertex, refineGlobeMesh, selectTrianglePlane} from '../gl/globe_mesh';
 import type {MeshProjectionRequest, ProjectedMesh} from '../procedures/mesh-projector';
 
 /** Per-request refinement work, separate from cached source preparation. */
@@ -127,6 +127,7 @@ export function* refineProjectedMesh(mesh: ProjectedMesh, request: MeshProjectio
         const refined = refineGlobeMesh(result.vertices, result.indices, layout, {tileZoom: request.tile.coords.z,
             maxAngularSpan: 180, maxAdditionalVertices: budget - (result.vertices.byteLength / layout.stride - originalCount),
             splitRemainderInterior: inspectInteriors,
+            getElevation: getPackedElevationReader(request),
             getPosition: readPosition, shouldSplitEdge: (first, second) => split.has(edgeKey(first, second))});
         if (refined.vertices.byteLength === result.vertices.byteLength) {
             throw new RangeError('Projected error tolerance exceeds packed coordinate precision');
@@ -158,8 +159,16 @@ function splitTriangleInteriors(mesh: ProjectedMesh, request: MeshProjectionRequ
         if (!selected.has(index)) {indices.push(...triangle); continue;}
         const corners = triangle.map(vertex => mesh.vertices.subarray(vertex * stride, (vertex + 1) * stride));
         const center = interpolateTriangle(corners, request, INTERIOR_WEIGHTS[0]);
-        const point = readPosition(new DataView(center.buffer, center.byteOffset, stride));
-        const points = corners.map(vertex => readPosition(new DataView(vertex.buffer, vertex.byteOffset, stride)));
+        const readElevation = getPackedElevationReader(request);
+        const topologyPosition = (vertex: Uint8Array): [number, number, number] => {
+            const view = new DataView(vertex.buffer, vertex.byteOffset, stride);
+            return [...readPosition(view), readElevation?.(view) ?? 0];
+        };
+        const corners3D = corners.map(topologyPosition);
+        const axes = selectTrianglePlane(corners3D);
+        const flatten = (position: readonly [number, number, number]): [number, number] => [position[axes[0]], position[axes[1]]];
+        const point = flatten(topologyPosition(center));
+        const points = corners3D.map(flatten);
         const cross = (first: number[], second: number[], third: number[]) =>
             (second[0] - first[0]) * (third[1] - first[1]) - (second[1] - first[1]) * (third[0] - first[0]);
         const orientation = cross(points[0], points[1], points[2]);
@@ -172,4 +181,13 @@ function splitTriangleInteriors(mesh: ProjectedMesh, request: MeshProjectionRequ
             triangle[2], triangle[0], centerIndex);
     }
     return {vertices, indices: vertexCount + selected.size <= 65536 ? new Uint16Array(indices) : new Uint32Array(indices)};
+}
+
+/** Read the original packed height only for opted-in surface topology checks. */
+function getPackedElevationReader(request: MeshProjectionRequest): ((vertex: DataView) => number) | undefined {
+    if (!request.projection.allowElevation || request.geometry === 'lines') return undefined;
+    const position = request.layout.dynamic_attribs.find(attribute => attribute.name === 'a_position');
+    if (!position || position.offset === undefined || position.size < 3) throw new Error('Projected elevation requires a position layout');
+    const offset = position.offset;
+    return vertex => vertex.getInt16(offset + 4, true);
 }

@@ -52,7 +52,7 @@ import HostFrame from './scene/host_frame';
 import LumaDeviceRenderer from './gpu/luma_device_renderer.js';
 export {HostFrame};
 export {LumaDeviceRenderer};
-export {calculatePlanarGroundBounds} from './scene/ground_footprint';
+export {calculatePlanarGroundBounds, calculatePlanarVolumeBounds} from './scene/ground_footprint';
 export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
 export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,

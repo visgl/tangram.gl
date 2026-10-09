@@ -371,7 +371,8 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         visibleBounds: this.props.globeVisibleBounds ?? undefined,
         preloadZoom: this.props.globePreloadZoom ?? undefined
       };
-      const firstPersonOptions = {maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined};
+      const firstPersonOptions = {maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined,
+        elevationRange: this.props.firstPersonElevationRange ?? undefined};
       const viewportError = validateViewport(viewport, viewports, globeOptions, firstPersonOptions);
 
       if (viewportError) {
@@ -486,6 +487,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
     tileResources: null,
     maxConcurrentTileLoadsPerWorker: null,
     firstPersonMaxGroundExtent: 20000,
+    firstPersonElevationRange: {type: 'array', value: [0, 0], compare: true},
     onSceneLoad: () => {},
     onAttributionChange: () => {},
     onSceneError: () => {}
@@ -499,6 +501,7 @@ function validateViewport(viewport, viewports, globeOptions = {}, firstPersonOpt
     return new Error('only one deck.gl viewport is supported');
   }
   const globe = isGlobeViewport(viewport);
+  const firstPerson = isFirstPersonViewport(viewport);
   const geographicAnchorError = WebMercatorViewAdapter.validateGeographicAnchor(
     viewport,
     globe ? 'GlobeViewport' : 'Web Mercator viewport'
@@ -519,8 +522,8 @@ function validateViewport(viewport, viewports, globeOptions = {}, firstPersonOpt
   if (
     !Number.isFinite(viewport.bearing || 0) ||
     !Number.isFinite(viewport.pitch || 0) ||
-    (viewport.pitch || 0) < -VIEW_EPSILON ||
-    (viewport.pitch || 0) >= 90
+    (viewport.pitch || 0) < (firstPerson ? -90 : -VIEW_EPSILON) ||
+    (firstPerson ? (viewport.pitch || 0) > 90 : (viewport.pitch || 0) >= 90)
   ) {
     return new Error('bearing and pitch must describe a finite deck.gl camera');
   }

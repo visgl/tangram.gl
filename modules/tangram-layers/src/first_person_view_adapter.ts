@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
-import {calculatePlanarGroundBounds, type HostCamera, type LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
+import {calculatePlanarVolumeBounds, type HostCamera, type LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
 import WebMercatorViewAdapter from './web_mercator_view_adapter.js';
 import type {FirstPersonViewport} from './view_adapter_types.js';
 
@@ -21,6 +21,8 @@ export type FirstPersonViewAdapterOptions = {
   height?: number;
   /** Maximum east/north extent from the eye in local geographic meters, per axis. Defaults to 20 km. */
   maxGroundExtent?: number;
+  /** Conservative minimum/maximum physical heights in meters; defaults to ground only, [0, 0]. */
+  elevationRange?: readonly [number, number];
 };
 
 /** Typed bounded ground-footprint boundary for deck.gl FirstPersonView. */
@@ -33,8 +35,8 @@ export default class FirstPersonViewAdapter {
  * Derives geographic tile visibility from the full finite camera frustum.
  * Near/far planes and an eye-centered square limit bound horizon intersections.
  * Looking entirely away from ground supplies explicit empty visibility instead
- * of an error. Terrain and elevated-only geometry are not included in this flat
- * ground policy; the host projection can supply a different footprint.
+ * of an error. An optional elevation slab includes elevated-only geometry;
+ * it is a conservative footprint, not a terrain intersection or occlusion test.
  */
 function getFrame(viewport: FirstPersonViewport, options: FirstPersonViewAdapterOptions = {}): LegacyHostFrame {
   return getFirstPersonFrameForCamera(viewport, WebMercatorViewAdapter.getCameraFrame(viewport), options);
@@ -71,7 +73,7 @@ export function getFirstPersonFrameForCamera(
   const latitudeScale = Math.cos(Math.max(-MAX_MERCATOR_LATITUDE,
     Math.min(MAX_MERCATOR_LATITUDE, latitude)) * Math.PI / 180);
   const extent = maxGroundExtent / latitudeScale;
-  const bounds = calculatePlanarGroundBounds(camera, {
+  const bounds = calculatePlanarVolumeBounds(camera, options.elevationRange ?? [0, 0], {
     sw: {x: eye[0] - extent, y: eye[1] - extent},
     ne: {x: eye[0] + extent, y: eye[1] + extent}
   });

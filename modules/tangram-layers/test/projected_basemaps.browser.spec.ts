@@ -9,6 +9,30 @@ import {createProjectedBasemapScene, getProjectedViewFrame, ProjectedBasemapLaye
 
 afterEach(() => vi.restoreAllMocks());
 
+test('elevated polygons and diffuse directional lighting are explicit opt-ins and preserve scene records', () => {
+    const scene = {lights: [{type: 'ambient', color: [255, 255, 255], intensity: 0.5},
+        {type: 'directional', color: [255, 255, 255], direction: [0, 0, -1]}],
+        styles: {buildings: {base: 'polygons', lighting: 'fragment', material: {ambient: 1, diffuse: 1, specular: 0},
+            draw: {extrude: true, z: 10}}}, layers: {buildings: {draw: {buildings: {order: 1}}}}};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow();
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth', allowElevation: true}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+    const normalized = {luma_light_0: {luma: scene.lights[0]}, luma_light_1: {luma: scene.lights[1]}};
+    expect(() => createProjectedBasemapScene({...scene, lights: normalized}, {type: 'equal-earth', allowElevation: true},
+        'https://example.test/worker.js')).not.toThrow();
+    for (const lights of [[{type: 'point'}], [{type: 'spot'}], [{type: 'directional', directionSpace: 'geographic'}]]) {
+        expect(() => createProjectedBasemapScene({...scene, lights}, {type: 'equal-earth', allowElevation: true},
+            'https://example.test/worker.js')).toThrow('common-space directional');
+    }
+    for (const base of ['points', 'text', 'lines']) {
+        expect(() => createProjectedBasemapScene({styles: {shape: {base, draw: {collide: false, width: '2px', z: 1}}}},
+            {type: 'equal-earth', allowElevation: true}, 'https://example.test/worker.js')).toThrow('flat');
+    }
+    expect(() => createProjectedBasemapScene({...scene, styles: {buildings: {...scene.styles.buildings, material: {specular: 1}}}},
+        {type: 'equal-earth', allowElevation: true}, 'https://example.test/worker.js')).toThrow('diffuse');
+});
+
 test.each(['m', 'px'])('projected road zoom stops preserve %s units through defaults and outlines', unit => {
     const scene = {styles: {road: {base: 'lines', draw: {width: [[2, `2${unit}`], [8, `10${unit}`]],
         offset: [[2, `-1${unit}`], [8, `2${unit}`]], outline: {width: [[2, `1${unit}`], [8, `2${unit}`]]}}}},

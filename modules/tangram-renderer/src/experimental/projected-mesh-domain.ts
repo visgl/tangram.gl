@@ -41,6 +41,11 @@ export function clipProjectedMesh(mesh: ProjectedMesh, request: MeshProjectionRe
     if (mesh.indices.every(inside)) return mesh;
     const intersections = new Map<string, number>();
     const triangles: number[] = [];
+    const positionOffset = layout.dynamic_attribs.find(attribute => attribute.name === 'a_position')?.offset;
+    const height = (vertex: number) => {
+        if (positionOffset === undefined) throw new Error('Projected surface requires packed positions');
+        return new DataView(records[vertex].buffer, records[vertex].byteOffset, layout.stride).getInt16(positionOffset + 4, true);
+    };
     for (let offset = 0; offset < mesh.indices.length; offset += 3) {
         let polygon = Array.from(mesh.indices.subarray(offset, offset + 3));
         // Reject against every plane first: an early cut must not spend budget on
@@ -83,8 +88,15 @@ export function clipProjectedMesh(mesh: ProjectedMesh, request: MeshProjectionRe
         }
         for (let index = 1; index < polygon.length - 1; index++) {
             const first = positions[polygon[0]], second = positions[polygon[index]], third = positions[polygon[index + 1]];
-            if ((second[0] - first[0]) * (third[1] - first[1]) -
-                (second[1] - first[1]) * (third[0] - first[0]) !== 0) triangles.push(polygon[0], polygon[index], polygon[index + 1]);
+            const area = (second[0] - first[0]) * (third[1] - first[1]) -
+                (second[1] - first[1]) * (third[0] - first[0]);
+            // A vertical wall has no XY area. Retain its XZ/YZ area after cuts.
+            const elevated = request.projection.allowElevation && request.geometry !== 'lines' &&
+                ((second[0] - first[0]) * (height(polygon[index + 1]) - height(polygon[0])) -
+                    (height(polygon[index]) - height(polygon[0])) * (third[0] - first[0]) !== 0 ||
+                 (second[1] - first[1]) * (height(polygon[index + 1]) - height(polygon[0])) -
+                    (height(polygon[index]) - height(polygon[0])) * (third[1] - first[1]) !== 0);
+            if (area !== 0 || elevated) triangles.push(polygon[0], polygon[index], polygon[index + 1]);
         }
     }
     // Drop unused/outside vertices so no invalid coordinate is submitted to the engine.
