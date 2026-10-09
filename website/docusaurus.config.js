@@ -64,7 +64,9 @@ const config = {
         // Plugin 1.x includes the deployment subpath in its hierarchy and URLs.
         // The post-build step normalizes that prefix and validates all outputs.
         depth: 4,
-        enableDescriptions: true,
+        // Source-derived descriptions see the SPDX MDX comment, not the prose.
+        // The post-build step derives summaries from rendered Markdown instead.
+        enableDescriptions: false,
         includeOrder: [
           '/tangram.gl/docs',
           '/tangram.gl/docs/get-started/**',

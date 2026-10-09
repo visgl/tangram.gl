@@ -88,6 +88,19 @@ function resolveMarkdownTarget(buildDirectory, sourcePath, link, siteUrl) {
   return targetPath;
 }
 
+/** Summarize rendered prose, not source-level MDX license comments or badge markup. */
+function getDocumentDescription(markdown) {
+  for (const paragraph of markdown.split(/\n\s*\n/)) {
+    if (/^(?:[#>*|!<]|[-+]\s|\d+[.)]\s|```|~~~|\[!|\{\/\*)/.test(paragraph.trim())) continue;
+    const text = paragraph.replace(/!\[[^\]]*\]\([^)]+\)/g, '')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[*`]/g, '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    return text.length <= 200 ? text : `${text.slice(0, 197).replace(/\s+\S*$/, '')}…`;
+  }
+  fail('document has no rendered prose for an index description');
+}
+
 /** Normalize and validate generated page Markdown and the curated, canonical llms.txt index. */
 export function prepareLlmOutput(buildDirectory, config, requiredPages = []) {
   buildDirectory = resolve(buildDirectory);
@@ -102,10 +115,15 @@ export function prepareLlmOutput(buildDirectory, config, requiredPages = []) {
     const normalized = normalizeLlmMarkdown(original, config, path === indexPath);
     if (normalized !== original) writeFileSync(path, normalized);
   }
-  const index = readFileSync(indexPath, 'utf8');
+  let index = readFileSync(indexPath, 'utf8');
   if (!index.startsWith(`# ${config.title}\n`)) fail('unexpected llms.txt title');
+  const pluginOptions = config.plugins?.find(entry => Array.isArray(entry) && entry[0] === '@signalwire/docusaurus-plugin-llms-txt')?.[1];
+  if (pluginOptions?.siteDescription && !/^> /m.test(index)) {
+    index = index.replace(`# ${config.title}\n`, `# ${config.title}\n\n> ${pluginOptions.siteDescription}\n`);
+  }
   if (index.match(/^## .+$/m)?.[0] !== '## docs') fail('unexpected llms.txt documentation hierarchy');
   if (/\/examples(?:\/|\.md)/.test(index)) fail('examples must not be indexed');
+  if (index.includes('{/*')) fail('unprocessed MDX description in llms.txt');
   const siteUrl = new URL(config.baseUrl, config.url);
   const indexedPaths = new Set();
   for (const link of getMarkdownLinks(index)) {
@@ -133,5 +151,12 @@ export function prepareLlmOutput(buildDirectory, config, requiredPages = []) {
     const styling = readFileSync(stylingPath, 'utf8');
     if (!styling.includes('```yaml') || !styling.includes('```json')) fail('styling extraction must include both YAML and JSON tabs');
   }
+  index = index.split('\n').map(line => {
+    const entry = /^(- \[[^\]]+\]\(([^)]+)\))(?::.*)?$/.exec(line);
+    if (!entry) return line;
+    const path = resolveMarkdownTarget(buildDirectory, indexPath, entry[2], siteUrl);
+    return `${entry[1]}: ${getDocumentDescription(readFileSync(path, 'utf8'))}`;
+  }).join('\n');
+  if (index !== readFileSync(indexPath, 'utf8')) writeFileSync(indexPath, index);
   return markdownPaths.length;
 }

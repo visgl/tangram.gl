@@ -27,12 +27,15 @@ function getCodeText(node, preserveBreaks) {
 }
 
 /**
- * Preserve Docusaurus Prism code languages and exact line spacing before HTML-to-Markdown conversion.
+ * Omit live-example controls and preserve Prism code languages and spacing in extracted documentation.
  * @returns {(tree: HtmlNode) => void} Rehype transformer for the LLM-output plugin only.
  */
 module.exports = function rehypeCodeBlocks() {
   /** @param {HtmlNode} node */
   function visit(node) {
+    // Embedded controls describe an interactive UI, not the surrounding API.
+    if (node.children) node.children = node.children.filter(child => !getClasses(child).some(name =>
+      ['deck-example-embed', 'webxr-example-embed', 'classic-playground-embed'].includes(name)));
     const code = node.tagName === 'pre' ? node.children?.find(child => child.tagName === 'code') : undefined;
     if (code) {
       const language = [...getClasses(code), ...getClasses(node)].find(name => name.startsWith('language-'));

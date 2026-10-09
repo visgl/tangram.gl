@@ -25,9 +25,9 @@ function createFixture(): string {
   mkdirSync(join(directory, 'docs/api-reference'), {recursive: true});
   mkdirSync(join(directory, 'docs/get-started'), {recursive: true});
   writeFileSync(join(directory, 'llms.txt'), '# tangram.gl\n\n> Current renderer and layer documentation.\n\n## tangram.gl\n\n### docs\n\n' +
-    '[Overview](https://vis.gl/tangram.gl/tangram.gl/docs.md)\n' +
-    '[Getting started](https://vis.gl/tangram.gl/tangram.gl/docs/get-started/getting-started.md)\n' +
-    '[Styling](https://vis.gl/tangram.gl/tangram.gl/docs/api-reference/styling.md)\n');
+    '- [Overview](https://vis.gl/tangram.gl/tangram.gl/docs.md)\n' +
+    '- [Getting started](https://vis.gl/tangram.gl/tangram.gl/docs/get-started/getting-started.md)\n' +
+    '- [Styling](https://vis.gl/tangram.gl/tangram.gl/docs/api-reference/styling.md)\n');
   writeFileSync(join(directory, 'docs.md'), '# Overview\n\nCurrent renderer documentation, with [styling](https://vis.gl/tangram.gl/tangram.gl/docs/api-reference/styling.md).\n');
   writeFileSync(join(directory, 'docs/get-started/getting-started.md'), '# Getting started\n\nRead the [styling reference](../api-reference/styling.md#sources) before implementing a scene.\n');
   writeFileSync(join(directory, 'docs/api-reference/styling.md'), '# Styling\n\nBoth supported representations must survive rendered tab extraction.\n\n```yaml\nsources: {}\n```\n\n```json\n{"sources": {}}\n```\n');
@@ -41,6 +41,7 @@ test('normalizes canonical URLs and hierarchy once, preserving document headings
   expect(index).toContain('## docs\n');
   expect(index).not.toContain('## tangram.gl');
   expect(index).not.toContain('/tangram.gl/tangram.gl/');
+  expect(index).toContain('): Current renderer documentation, with styling.');
   expect(readFileSync(join(directory, 'docs.md'), 'utf8')).toContain('https://vis.gl/tangram.gl/docs/api-reference/styling.md');
   expect(prepareLlmOutput(directory, config)).toBe(3);
   expect(readFileSync(join(directory, 'llms.txt'), 'utf8')).toBe(index);
@@ -84,6 +85,26 @@ test('ordinary preformatted code retains explicit breaks and an existing code la
   expect(code.children).toEqual([{type: 'text', value: '{\n  "layers": {}\n}'}]);
 });
 
+test('rendered extraction omits live controls, not documentation paragraphs or language tabs', () => {
+  const paragraph = {type: 'element', tagName: 'p', children: [{type: 'text', value: 'TangramLayer renders a scene.'}]};
+  const tabs = {type: 'element', tagName: 'div', properties: {className: ['tabs-container']}, children: [paragraph]};
+  const tree = {type: 'root', children: [
+    ...['deck-example-embed', 'webxr-example-embed', 'classic-playground-embed'].map(className => ({
+      type: 'element', tagName: 'div', properties: {className: [className]}, children: [paragraph]
+    })), paragraph, tabs
+  ]};
+  rehypeCodeBlocks()(tree);
+  expect(tree.children).toEqual([paragraph, tabs]);
+});
+
+test('configured site summary survives disabling source-derived descriptions', () => {
+  const directory = createFixture();
+  const path = join(directory, 'llms.txt');
+  writeFileSync(path, readFileSync(path, 'utf8').replace('> Current renderer and layer documentation.\n', ''));
+  prepareLlmOutput(directory, {...config, plugins: [['@signalwire/docusaurus-plugin-llms-txt', {siteDescription: 'Current Tangram APIs.'}]]});
+  expect(readFileSync(path, 'utf8')).toContain('> Current Tangram APIs.\n');
+});
+
 test('requires every sidebar document in the generated index', () => {
   expect(() => prepareLlmOutput(createFixture(), config, ['docs/api-reference/host-frame.md'])).toThrow(/missing sidebar page/);
 });
@@ -92,6 +113,7 @@ test.each([
   ['examples', '[Example](https://vis.gl/tangram.gl/examples/deck.md)\n', /examples must not be indexed/],
   ['missing output', '[Missing](https://vis.gl/tangram.gl/docs/missing.md)\n', /missing indexed Markdown/],
   ['external host', '[Wrong host](https://visgl.github.io/tangram.gl/docs.md)\n', /noncanonical index URL/],
+  ['source description', '{/*\n', /unprocessed MDX description/],
   ['outside base', '[Wrong base](https://vis.gl/docs.md)\n', /noncanonical index URL/]
 ])('rejects %s in the index', (_name, link, message) => {
   const directory = createFixture();
@@ -113,8 +135,9 @@ test.each([
 
 test('code samples and external links are not mistaken for broken local Markdown', () => {
   const directory = createFixture();
-  writeFileSync(join(directory, 'docs.md'), '# Overview\n\n[External](https://example.test/document.md)\n\n```markdown\n[Example](missing.md)\n```\n');
+  writeFileSync(join(directory, 'docs.md'), '# Overview\n\n[![Status](https://example.test/status.svg)](https://example.test)\n\nRead the [external reference](https://example.test/document.md).\n\n```markdown\n[Example](missing.md)\n```\n');
   expect(prepareLlmOutput(directory, config)).toBe(3);
+  expect(readFileSync(join(directory, 'llms.txt'), 'utf8')).toContain('): Read the external reference.');
 });
 
 test('rejects a full-text dump and incomplete YAML/JSON tab extraction', () => {
@@ -131,7 +154,7 @@ test('production build uses the same site origin, exclusions and no full-text ou
   const plugin = websiteConfig.plugins.find((entry: unknown[]) => entry[0] === '@signalwire/docusaurus-plugin-llms-txt');
   expect(websiteConfig.url).toBe(config.url);
   expect(websiteConfig.baseUrl).toBe(config.baseUrl);
-  expect(plugin[1]).toMatchObject({onRouteError: 'throw', content: {
+  expect(plugin[1]).toMatchObject({enableDescriptions: false, onRouteError: 'throw', content: {
     enableMarkdownFiles: true, enableLlmsFullTxt: false, relativePaths: false,
     includePages: false, includeVersionedDocs: false,
     excludeRoutes: ['/tangram.gl/examples/**', '/tangram.gl/docs/examples/**']
