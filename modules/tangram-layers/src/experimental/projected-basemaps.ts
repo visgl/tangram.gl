@@ -112,6 +112,9 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
         }
         if (style.draw !== undefined) validateFlatDraw(readRecord(style.draw, 'style draw defaults'),
             Boolean(options.allowElevation && ['polygons', 'raster'].includes(String(style.base))));
+        if (style.base === 'raster' && style.draw !== undefined && readRecord(style.draw, 'raster defaults').interactive === true) {
+            throw new Error('Raster imagery does not expose selectable source features');
+        }
         if (style.base === 'lines') {
             validateRoadDraw(style, false);
             if (style.draw !== undefined) validateRoadDraw(readRecord(style.draw, 'style draw defaults'), false);
@@ -145,6 +148,7 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
                 throw new Error('Projected basemaps require supported surface, road or annotation bases');
             }
             validateFlatDraw(draw, allowElevation && ['polygons', 'raster'].includes(String(style.base)));
+            if (style.base === 'raster' && draw.interactive === true) throw new Error('Raster imagery does not expose selectable source features');
             if (style.base === 'points' || style.base === 'text') {
                 const defaults = style.draw === undefined ? {} : readRecord(style.draw, 'annotation defaults');
                 const annotation = mergeAnnotationDraws(defaults, draw);
@@ -180,10 +184,10 @@ function mergeAnnotationDraws(defaults: Record<string, unknown>, draw: Record<st
     return merged;
 }
 
-/** Apply height opt-in and noninteractive restrictions to layer draws and inherited style defaults. */
+/** Apply height opt-in to layer draws and inherited style defaults; interactive draws opt into selection. */
 function validateFlatDraw(draw: Record<string, unknown>, allowElevation = false): void {
-    if ((!allowElevation && ((draw.extrude !== undefined && draw.extrude !== false) || draw.z !== undefined)) || draw.interactive === true) {
-        throw new Error('Projected basemaps currently support only flat, noninteractive polygon and raster draws');
+    if (!allowElevation && ((draw.extrude !== undefined && draw.extrude !== false) || draw.z !== undefined)) {
+        throw new Error('Projected basemaps require flat draws unless allowElevation is enabled');
     }
 }
 
@@ -241,6 +245,18 @@ const BaseProjectedBasemapLayer = createTangramLayerClass({Layer, ClassicWebGLRe
 
 /** Opt-in projection changes rebuild meshes on the existing renderer instead of reloading the scene. */
 export class ProjectedBasemapLayer extends BaseProjectedBasemapLayer {
+    /**
+     * Query interactive Tangram geometry asynchronously in viewport-local CSS pixels.
+     * This is not deck.gl's synchronous picking API. The host must keep rendering
+     * until the selection pass and worker lookup finish; the layer requests a redraw.
+     */
+    getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number} = {}): Promise<import('@vis.gl/tangram-renderer/core').FeatureSelectionResult | undefined> {
+        const record = this.state.tangramRecord;
+        if (!record || record.disposed || record.loadFailed) return Promise.resolve(undefined);
+        const pending = record.renderer.getFeatureAt(pixel, options);
+        record.owner.setNeedsRedraw();
+        return pending;
+    }
     /** deck.gl's stable layer identity for state transfer between property updates. */
     static layerName = 'ProjectedBasemapLayer';
     /** Optional projection override and completion notification, independent of source scene identity. */

@@ -7,6 +7,7 @@ import log from '../utils/log';
 import Texture from '../gl/texture';
 import WorkerBroker from '../utils/worker_broker';
 import type {Device, Framebuffer} from '@luma.gl/core';
+import {Texture as DeviceTexture} from '@luma.gl/core';
 import {findSelectionKey, readSelectionPixels} from './selection_pixels';
 
 import type {BrokerWorker} from '../utils/worker-types';
@@ -39,6 +40,8 @@ export default class FeatureSelection {
     declare fbo_size: {width: number; height: number};
     /** Owned luma framebuffer, installed only on the device path. */
     declare framebuffer: Framebuffer | null | undefined;
+    /** Explicit copyable attachment; the framebuffer does not own supplied textures. */
+    private selectionTexture: DeviceTexture | null = null;
     /** Owned legacy GL framebuffer, installed only on the GL path. */
     declare fbo: WebGLFramebuffer | null | undefined;
     /** Deliberately uninitialized until the first request retains legacy ID allocation. */
@@ -85,13 +88,24 @@ export default class FeatureSelection {
         if (this.device) {
             // Device-backed textures cannot be attached using the legacy raw
             // WebGL path. Let luma own the attachments and selection render pass.
-            this.framebuffer = this.device.createFramebuffer({
-                id: 'tangram-selection',
-                width: this.fbo_size.width,
-                height: this.fbo_size.height,
-                colorAttachments: ['rgba8unorm'],
-                depthStencilAttachment: 'depth16unorm'
+            const texture = this.device.createTexture({
+                id: 'tangram-selection-color', format: 'rgba8unorm',
+                width: this.fbo_size.width, height: this.fbo_size.height,
+                usage: DeviceTexture.RENDER_ATTACHMENT | DeviceTexture.COPY_SRC
             });
+            try {
+                this.framebuffer = this.device.createFramebuffer({
+                    id: 'tangram-selection',
+                    width: this.fbo_size.width,
+                    height: this.fbo_size.height,
+                    colorAttachments: [texture],
+                    depthStencilAttachment: 'depth16unorm'
+                });
+                this.selectionTexture = texture;
+            } catch (error) {
+                texture.destroy();
+                throw error;
+            }
             return;
         }
 
@@ -128,6 +142,8 @@ export default class FeatureSelection {
         this.requests = {};
         if (this.framebuffer) {
             this.framebuffer.destroy();
+            this.selectionTexture?.destroy();
+            this.selectionTexture = null;
             this.framebuffer = null;
             this.fbo = null;
             return;
@@ -162,7 +178,7 @@ export default class FeatureSelection {
     getFeatureAt(point: SelectionPoint | null | undefined, { radius }: {radius?: SelectionPoint | null}): Promise<SelectionResult> {
         if (this.destroyed) return Promise.reject(new Error('Feature selection destroyed'));
         // ensure requested point is in canvas bounds
-        if (!point || point.x < 0 || point.y < 0 || point.x > 1 || point.y > 1) {
+        if (!point || ![point.x, point.y].every(Number.isFinite) || point.x < 0 || point.y < 0 || point.x > 1 || point.y > 1) {
             return Promise.resolve({ feature: null, changed: false });
         }
 
@@ -333,6 +349,9 @@ export default class FeatureSelection {
     /** Read each request without raw GL handles; late/canceled reads cannot update selection state. */
     async readDeviceRequests(): Promise<void> {
         for (const request of Object.values(this.requests)) {
+            // A subsequent frame may invalidate the target while a previous
+            // request awaits its worker. Leave the remaining requests queued.
+            if (this.locked) return;
             if (this.destroyed || this.requests[request.id] !== request || request.sent || request.reading) continue;
             request.reading = true;
             try {

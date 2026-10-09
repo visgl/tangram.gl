@@ -15,9 +15,10 @@ const PI = Math.PI;
  * atlas texture without reading a backend texture handle.
  *
  * @param cpuProjection Use preprojected ground anchors for noncolliding point annotations.
+ * @param selection Emit the worker selection key for visible atlas pixels.
  * @returns {string} Complete WGSL source for Tangram's text style.
  */
-export function buildTextWGSL(cpuProjection = false) {
+export function buildTextWGSL(cpuProjection = false, selection = false) {
     return `
 @group(0) @binding(3) var u_texture: texture_2d<f32>;
 @group(0) @binding(4) var u_textureSampler: sampler;
@@ -30,6 +31,7 @@ struct TextAttributes {
     @location(2) a_texcoord: vec2<f32>,
     @location(3) a_offset: vec2<i32>,
     @location(4) a_color: vec4<f32>,
+    ${selection ? '@location(5) a_selection_color: vec4<f32>,' : ''}
     @location(6) a_pre_angles: vec4<i32>,
     @location(7) a_angles: vec4<i32>,
     @location(8) a_offsets: vec4<u32>,
@@ -40,6 +42,7 @@ struct TextVaryings {
     @builtin(position) position: vec4<f32>,
     @location(0) texcoord: vec2<f32>,
     @location(1) color: vec4<f32>,
+    ${selection ? '@location(2) @interpolate(flat) selection_color: vec4<f32>,' : ''}
 };
 
 fn rotate2D(point: vec2<f32>, angle: f32) -> vec2<f32> {
@@ -70,6 +73,7 @@ fn mix4Linear(values: vec4<f32>, amount: f32) -> f32 {
 @vertex
 fn vertexMain(attributes: TextAttributes) -> TextVaryings {
     var output: TextVaryings;
+    ${selection ? 'output.selection_color = attributes.a_selection_color;' : ''}
     output.texcoord = vec2<f32>(
         attributes.a_texcoord.x,
         1.0 - attributes.a_texcoord.y
@@ -143,10 +147,10 @@ fn vertexMain(attributes: TextAttributes) -> TextVaryings {
 @fragment
 fn fragmentMain(input: TextVaryings) -> @location(0) vec4<f32> {
     var atlas_color = textureSample(u_texture, u_textureSampler, input.texcoord);
-    return vec4<f32>(
+    ${selection ? 'if (atlas_color.a < 0.001) { discard; }\n    return input.selection_color;' : `return vec4<f32>(
         atlas_color.rgb / max(atlas_color.a, 0.001),
         atlas_color.a
-    );
+    );`}
 }
 `;
 }

@@ -19,6 +19,7 @@ function createSelection(bytes = new Uint8Array([7, 0, 0, 0])) {
   const framebuffer = {colorAttachments: [{texture}], destroy: vi.fn()};
   const encoder = {copyTextureToBuffer: vi.fn(), finish: vi.fn(() => ({})), destroy: vi.fn()};
   const device = {type: 'webgl', createFramebuffer: vi.fn(() => framebuffer),
+    createTexture: vi.fn(() => ({destroy: vi.fn()})),
     createBuffer: vi.fn(() => staging), createCommandEncoder: vi.fn(() => encoder), submit: vi.fn()};
   const worker = {postMessage: vi.fn(), addEventListener: vi.fn()};
   const selection = new FeatureSelection(null, [worker], () => false, device as unknown as Device);
@@ -133,5 +134,28 @@ test('locked device selection defers reading until a later unlocked render', asy
   fixture.selection.read();
   await vi.runAllTimersAsync();
   expect(await pending).toMatchObject({changed: false});
+  fixture.selection.destroy();
+});
+
+test('invalidation during a worker reply leaves subsequent requests queued until the target is ready', async () => {
+  const fixture = createSelection();
+  let locked = false;
+  fixture.selection._lock_fn = () => locked;
+  const first = fixture.selection.getFeatureAt({x: 0.5, y: 0.5}, {radius: undefined});
+  const second = fixture.selection.getFeatureAt({x: 0.6, y: 0.5}, {radius: undefined});
+  fixture.lookup.mockImplementationOnce(async () => {
+    locked = true;
+    return {id: 0, feature: {name: 'building'}};
+  });
+  await fixture.selection.readDeviceRequests();
+  expect((await first).feature).toEqual({name: 'building'});
+  expect(fixture.staging.readAsync).toHaveBeenCalledOnce();
+  expect(fixture.selection.hasPendingRequests()).toBe(true);
+  locked = false;
+  fixture.lookup.mockResolvedValueOnce({id: 1, feature: {name: 'building'}});
+  await fixture.selection.readDeviceRequests();
+  expect((await second).feature).toEqual({name: 'building'});
+  expect(fixture.staging.readAsync).toHaveBeenCalledTimes(2);
+  expect(fixture.selection.hasPendingRequests()).toBe(false);
   fixture.selection.destroy();
 });

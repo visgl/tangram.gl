@@ -15,7 +15,9 @@ const LAYER_DELTA = 1 / (1 << 14);
  * This deliberately small WGSL program establishes the native-device path for
  * flat polygons and raster tiles before the remaining style features are ported.
  */
-export function buildPolygonsWGSL({ raster = false, lighting, lightCount, cpuProjection = false }: {
+export function buildPolygonsWGSL({ raster = false, lighting, lightCount, cpuProjection = false, selection = false }: {
+    /** Emit the worker selection key without lighting or color blending. */
+    selection?: boolean;
     /** Include raster color sampling. */
     raster?: boolean;
     /** Opt into configured lights; undefined retains historical portable wall shading. */
@@ -48,6 +50,7 @@ struct PolygonAttributes {
     @location(0) a_position: vec4<i32>,
     @location(1) a_normal: vec4<f32>,
     @location(2) a_color: vec4<f32>,
+    ${selection ? '@location(5) a_selection_color: vec4<f32>,' : ''}
     ${cpuProjection ? '@location(3) a_projected_position: vec3<f32>, @location(4) a_projected_normal: vec3<f32>,' : ''}
 };
 
@@ -59,11 +62,13 @@ struct PolygonVaryings {
     @location(3) eye_position: vec3<f32>,
     @location(4) lighting: vec4<f32>,
     @location(5) tile_position: vec2<f32>,
+    ${selection ? '@location(6) @interpolate(flat) selection_color: vec4<f32>,' : ''}
 };
 
 @vertex
 fn vertexMain(attributes: PolygonAttributes) -> PolygonVaryings {
     var output: PolygonVaryings;
+    ${selection ? 'output.selection_color = attributes.a_selection_color;' : ''}
     let local_position = vec4<f32>(
         f32(attributes.a_position.x),
         f32(attributes.a_position.y),
@@ -110,7 +115,7 @@ fn fragmentMain(input: PolygonVaryings) -> @location(0) vec4<f32> {
          any(input.tile_position >= TangramTile.u_tile_clip_bounds.zw))) { discard; }
 ${raster_fragment}
     ${shade}
-    return color;
+    return ${selection ? 'input.selection_color' : 'color'};
 }
 `;
 }

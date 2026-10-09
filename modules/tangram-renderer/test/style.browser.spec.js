@@ -3,6 +3,7 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 
 import chai from 'chai';
+import {expect, test} from 'vitest';
 let assert = chai.assert;
 
 import {StyleManager} from '../src/styles/style_manager';
@@ -55,7 +56,7 @@ describe('Styles:', () => {
             assert.equal(style_manager.styles.rainbow.base, 'polygons');
         });
 
-        it('uses the renderer shader language for worker-built vertex layouts', () => {
+        test('uses the renderer shader language for worker-built vertex layouts', () => {
             style_manager.build({});
             style_manager.initStyles({ shader_language: 'wgsl' });
             const points = style_manager.styles.points;
@@ -65,11 +66,11 @@ describe('Styles:', () => {
                 shader_point: true
             });
 
-            assert.strictEqual(points.shader_language, 'wgsl');
-            assert.property(layout.index, 'a_point_type');
+            expect(points.shader_language).toBe('wgsl');
+            expect(layout.index).toHaveProperty('a_point_type');
             const dynamic_attributes = layout.dynamic_attribs.map(attribute => attribute.name);
-            assert.include(dynamic_attributes, 'a_texcoord');
-            assert.include(dynamic_attributes, 'a_outline_color');
+            expect(dynamic_attributes).toContain('a_texcoord');
+            expect(dynamic_attributes).toContain('a_outline_color');
 
             const lines = style_manager.styles.lines;
             const line_layout = lines.vertexLayoutForMeshVariant({
@@ -82,20 +83,19 @@ describe('Styles:', () => {
             const texcoord_attribute = line_layout.dynamic_attribs.find(
                 attribute => attribute.name === 'a_texcoord'
             );
-            assert.strictEqual(lines.shader_language, 'wgsl');
-            assert.strictEqual(texcoord_attribute.type, gl.FLOAT);
-            assert.isFalse(texcoord_attribute.normalized);
+            expect(lines.shader_language).toBe('wgsl');
+            expect(texcoord_attribute.type).toBe(gl.FLOAT);
+            expect(texcoord_attribute.normalized).toBe(false);
             for (const attribute_name of ['a_offset', 'a_z_and_offset_scale']) {
                 const attribute = line_layout.dynamic_attribs.find(
                     candidate => candidate.name === attribute_name
                 );
-                assert.strictEqual(attribute.static, null);
-                assert.strictEqual(
+                expect(attribute.static).toBeNull();
+                expect(
                     line_layout.getBufferLayout().attributes.find(
                         candidate => candidate.attribute === attribute_name
-                    ).format,
-                    'sint16x2'
-                );
+                    ).format
+                ).toBe('sint16x2');
             }
 
             const line_vertex_template = lines.makeVertexTemplate({
@@ -103,6 +103,7 @@ describe('Styles:', () => {
                 order: 1,
                 z: 0,
                 offset_scale: 0,
+                selection_color: [0, 0, 0, 1],
                 color: [0.25, 0.5, 0.75, 1]
             }, { variant: {
                 offset: 0,
@@ -110,7 +111,8 @@ describe('Styles:', () => {
                 texcoords: 0,
                 selection: 0
             }});
-            assert.deepEqual(line_vertex_template.slice(6, 10), [0, 0, 0, 0]);
+            expect(line_vertex_template.slice(6, 10)).toEqual([0, 0, 0, 0]);
+            expect(line_layout.dynamic_attribs.map(attribute => attribute.name)).toContain('a_selection_color');
 
             const polygons = style_manager.styles.polygons;
             const polygon_layout = polygons.vertexLayoutForMeshVariant({
@@ -122,15 +124,15 @@ describe('Styles:', () => {
             const normal_attribute = polygon_layout.dynamic_attribs.find(
                 attribute => attribute.name === 'a_normal'
             );
-            assert.strictEqual(polygons.shader_language, 'wgsl');
-            assert.strictEqual(normal_attribute.size, 4);
-            assert.strictEqual(normal_attribute.static, null);
-            assert.strictEqual(
+            expect(polygons.shader_language).toBe('wgsl');
+            expect(normal_attribute.size).toBe(4);
+            expect(normal_attribute.static).toBeNull();
+            expect(
                 polygon_layout.getBufferLayout().attributes.find(
                     attribute => attribute.attribute === 'a_normal'
-                ).format,
-                'snorm8x4'
-            );
+                ).format
+            ).toBe('snorm8x4');
+            expect(polygon_layout.dynamic_attribs.map(attribute => attribute.name)).toContain('a_selection_color');
         });
 
         describe('builds custom styles w/dependencies from stylesheet', () => {

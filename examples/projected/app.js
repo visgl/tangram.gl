@@ -13,6 +13,7 @@ import {createProjectedExampleProjectionEngine} from './projection-engine.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {createProjectedDiagnosticsPoller, createProjectedSceneLoadHandler} from './diagnostics.js';
+import {queryProjectedFeature} from './feature-selection.ts';
 
 const parameters = new URLSearchParams(location.search);
 // The caller owns one stable factory; the renderer caches independent compiled CRS transforms.
@@ -27,6 +28,8 @@ const detailSelector = document.querySelector('#detail');
 const detailMode = document.querySelector('#detail-mode');
 const refinementSelector = document.querySelector('#refinement');
 const coordinateProbe = document.querySelector('#coordinates');
+const featureProbe = document.querySelector('#selected-feature');
+let featureGeneration = 0;
 const diagnostics = document.querySelector('#diagnostics');
 const status = document.querySelector('#status');
 const destroyInfoCard = createCollapsibleInfoCard(document.querySelector('#controls'));
@@ -97,6 +100,7 @@ function scheduleDetail() {
 
 /** Keep the geographic focus when replacing a projection, without rebuilding the source scene. */
 async function changeProjection() {
+  featureGeneration++;
   const generation = ++projectionGeneration;
   projectionPending = true;
   navigationGeneration++;
@@ -178,6 +182,7 @@ function setStatus(message, error = false) {
 /** Load projected ground geometry; Tangram resolves the provider's current TileJSON source. */
 async function initialize(resetCoverage = true) {
   if (disposed) return;
+  featureGeneration++;
   navigationGeneration++;
   probeGeneration++;
   probeController?.abort();
@@ -251,6 +256,7 @@ async function initialize(resetCoverage = true) {
     views: new OrthographicView({id: 'projected', flipY: false, controller: true}),
     viewState,
     onViewStateChange: event => {
+      featureGeneration++;
       viewState = event.viewState;
       probeGeneration++;
       probeController?.abort();
@@ -258,6 +264,12 @@ async function initialize(resetCoverage = true) {
       scheduleDetail();
     },
     onLoad: scheduleDetail,
+    onClick: information => {
+      const generation = ++featureGeneration;
+      const layer = deck.props.layers.find(layer => layer.id === 'projected-basemap');
+      void queryProjectedFeature(async () => layer?.getFeatureAt({x: information.x, y: information.y}, {radius: 6}),
+        () => !disposed && generation === featureGeneration, text => {featureProbe.textContent = text;});
+    },
     onResize: scheduleDetail,
     layers,
     _animate: true,

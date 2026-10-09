@@ -4,7 +4,7 @@
 
 import { Buffer, Texture } from '@luma.gl/core';
 import type {Bindings, BufferProps, Device, PrimitiveTopology, RenderPipeline, RenderPipelineParameters,
-    RenderPipelineProps, ShaderProps, VertexArray} from '@luma.gl/core';
+    RenderPipelineProps, RenderPass, ShaderProps, TextureFormat, TextureFormatDepthStencil, VertexArray} from '@luma.gl/core';
 import type {TangramDrawableMesh, TangramDrawableProgram, TangramGPUBackend, TangramGPUSceneOptions,
     TangramDrawableUniformBlock, TangramMeshBufferOptions, TangramMeshDrawDescriptor, TangramMeshDrawOptions, TangramRenderStateOptions,
     TangramShaderOptions, TangramShaderProgramOptions, TangramTextureOptions, TangramUniformBufferOptions} from './tangram_gpu_backend';
@@ -12,6 +12,11 @@ import {observeGPUResourceDisposal} from './resource_lifecycle';
 
 /** Per-topology pipelines indexed by normalized render state. */
 type PipelineStates = Map<PrimitiveTopology, Map<string, RenderPipeline>>;
+
+/** Distinguish luma depth/stencil formats without casting arbitrary texture formats. */
+function isDepthStencilFormat(format: TextureFormat): format is TextureFormatDepthStencil {
+    return format.startsWith('depth') || format.startsWith('stencil');
+}
 
 /** Resource record deliberately contains no reference to its shader-program owner. */
 type ProgramResources = {
@@ -268,7 +273,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
         }
 
         const descriptor = mesh.getDrawDescriptor();
-        const pipeline = this.getPipeline(program, mesh.vertex_layout, descriptor, renderState);
+        const pipeline = this.getPipeline(program, mesh.vertex_layout, descriptor, renderState, renderPass);
 
         if (mesh.uniforms) {
             program.saveUniforms(mesh.uniforms);
@@ -338,8 +343,9 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
         }
     }
 
+    /** Cache pipelines by geometry, render state and the active pass's attachment formats. */
     getPipeline(program: TangramDrawableProgram, vertex_layout: object, descriptor: TangramMeshDrawDescriptor,
-        render_state?: RenderPipelineParameters) {
+        render_state?: RenderPipelineParameters, renderPass?: RenderPass) {
         this.assertAlive();
         const resources = this.getProgramResources(program);
         const layouts = resources.layouts;
@@ -353,7 +359,25 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
             states = new Map();
             topologies.set(descriptor.topology, states);
         }
-        const state_key = JSON.stringify(render_state || {});
+        const framebuffer = renderPass?.props?.framebuffer;
+        const attachments: Pick<RenderPipelineProps, 'colorAttachmentFormats' | 'depthStencilAttachmentFormat'> = {};
+        let parameters = render_state;
+        if (this.device.type === 'webgpu' && framebuffer) {
+            parameters = {...render_state,
+                sampleCount: framebuffer.colorAttachments[0]?.texture.samples ?? framebuffer.depthStencilAttachment?.texture.samples ?? 1,
+                ...(!framebuffer.depthStencilAttachment ? {depthWriteEnabled: false, depthCompare: 'always' as const} : {})};
+            attachments.colorAttachmentFormats = framebuffer.colorAttachments.map(attachment => {
+                const format = attachment.texture.format;
+                if (isDepthStencilFormat(format)) throw new Error('Color attachment requires a color texture');
+                return format;
+            });
+            const depthFormat = framebuffer.depthStencilAttachment?.texture.format;
+            if (depthFormat !== undefined) {
+                if (!isDepthStencilFormat(depthFormat)) throw new Error('Depth attachment requires a depth/stencil texture');
+                attachments.depthStencilAttachmentFormat = depthFormat;
+            }
+        }
+        const state_key = JSON.stringify({state: parameters || {}, attachments});
         let pipeline = states.get(state_key);
         if (!pipeline) {
             const pipeline_options: RenderPipelineProps = {
@@ -362,10 +386,11 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
                 fs: program.fragment_shader_resource,
                 bufferLayout: [descriptor.bufferLayout],
                 topology: descriptor.topology,
-                disableWarnings: true
+                disableWarnings: true,
+                ...attachments
             };
-            if (render_state) {
-                pipeline_options.parameters = render_state;
+            if (parameters) {
+                pipeline_options.parameters = parameters;
             }
             pipeline = this.device.createRenderPipeline(pipeline_options);
             states.set(state_key, pipeline);

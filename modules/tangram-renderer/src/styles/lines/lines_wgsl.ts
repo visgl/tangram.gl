@@ -20,13 +20,15 @@ const ATTRIBUTE_SCALE = 1024;
  * from a std140 uniform block. Animated styles reuse the generated line
  * texture coordinates and Tangram's frame time to produce portable compact
  * repeating vehicles without additive blending. Arbitrary custom shader
- * blocks and selection remain follow-up tranches.
+ * blocks remain follow-up tranches. Selection shares the same geometry and masks.
  *
  * @param {object} options Shader options.
  * @param {boolean} options.animated Enables the portable traffic vehicles.
  * @returns {string} Complete WGSL source for the line style.
  */
-export function buildLinesWGSL({ animated = false, lighting, lightCount, cpuProjection = false }: {
+export function buildLinesWGSL({ animated = false, lighting, lightCount, cpuProjection = false, selection = false }: {
+    /** Emit the worker selection key after applying texture and dash masks. */
+    selection?: boolean;
     /** Enable the existing portable traffic animation. */
     animated?: boolean;
     /** Opt into constant-material surface lighting. */
@@ -93,6 +95,7 @@ struct LineAttributes {
     @location(3) a_z_and_offset_scale: vec2<i32>,
     @location(4) a_texcoord: vec2<f32>,
     @location(5) a_color: vec4<f32>,
+    ${selection ? '@location(8) a_selection_color: vec4<f32>,' : ''}
     ${cpuProjection ? '@location(6) a_projected_position: vec3<f32>, @location(7) a_projected_stroke: vec4<f32>,' : ''}
 };
 
@@ -101,12 +104,14 @@ struct LineVaryings {
     @location(0) color: vec4<f32>,
     @location(1) texcoord: vec2<f32>,
     @location(5) tile_position: vec2<f32>,
+    ${selection ? '@location(6) @interpolate(flat) selection_color: vec4<f32>,' : ''}
     ${configured ? '@location(2) normal: vec3<f32>, @location(3) eye_position: vec3<f32>, @location(4) lighting: vec4<f32>,' : ''}
 };
 
 @vertex
 fn vertexMain(attributes: LineAttributes) -> LineVaryings {
     var output: LineVaryings;
+    ${selection ? 'output.selection_color = attributes.a_selection_color;' : ''}
     var extrusion = vec2<f32>(attributes.a_extrude);
     var offset = vec2<f32>(attributes.a_offset);
 
@@ -206,7 +211,7 @@ fn fragmentMain(input: LineVaryings) -> @location(0) vec4<f32> {
     }
 ${animated_fragment}
     ${lighting === 'fragment' ? 'color = tangramCalculateLighting(input.eye_position, normalize(input.normal), color);' : lighting === 'vertex' ? 'color *= input.lighting;' : ''}
-    return color;
+    return ${selection ? 'input.selection_color' : 'color'};
 }
 `;
 }

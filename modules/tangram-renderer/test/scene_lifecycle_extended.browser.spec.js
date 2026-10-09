@@ -200,6 +200,61 @@ describe('Scene host lifecycle', () => {
 });
 
 describe('Scene render orchestration', () => {
+    test('selection initialization locks readback for builds and unfinished pipelines', () => {
+        const scene = createScene();
+        const texture = {destroy: vi.fn()};
+        const framebuffer = {destroy: vi.fn()};
+        scene.device = {createTexture: () => texture, createFramebuffer: () => framebuffer};
+        scene.workers = [];
+        scene.building = false;
+        scene.selection_render_pending = false;
+        scene.last_render_count = 10;
+        scene.resetFeatureSelection();
+        expect(scene.last_render_count).toBe(0);
+        expect(scene.selection.locked).toBe(false);
+        scene.selection_render_pending = true;
+        expect(scene.selection.locked).toBe(true);
+        scene.selection_render_pending = false;
+        scene.building = true;
+        expect(scene.selection.locked).toBe(true);
+        scene.building = false;
+        expect(scene.selection.locked).toBe(false);
+        scene.selection.destroy();
+        expect(framebuffer.destroy).toHaveBeenCalledOnce();
+        expect(texture.destroy).toHaveBeenCalledOnce();
+    });
+    test('pending selection pipelines retry without reading or committing an incomplete target', () => {
+        const pass = {end: vi.fn()};
+        const encoder = {beginRenderPass: () => pass, finish: () => ({}), destroy: vi.fn()};
+        const mesh = {geometry_count: 1, variant: {blend_order: 0, mesh_order: 0}};
+        const style = {name: 'ground', render: vi.fn().mockReturnValueOnce(true).mockReturnValue(false)};
+        const tile = {meshes: {ground: [mesh]}, shouldProxyForStyle: () => true};
+        const scene = {
+            device: {type: 'webgpu', createCommandEncoder: () => encoder, submit: vi.fn()},
+            selection: {framebuffer: {}, get locked() {return scene.selection_render_pending;}, read: vi.fn()},
+            selection_render_pending: false,
+            view: {panning: false, user_input_active: false, projection: {type: 'mercator'}, setupTile: vi.fn()},
+            styles: {ground: style}, tile_manager: {getRenderableTiles: () => [tile]},
+            lights: {}, frame: 2, last_selection_render: 0, last_main_render: 1,
+            updateBackground: vi.fn(), setupStyle: () => ({}), requestRedraw: vi.fn(),
+            renderPass(programKey, options) {
+                return Scene.prototype.renderStyle.call(scene, 'ground', programKey, 0, null, options.renderPass);
+            }
+        };
+        Scene.prototype.render.call(scene, {main: false, selection: true});
+        expect(scene.selection_render_pending).toBe(true);
+        expect(scene.last_selection_render).toBe(0);
+        expect(scene.selection.read).not.toHaveBeenCalled();
+        expect(scene.requestRedraw).toHaveBeenCalledOnce();
+        scene.frame++;
+        Scene.prototype.render.call(scene, {main: false, selection: true});
+        expect(style.render).toHaveBeenCalledTimes(2);
+        expect(scene.selection_render_pending).toBe(false);
+        expect(scene.last_selection_render).toBe(3);
+        expect(scene.selection.read).toHaveBeenCalledOnce();
+        expect(scene.device.submit).toHaveBeenCalledTimes(2);
+        expect(pass.end).toHaveBeenCalledTimes(2);
+    });
     function createRenderStates() {
         return {
             blending: {set: vi.fn()},
@@ -346,7 +401,7 @@ describe('Scene public helpers', () => {
         scene.selection.getFeatureAt.mockRejectedValue(new Error('pick'));
         await expect(scene.getFeatureAt({x: 1, y: 1}, {})).resolves.toEqual({error: expect.any(Error)});
         scene.portable_rendering = true;
-        await expect(scene.getFeatureAt({x: 1, y: 1}, {})).resolves.toBeUndefined();
+        await expect(scene.getFeatureAt({x: 1, y: 1}, {})).resolves.toEqual({error: expect.any(Error)});
     });
 
     test('queries, deduplicates, and groups worker features', async () => {

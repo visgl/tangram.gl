@@ -142,6 +142,18 @@ export type TileSourceStatistics = DecodedTileStatistics & {
   projectionWork?: import('./procedures/mesh-projector').MeshProjectionStatistics;
 };
 
+/** Asynchronous selection of a built-in worker feature or an application-defined payload. */
+export type FeatureSelectionResult = {
+  /** Cloneable metadata from the worker; null/undefined means no hit. */
+  feature?: unknown;
+  /** Whether the selected feature differs from the previous completed query. */
+  changed?: boolean;
+  /** Viewport-local, top-origin CSS pixel requested by the host. */
+  pixel?: {x: number; y: number};
+  /** Readback, cancellation or worker failure, preserving Scene's result contract. */
+  error?: unknown;
+};
+
 export type HostFrameOptions = {
   viewport: Viewport;
   geographicAnchor: GeographicAnchor;

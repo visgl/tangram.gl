@@ -13,9 +13,10 @@ import {GLOBE_VISIBILITY_WGSL} from '../globe_visibility_wgsl';
  * all-buffered vertex layout so WebGPU never depends on constant attributes.
  *
  * @param cpuProjection Use preprojected ground anchors while retaining screen-space billboard shapes.
+ * @param selection Emit the worker selection key after visible-shape masking.
  * @returns {string} Complete WGSL source for Tangram's point style.
  */
-export function buildPointsWGSL(cpuProjection = false) {
+export function buildPointsWGSL(cpuProjection = false, selection = false) {
     return `
 @group(0) @binding(3) var u_texture: texture_2d<f32>;
 @group(0) @binding(4) var u_textureSampler: sampler;
@@ -28,6 +29,7 @@ struct PointAttributes {
     @location(2) a_texcoord: vec2<f32>,
     @location(3) a_offset: vec2<i32>,
     @location(4) a_color: vec4<f32>,
+    ${selection ? '@location(5) a_selection_color: vec4<f32>,' : ''}
     @location(6) a_outline_color: vec4<f32>,
     @location(7) a_outline_edge: f32,
     @location(8) a_point_type: f32,
@@ -42,6 +44,7 @@ struct PointVaryings {
     @location(3) outline_edge: f32,
     @location(4) aa_offset: f32,
     @location(5) @interpolate(flat) point_type: u32,
+    ${selection ? '@location(6) @interpolate(flat) selection_color: vec4<f32>,' : ''}
 };
 
 fn rotate2D(point: vec2<f32>, angle: f32) -> vec2<f32> {
@@ -60,6 +63,7 @@ fn antialiasCircle(distance: f32, radius: f32, offset: f32) -> f32 {
 @vertex
 fn vertexMain(attributes: PointAttributes) -> PointVaryings {
     var output: PointVaryings;
+    ${selection ? 'output.selection_color = attributes.a_selection_color;' : ''}
     output.color = attributes.a_color;
     output.outline_color = attributes.a_outline_color;
     output.outline_edge = attributes.a_outline_edge;
@@ -176,7 +180,7 @@ fn fragmentMain(input: PointVaryings) -> @location(0) vec4<f32> {
     if (color.a < 0.001) {
         discard;
     }
-    return color;
+    return ${selection ? 'input.selection_color' : 'color'};
 }
 `;
 }

@@ -117,6 +117,7 @@ export default class Scene {
         this.frame = 0;
         this.last_main_render = -1;         // frame counter for last main render pass
         this.last_selection_render = -1;    // frame counter for last selection render pass
+        this.selection_render_pending = false; // unfinished pipeline draws invalidate the selection target
         this.media_capture = new MediaCapture();
         this.selection = null;
         this.selection_feature_count = 0;
@@ -704,6 +705,9 @@ export default class Scene {
 
         // Render selection pass (if needed)
         if (selection) {
+            // Permit retrying an unfinished pass; delayed readback remains locked
+            // between frames until every selection pipeline is ready.
+            this.selection_render_pending = false;
             if (this.view.panning || this.view.user_input_active) {
                 this.selection.clearPendingRequests();
                 return;
@@ -713,19 +717,32 @@ export default class Scene {
             // and not locked (e.g. no tiles are actively building)
             if (!this.selection.locked && this.last_selection_render < this.last_main_render) {
                 if (this.selection.framebuffer) {
-                    const selection_pass = this.device.beginRenderPass({
-                        framebuffer: this.selection.framebuffer,
-                        clearColor: FeatureSelection.defaultColor,
-                        clearDepth: 1
-                    });
+                    // An external host pass may still be open. Use a separate
+                    // encoder, and submit selection before its asynchronous copy.
+                    let encoder = this.device.type === 'webgpu' ? this.device.createCommandEncoder({id: 'tangram-selection'}) : null;
+                    let selection_pass = null;
                     try {
+                        selection_pass = (encoder ?? this.device).beginRenderPass({
+                            framebuffer: this.selection.framebuffer,
+                            clearColor: FeatureSelection.defaultColor,
+                            clearDepth: 1
+                        });
                         this.renderPass('selection_program', {
                             allow_blend: false,
                             renderPass: selection_pass
                         });
                     }
                     finally {
-                        selection_pass.end();
+                        try {
+                            selection_pass?.end();
+                            if (encoder && selection_pass) {
+                                const commands = encoder.finish();
+                                encoder = null; // finish releases the encoder; submit releases the commands.
+                                this.device.submit(commands);
+                            }
+                        } finally {
+                            encoder?.destroy();
+                        }
                     }
                 }
                 else {
@@ -741,6 +758,7 @@ export default class Scene {
                     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
                     gl.clearColor(...this.background.computed_color);
                 }
+                if (this.selection_render_pending) return true;
                 this.last_selection_render = this.frame;
             }
 
@@ -957,6 +975,7 @@ export default class Scene {
                         meshRenderer: this.mesh_renderer,
                         renderState: this.mesh_render_state
                     })) {
+                        if (program_key === 'selection_program') this.selection_render_pending = true;
                         this.requestRedraw();
                     }
                     render_count += mesh.geometry_count;
@@ -1098,9 +1117,6 @@ export default class Scene {
 
     // Request feature selection at given pixel. Runs async and returns results via a promise.
     getFeatureAt(pixel, { radius } = {}) {
-        if (this.portable_rendering) {
-            return Promise.resolve();
-        }
         if (!this.initialized) {
             log('debug', 'Scene.getFeatureAt() called before scene was initialized');
             return Promise.resolve();
@@ -1726,10 +1742,8 @@ export default class Scene {
     }
 
     resetFeatureSelection() {
-        if (this.portable_rendering) {
-            return;
-        }
-        this.selection = new FeatureSelection(this.gl, this.workers, () => this.building, this.device);
+        this.selection = new FeatureSelection(this.gl, this.workers,
+            () => this.building || this.selection_render_pending, this.device);
         this.last_render_count = 0; // force re-evaluation of selection map
     }
 

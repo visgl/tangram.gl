@@ -40,9 +40,9 @@ Object.assign(Lines, {
     fragment_shader_src: polygons_fs,
     selection: true, // enable feature selection
 
-    getWGSLShaderSource(this: LineStyleRuntime) {
+    getWGSLShaderSource(this: LineStyleRuntime, selection = false) {
         return buildLinesWGSL({ animated: this.animated === true, lighting: this.portable_lighting_mode,
-            lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection) });
+            lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection), selection });
     },
 
     setGL(this: LineStyleRuntime, gl_context: unknown, uniform_blocks: Record<string, UniformBuffer> = {}, options = {}) {
@@ -579,7 +579,7 @@ Object.assign(Lines, {
                     static: ((portable || variant.texcoords) ? null : [0, 0])
                 },
                 { name: 'a_color', size: 4, type: gl.UNSIGNED_BYTE, normalized: true },
-                { name: 'a_selection_color', size: 4, type: gl.UNSIGNED_BYTE, normalized: true, static: (variant.selection ? null : [0, 0, 0, 0]) }
+                { name: 'a_selection_color', size: 4, type: gl.UNSIGNED_BYTE, normalized: true, static: (variant.selection || this.shader_language === 'wgsl' ? null : [0, 0, 0, 0]) }
             ];
 
             this.addCustomAttributesToAttributeList(attribs);
@@ -645,7 +645,7 @@ Object.assign(Lines, {
         this.vertex_template[i++] = (style.alpha != null ? style.alpha : style.color[3]) * 255;
 
         // a_selection_color.rgba - selection color
-        if (mesh.variant.selection) {
+        if (mesh.variant.selection || this.shader_language === 'wgsl') {
             this.vertex_template[i++] = style.selection_color[0] * 255;
             this.vertex_template[i++] = style.selection_color[1] * 255;
             this.vertex_template[i++] = style.selection_color[2] * 255;

@@ -174,8 +174,7 @@ test('low-zoom globe raster follows the sphere and reuses geometry for camera an
   expect(coloredPixels(stereo, stereo.width / 2)).toBeGreaterThan(500);
 });
 
-test(DEVICE_TYPE === 'webgl' ? 'WebGL selection returns the rendered building'
-  : 'WebGPU selection explicitly reports its current unsupported result', async () => {
+test(`${DEVICE_TYPE}: selection returns the rendered building`, async () => {
   harness = new RenderingHarness('flat');
   await harness.initialize();
   await harness.settle();
@@ -183,12 +182,9 @@ test(DEVICE_TYPE === 'webgl' ? 'WebGL selection returns the rendered building'
     longitude: 0, latitude: 0, zoom: 15, pitch: 0});
   const [x, y] = viewport.project([0.001, 0.001, 80]);
   const result = await harness.pick(x, y);
-  if (DEVICE_TYPE === 'webgl') {
-    expect(result?.error).toBeUndefined();
-    expect(result?.feature?.properties?.name).toBe('fixture-building');
-  } else {
-    expect(result).toBeUndefined();
-  }
+  expect(result?.error).toBeUndefined();
+  expect(result?.feature).toMatchObject({properties: {name: 'fixture-building'}});
+  expect((await harness.pick(20, 20))?.feature).toBeFalsy();
   expect(coloredPixels(await harness.pixels())).toBeGreaterThan(100);
 });
 

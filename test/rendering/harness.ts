@@ -207,12 +207,12 @@ export class RenderingHarness {
 
   /** Drive the asynchronous selection pass and worker response without a render loop. */
   async pick(x: number, y: number) {
-    if (DEVICE_TYPE === 'webgl') {
+    {
       await expect.poll(() => (this.renderer.scene as RuntimeScene).selection_feature_count,
         {timeout: 5000}).toBeGreaterThan(0);
     }
     let complete = false;
-    const pending = (this.renderer.scene as RuntimeScene).getFeatureAt({x, y}).then(result => {
+    const pending = this.renderer.getFeatureAt({x, y}).then(result => {
       complete = true;
       return result;
     });

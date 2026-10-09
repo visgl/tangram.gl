@@ -17,7 +17,7 @@ the optional WebXR entry shares one scene across stereo eyes.
 | MapView | Flat or perspective Web Mercator, host matrices | Custom GLSL effects are not automatically translated to WGSL |
 | GlobeView | Radius-256 sphere; refined polygons, roads and raster meshes; per-eye horizon tests | No polar-cap data; elevated bounds must be supplied conservatively |
 | FirstPersonView | Finite frustum intersected with ground or an opt-in height slab, bounded per eye | Conservative tile candidates, not terrain intersections or occlusion |
-| OrthographicView | Optional CPU-projected polygons, rasters, roads and annotations | Five fixed projection domains; no collision or feature selection |
+| OrthographicView | Optional CPU-projected surfaces, roads, annotations and async feature selection | Five fixed projection domains; no projected collision or terrain picking |
 | WebXR | Mono, interactive stereo preview, immersive eye matrices and room placement | Headset validation and immersive attribution remain separate gates |
 
 See [TangramLayer](../api-reference/tangram-layer.md),
@@ -125,7 +125,9 @@ occlusion test. See [lighting](../api-reference/renderer.md#light-definitions)
 for supported materials, light counts and unit conventions.
 
 Next: tangent-space normal maps, terrain normals, surface-oriented labels,
-projected collision, terrain/building occlusion and WebGPU feature selection.
+projected collision and terrain-aware occlusion/picking. WebGPU now supports asynchronous
+feature selection with the same projected/curved geometry; deck.gl synchronous picking
+and whole-canvas stereo queries remain separate integration work.
 Screen-facing labels still use the existing planar collision layout.
 
 ### 7. Finish WebXR placement and interaction

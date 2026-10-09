@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {ClassicWebGLRenderer, HostFrame} from '@vis.gl/tangram-renderer';
-import type {HostFrameOptions, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, RendererOptions} from '@vis.gl/tangram-renderer';
+import type {HostFrameOptions, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, RendererOptions, FeatureSelectionResult} from '@vis.gl/tangram-renderer';
 import type {LumaLight, TangramLight, TangramPointLight, TangramLightMapping} from '@vis.gl/tangram-renderer';
 import {convertLumaLight} from '@vis.gl/tangram-renderer/core';
 import type {ProjectionEngine} from '@vis.gl/tangram-renderer/core';
@@ -47,6 +47,8 @@ renderer.setFrame({...frameOptions, tileResources});
 const resources: TileResourceStatistics = renderer.getTileResourceStatistics();
 void resources;
 renderer.load();
+const selected: Promise<FeatureSelectionResult | undefined> = renderer.getFeatureAt({x: 20, y: 40}, {radius: 6});
+void selected;
 const credits: Promise<string[]> = renderer.getAttributions();
 const sceneCredits: Promise<string[]> = renderer.scene.getAttributions();
 const lights: TangramLightMapping[] = renderer.getLumaLightDefinitions();

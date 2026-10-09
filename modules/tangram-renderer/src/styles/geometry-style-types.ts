@@ -167,7 +167,7 @@ export interface GeometryStyleRuntime<FeatureStyle extends Omit<PolygonFeatureSt
     init(options?: Record<string, unknown>): void;
     destroy(): void;
     setGL(context: unknown, blocks?: Record<string, UniformBuffer>, options?: Record<string, unknown>): void;
-    getWGSLShaderSource(): string;
+    getWGSLShaderSource(selection?: boolean): string;
     _parseFeature(feature: GeometryFeature, draw: GeometryDraw, context: GeometryContext): FeatureStyle | null | undefined;
     _preprocess(draw: RawGeometryDraw): GeometryDraw;
     computeVariant(draw: GeometryDraw | RawGeometryDraw): void;

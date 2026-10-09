@@ -444,8 +444,26 @@ results, and readback/worker failures reject internal requests instead of leavin
 them pending. `Scene.getFeatureAt()` retains its existing `{error}` result on failure.
 The staging buffer is released on success and failure. This does not guarantee
 stall-free WebGL picking: luma's WebGL `readAsync()` may still synchronize with
-the GPU. WebGPU row padding is supported by the internal pixel-copy boundary,
-but feature selection itself remains unsupported on the configured WGSL path.
+the GPU. WebGPU supports selection shaders for polygons, lines, points and
+text, using a copyable RGBA8 attachment, target-specific pipelines, native-row
+conversion and padded asynchronous readback. Its selection encoder is independent
+of the host's open render pass.
+
+### `getFeatureAt(pixel, options?)`
+
+Queries draws marked `interactive: true` in viewport-local, top-origin CSS pixels.
+`options.radius` is an optional non-negative CSS-pixel radius. Coordinates and radius
+must be finite. The host must keep rendering while the GPU pass and worker lookup
+are pending. The promise resolves to `{feature, changed, pixel}`, `{error}` on a
+scene readback/worker failure, or `undefined` for unloaded/noninteractive scenes.
+Invalid arguments and queries after renderer destruction reject the promise.
+`feature` is `unknown` because custom workers may return application-defined payloads;
+built-in workers return ID/properties, source, layer and tile metadata.
+
+The query applies to the active render view and the fixed 256×256 selection target.
+It does not implement deck.gl's synchronous picking, terrain intersection or automatic
+stereo-canvas coordinate routing. WGSL selection respects its point/text alpha and line
+dash masks; legacy GLSL retains its existing silhouette selection behavior.
 
 Legacy program/resource wrappers and classic non-device selection still contain
 raw WebGL operations. Device-owned render passes and resources remain

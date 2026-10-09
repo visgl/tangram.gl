@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import { assert } from 'chai';
+import {expect, test} from 'vitest';
 import Renderer from '../src/scene/renderer';
 import HostFrame from '../src/scene/host_frame';
 
@@ -310,7 +311,7 @@ describe('Renderer', function () {
         assert.isTrue(renderer.device_renderer.destroy.calledOnce);
     });
 
-    it('initializes portable scene resources without constructing a WebGL context', async function () {
+    test('initializes portable scene resources without constructing a WebGL context', async function () {
         const buffers = [];
         const device = {
             type: 'webgpu',
@@ -346,12 +347,12 @@ describe('Renderer', function () {
             blend: 'overlay'
         });
 
-        assert.isTrue(renderer.scene.portable_rendering);
-        assert.strictEqual(renderer.scene.canvas, canvas);
-        assert.strictEqual(renderer.scene.resource_context, device);
-        assert.isNull(renderer.scene.gl);
-        assert.lengthOf(buffers, 3);
-        assert.deepEqual(renderer.scene.mesh_render_state, {
+        expect(renderer.scene.portable_rendering).toBe(true);
+        expect(renderer.scene.canvas).toBe(canvas);
+        expect(renderer.scene.resource_context).toBe(device);
+        expect(renderer.scene.gl).toBeNull();
+        expect(buffers).toHaveLength(3);
+        expect(renderer.scene.mesh_render_state).toEqual({
             cullMode: 'none',
             depthCompare: 'less',
             depthWriteEnabled: false,
@@ -364,11 +365,9 @@ describe('Renderer', function () {
             blendAlphaDstFactor: 'one-minus-src-alpha'
         });
 
-        renderer.scene.selection_feature_count = 1;
-        assert.isUndefined(await renderer.scene.getFeatureAt([0, 0]));
-        assert.isNull(renderer.scene.selection);
+        expect(renderer.scene.selection).toBeNull(); // Allocated only when a feature query is requested.
 
         renderer.destroy();
-        assert.isTrue(buffers.every(buffer => buffer.destroyed));
+        expect(buffers.every(buffer => buffer.destroyed)).toBe(true);
     });
 });

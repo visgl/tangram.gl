@@ -47,12 +47,48 @@ test.each([[], [[2, '2px'], [2, '3px']], [[8, '2px'], [2, '3px']], [[2, '2px'], 
             {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow();
     });
 
-test('projected point/text annotations require explicit noncolliding, noninteractive ground draws', () => {
+test('projected scenes accept explicit interactive surfaces, roads and noncolliding annotations without mutation', () => {
+    const scene = {styles: {surface: {base: 'polygons', draw: {interactive: true}}}, layers: {
+        surface: {draw: {surface: {order: 0}}},
+        road: {draw: {lines: {order: 1, width: '10px', interactive: true, outline: {width: '2px', interactive: true}}}},
+        point: {draw: {points: {order: 2, interactive: true, collide: false,
+            text: {collide: false, interactive: true, text_source: 'name'}}}},
+        text: {draw: {text: {order: 3, interactive: true, collide: false, text_source: 'name'}}}
+    }};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+});
+
+test('raster imagery cannot opt into source-feature selection', () => {
+    for (const scene of [{layers: {image: {draw: {raster: {interactive: true}}}}},
+        {styles: {image: {base: 'raster', draw: {interactive: true}}}}]) {
+        expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow('Raster imagery');
+    }
+});
+
+test('projected feature queries use the current state owner and request a redraw without activating deck picking', async () => {
+    const layer = new ProjectedBasemapLayer({id: 'query', scene: {}});
+    const result = {feature: {properties: {name: 'City'}}, changed: true};
+    const renderer = {getFeatureAt: vi.fn().mockResolvedValue(result)};
+    const owner = {setNeedsRedraw: vi.fn()};
+    layer.state = {tangramRecord: {renderer, owner, disposed: false, loadFailed: false}};
+    expect(await layer.getFeatureAt({x: 20, y: 40}, {radius: 6})).toEqual(result);
+    expect(renderer.getFeatureAt).toHaveBeenCalledWith({x: 20, y: 40}, {radius: 6});
+    expect(owner.setNeedsRedraw).toHaveBeenCalledOnce();
+    layer.state.tangramRecord.disposed = true;
+    expect(await layer.getFeatureAt({x: 20, y: 40})).toBeUndefined();
+    expect(renderer.getFeatureAt).toHaveBeenCalledOnce();
+    layer.state = {};
+    expect(await layer.getFeatureAt({x: 20, y: 40})).toBeUndefined();
+});
+
+test('projected point/text annotations require explicit noncolliding ground draws', () => {
     const scene = {styles: {labels: {base: 'text', draw: {collide: false}}}, layers: {
         points: {draw: {points: {collide: false, text: {collide: false, text_source: 'name'}}}},
         text: {draw: {labels: {text_source: 'name'}}}}};
     expect(() => createProjectedBasemapScene(scene, {type: 'albers'}, 'https://example.test/worker.js')).not.toThrow();
-    for (const draw of [{}, {collide: true}, {collide: false, interactive: true}, {collide: false, z: 2},
+    for (const draw of [{}, {collide: true}, {collide: false, z: 2},
         {collide: false, text: {collide: true}}, {collide: false, text: {collide: false, z: 1}}]) {
         expect(() => createProjectedBasemapScene({layers: {annotations: {draw: {points: draw}}}},
             {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow();
@@ -65,7 +101,7 @@ test('attached text merges noncolliding style defaults without mutating the auth
     const original = structuredClone(scene);
     expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
     expect(scene).toEqual(original);
-    for (const text of [{collide: true}, {collide: false, interactive: true}, {collide: false, z: 1}, null, []]) {
+    for (const text of [{collide: true}, {collide: false, z: 1}, null, []]) {
         expect(() => createProjectedBasemapScene({...scene, layers: {markers: {draw: {markers: {text}}}}},
             {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow();
     }
@@ -228,11 +264,9 @@ test.each([
     {styles: {road: {base: 'points', shaders: {}}}},
     {styles: {ground: {base: 'polygons', draw: {extrude: true}}}},
     {styles: {ground: {base: 'raster', draw: {z: 1}}}},
-    {styles: {ground: {base: 'polygons', draw: {interactive: true}}}},
     {styles: {shape: {base: 'polygons', shaders: {blocks: {position: 'position.x += 1.;'}}}}},
     {layers: {ground: {draw: {lines: {order: 0}}}}},
     {layers: {ground: {draw: {polygons: {order: 0, extrude: true}}}}},
-    {layers: {ground: {draw: {polygons: {order: 0, interactive: true}}}}},
     {scene: {scripts: 'worker.js'}}
 ])('rejects unsupported scene capabilities before loading: %j', scene => {
     expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow();
