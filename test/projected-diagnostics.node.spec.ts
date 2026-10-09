@@ -56,6 +56,23 @@ test('diagnostics sum optional work snapshots without conflating current cache r
   expect(formatProjectedDiagnostics([], resources)).toContain('Waiting');
 });
 
+test('host kernel diagnostics remain separate from worker refinement and GPU residency', async () => {
+  const host = {activeRequests: 1, completedRequests: 2, failedRequests: 3, cancelledRequests: 4,
+    batches: 5, submittedPositions: 6, yieldCount: 7, maxBatchPositions: 8};
+  const snapshot = {...host};
+  const scene = {getTileSourceStatistics: async () => [{projectionWork}],
+    getProjectionEngineStatistics: () => host, tile_manager: {getResourceStatistics: () => resources}};
+  const updateText = vi.fn();
+  const poller = createProjectedDiagnosticsPoller(() => scene, updateText);
+  try {
+    await poller.update();
+    expect(updateText.mock.lastCall?.[0]).toContain('Host kernel work: 1 active, 2 completed, 3 failed / 4 cancelled');
+    expect(updateText.mock.lastCall?.[0]).toContain('5 calls / 6 submitted positions; 7 yields (8 positions/call limit)');
+    expect(updateText.mock.lastCall?.[0]).toContain('2 meshes');
+    expect(host).toEqual(snapshot);
+  } finally {poller.destroy();}
+});
+
 test('polling skips unloaded scenes, never overlaps requests and discards replacement/disposal replies', async () => {
   vi.useFakeTimers();
   const first = deferred<unknown[]>();

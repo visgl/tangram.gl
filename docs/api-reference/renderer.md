@@ -98,6 +98,25 @@ with no runtime import of math.gl's projection catalog into the core entry.
 Engine identity is fixed for the renderer's lifetime; create a new renderer to
 replace it. See [experimental projected basemaps](../developer-guide/projected-basemaps.md#injecting-a-projection-engine).
 
+## `projectionEngineExecution` constructor option
+
+`Renderer.create(scene, {projectionEngine, projectionEngineExecution: {maxBatchPositions: 4096}})`
+captures a bounded synchronous kernel-call policy. The default is 4,096 coordinate
+pairs; valid integers are 1–65,536. Larger requests yield between chunks. It does
+not change worker build capacity or bound the full request's input/output memory.
+An invalid policy fails before allocating renderer resources or broker endpoints.
+
+### `renderer.getProjectionEngineStatistics()`
+
+Returns a detached `ProjectionExecutionStatistics` snapshot, or `undefined` when
+projection uses worker-local kernels. The scene exposes the same method. Counters
+are cumulative for the host adapter lifetime: active/completed/failed/cancelled
+requests, submitted positions, attempted kernel calls, scheduled yields and the
+configured `maxBatchPositions`. Attempts later cancelled or failed remain in work
+totals; invalid and pre-aborted requests do not enter accounting. Navigation has
+separate counters. This is not worker refinement, cache/GPU residency or timing
+information. See [cooperative host execution](../developer-guide/projected-basemaps.md#cooperative-host-execution).
+
 ## Source attribution
 
 ### `renderer.getAttributions()`

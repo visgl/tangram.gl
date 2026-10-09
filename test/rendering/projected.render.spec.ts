@@ -10,7 +10,7 @@ import {ProjectedBasemapLayer, createProjectedBasemapScene, ProjectedBasemapNavi
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {createRasterScene} from './scene';
 import type Scene from '../../modules/tangram-renderer/src/scene/scene';
-import type {HostTileResourceOptions, ProjectedBasemapOptions, Renderer} from '@vis.gl/tangram-renderer/core';
+import type {HostTileResourceOptions, ProjectedBasemapOptions, ProjectionExecutionOptions, Renderer} from '@vis.gl/tangram-renderer/core';
 import type {ProjectionEngine} from '@math.gl/projection/types';
 import {createProjectedExampleProjectionEngine} from '../../examples/projected/projection-engine.js';
 
@@ -19,6 +19,7 @@ let deck: Deck<OrthographicView> | undefined;
 /** Dynamic layer factories do not yet emit a public subclass declaration. */
 type FixtureProperties = {scene: Record<string, unknown>; projectedTileZoom: number; onSceneError: (error: Error) => void;
   projectionEngine?: ProjectionEngine;
+  projectionEngineExecution?: ProjectionExecutionOptions;
   projectedVisibleBounds?: readonly [number, number, number, number];
   projectedStyleZoom?: number; projectedMaxTiles?: number; tileResources?: HostTileResourceOptions;
   projectedProjection?: ProjectedBasemapOptions; onProjectionChange?: () => void; onSceneLoad?: (scene: Scene) => void};
@@ -253,8 +254,9 @@ test.each([
     createProjection: options => engine.createProjection(options),
     createProjectionAsync: options => {compiledTypes.push(options); return engine.createProjectionAsync(options);}
   } : undefined;
+  const projectionEngineExecution = {maxBatchPositions: 128};
   const createLayer = (type: ProjectedBasemapOptions['type']) => new FixtureLayer({id: 'warm-projected-fixture',
-    scene, projectedTileZoom: 2, projectedProjection: {type}, projectionEngine,
+    scene, projectedTileZoom: 2, projectedProjection: {type}, projectionEngine, projectionEngineExecution,
     onSceneLoad: value => {loadedScene = value; loadCount++;},
     onProjectionChange: () => {completedProjection = type;}, onSceneError: error => errors.push(error.message)});
   deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
@@ -294,7 +296,14 @@ test.each([
     .toBeGreaterThan(statistics.reduce((count, value) => count + (value.projectionWork?.completedMeshes ?? 0), 0));
   expect(finalStatistics.reduce((hits, value) => hits + (value.projectionPreparation?.hits ?? 0), 0))
     .toBeGreaterThan(statistics.reduce((hits, value) => hits + (value.projectionPreparation?.hits ?? 0), 0));
-  if (injected) expect(compiledTypes).toHaveLength(5);
+  if (injected) {
+    expect(compiledTypes).toHaveLength(5);
+    await expect.poll(() => initialScene.getProjectionEngineStatistics()?.activeRequests).toBe(0);
+    const hostWork = initialScene.getProjectionEngineStatistics();
+    expect(hostWork).toMatchObject({maxBatchPositions: 128, failedRequests: 0, cancelledRequests: 0});
+    expect(hostWork?.yieldCount).toBeGreaterThan(0);
+    expect(hostWork?.batches).toBeGreaterThan(hostWork?.completedRequests ?? 0);
+  } else expect(initialScene.getProjectionEngineStatistics()).toBeUndefined();
 });
 
 test.each([false, true])(`${DEVICE_TYPE}: source detail round trips retain style zoom, workers and warm tile meshes (injected %s)`, async injected => {

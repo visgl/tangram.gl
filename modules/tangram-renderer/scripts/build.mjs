@@ -181,7 +181,7 @@ function getCoreBuildOptions() {
         import workerSource from 'tangram-worker';
         setWorkerURL(URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'})));
         export {Renderer, HostFrame, LumaDeviceRenderer, calculatePlanarGroundBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter,
-          PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure, normalizeProjectedBasemapOptions, countProjectedTileCoordinates, getTileGeographicBounds, getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE}
+          PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure, normalizeProjectedBasemapOptions, countProjectedTileCoordinates, getTileGeographicBounds, getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE, ProjectionBatchExecutor}
           from ${JSON.stringify(resolve(sourceDirectory, 'core.ts'))};
       `
     },

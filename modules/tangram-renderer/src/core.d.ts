@@ -7,6 +7,8 @@ export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
 export {countProjectedTileCoordinates, getTileGeographicBounds} from './tile/tile_traversal_adapter';
 export {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from './procedures/projected-coordinate-transform';
+export {ProjectionBatchExecutor} from './procedures/projection-batch-executor.js';
+export type {ProjectionExecutionOptions, ProjectionExecutionStatistics, ProjectionBatchRequestOptions} from './procedures/projection-batch-executor.js';
 export type {ProjectedBasemapOptions, MeshProjectionStatistics} from './procedures/mesh-projector';
 export {PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure} from './scene/projection_math';
 export type {GeographicProjectionPosition, GeographicProjectionProcedure} from './scene/projection_math';

@@ -283,6 +283,18 @@ mutated or disposed by Tangram. See
 [engine injection](../developer-guide/projected-basemaps.md#injecting-a-projection-engine)
 for registration, units, worker setup, and limitations.
 
+#### `projectionEngineExecution` (ProjectionExecutionOptions, optional) {/* #projectionengineexecution */}
+
+* Default: omitted (`maxBatchPositions: 4096`)
+
+An immutable host-execution policy for injected CPU projection kernels. Set
+`{maxBatchPositions: number}` to limit synchronous calls to 1–65,536 coordinate
+pairs; larger requests yield to a browser task between chunks. Keep the object
+identity stable: replacing or removing it recreates the renderer and workers.
+This does not limit buffer allocation, worker refinement or tile loading, and
+does not affect worker-local kernels when `projectionEngine` is omitted. See
+[cooperative host execution](../developer-guide/projected-basemaps.md#cooperative-host-execution).
+
 ### Callbacks
 
 #### `onSceneLoad` (function, optional) {/* #onsceneload */}

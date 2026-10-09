@@ -17,6 +17,42 @@ function createEngine() {
 }
 
 describe('injected host projection engine', () => {
+    test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
+        '%s produces identical whole and cooperative partial-final-batch results', async type => {
+            const engine = createEngine();
+            const input = new Float64Array([-170, 5, -140, 20, -100, 40, -80, 55, -40, 75]);
+            const whole = new HostProjectionEngineAdapter(engine);
+            const chunked = new HostProjectionEngineAdapter(engine, {maxBatchPositions: 2});
+            expect(await chunked.projectPositions(input, type)).toEqual(await whole.projectPositions(input, type));
+            expect(chunked.getStatistics()).toMatchObject({batches: 3, yieldCount: 2, submittedPositions: 5,
+                completedRequests: 1, activeRequests: 0});
+            whole.dispose(); chunked.dispose();
+        }
+    );
+
+    test('pending compilation captures input before callers mutate it or cancel another request', async () => {
+        const engine = createEngine();
+        let release = () => {};
+        const waiting = new Promise<void>(resolve => {release = resolve;});
+        const compile = vi.spyOn(engine, 'createProjectionAsync').mockImplementation(async options => {
+            await waiting; return engine.createProjection(options);
+        });
+        const adapter = new HostProjectionEngineAdapter(engine);
+        const input = new Float64Array([-100, 40]);
+        const retained = adapter.projectPositions(input, 'equal-earth');
+        input.fill(NaN);
+        const controller = new AbortController();
+        const rejected = expect(adapter.projectPositions(new Float64Array([-90, 30]), 'equal-earth', controller.signal))
+            .rejects.toMatchObject({name: 'AbortError'});
+        controller.abort();
+        await rejected;
+        release();
+        const expected = engine.createProjection(getProjectedCoordinateOptions('equal-earth')).projectSync([-100, 40]);
+        expect(await retained).toEqual(new Float64Array(expected.map(value => value * PROJECTED_COMMON_SCALE)));
+        expect(compile).toHaveBeenCalledOnce();
+        expect(adapter.getStatistics()).toMatchObject({cancelledRequests: 1, completedRequests: 1, activeRequests: 0});
+        adapter.dispose();
+    });
     test('lazy factories preload only the requested algorithm before synchronous mesh batches', async () => {
         const loadEqualEarth = vi.fn(async () => equalEarth);
         const loadAlbers = vi.fn(async () => albersEqualArea);

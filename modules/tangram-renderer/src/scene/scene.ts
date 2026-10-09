@@ -43,6 +43,7 @@ import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 import type {RenderPass} from '@luma.gl/core';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
 import {HostProjectionEngineAdapter, validateProjectionEngine} from '../procedures/projected-coordinate-transform';
+import {normalizeProjectionExecutionOptions} from '../procedures/projection-batch-executor';
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
@@ -66,6 +67,7 @@ export default class Scene {
     constructor(config_source, options) {
         options = options || {};
         validateProjectionEngine(options.projectionEngine);
+        normalizeProjectionExecutionOptions(options.projectionEngineExecution);
         this.maxConcurrentTileLoadsPerWorker = validateConcurrentTileLoads(options.maxConcurrentTileLoadsPerWorker);
         subscribeMixin(this);
 
@@ -163,7 +165,7 @@ export default class Scene {
         log.setLevel(this.log_level);
         log.reset();
         if (options.projectionEngine) {
-            this.projectionAdapter = new HostProjectionEngineAdapter(options.projectionEngine);
+            this.projectionAdapter = new HostProjectionEngineAdapter(options.projectionEngine, options.projectionEngineExecution);
             this.projectionTarget = `ProjectionEngine_${this.id}`;
             WorkerBroker.addTarget(this.projectionTarget, {
                 projectPositions: async (coordinates, type) => WorkerBroker.withTransferables(
@@ -1604,6 +1606,11 @@ export default class Scene {
             throw new Error('Sources changed during metadata loading');
         }
         return metadata;
+    }
+
+    /** Detached host-kernel execution work; absent when using worker-local projection kernels. */
+    getProjectionEngineStatistics(): import('../procedures/projection-batch-executor').ProjectionExecutionStatistics | undefined {
+        return this.projectionAdapter?.getStatistics();
     }
 
     /** Return detached per-worker load diagnostics; worker-pool replacement invalidates a snapshot. */

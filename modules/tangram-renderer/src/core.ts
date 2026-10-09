@@ -7,6 +7,8 @@ export {default as HostFrame} from './scene/host_frame';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
 export {countProjectedTileCoordinates, getTileGeographicBounds} from './tile/tile_traversal_adapter';
 export {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from './procedures/projected-coordinate-transform';
+export {ProjectionBatchExecutor} from './procedures/projection-batch-executor';
+export type {ProjectionExecutionOptions, ProjectionExecutionStatistics, ProjectionBatchRequestOptions} from './procedures/projection-batch-executor';
 export type {ProjectionEngine, ProjectionEngineTransform} from './types';
 export type {ProjectedBasemapOptions, MeshProjectionStatistics} from './procedures/mesh-projector';
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';

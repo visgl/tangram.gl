@@ -3,8 +3,15 @@
 // Copyright (c) vis.gl contributors
 
 import {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE, countProjectedTileCoordinates,
-    normalizeProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
+    normalizeProjectedBasemapOptions, ProjectionBatchExecutor} from '@vis.gl/tangram-renderer/core';
 import type {ProjectionEngine, ProjectionEngineTransform, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
+import type {ProjectionExecutionOptions, ProjectionExecutionStatistics} from '@vis.gl/tangram-renderer/core';
+
+/** Cancellation for one coordinate request; compiled transforms remain shared and reusable. */
+export interface ProjectedNavigationRequestOptions {
+    /** Abort this request without disposing the navigation helper or caller-owned factory. */
+    signal?: AbortSignal;
+}
 
 /** Supported fixed projection, not an arbitrary target CRS. */
 export type ProjectedBasemapType = ProjectedBasemapOptions['type'];
@@ -97,56 +104,58 @@ export class ProjectedBasemapNavigation {
     private readonly transforms = new Map<string, Promise<ProjectionEngineTransform>>();
     /** Prevent late asynchronous work from publishing after example teardown. */
     private disposed = false;
+    /** Bounded host kernel calls shared by forward and reverse requests. */
+    private readonly executor: ProjectionBatchExecutor;
 
     /** Retain a factory without taking ownership of its registrations, grids or lifetime. */
-    constructor(private readonly engine: ProjectionEngine) {
+    constructor(private readonly engine: ProjectionEngine, options: ProjectionExecutionOptions = {}) {
         if (!engine || typeof engine.createProjection !== 'function' || typeof engine.createProjectionAsync !== 'function') {
             throw new Error('Projected navigation requires a ProjectionEngine factory');
         }
+        this.executor = new ProjectionBatchExecutor(options);
     }
 
     /** Project a detached longitude/latitude batch into north-positive common coordinates. */
-    async projectPositions(coordinates: Float64Array, type: ProjectedBasemapType): Promise<Float64Array> {
+    async projectPositions(coordinates: Float64Array, type: ProjectedBasemapType,
+        options: ProjectedNavigationRequestOptions = {}): Promise<Float64Array> {
         const domain = getProjectedGeographicBounds(type);
         if (!(coordinates instanceof Float64Array) || coordinates.length % 2 !== 0) {
             throw new Error('Projected navigation requires finite geographic pairs inside the projection domain');
         }
-        const result = coordinates.slice();
-        if (!result.every((value, index) => Number.isFinite(value) && value >= domain[index % 2] && value <= domain[index % 2 + 2])) {
+        if (!coordinates.every((value, index) => Number.isFinite(value) && value >= domain[index % 2] && value <= domain[index % 2 + 2])) {
             throw new Error('Projected navigation requires finite geographic pairs inside the projection domain');
         }
-        const transform = await this.getTransform(type, false);
-        transform.projectFlatSync(result, 2);
-        for (let index = 0; index < result.length; index++) result[index] *= PROJECTED_COMMON_SCALE;
-        if (!result.every(Number.isFinite)) throw new Error('Projected navigation produced nonfinite common coordinates');
-        return result;
+        return this.executor.execute(coordinates, () => this.getTransform(type, false),
+            {signal: options.signal, scale: PROJECTED_COMMON_SCALE});
     }
 
     /** Project a geographic focus point without mutating the supplied pair. */
-    async projectPosition(position: ProjectedGeographicPosition, type: ProjectedBasemapType): Promise<[number, number, number]> {
+    async projectPosition(position: ProjectedGeographicPosition, type: ProjectedBasemapType,
+        options: ProjectedNavigationRequestOptions = {}): Promise<[number, number, number]> {
         if (position.length !== 2) throw new Error('Projected focus requires a longitude/latitude pair');
-        const result = await this.projectPositions(new Float64Array(position), type);
+        const result = await this.projectPositions(new Float64Array(position), type, options);
         return [result[0], result[1], 0];
     }
 
     /** Invert ground; finite outside-domain/folded results return null. Engine errors propagate. */
-    async unprojectPosition(position: readonly [number, number], type: ProjectedBasemapType): Promise<[number, number] | null> {
+    async unprojectPosition(position: readonly [number, number], type: ProjectedBasemapType,
+        options: ProjectedNavigationRequestOptions = {}): Promise<[number, number] | null> {
         if (position.length !== 2 || !position.every(Number.isFinite)) throw new Error('Projected inverse requires a finite common pair');
         const point: [number, number] = [position[0], position[1]];
-        const result = new Float64Array(point.map(value => value / PROJECTED_COMMON_SCALE));
-        const transform = await this.getTransform(type, true);
-        transform.projectFlatSync(result, 2);
+        const requestOptions = {signal: options.signal};
+        const result = await this.executor.execute(new Float64Array(point.map(value => value / PROJECTED_COMMON_SCALE)),
+            () => this.getTransform(type, true), {...requestOptions, allowNonfinite: true});
         const domain = getProjectedGeographicBounds(type);
         if (!result.every((value, index) => Number.isFinite(value) && value >= domain[index] - 1e-7 && value <= domain[index + 2] + 1e-7)) return null;
         const geographic: [number, number] = [Math.max(domain[0], Math.min(domain[2], result[0])),
             Math.max(domain[1], Math.min(domain[3], result[1]))];
         // Some inverse kernels wrap or fold outside the drawn map. Require a forward round trip.
-        const restored = await this.projectPosition(geographic, type);
+        const restored = await this.projectPosition(geographic, type, requestOptions);
         if (Math.hypot(restored[0] - point[0], restored[1] - point[1]) <= 1e-5) return geographic;
         // The two source-world seam edges are distinct, even if an inverse kernel wraps one onto the other.
         if (domain[0] === -180 && domain[2] === 180 && Math.abs(Math.abs(geographic[0]) - 180) <= 1e-7) {
             const opposite: [number, number] = [geographic[0] < 0 ? 180 : -180, geographic[1]];
-            const alternative = await this.projectPosition(opposite, type);
+            const alternative = await this.projectPosition(opposite, type, requestOptions);
             if (Math.hypot(alternative[0] - point[0], alternative[1] - point[1]) <= 1e-5) return opposite;
         }
         return null;
@@ -154,12 +163,12 @@ export class ProjectedBasemapNavigation {
 
     /** Probe geographic coordinates on ground, not a rendered feature or depth/picking buffer. */
     async unprojectScreenPosition(viewport: ProjectedNavigationViewport, pixel: readonly [number, number],
-        type: ProjectedBasemapType): Promise<[number, number] | null> {
+        type: ProjectedBasemapType, options: ProjectedNavigationRequestOptions = {}): Promise<[number, number] | null> {
         validateProjectedNavigationViewport(viewport);
         if (pixel.length !== 2 || !pixel.every(Number.isFinite)) throw new Error('Projected probe requires a finite screen pair');
         if (pixel[0] < 0 || pixel[1] < 0 || pixel[0] > viewport.width || pixel[1] > viewport.height) return null;
         const position = viewport.unproject([...pixel], {targetZ: 0});
-        return this.unprojectPosition([position[0], position[1]], type);
+        return this.unprojectPosition([position[0], position[1]], type, options);
     }
 
     /** Bound the viewport's ground rectangle using the fixed projections' separable latitude and longitude scales.
@@ -287,7 +296,13 @@ export class ProjectedBasemapNavigation {
     /** Release navigation-owned caches; leave the shared engine usable by the renderer. */
     dispose(): void {
         this.disposed = true;
+        this.executor.dispose();
         this.transforms.clear();
+    }
+
+    /** Detached host execution work, independent of decoded/GPU cache residency. */
+    getExecutionStatistics(): ProjectionExecutionStatistics {
+        return this.executor.getStatistics();
     }
 
     /** Share concurrent compilation, allow retry after failure and reject late results on teardown. */

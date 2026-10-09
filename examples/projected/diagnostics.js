@@ -10,7 +10,7 @@ export function createProjectedSceneLoadHandler(configuration, getCurrentConfigu
 }
 
 /** Format detached worker work counters separately from current renderer residency. */
-export function formatProjectedDiagnostics(workers, resources) {
+export function formatProjectedDiagnostics(workers, resources, host) {
   const totals = {completedMeshes: 0, failedMeshes: 0, sourceVertices: 0, outputVertices: 0,
     outputTriangles: 0, projectionBatches: 0, projectedPositions: 0, edgeRounds: 0, interiorRounds: 0};
   let supported = false;
@@ -23,7 +23,10 @@ export function formatProjectedDiagnostics(workers, resources) {
     `${totals.outputTriangles} triangles; ${totals.edgeRounds} edge / ${totals.interiorRounds} interior rounds; ` +
     `${totals.projectionBatches} batches / ${totals.projectedPositions} positions; ${totals.failedMeshes} failures. ` +
     `Current residency: ${resources.activeBuilds} active / ${resources.queuedBuilds} queued builds, ` +
-    `${resources.cachedTiles} evictable tiles (${(resources.cachedMeshBytes / 1000000).toFixed(1)} MB mesh buffers).`;
+    `${resources.cachedTiles} evictable tiles (${(resources.cachedMeshBytes / 1000000).toFixed(1)} MB mesh buffers).` +
+    (host ? ` Host kernel work: ${host.activeRequests} active, ${host.completedRequests} completed, ` +
+      `${host.failedRequests} failed / ${host.cancelledRequests} cancelled requests; ${host.batches} calls / ` +
+      `${host.submittedPositions} submitted positions; ${host.yieldCount} yields (${host.maxBatchPositions} positions/call limit).` : '');
 }
 
 /** Poll one scene at a time; stale or disposed replies never update the example. */
@@ -37,7 +40,7 @@ export function createProjectedDiagnosticsPoller(getScene, updateText) {
     try {
       const workers = await scene.getTileSourceStatistics();
       if (!disposed && getScene() === scene) {
-        updateText(formatProjectedDiagnostics(workers, scene.tile_manager.getResourceStatistics()));
+        updateText(formatProjectedDiagnostics(workers, scene.tile_manager.getResourceStatistics(), scene.getProjectionEngineStatistics?.()));
       }
     } catch (error) {
       if (!disposed && getScene() === scene) updateText(`Diagnostics unavailable: ${error.message}`);

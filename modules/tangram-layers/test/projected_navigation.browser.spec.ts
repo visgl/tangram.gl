@@ -14,6 +14,67 @@ const types: ProjectedBasemapType[] = ['equal-earth', 'albers', 'equirectangular
 const createNavigation = () => new ProjectedBasemapNavigation(createProjectedExampleProjectionEngine());
 const createViewport = (zoom = -1) => new OrthographicViewport({width: 800, height: 600, target: [0, 0, 0], zoom, flipY: false});
 
+test('inverse requests capture their cancellation signal across inverse and round-trip compilation', async () => {
+    const engine = createProjectedExampleProjectionEngine();
+    const reference = createNavigation();
+    const point = await reference.projectPosition([-100, 40], 'equal-earth');
+    reference.dispose();
+    const controller = new AbortController();
+    let release = () => {};
+    const waiting = new Promise<void>(resolve => {release = resolve;});
+    const compile = vi.spyOn(engine, 'createProjectionAsync').mockImplementation(async options => {
+        await waiting;
+        const transform = engine.createProjection(options);
+        if (typeof options?.from === 'string' && options.from.includes('+proj=eqearth')) {
+            const project = transform.projectFlatSync.bind(transform);
+            vi.spyOn(transform, 'projectFlatSync').mockImplementation((...parameters) => {
+                const result = project(...parameters); controller.abort(); return result;
+            });
+        }
+        return transform;
+    });
+    const navigation = new ProjectedBasemapNavigation(engine);
+    const options = {signal: controller.signal};
+    const rejected = expect(navigation.unprojectPosition([point[0], point[1]], 'equal-earth', options))
+        .rejects.toMatchObject({name: 'AbortError'});
+    options.signal = new AbortController().signal;
+    release();
+    await rejected;
+    expect(compile).toHaveBeenCalledOnce();
+    expect(navigation.getExecutionStatistics()).toMatchObject({cancelledRequests: 1, completedRequests: 0});
+    navigation.dispose();
+});
+
+test('navigation snapshots pending inputs, isolates aborted probes and retains its caller-owned engine', async () => {
+    const engine = createProjectedExampleProjectionEngine();
+    let release = () => {};
+    const waiting = new Promise<void>(resolve => {release = resolve;});
+    const compile = vi.spyOn(engine, 'createProjectionAsync').mockImplementation(async options => {
+        await waiting; return engine.createProjection(options);
+    });
+    const navigation = new ProjectedBasemapNavigation(engine, {maxBatchPositions: 1});
+    const input = new Float64Array([-100, 40, -90, 30]);
+    const retained = navigation.projectPositions(input, 'equal-earth');
+    input.fill(NaN);
+    const controller = new AbortController();
+    const rejected = expect(navigation.unprojectScreenPosition(createViewport(), [400, 300], 'equal-earth',
+        {signal: controller.signal})).rejects.toMatchObject({name: 'AbortError'});
+    controller.abort();
+    await rejected;
+    release();
+    expect(await retained).toEqual(await createNavigation().projectPositions(new Float64Array([-100, 40, -90, 30]), 'equal-earth'));
+    expect(compile).toHaveBeenCalledTimes(2); // One forward and one cancelled inverse compilation.
+    expect(navigation.getExecutionStatistics()).toMatchObject({cancelledRequests: 1, completedRequests: 1,
+        batches: 2, yieldCount: 1, activeRequests: 0});
+    const statistics = navigation.getExecutionStatistics();
+    statistics.batches = 100;
+    expect(navigation.getExecutionStatistics().batches).toBe(2);
+    navigation.dispose();
+    const stillUsable = engine.createProjection().projectSync([20, 30]);
+    expect(stillUsable[0]).toBeCloseTo(20, 12);
+    expect(stillUsable[1]).toBeCloseTo(30, 12);
+});
+
 test.each(types)('%s camera coverage contains independently projected visible ground', async type => {
     const navigation = createNavigation();
     const region = getProjectedGeographicBounds(type);
