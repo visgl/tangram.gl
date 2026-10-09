@@ -63,11 +63,19 @@ presentation.updateTransitions();
 const frame = presentation.createFrame({width, height, frameState});
 presentation.updateController({width, height}, frame.mode);
 renderer.setFrame(frame.hostFrame);
-// Draw each frame.renderViews entry in its matching host render pass.
+// Draw each frame.renderViews entry with its renderViewId and host render pass.
+// WebGPU: end and submit that pass before updating/drawing the next eye.
 // After stopping the host loop:
 presentation.finalize();
 renderer.destroy();
 ```
+
+On WebGPU, call `renderPass.end()` and `device.submit()` after each eye, before
+applying the next eye's camera or drawing it. Tangram reuses camera and mesh
+uniform buffers; submitting both eyes only at the end can make the first eye
+use the second eye's values. Submission orders GPU work without waiting for
+completion. WebGL uses immediate draws. Preserve the first eye's color/depth
+attachments when drawing the second, and set each eye's viewport/scissor.
 
 `timeline` is the host's luma.gl animation timeline. `frameState` is a luma.gl XR
 frame snapshot, omitted for desktop preview. The host owns session creation,
