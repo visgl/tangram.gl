@@ -10,6 +10,7 @@ import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from '../ex
 import {countProjectedTileCoordinates} from '../modules/tangram-renderer/src/tile/tile_traversal_adapter';
 import {createProjectedExampleProjectionEngine} from '../examples/projected/projection-engine.js';
 import {HostProjectionEngineAdapter, getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from '../modules/tangram-renderer/src/procedures/projected-coordinate-transform';
+import {queryProjectedFeature} from '../examples/projected/feature-selection';
 
 test('detail controls guard full-world loading and allow finer regional coverage', () => {
   expect(getProjectedExampleBounds(true)).toEqual([-170, 5, -40, 75]);
@@ -65,4 +66,33 @@ test.each([true, false])('imagery/vector %s includes curated noncolliding city a
   expect(source.features[0]).toMatchObject({geometry: {type: 'Point'}, properties: {name: 'New York'}});
   expect(scene.layers.annotations.draw.points).toMatchObject({collide: false, interactive: true,
     text: {collide: false, text_source: 'name'}});
+});
+
+test('feature click results ignore obsolete navigation, scene replacement and disposal', async () => {
+  const updateText = vi.fn();
+  let current = true;
+  let resolve: (result: {feature: {properties: {name: string}}}) => void = () => {};
+  const pending = queryProjectedFeature(() => new Promise(complete => {resolve = complete;}), () => current, updateText);
+  current = false;
+  resolve({feature: {properties: {name: 'Old scene'}}});
+  await pending;
+  expect(updateText).not.toHaveBeenCalled();
+  await queryProjectedFeature(async () => {throw new Error('Obsolete failure');}, () => false, updateText);
+  expect(updateText).not.toHaveBeenCalled();
+  await queryProjectedFeature(async () => ({feature: {properties: {name: 'New York'}}}), () => true, updateText);
+  expect(updateText).toHaveBeenLastCalledWith('New York');
+});
+
+test('feature click text handles empty/custom payloads and both failure contracts', async () => {
+  const updateText = vi.fn();
+  for (const result of [undefined, {feature: null}, {feature: 'custom'}, {feature: {properties: {name: 5}}}]) {
+    await queryProjectedFeature(async () => result, () => true, updateText);
+    expect(updateText).toHaveBeenLastCalledWith('No interactive feature');
+  }
+  await queryProjectedFeature(async () => ({error: new Error('Readback failed')}), () => true, updateText);
+  expect(updateText).toHaveBeenLastCalledWith('Selection failed: Readback failed');
+  await queryProjectedFeature(async () => ({error: {message: 'Worker failed'}}), () => true, updateText);
+  expect(updateText).toHaveBeenLastCalledWith('Selection failed: Worker failed');
+  await queryProjectedFeature(async () => {throw 'Cancelled';}, () => true, updateText);
+  expect(updateText).toHaveBeenLastCalledWith('Selection failed: Cancelled');
 });

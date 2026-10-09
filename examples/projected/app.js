@@ -13,6 +13,7 @@ import {createProjectedExampleProjectionEngine} from './projection-engine.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {createProjectedDiagnosticsPoller, createProjectedSceneLoadHandler} from './diagnostics.js';
+import {queryProjectedFeature} from './feature-selection.ts';
 
 const parameters = new URLSearchParams(location.search);
 // The caller owns one stable factory; the renderer caches independent compiled CRS transforms.
@@ -181,6 +182,7 @@ function setStatus(message, error = false) {
 /** Load projected ground geometry; Tangram resolves the provider's current TileJSON source. */
 async function initialize(resetCoverage = true) {
   if (disposed) return;
+  featureGeneration++;
   navigationGeneration++;
   probeGeneration++;
   probeController?.abort();
@@ -262,17 +264,11 @@ async function initialize(resetCoverage = true) {
       scheduleDetail();
     },
     onLoad: scheduleDetail,
-    onClick: async information => {
+    onClick: information => {
       const generation = ++featureGeneration;
       const layer = deck.props.layers.find(layer => layer.id === 'projected-basemap');
-      try {
-        const result = await layer?.getFeatureAt({x: information.x, y: information.y}, {radius: 6});
-        if (disposed || generation !== featureGeneration) return;
-        featureProbe.textContent = result?.error ? `Selection failed: ${result.error.message ?? result.error}` :
-          result?.feature?.properties?.name ?? 'No interactive feature';
-      } catch (error) {
-        if (!disposed && generation === featureGeneration) featureProbe.textContent = error.message;
-      }
+      void queryProjectedFeature(async () => layer?.getFeatureAt({x: information.x, y: information.y}, {radius: 6}),
+        () => !disposed && generation === featureGeneration, text => {featureProbe.textContent = text;});
     },
     onResize: scheduleDetail,
     layers,
