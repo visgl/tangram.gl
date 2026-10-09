@@ -164,7 +164,8 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
 /** Preserve nested attached-text settings when applying style defaults or child-layer overrides. */
 function mergeAnnotationDraws(defaults: Record<string, unknown>, draw: Record<string, unknown>): Record<string, unknown> {
     const merged = {...defaults, ...draw};
-    if (defaults.text !== undefined && draw.text !== undefined) {
+    if (defaults.text && typeof defaults.text === 'object' && !Array.isArray(defaults.text) &&
+        draw.text && typeof draw.text === 'object' && !Array.isArray(draw.text)) {
         merged.text = {...readRecord(defaults.text, 'attached text defaults'), ...readRecord(draw.text, 'attached text')};
     }
     return merged;

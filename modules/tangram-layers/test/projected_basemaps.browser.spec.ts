@@ -47,6 +47,19 @@ test('attached text merges noncolliding style defaults without mutating the auth
     }
 });
 
+test('attached text objects replace disabled style defaults without bypassing collision checks', () => {
+    const text = {collide: false, text_source: 'name'};
+    const scene = {styles: {markers: {base: 'points', draw: {collide: false, text: false}}},
+        layers: {markers: {draw: {markers: {text}}}}};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+    for (const text of [{text_source: 'name'}, {collide: true, text_source: 'name'}]) {
+        expect(() => createProjectedBasemapScene({...scene, layers: {markers: {draw: {markers: {text}}}}},
+            {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow('collide');
+    }
+});
+
 test('child annotation draws preserve attached-text collision settings and explicit overrides', () => {
     const scene = {layers: {markers: {draw: {points: {collide: false, text: {collide: false}}},
         child: {draw: {points: {text: {text_source: 'name'}}}}}}};
