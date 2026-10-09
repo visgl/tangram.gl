@@ -25,6 +25,7 @@ Start with [Getting started](get-started/getting-started.md), try the
 
 ## Developer guide
 
+- [Working with AI agents](developer-guide/working-with-ai.md) — version-aware documentation and browser verification.
 - [Architecture](developer-guide/architecture.md) — package boundaries and ownership.
 - [View integration](developer-guide/view-integration.md) — current capabilities and remaining work.
 - [Projection conventions](developer-guide/projection-conventions.md) — domains, axes and units.

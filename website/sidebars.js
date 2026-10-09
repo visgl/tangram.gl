@@ -18,6 +18,7 @@ module.exports = {
       label: 'Developer guide',
       items: [
         'get-started/getting-started',
+        'developer-guide/working-with-ai',
         'developer-guide/architecture',
         'developer-guide/view-integration',
         'developer-guide/projection-conventions',
