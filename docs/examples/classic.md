@@ -34,7 +34,7 @@ from the small bundled Manhattan fixtures. Selecting a local fixture or building
 effect restores its street-level view; selecting Albers opens the national
 overview. An explicit camera in a direct-link hash is preserved on startup.
 
-All tiled basemaps in the picker use [OpenFreeMap](https://openfreemap.org/)
+Vector basemaps in the picker use [OpenFreeMap](https://openfreemap.org/)
 vector tiles, with visible OpenFreeMap, OpenMapTiles and OpenStreetMap credits.
 The light and street comparison styles are vector scenes, not raster fallbacks;
 the previous `open-light-raster.yaml` and `open-streets-raster.yaml` URLs remain
@@ -43,16 +43,18 @@ overlay layers over these live basemaps, without a second Leaflet raster layer.
 Albers keeps its bundled US-state geometry. The outdoor terrain styles still
 use their separate elevation/normal-map sources where required.
 
-The [standalone playground](/tangram.gl/examples/classic/) is also
-available when a full-window map is more convenient. The [source and style
-assets](https://github.com/visgl/tangram.gl/tree/master/examples/classic)
-are packaged and copied into the website during the build.
+NASA Blue Marble is available for overview imagery; its zoom-8 source is not a
+street-level satellite basemap. See [provider credits](../developer-guide/tile-providers.md).
+Use the example's fullscreen control for more editor/map space. To run the
+standalone build, follow the [local development instructions](../contributor-guide/development.md).
+The [source and style assets](https://github.com/visgl/tangram.gl/tree/master/examples/classic)
+are copied into the website during the build.
 
 All gallery scenes are keyless. The historical basemap and shader styles use a
 compatibility transform that maps current OpenMapTiles source layers and
 properties onto the Mapzen schema they were authored against. Only the
 projection morph is wholly self-contained; the other styles and fixture
-overlays require a network connection for their live vector basemaps.
+overlays require a network connection for their live basemaps.
 
 The **Albers projection morph** is a self-contained port of the classic
 [Escape from Mercator](https://www.mapzen.com/blog/escape-from-mercator)

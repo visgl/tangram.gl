@@ -11,7 +11,7 @@ flat Tangram polygons, raster meshes, meter/pixel roads and noncolliding ground 
 subdivide the packed tile geometry and project it with math.gl before transferring
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
-Try the [projected basemap example](/examples/deck-projected).
+Try the [projected basemap example](/tangram.gl/examples/deck-projected).
 It defaults to NASA GIBS Blue Marble raster imagery, with OpenFreeMap vector polygons and roads as an alternative.
 The example supplies one stable math.gl `ProjectionEngine`, registering only the four
 algorithms required by its five projection choices. Changing projections reuses

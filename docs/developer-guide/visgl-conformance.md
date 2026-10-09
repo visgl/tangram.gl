@@ -98,6 +98,7 @@ coverage.
 
 ## Current parser probes and rollout gate
 
+The following snapshot uses master `1d62e568` and its lockfile.
 Run `yarn bundle-size:parsers` to reproduce minified browser probes including
 the Tangram normalization adapter. The script also rejects accidental Arrow/GIS
 conversion imports in the lightweight MVT graph. Measurements use decimal KB:
@@ -105,9 +106,9 @@ conversion imports in the lightweight MVT graph. Measurements use decimal KB:
 | Parser with adapter | Minified | Gzip |
 | --- | ---: | ---: |
 | Legacy YAML | 32.4 KB | 10.6 KB |
-| loaders.gl YAML alpha.8 | 9.6 KB | 3.1 KB |
-| Legacy MVT | 22.7 KB | 7.3 KB |
-| loaders.gl lightweight MVT alpha.8 | 25.4 KB | 8.4 KB |
+| loaders.gl YAML alpha.10 | 9.6 KB | 3.1 KB |
+| Legacy MVT | 25.1 KB | 8.1 KB |
+| loaders.gl lightweight MVT alpha.9 | 27.8 KB | 9.3 KB |
 
 These supersede historical broad-import parser estimates, not the matrix
 migration numbers. Both default parser switches remain blocked by the semantic

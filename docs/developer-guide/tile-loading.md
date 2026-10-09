@@ -111,7 +111,7 @@ worker reset. Cancelled tile/preprocessor results cannot publish late geometry.
 Legacy function providers need not support transport cancellation, but their late
 results are likewise ignored. Source metadata failures remain explicit rejections.
 
-Published loaders.gl alpha.8 drops archive attribution from normalized metadata.
+The pinned loaders.gl PMTiles alpha.9 drops archive attribution from normalized metadata.
 The Tangram adapter also reads and caches raw archive JSON and combines its
 credits with any normalized credits until that upstream gap is fixed. Encoded
 `tileMIMEType` is distinct from the `pmtiles` container format; authored `decoder`
@@ -147,7 +147,8 @@ Tangram context. The separate `AlignedTangramTileSource` implements a structural
 a deck.gl viewport. Source normalization, sparse levels, display filters and
 global fallback pinning remain renderer/source adapter responsibilities, not
 generic tileset options. The renderer still uses its current worker protocol and
-parsers; loaders.gl is installed **only for development comparisons**.
+default parsers. loaders.gl is used by the comparative harness and the explicitly
+selected sidecar worker, not imported into the normal renderer entry.
 
 ## Shared decoded acquisition in production
 
@@ -231,7 +232,7 @@ two compatible style consumers issue one real request, and cancelling one does
 not interrupt the other. Built-in styling accepts frozen features, feature queries
 preserve visibility/geometry output, and picking cleanup stays build-owned.
 
-## Next steps toward a common implementation
+## Current alignment and remaining work
 
 ### Independent acquisition and mesh-build capacity
 

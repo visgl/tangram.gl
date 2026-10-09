@@ -4,402 +4,159 @@ SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
  */}
 
-# deck.gl view integration roadmap
+# deck.gl view integration
 
-Tangram's host-driven renderer accepts deck.gl view and projection matrices.
-The next tranches make tile selection, curved geometry, interaction, and package
-boundaries reliable across MapView, FirstPersonView, GlobeView, and WebXR.
+Tangram consumes host camera matrices rather than owning a deck.gl camera.
+The ordinary layer supports MapView and experimental GlobeView/FirstPersonView;
+the optional WebXR entry shares one scene across stereo eyes.
 
-Each tranche should deliver a coherent behavior or package boundary, with its
-tests and documentation in the same PR. Closely related files belong together;
-the tranche size should follow the outcome rather than the file count.
+## Current support
 
-## Completed foundation
+| View | Geometry and visibility | Important limits |
+| --- | --- | --- |
+| MapView | Flat or perspective Web Mercator, host matrices | Custom GLSL effects are not automatically translated to WGSL |
+| GlobeView | Radius-256 sphere; refined polygons, roads and raster meshes; per-eye horizon tests | No polar-cap data; elevated bounds must be supplied conservatively |
+| FirstPersonView | Finite frustum intersected with flat ground, bounded per eye | No terrain intersections or elevated-only visibility |
+| OrthographicView | Optional CPU-projected polygons, rasters, roads and annotations | Five fixed projection domains; no collision or feature selection |
+| WebXR | Mono, interactive stereo preview, immersive eye matrices and room placement | Headset validation and immersive attribution remain separate gates |
 
-- Web Mercator camera conversion is extracted into `WebMercatorViewAdapter`
-  ([#96](https://github.com/visgl/tangram.gl/pull/96)).
-- Host-driven scene loading avoids synthesizing a classic Tangram camera
-  ([#98](https://github.com/visgl/tangram.gl/pull/98)).
-- Renderer-owned visibility policies support Web Mercator bounds and globe
-  bounds, including antimeridian ranges
-  ([#99](https://github.com/visgl/tangram.gl/pull/99)).
-- Globe camera position reaches the renderer
-  ([#101](https://github.com/visgl/tangram.gl/pull/101)), with conservative
-  horizon culling ([#102](https://github.com/visgl/tangram.gl/pull/102)).
-- The globe adapter applies a latitude-dependent tile zoom adjustment
-  ([#103](https://github.com/visgl/tangram.gl/pull/103)). This is a baseline LOD
-  estimate; projected tile error is still a separate tranche.
+See [TangramLayer](../api-reference/tangram-layer.md),
+[projected basemaps](./projected-basemaps.md), and
+[WebXR presentation](../api-reference/webxr-presentation.md) for application APIs.
 
-FirstPersonView antimeridian footprint handling landed in
-[#100](https://github.com/visgl/tangram.gl/pull/100). Projected coordinates remain
-unwrapped so a seam-crossing footprint stays local.
+## Frame and package boundary
 
-## Target frame contract
+`HostFrame` stores one shared geographic/style anchor plus named cameras,
+viewport rectangles and optional geographic footprints. The renderer applies
+the complete frame atomically before selecting the deduplicated union of all
+eyes' tiles. Camera-only movement invalidates visibility. Each draw uses its
+eye's matrices and the same logical animation time.
 
-`HostFrame` already separates the shared geographic anchor from per-view camera
-and viewport state. Complete the boundary around four independent host policies:
+The layer exports `WebMercatorViewAdapter`, `FirstPersonViewAdapter` and
+`GlobeViewAdapter`. The host-only `@vis.gl/tangram-renderer/core` entry excludes
+classic camera construction, Leaflet and deck.gl; the root retains the standalone
+compatibility API. [Projection conventions](./projection-conventions.md) and
+[HostFrame](../api-reference/host-frame.md#coordinates-and-matrices) define axes,
+units, matrix order and pixel coordinates.
 
-1. **Render views** — one or more view/projection matrix pairs, eye positions,
-   and viewport rectangles, plus shared redraw scheduling. A normal deck.gl
-   view supplies one entry; stereoscopic rendering can supply left and right
-   eye entries without duplicating geographic state or tile loading.
-2. **Geographic anchor** — longitude, latitude, altitude, scale, and local
-   meter-to-world conversion. This remains available even when a view does not
-   expose a map-style `zoom` property.
-3. **Projection adapter** — converts Tangram's geographic tile vertices into
-   the host view's world coordinates and installs the required shader uniforms
-   or modules.
-4. **Visibility and LOD adapter** — returns visible tile coordinates and a
-   screen-space level of detail for the current frustum.
-
-The renderer core should depend on those interfaces, not on deck.gl classes.
-`@vis.gl/tangram-layers` can then provide adapters backed by deck.gl viewports.
-Tile selection should use the union of all render-view frusta, while each eye
-gets its own camera uniforms and render pass. This keeps the contract suitable
-for future WebXR and other stereoscopic hosts.
-
-`HostFrame.projection` establishes the first part of that boundary with
-deck-independent `web-mercator` and `globe` identifiers. The experimental
-globe adapter additionally supplies geographic visibility bounds. It keeps
-deck.gl out of the renderer while the remaining culling and tessellation
-policies are extracted behind stronger interfaces.
-
-## Additional tranches, in recommended order
+## Remaining work by area
 
 ### 1. Apply host frames consistently across all views
 
-Implemented: atomic frame application, camera-only invalidation, per-eye
-ground/globe visibility unions, and shared animation time. The default planar
-policy retains its legacy bounds fallback unless the host supplies explicit
-planar bounds. Bounded first-person horizon handling is described in tranche 5.
+Implemented: atomic application, camera-only invalidation, per-eye footprint
+unions and shared animation time. The default planar policy retains its legacy
+rectangle when no ground footprint can be derived; explicit bounds, including
+an empty footprint, override that fallback.
 
-Apply projection, camera, tile buffer, viewport, and anchor state before
-recalculating visibility. Check the current `setFrame()` ordering: changing the
-anchor can trigger tile selection before the new camera matrices are supplied.
-Invalidate visibility when only the camera changes, even if the anchor and
-geographic bounds are unchanged.
-
-Select the union of tiles needed by all render views in a `HostFrame`. Keep
-per-eye camera uniforms and draw passes separate, and keep frame time shared.
-Define a conservative union for each projection rather than treating the active
-eye as the visibility authority.
-
-Complete when camera-only movement updates tiles in the same frame, either eye
-can see its required tiles, switching eyes cannot prune the other eye's tiles,
-and animation advances once per logical frame.
+Preserve these contracts when adding views: prepare every eye before drawing,
+and never let drawing one eye prune another's required tiles.
 
 ### 2. Finish the typed view and camera boundary
 
-Implemented: checked HostFrame/View and camera-policy boundaries, extracted
-FirstPersonView/GlobeView adapters, injected classic cameras, and a separately
-built `@vis.gl/tangram-renderer/core` entry with a dependency-graph gate. The root
-entry preserves the standalone Scene API. Legacy Scene traversal and the layer
-lifecycle still have pre-existing type suppressions; this is not a claim that
-the entire renderer's TypeScript migration is finished.
+Implemented: checked frame/view adapters, injected classic camera policy and
+a core dependency-graph gate. Remaining lifecycle suppressions are recorded in
+the TypeScript allowlist; a camera-free entry does not mean the entire renderer
+is fully checked.
 
-Extract FirstPersonView and GlobeView adapters alongside the Web Mercator
-adapter. Define explicit types for host frames, render views, projection state,
-camera policy, and visibility/LOD results. Document coordinates, units, matrix
-order, clip-space conventions, viewport origins, and CSS versus device pixels.
-Remove `@ts-nocheck` from the files changed by this tranche.
-
-Inject camera construction into `Scene`/`View` so an external-camera entry no
-longer imports the classic camera factory. Expose `tangram-renderer/core` only
-after inspecting its dependency graph. Keep Leaflet integration in the example;
-optional classic camera support can remain within the renderer package.
-
-Complete when the core import excludes Leaflet and classic cameras, strict
-typing covers the frame boundary, and existing classic examples still work.
+Next: remove remaining suppressions through behavior-preserving subsystem
+changes, without coupling core to deck.gl view classes.
 
 ### 3. Make coarse globe geometry follow the sphere
 
-Implemented first slice: globe-only, edge-adaptive subdivision of immutable
-polygon, road, and raster triangle meshes. The renderer keeps the original planar
-GPU buffers and lazily builds one globe variant per coarse tile mesh. Both eyes
-reuse that variant; camera movement does not rebuild it. Switching back to a
-planar view uses the original buffers. Destroying the tile releases both variants.
+Implemented: globe-only, edge-adaptive subdivision of immutable polygon, road
+and raster meshes. Planar buffers remain unchanged; a lazily built globe variant
+is reused across eyes and camera movement, then released with the tile.
 
-The default cap is four degrees of **tile-local Mercator edge span**, before
-road-width extrusion and custom shaders. This conservatively bounds the angular
-span of the underlying spherical surface, not screen-space error or displaced
-geometry. Tiles at source zoom 7 and above already meet the cap within a standard
-tile diagonal and do not retain duplicate CPU data. Source tile zoom, rather than
-style zoom, controls refinement. Coarse data is retained until the first globe
-draw, then released. Refinement runs once on the main thread and is independent
-of camera state.
+The default cap is four degrees of tile-local Mercator edge span, before
+road-width extrusion or custom shaders. Source zoom 7 and above needs no retained
+coarse CPU copy. Shared indexed edges reuse midpoints; same-detail neighboring
+segments use matching rounded positions. UVs, heights, colors and normals
+interpolate, while feature IDs/order remain constant. Unknown varying attributes
+and post-projection `position` shader blocks are rejected.
 
-Only long edges are split, so a long road or raster triangle does not multiply
-every small building in the same mesh. Shared indexed edges reuse midpoints;
-matching boundary segments in same-LOD neighboring tiles use identical rounded
-positions. Different source simplification or LOD boundaries still require a
-separate seam policy. UVs, heights, colors, normals and road extrusion attributes
-are interpolated in their packed domains. Feature-selection IDs and layer order
-must remain constant on each split edge. Indices promote to 32 bits when needed.
+Per mesh, refinement allows at most 262,144 additional vertices and twice as many
+additional triangles; exhaustion fails rather than publishing a partial mesh.
+A zoom-0 raster quad can become 16,641 vertices / 32,768 triangles (about 463 KB
+of position/UV/index data), excluding retained planar buffers and textures.
+This is angular refinement, not a pixel-error guarantee.
 
-The per-mesh budget allows at most 262,144 additional vertices and twice that
-many additional triangles. Exhausting it fails explicitly, never returning a
-partially refined mesh. Unknown custom attributes must be constant on split
-edges; varying attributes are rejected until their interpolation is defined.
-Globe styles with a `position` shader block are rejected because that block runs
-after geographic projection. Planar shader behavior and block ordering are
-unchanged. Screen-facing points/text, mutable label buffers, and wireframe debug
-meshes are not refined by this path.
-
-Representative raster quad costs (16-byte position/UV layout, no other
-attributes; original quad is 76 bytes). Local Node measurements use one warm-up
-and the median of five refinements; these are not performance thresholds:
-
-| Source zoom | Vertices | Triangles | Vertex/index data | One-time refinement |
-| --- | ---: | ---: | ---: | ---: |
-| 0 | 16,641 | 32,768 | 462.9 KB | 24.9 ms |
-| 2 | 1,089 | 2,048 | 29.7 KB | 1.0 ms |
-| 4 | 81 | 128 | 2.1 KB | 0.06 ms |
-| 6 | 9 | 8 | 0.2 KB | 0.01 ms |
-
-These figures count the globe buffers, not JS temporary allocations, retained
-planar buffers, or textures. Real styles with wider layouts cost more. The
-minified renderer ESM increases by 9.4 KB raw and 3.5 KB gzip, including its
-embedded worker; there are no new package dependencies. Real-device tests cover
-whole-world raster curvature and cache reuse across camera/stereo changes on
-WebGL 2 and WebGPU.
-
-Explicit height-aware horizon rejection is also implemented: globe
-`HostFrame.projection.maxElevation` declares the maximum rendered geographic
-height, independent of eye altitude. The surface horizon expands by
-`acos(1 / (1 + maxElevation / 6370972))`. Unknown height skips horizon rejection;
-zero explicitly declares surface-only geometry. Per-eye bounds inherit the
-shared height and may raise, but never lower, it.
-
-This is not automatic 3D footprint inference. Host geographic bounds must
-already enclose elevated content. `TangramLayer` accepts `globeMaxElevation`
-and `globeVisibleBounds`; its default geographic bounds still come from the
-ground-level deck viewport. Unknown height may retain more tiles, but does not
-expand that rectangle. No styles, worker geometry or shaders change.
-
-Compared with the same master build and dependencies, this visibility contract
-adds 0.717 KB raw / 0.213 KB gzip to the minified renderer ESM, 0.650 KB raw /
-0.149 KB gzip to the layer entry, and 0.743 KB raw / 0.172 KB gzip to the separate
-WebXR entry. No dependencies are added. Unknown height trades horizon pruning
-for correctness within the supplied footprint; it does not impose a request
-budget, so hosts must keep their geographic candidate bounds appropriately sized.
-
-Still pending: automatic elevation-aware geographic footprints, projected-error LOD, seams across
-different tile detail levels, and projection-aware label/lighting behavior. This
-does not complete the full tranche.
-
-Add projection-aware subdivision for polygon triangles, long line segments, and
-raster tile meshes. Bound angular spans or projected curvature error, preserve
-feature IDs and style attributes, and make neighboring tile edges agree. Avoid
-rebuilding geometry when only the camera moves; key any additional mesh cache by
-projection and refinement settings.
-
-Account for extrusion and terrain height in globe visibility bounds so the
-reference sphere's horizon cannot hide elevated geometry. Preserve Tangram
-shader block ordering and explicitly reject incompatible position overrides.
-
-Complete when low-zoom oceans, land, and raster tiles follow the globe without
-large chords or seam cracks on WebGL 2 and WebGPU, with recorded geometry and
-memory costs.
+Next: mixed-detail seam stitching, automatic elevated footprints and certified
+curvature/error bounds. A declared
+[maximum elevation](../api-reference/host-frame.md#projection) expands horizon
+rejection, but does not enlarge the host's geographic candidate rectangle.
 
 ### 4. Choose tile LOD from projected error
 
-Implemented foundation: `HostFrame.tileZoom` optionally selects one coarser data
-level across every eye while preserving shared scene/style zoom, worker zoom,
-source normalization and source display filters. Omitting it restores the
-legacy policy. Strict frame validation rejects fractional, out-of-range and
-finer-than-style levels. Real WebGL 2/WebGPU tests change data LOD while keeping
-zoom-filtered styles visible in stereo MapView, GlobeView and FirstPersonView.
-See the [contract and source-limit behavior](../api-reference/host-frame.md#tilezoom).
+Implemented: `HostFrame.tileZoom` separates uniform data detail from style zoom.
+Optional `tileLOD` estimates detail from sampled surface magnification across
+all eyes, with pixel ratio, hysteresis and a candidate budget. Normal adapters
+do not enable it automatically.
 
-An opt-in `HostFrame.tileLOD` now estimates uniform detail from the largest
-sampled projected surface scale across all eyes, with device-pixel ratio,
-transition hysteresis and a pre-enumeration candidate budget. It supports real
-MapView, FirstPersonView and GlobeView matrices while leaving style evaluation
-unchanged. See [options and limits](../api-reference/host-frame.md#tilelod).
-Normal deck adapters retain their existing defaults.
+[Tile resource limits](../api-reference/host-frame.md#tileresources) separately
+bound shared mesh builds and evictable off-screen meshes. Visible/proxy/preload
+tiles remain protected; these are not total memory or HTTP limits. Decoded
+acquisition has its own per-worker creation limit.
 
-Implemented resource-policy slices: `HostFrame.tileResources` caps shared worker
-tile-build concurrency and completed off-screen cache count/mesh bytes. Visible
-detail precedes preload, old-generation replies cannot release new builds, and
-removing/failed tiles release ownership. LRU eviction protects either eye's visible
-tiles, proxy ancestors, pinned globe fallback, and active/queued builds. Host
-diagnostics distinguish protected residency from evictable mesh bytes. These
-opt-in limits preserve the legacy defaults and do not cap textures, total memory,
-HTTP requests, or queued tile metadata. See [resource options](../api-reference/host-frame.md#tileresources).
-
-Certified feature-geometry pixel error, per-tile mixed LOD, total cache/request/byte
-budgets and finer-than-style geometry scaling remain pending. The candidate
-budget counts raw traversal across eyes, not GPU memory or network requests;
-this uniform surface estimate does not complete the entire tranche.
-
-Separate scene/style zoom from tile LOD. Evaluate projected tile size or error
-using the host matrices and viewport, including latitude, pitch, resize, and
-device pixel ratio. For multiple eyes, use the detail required by either eye.
-Add hysteresis and resource limits to prevent tile churn and excessive requests.
-
-Compare the existing globe zoom adjustment with actual deck.gl viewports rather
-than relying only on fixtures that repeat its formula. Define source min/max
-zoom behavior and how refinement changes without changing style evaluation.
-
-Complete when MapView, FirstPersonView, and GlobeView have predictable detail
-through camera transitions, with measured pixel error and tile/request budgets.
+Next: certified feature-geometry pixel error, mixed LOD, total decoded/texture
+budgets and finer-than-style geometry scaling. Do not conflate source detail,
+style zoom, mesh refinement and cache residency.
 
 ### 5. Support FirstPersonView near the horizon
 
-Implemented flat-ground slice: all twelve finite frustum edges are intersected
-with `z = 0`, and the resulting polygon is clipped before taking its bounds.
-FirstPersonView no longer requires all four screen corners to hit ground. The
-near/far planes plus a configurable 20 km eye-centered extent per axis keep the
-selection bounded. Extents use local geographic meters; EPSG:3857 scale is
-accounted for at the viewport latitude. Unwrapped longitude bounds preserve
-local antimeridian selections. A sky-only view supplies explicit empty
-visibility rather than falling back to a large rectangle.
+Implemented: intersect all twelve finite frustum edges with flat ground, clip
+to a configurable eye-centered extent (default 20 km per east/north axis), then
+take geographic bounds. The near/far planes remain authoritative; Mercator
+latitude scale and unwrapped antimeridian coordinates are preserved.
 
-Stereo and immersive first-person eyes compute separate footprints from their
-actual matrices; the renderer selects their union. Camera transforms, shader
-blocks and geometry are unchanged. Vitest covers frustum clipping, invalid
-inputs, high latitudes, antimeridian bounds and eye unions; real-device tests
-cover horizon-to-sky-to-ground transitions in mono/stereo on both backends.
+Horizon-crossing eyes retain ground; sky-only eyes explicitly select no ground.
+Stereo/immersive eyes contribute separate footprints to the shared union.
 
-Remaining: terrain-aware intersections and elevated-only geometry visibility.
-The current bounding rectangle still uses the existing footprint-derived zoom;
-projected-error LOD and request budgets belong to tranche 4.
-
-Complete when looking toward or above the horizon produces a bounded selection
-of visible tiles instead of an error, and antimeridian navigation does not
-request a world-wide footprint. Terrain-aware intersection can follow after the
-flat-ground contract is proven.
+Next: terrain intersections and elevated geometry visible without a ground
+footprint. The current default zoom estimate is footprint-derived; it is not
+a screen-space-error guarantee.
 
 ### 6. Align labels, lighting, and picking with projection
 
-Implemented surface-normal slice: polygon roofs, walls, and road surfaces
-rotate their east/north/up normals into radius-256 globe common space at each
-vertex. GLSL directional lights use that same space instead of being rotated
-by the camera a second time. Fragment lighting renormalizes interpolated globe
-normals. Portable WGSL wall shading uses the matching tangent basis, while
-local roof/wall classification preserves the existing unlit roof/raster colors.
-Planar normal matrices and shading are unchanged.
+Implemented: globe ENU surface normals, per-eye billboard sphere occlusion,
+native luma.gl light definitions, geographic point/spot lights and configured
+WGSL surface lighting. WebGL selection uses the curved geometry and matching
+occlusion test. See [lighting](../api-reference/renderer.md#light-definitions)
+for supported materials, light counts and unit conventions.
 
-Real-device probes compare GLSL and WGSL output with geographic tangents
-derived independently from deck.gl GlobeViewport, including cardinal positions,
-high latitudes, antimeridian equivalents, wall/roof normals and mixed vectors.
-Packaged-renderer tests exercise both GLSL vertex and fragment directional
-lighting through camera rotations. No dependencies are added. With unchanged
-dependencies, the minified renderer ESM (including its embedded worker) grows
-by 4.891 KB raw / 1.017 KB gzip; the layer and WebXR entries are unchanged.
-
-Implemented billboard-visibility slice: GLSL and WGSL points, attached labels,
-and standalone text test each eye-to-anchor segment against the globe sphere
-before screen offsets. This hides far-side overlays without relying on basemap
-depth geometry, preserves elevated anchors whose segments clear the sphere, and
-uses the same test in WebGL selection. Real-device tests cover camera rotation,
-mono/stereo rendering, per-eye horizon differences, elevated anchors, selection,
-and tangent/precision/missing-eye boundaries. Planar rendering is unchanged.
-With unchanged dependencies, this slice adds 6.584 KB raw / 1.769 KB gzip to
-the minified renderer ESM, including its embedded worker; the layer and WebXR
-entries are unchanged.
-
-Implemented configurable-lighting slice: native luma.gl definitions and opt-in
-legacy scene lights drive WGSL polygon, line and raster surfaces. Constant
-materials preserve Tangram's separate emission/ambient/diffuse/specular responses
-and falloff. A fixed, per-eye snapshot layout supports up to 16 visible lights;
-oversized lists and unsupported material textures/normal maps fail explicitly.
-Shaders specialize to the active light count, and replaced material resources
-are released. Unconfigured legacy WebGPU shading remains unchanged.
-
-Implemented geographic-light slice: native point/spot definitions accept
-longitude/latitude/altitude, with local east/north/up spot directions. The renderer
-projects them into map or globe common space before resolving each eye, including
-the nearest planar antimeridian copy. Unit conformance compares globe positions
-with deck.gl; real WebGL 2/WebGPU probes cover both stereo eyes and scene reloads.
-No runtime dependencies are added. Compared with master using the same installed
-dependencies, the minified renderer ESM (including its embedded worker) adds
-22.514 KB raw / 5.272 KB gzip; the layer, WebXR entry and loaders.gl worker are unchanged.
-
-Remaining: tangent-space normal maps, terrain normals, surface-oriented labels, projected
-collision, terrain/building occlusion, spatial picking, and WebGPU selection. This
-is not a completed lighting/label/picking tranche; see the
-[current globe coordinate contract](../api-reference/host-frame.md#coordinates-and-matrices).
-
-Distinguish screen-facing labels from ground-oriented symbols. Transform surface
-normals consistently on the globe, and carry the same curved geometry and host
-matrices into picking. Preserve feature identity through subdivision and hiding
-behind the horizon.
-
-Complete when labels and lighting follow the intended surface orientation, and
-screen/spatial picks select the visible feature on MapView, GlobeView, and
-FirstPersonView, including the antimeridian and stereo views.
+Next: tangent-space normal maps, terrain normals, surface-oriented labels,
+projected collision, terrain/building occlusion and WebGPU feature selection.
+Screen-facing labels still use the existing planar collision layout.
 
 ### 7. Finish WebXR placement and interaction
 
-Implemented surface-interaction slice: actual-eye and room-ray geographic picking,
-plus single-owner squeeze grabs that translate maps in their initial plane and
-rotate globes about their room-space center. Disconnect/tracking-loss cancellation
-and select/squeeze ownership remain separate from navigation. Both immersive eyes
-receive the same accepted placement; desktop controls and first-person locomotion
-are unchanged. See [surface grabbing](../api-reference/webxr-presentation.md#room-space-surface-grabbing).
+Implemented: shared mono/stereo controllers, room-meter map/globe placement,
+1:1 first-person scale, actual-eye/room-ray surface picking and single-controller
+squeeze grabs. Grabs translate a map in its starting plane or rotate a globe
+around its room center; input ownership and tracking-loss cancellation are explicit.
 
-Remaining: native/emulated headset validation, grip-pose and two-handed manipulation,
-terrain/feature-aware spatial picking and richer locomotion policies. The room-ray
-tests and mocked immersive GPU frames do not substitute for headset validation.
-
-Build on the typed host-frame and projection contracts. Verify room-meter
-placement for tabletop maps and physical-radius globes, and one geographic meter
-per XR meter for first-person rendering. Feed real XR eye matrices and viewport
-rectangles into the same rendering path used by stereo preview.
-
-Route mono/stereo controls and XR navigation through one logical view state.
-Define picking rays, grabbing, locomotion, and teardown through interaction
-intents. Keep Thor and webcam gesture translation local to its example.
-
-Complete when mono, preview, and immersive rendering share animated scenes and
-consistent navigation/picking, with deterministic mocked-frame tests and a
-recorded native or emulated VR check.
+Next: native/emulated headset validation, an in-headset attribution surface,
+grip-pose/two-handed manipulation and terrain/feature-aware spatial picking.
+Mocked XR frames and stereo preview do not substitute for headset testing.
+Thor/webcam translation remains example-local.
 
 ### 8. Advance modern tile sources through conformance
 
-Continue the pluggable loader boundary for MVT, MLT, and PMTiles, using published
-loaders.gl capabilities when available. Compare decoded geometry, properties,
-IDs, cancellation, transferables, and worker behavior before production switches.
-Adapt Tilezen styles to Protomaps layers and evaluate Mapterhorn terrain through
-the same boundary.
+Implemented groundwork: pluggable decoders/providers, optional loaders.gl MVT,
+MLT and PMTiles workers, source metadata/attribution, decoded acquisition sharing
+and a development-only loaders.gl tileset candidate.
 
-Complete each source/format switch with a working example, fixture-based parity
-tests, attribution, and decode/worker/application bundle measurements. Track
-upstream parser gaps in their owning repositories.
+Next: resolve parser and scheduling policy gaps before focused production
+switches; evaluate Protomaps/terrain through the same fixture boundaries.
+See [tile loading](./tile-loading.md) and [conformance](./visgl-conformance.md).
+A matching format does not imply a matching feature schema or attribution policy.
 
-## Work that accompanies the tranches
+## Validation for each tranche
 
-- **TypeScript:** migrate complete related subsystems with real types. Remove
-  suppressions and unsafe assertions as contracts become explicit; keep the
-  migration behavior-preserving unless a documented fix is part of the PR.
-- **luma.gl:** centralize GPU resource ownership and render-pass state through
-  core APIs, then measure and test any shadertools adoption. Preserve Tangram's
-  style blocks and shader injection behavior during each change.
-- **Builds:** audit the remaining renderer-specific esbuild orchestration before
-  consolidating it into dev-tools/ocular. Direct Rollup dependencies are already
-  absent from the package manifests inspected for this roadmap; custom worker,
-  embedded-worker, watch, and schema steps still need explicit output contracts.
-- **Coverage:** target the authored renderer and layer code, including currently
-  suppressed frame/view logic. Raise coverage toward greater than 90% with
-  meaningful boundary and lifecycle tests; retain valid denominators and separate
-  WebGL 2/WebGPU rendering coverage from aggregate unit coverage.
-- **Regression evidence:** keep representative rendered examples for every view,
-  include camera transitions and stereo-eye differences, and record bundle,
-  worker, geometry, and memory changes when a tranche affects them.
+Keep deterministic behavior tests, WebGL 2/WebGPU rendering probes, and bundle,
+geometry and memory measurements alongside changes. Use the owning package's
+coverage gate; never hide untested source or lower thresholds. GPU fixtures are
+hermetic, while live provider and headset checks must be reported separately.
 
-## Good code entry points
-
-- `modules/tangram-layers/src/tangram-layer.ts`: FirstPersonView/GlobeView frame
-  construction and viewport validation.
-- `modules/tangram-renderer/src/scene/host_frame.ts`: typed shared and per-view
-  state contracts.
-- `modules/tangram-renderer/src/scene/renderer.ts`: frame application order and
-  render-view selection.
-- `modules/tangram-renderer/src/scene/view.ts`: camera construction, visibility
-  invalidation, and projection state.
-- `modules/tangram-renderer/src/tile/tile_manager.ts`: consume adapter-provided
-  visible tiles instead of assuming rectangular Web Mercator bounds.
-- `modules/tangram-renderer/src/builders`: polygon and line geometry refinement.
-- Tangram's GLSL/WGSL projection helpers: curved positions, normals, and matching
-  rendering/picking behavior.
+The build already uses Ocular/esbuild with no direct Rollup dependency. Its
+renderer-specific embedded-worker/GLSL/watch contracts still have explicit
+orchestration; consolidation must preserve those outputs, not add another toolchain.

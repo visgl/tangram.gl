@@ -6,7 +6,7 @@ Copyright (c) vis.gl contributors
 
 # Monorepo guide
 
-Tangram layers uses a Yarn 4 workspace layout modeled on the vis.gl projects.
+tangram.gl uses a Yarn 4 workspace layout modeled on the vis.gl projects.
 Install dependencies once at the repository root; workspace packages resolve
 each other through the `workspace:^` protocol.
 
@@ -33,8 +33,8 @@ yarn install
 yarn build
 yarn test-fast       # lint and Node tests
 yarn test-browser    # Chromium-backed Vitest project
-yarn test-headless   # headless package-entry smoke tests
-yarn test-coverage
+yarn test-headless   # full Chromium unit/compatibility suite
+yarn test-coverage   # browser-only report; merged coverage gates run in CI
 yarn website:start
 ```
 
@@ -46,7 +46,8 @@ headless tests.
 ## Adding a package
 
 Create a `package.json` under `modules/`, `dev-modules/`, or `examples/` and
-run `yarn install` from the root. Published packages should expose explicit
+run `yarn install` from the root. Keep every workspace private unless publication
+is explicitly authorized. Module packages should expose explicit
 `import` and `default` entries from `dist/`, keep runtime dependencies narrow,
 and add package-entry coverage under `test/`. Development-only packages should
 be marked `private` and may expose source directly.

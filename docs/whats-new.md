@@ -10,13 +10,13 @@ Copyright (c) vis.gl contributors
 
 - Tangram source, renderer bundles, fixtures, and renderer tests now live in
   `modules/tangram-renderer`.
-- The deck.gl adapter is published separately as `@vis.gl/tangram-layers`.
+- The deck.gl adapter is a separate `@vis.gl/tangram-layers` workspace. Both
+  module packages remain private and unpublished.
 - The renderer exposes luma.gl-backed `ClassicWebGLRenderer`, `Scene`, and
   `LumaDeviceRenderer` integration points while retaining the legacy default
   Tangram API.
 - `HostFrame` separates shared geographic state from named render views and
-  establishes a multi-view contract suitable for future stereo and WebXR
-  basemap rendering.
+  drives shared tile selection and per-eye rendering for stereo/WebXR hosts.
 - `HostFrame.projection` identifies `web-mercator` and experimental `globe`
   frames without introducing a deck.gl dependency in the renderer. GlobeView
   matrices and visibility bounds now drive spherical WebGL 2 and WebGPU
@@ -24,12 +24,16 @@ Copyright (c) vis.gl contributors
 - The deck example is under `examples/deck/` and supports shared luma.gl
   WebGL and WebGPU devices, vector styles, and the animated TRON style.
 - The opt-in `experimental/projected-basemaps` layer adds worker-side math.gl
-  Equal Earth, regional Albers, equirectangular, ellipsoidal Mercator and Web Mercator projection for flat polygons
-  and raster meshes in OrthographicView. See the
+  Equal Earth, regional Albers, equirectangular, ellipsoidal Mercator and Web
+  Mercator projection for ground polygons, raster meshes, meter/pixel roads
+  and noncolliding point/text annotations in OrthographicView. See the
   [experimental projection contract](./developer-guide/projected-basemaps.md)
   for coverage, resource limits and deferred features.
 - The repository uses Yarn workspaces and `@vis.gl/dev-tools` for bootstrap,
-  cleaning, and Biome linting.
+  Ocular/esbuild bundles, Vitest testing and Biome linting. Generated output is
+  no longer committed; application bundles are ESM-only.
+- OpenFreeMap supplies the default vector examples; NASA Blue Marble supplies
+  overview imagery. Hosts display source-driven attribution.
 
 This is an alpha boundary. Renderer and adapter APIs may change before a
 stable release.

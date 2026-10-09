@@ -12,13 +12,13 @@ a style into the current packages. For the complete reference, see the
 
 ## A scene is data, style, and behavior
 
-Tangram scenes are YAML documents. A scene usually contains:
+Tangram scenes are YAML, JSON or equivalent JavaScript objects. A scene usually contains:
 
 - `global` values and JavaScript expressions shared by the rest of the scene;
 - `sources`, which describe vector, raster, GeoJSON, or TopoJSON data;
 - `layers`, which select features and choose their draw styles;
 - `styles`, `textures`, and `fonts` used by those draw styles; and
-- `cameras` and a `scene.background` for the view.
+- `lights`, `cameras` and a `scene.background` for the view.
 
 The [classic example scene](https://github.com/visgl/tangram.gl/blob/master/examples/classic/scene.yaml)
 is a compact reference that exercises most of these sections.
@@ -52,8 +52,9 @@ layer options), never in a checked-in scene or generated bundle.
 
 ## Draw blocks and styles
 
-The draw primitive communicates the geometry type: `points`, `lines`,
-`polygons`, `text`, or `icons`. A draw block can set color, width, order,
+Built-in draw styles include `points`, `lines`, `polygons`, `text` and `raster`.
+Icons use point styles with textures or sprites, not a built-in `icons` primitive.
+A draw block can set color, width, order,
 opacity, blending, and interactivity. A named style factors those settings out
 of a layer and can add shader snippets:
 
@@ -76,9 +77,10 @@ building colors, or label text continuously while zooming.
 
 Tangram's classic renderer supports flat, perspective, and isometric cameras.
 Labels are draw blocks with a `text_source`, font, priority, and optional
-stroke; the renderer performs collision management as tiles arrive. A layer or
-feature marked `interactive: true` can be inspected by the application through
-the scene's event hooks.
+stroke; the renderer performs collision management as tiles arrive. A
+draw block marked `interactive: true` can be inspected through the
+[Scene query and selection APIs](../api-reference/scene.md). The deck.gl layer
+does not currently expose those features through deck.gl picking.
 
 In a deck.gl integration, deck.gl owns the camera and pointer interaction. The
 Tangram layer receives the resulting longitude, latitude, zoom, bearing, pitch,

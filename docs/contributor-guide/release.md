@@ -6,23 +6,37 @@ Copyright (c) vis.gl contributors
 
 # Release workflow
 
-Tangram layers follows the version-only-first release flow used by vis.gl
-repositories. Release commands are intentionally available only from the root,
-so all workspace versions and the lockfile are updated together.
+All workspaces are currently `private: true` and unpublished. The scripts below
+prepare version changes; they are **not** an npm publication path for private
+packages.
+
+## Before a release
+
+1. Decide which packages may be published; do not remove `private` incidentally.
+2. Update `CHANGELOG.md`, release notes and affected API documentation. Put
+   deleted/deprecated behavior in the upgrade guide.
+3. Run build, typecheck, lint, Node/Chromium tests, both GPU backends and the website
+   build. Check generated exports, declarations, schemas and worker assets.
+4. Inspect packed contents: `prepack` rebuilds `dist/` from source. Keep generated
+   files out of Git.
+5. Establish and verify the authorized npm/GitHub release workflow before publishing.
+
+The root commands use Ocular's version-only modes:
 
 ```sh
-yarn lint:fix
-yarn build
-yarn test
-yarn publish:beta
-# or, for a stable release:
-yarn publish:prod
+yarn publish:beta  # ocular-publish version-only-beta
+yarn publish:prod  # ocular-publish version-only-prod
 ```
 
-Review the generated version changes before publishing. The renderer and layer
-packages are currently alpha releases; a future public API change should use an
-appropriate major version bump and include an entry in `CHANGELOG.md`, the
-upgrade guide, and the relevant package documentation.
+Review resulting manifest/lockfile changes. A command's name is not evidence that
+an artifact was published; verify the release workflow and registry explicitly.
 
-Before publishing, verify the package entrypoints, generated worker bundles,
-website examples, and the release notes on the intended branch.
+## Branches and website
+
+`9.4-release` preserves the earlier dependency stack; development targets `master`.
+Backport compatible fixes deliberately, without upgrading the release branch as
+an incidental step.
+
+The canonical website is [vis.gl/tangram.gl](https://vis.gl/tangram.gl/).
+This repository validates its build but does not deploy GitHub Pages. Publication
+is managed by the canonical host; merging here does not trigger a Pages deployment.

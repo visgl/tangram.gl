@@ -258,12 +258,11 @@ space when the camera or stereo eye changes. The interpolated default normals
 are renormalized before fragment lighting. Planar light and normal-block
 conventions are unchanged.
 
-The portable WGSL polygon shader rotates wall normals into the same common
-space for its fixed directional shading. Roof-versus-wall classification still
-uses local up, so roofs and raster tiles keep their existing unlit colors.
-This does not add configurable WGSL scene lights. Geographic point/spot-light
-placement, tangent-space normal maps, and terrain normals are separate follow-up
-work.
+The legacy WGSL surface path retains its fixed directional wall shading and
+unlit roof/raster behavior. Configured lighting now supports native scene lights
+and geographic point/spot placement on both backends; see
+[light definitions](./renderer.md#light-definitions) for opt-in rules, units and
+material limits. Tangent-space normal maps and terrain normals remain separate work.
 
 Screen-facing globe points, attached labels, and standalone text test the segment
 from the current eye to their geographic anchor against the radius-256 sphere,
@@ -381,8 +380,9 @@ separate work.
 
 ### `animationTime`
 
-Optional non-negative elapsed scene time in seconds, shared by every eye.
-Supply it when the host uses an XR or other non-wall-clock timeline. Without it,
+Optional finite, non-negative elapsed scene time in seconds, shared by every eye.
+Supply it for deterministic capture or an XR/host-owned animation clock. It
+changes shader animation, not camera movement or style zoom. Without it,
 the renderer captures elapsed time when a logical frame starts. Submitting a new
 frame object or submitting an eye again starts the next logical frame;
 switching to another eye does not advance time. Submissions count even when a
@@ -434,7 +434,8 @@ are installed before visibility updates. Camera-only movement invalidates tiles.
 Tile membership is the deduplicated union of all eyes, independent of draw order.
 The default planar policy intersects each camera frustum with the ground plane;
 if a bounded ground footprint cannot be determined it retains the legacy
-buffered rectangle. Horizon clipping remains a separate improvement.
+buffered rectangle. First-person adapters supply bounded finite-frustum ground
+footprints, including explicit empty bounds for sky-only views.
 Globe selection uses each eye's geographic bounds and common-space position.
 Visible tiles belonging to either eye are retained during pruning.
 
