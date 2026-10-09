@@ -20,10 +20,9 @@ export async function readSelectionPixels(device: Device, texture: Texture,
         throw new Error('Selection radius must produce finite non-negative pixel dimensions');
     }
     const pixels = new Uint8Array(width * height * 4);
-    // Selection's WebGL target has bottom-origin rows. WebGPU selection shaders
-    // are not enabled yet; this does not claim a portable picking convention.
+    // CSS points are top-origin; native readback retains each backend's row order.
     const x = Math.round((point.x - (radius?.x || 0)) * texture.width);
-    const y = Math.round((1 - point.y - (radius?.y || 0)) * texture.height);
+    const y = Math.round(((device.type === 'webgpu' ? point.y : 1 - point.y) - (radius?.y || 0)) * texture.height);
     const sourceX = Math.max(0, x), sourceY = Math.max(0, y);
     const clippedWidth = Math.min(texture.width, x + width) - sourceX;
     const clippedHeight = Math.min(texture.height, y + height) - sourceY;

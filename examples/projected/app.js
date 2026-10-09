@@ -27,6 +27,8 @@ const detailSelector = document.querySelector('#detail');
 const detailMode = document.querySelector('#detail-mode');
 const refinementSelector = document.querySelector('#refinement');
 const coordinateProbe = document.querySelector('#coordinates');
+const featureProbe = document.querySelector('#selected-feature');
+let featureGeneration = 0;
 const diagnostics = document.querySelector('#diagnostics');
 const status = document.querySelector('#status');
 const destroyInfoCard = createCollapsibleInfoCard(document.querySelector('#controls'));
@@ -97,6 +99,7 @@ function scheduleDetail() {
 
 /** Keep the geographic focus when replacing a projection, without rebuilding the source scene. */
 async function changeProjection() {
+  featureGeneration++;
   const generation = ++projectionGeneration;
   projectionPending = true;
   navigationGeneration++;
@@ -251,6 +254,7 @@ async function initialize(resetCoverage = true) {
     views: new OrthographicView({id: 'projected', flipY: false, controller: true}),
     viewState,
     onViewStateChange: event => {
+      featureGeneration++;
       viewState = event.viewState;
       probeGeneration++;
       probeController?.abort();
@@ -258,6 +262,18 @@ async function initialize(resetCoverage = true) {
       scheduleDetail();
     },
     onLoad: scheduleDetail,
+    onClick: async information => {
+      const generation = ++featureGeneration;
+      const layer = deck.props.layers.find(layer => layer.id === 'projected-basemap');
+      try {
+        const result = await layer?.getFeatureAt({x: information.x, y: information.y}, {radius: 6});
+        if (disposed || generation !== featureGeneration) return;
+        featureProbe.textContent = result?.error ? `Selection failed: ${result.error.message ?? result.error}` :
+          result?.feature?.properties?.name ?? 'No interactive feature';
+      } catch (error) {
+        if (!disposed && generation === featureGeneration) featureProbe.textContent = error.message;
+      }
+    },
     onResize: scheduleDetail,
     layers,
     _animate: true,

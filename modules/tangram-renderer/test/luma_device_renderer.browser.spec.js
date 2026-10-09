@@ -2,10 +2,33 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, test} from 'vitest';
 import LumaDeviceRenderer from '../src/gpu/luma_device_renderer';
 
 describe('LumaDeviceRenderer', function () {
+    test('WebGPU pipeline cache distinguishes offscreen attachment formats from the canvas', () => {
+        const calls = [];
+        const device = createDevice(calls);
+        device.type = 'webgpu';
+        const renderer = new LumaDeviceRenderer(device);
+        const mesh = createMesh(), program = createProgram({});
+        const offscreen = createRenderPass();
+        offscreen.setPipeline = pipeline => { offscreen.pipeline = pipeline; };
+        offscreen.props = {framebuffer: {colorAttachments: [{texture: {format: 'rgba8unorm'}}],
+            depthStencilAttachment: {texture: {format: 'depth16unorm'}}}};
+        renderer.drawMesh({mesh, program, renderPass: offscreen});
+        const selectedPipeline = device.pipeline;
+        expect(selectedPipeline.options).toMatchObject({colorAttachmentFormats: ['rgba8unorm'],
+            depthStencilAttachmentFormat: 'depth16unorm'});
+        renderer.drawMesh({mesh, program, renderPass: createRenderPass()});
+        const canvasPipeline = device.pipeline;
+        expect(canvasPipeline).not.toBe(selectedPipeline);
+        renderer.drawMesh({mesh, program, renderPass: offscreen});
+        expect(offscreen.pipeline).toBe(selectedPipeline);
+        renderer.destroy();
+        expect(selectedPipeline.destroyed).toBe(true);
+        expect(canvasPipeline.destroyed).toBe(true);
+    });
     it('creates portable Tangram resources without reading a backend handle', function () {
         const calls = [];
         const device = createDevice(calls);

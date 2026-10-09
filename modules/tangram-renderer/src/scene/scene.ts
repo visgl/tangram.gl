@@ -713,19 +713,32 @@ export default class Scene {
             // and not locked (e.g. no tiles are actively building)
             if (!this.selection.locked && this.last_selection_render < this.last_main_render) {
                 if (this.selection.framebuffer) {
-                    const selection_pass = this.device.beginRenderPass({
-                        framebuffer: this.selection.framebuffer,
-                        clearColor: FeatureSelection.defaultColor,
-                        clearDepth: 1
-                    });
+                    // An external host pass may still be open. Use a separate
+                    // encoder, and submit selection before its asynchronous copy.
+                    let encoder = this.device.type === 'webgpu' ? this.device.createCommandEncoder({id: 'tangram-selection'}) : null;
+                    let selection_pass = null;
                     try {
+                        selection_pass = (encoder ?? this.device).beginRenderPass({
+                            framebuffer: this.selection.framebuffer,
+                            clearColor: FeatureSelection.defaultColor,
+                            clearDepth: 1
+                        });
                         this.renderPass('selection_program', {
                             allow_blend: false,
                             renderPass: selection_pass
                         });
                     }
                     finally {
-                        selection_pass.end();
+                        try {
+                            selection_pass?.end();
+                            if (encoder && selection_pass) {
+                                const commands = encoder.finish();
+                                encoder = null; // finish releases the encoder; submit releases the commands.
+                                this.device.submit(commands);
+                            }
+                        } finally {
+                            encoder?.destroy();
+                        }
                     }
                 }
                 else {
@@ -1098,9 +1111,6 @@ export default class Scene {
 
     // Request feature selection at given pixel. Runs async and returns results via a promise.
     getFeatureAt(pixel, { radius } = {}) {
-        if (this.portable_rendering) {
-            return Promise.resolve();
-        }
         if (!this.initialized) {
             log('debug', 'Scene.getFeatureAt() called before scene was initialized');
             return Promise.resolve();
@@ -1726,9 +1736,6 @@ export default class Scene {
     }
 
     resetFeatureSelection() {
-        if (this.portable_rendering) {
-            return;
-        }
         this.selection = new FeatureSelection(this.gl, this.workers, () => this.building, this.device);
         this.last_render_count = 0; // force re-evaluation of selection map
     }

@@ -26,10 +26,10 @@ type FixtureProperties = {scene: Record<string, unknown>; projectedTileZoom: num
   projectedVisibleBounds?: readonly [number, number, number, number];
   projectedStyleZoom?: number; projectedMaxTiles?: number; tileResources?: HostTileResourceOptions;
   projectedProjection?: ProjectedBasemapOptions; onProjectionChange?: () => void; onSceneLoad?: (scene: Scene) => void};
-const FixtureLayer = ProjectedBasemapLayer as unknown as new (properties: FixtureProperties & LayerProps) => Layer;
+const FixtureLayer = ProjectedBasemapLayer as unknown as new (properties: FixtureProperties & LayerProps) => Layer & Pick<ProjectedBasemapLayer, 'getFeatureAt'>;
 
 /** Offline continental polygon, including tile boundaries and a hole in the projected surface. */
-function createPolygonScene() {
+function createPolygonScene(interactive = false) {
   const fixture = {type: 'FeatureCollection', features: [{type: 'Feature', properties: {}, geometry: {
     type: 'Polygon', coordinates: [
       [[-140, 15], [-60, 15], [-60, 60], [-140, 60], [-140, 15]],
@@ -38,23 +38,78 @@ function createPolygonScene() {
   }}]};
   return {scene: {background: {color: '#000000'}}, sources: {fixture: {type: 'GeoJSON',
     url: `data:application/json,${encodeURIComponent(JSON.stringify(fixture))}`, max_zoom: 6}},
-  layers: {ground: {data: {source: 'fixture'}, draw: {polygons: {order: 0, color: '#20d0b0'}}}}};
+  layers: {ground: {data: {source: 'fixture'}, draw: {polygons: {order: 0, color: '#20d0b0', interactive}}}}};
 }
 
 /** Offline bent roads cross source-tile boundaries and exercise all standard caps and joins. */
-function createRoadScene(maximumSourceZoom = 6) {
+function createRoadScene(maximumSourceZoom = 6, interactive = false) {
   const features = ['round', 'square', 'butt'].map((cap, index) => ({type: 'Feature', properties: {cap}, geometry: {
     type: 'LineString', coordinates: [[-150, 20 + index * 12], [-95, 35 + index * 8], [-50, 20 + index * 12]]
   }}));
   return {scene: {background: {color: '#000000'}}, sources: {roads: {type: 'GeoJSON',
     url: `data:application/json,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features}))}`,
     max_zoom: maximumSourceZoom}}, layers: Object.fromEntries(['round', 'square', 'butt'].map((cap, index) => [cap, {
-      data: {source: 'roads'}, filter: {cap}, draw: {lines: {order: 3 + index, width: '180000m',
+      data: {source: 'roads'}, filter: {cap}, draw: {lines: {order: 3 + index, width: '180000m', interactive,
         color: ['#ff2020', '#20ff20', '#ff8020'][index], cap, join: ['round', 'bevel', 'miter'][index]}}
     }]))};
 }
 
 beforeEach(() => commands.startRenderingDiagnostics());
+
+test.each(['equal-earth', 'albers'] as const)(`${DEVICE_TYPE}: %s selects refined road ribbons with original properties`, async type => {
+  harness = new RenderingHarness();
+  await harness.initializeDevice();
+  const engine = createProjectedExampleProjectionEngine();
+  const navigation = new ProjectedBasemapNavigation(engine);
+  const target = await navigation.projectPosition([-95, 35], type);
+  const scene = createProjectedBasemapScene(createRoadScene(6, true), {type},
+    new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  const errors = harness.errors;
+  const layer = new FixtureLayer({id: 'selected-roads', scene, projectionEngine: engine,
+    projectedTileZoom: 2, projectedStyleZoom: 6, projectedVisibleBounds: [-160, 10, -40, 65],
+    onSceneError: error => errors.push(error.message)});
+  deck = new Deck({canvas: harness.canvas, device: harness.device, width: 512, height: 320,
+    useDevicePixels: false, views: new OrthographicView({id: 'projected', flipY: false}),
+    viewState: {target, zoom: -1.5}, _animate: true, layers: [layer], onError: error => errors.push(error.message)});
+  await expect.poll(async () => coloredPixels(await readCanvasPixels(harness!.canvas)), {timeout: 20000}).toBeGreaterThan(500);
+  await expect.poll(async () => (await layer.getFeatureAt({x: 256, y: 160}))?.feature, {timeout: 20000})
+    .toMatchObject({properties: {cap: 'round'}, source_name: 'roads'});
+  expect(errors).toEqual([]);
+});
+
+test.each(['equal-earth', 'albers'] as const)(`${DEVICE_TYPE}: %s selects refined polygons, excludes holes and preserves feature identity`, async type => {
+  harness = new RenderingHarness();
+  await harness.initializeDevice();
+  const engine = createProjectedExampleProjectionEngine();
+  const navigation = new ProjectedBasemapNavigation(engine);
+  const target = await navigation.projectPosition([-100, 40], type);
+  const authored = createPolygonScene(true);
+  const scene = createProjectedBasemapScene(authored, {type, cacheProjectedMeshes: true},
+    new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  const errors = harness.errors;
+  let loadedScene: Scene | undefined;
+  const layer = new FixtureLayer({id: 'selected-ground', scene, projectionEngine: engine,
+    projectedTileZoom: 2, projectedStyleZoom: 6, projectedVisibleBounds: [-150, 10, -50, 65],
+    onSceneLoad: scene => {loadedScene = scene;}, onSceneError: error => errors.push(error.message)});
+  deck = new Deck({canvas: harness.canvas, device: harness.device, width: 512, height: 320,
+    useDevicePixels: false, views: new OrthographicView({id: 'projected', flipY: false}),
+    viewState: {target, zoom: -1.5}, _animate: true, layers: [layer], onError: error => errors.push(error.message)});
+  await expect.poll(() => loadedScene, {timeout: 20000}).toBeDefined();
+  await expect.poll(async () => coloredPixels(await readCanvasPixels(harness!.canvas)), {timeout: 20000}).toBeGreaterThan(1000);
+  const point = await navigation.projectPosition([-120, 50], type);
+  const [x, y] = deck.getViewports()[0].project(point);
+  // An off-center sample catches backend row flips; the hole must not return the surrounding polygon.
+  expect(y).not.toBeCloseTo(160, 0);
+  const result = await layer.getFeatureAt({x, y});
+  expect(result?.error).toBeUndefined();
+  expect(result?.feature).toMatchObject({source_name: 'fixture', layers: ['ground']});
+  const hole = await navigation.projectPosition([-100, 40], type);
+  const [holeX, holeY] = deck.getViewports()[0].project(hole);
+  expect((await layer.getFeatureAt({x: holeX, y: holeY}))?.feature).toBeFalsy();
+  const repeated = await layer.getFeatureAt({x, y});
+  expect(repeated?.feature).toEqual(result?.feature);
+  expect(errors).toEqual([]);
+});
 
 test.each([
     {lighting: 'vertex', native: true}, {lighting: 'fragment', native: true},
@@ -158,10 +213,10 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
       sources: {annotations: {type: 'GeoJSON',
         url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`}},
       layers: {annotations: {data: {source: 'annotations'}, draw: {
-        markers: {order: 10, size: '20px', color: '#00ff00',
+        markers: {order: 10, size: '20px', color: '#00ff00', interactive: true,
           text: {text_source: 'name', ...(type === 'albers' ? {collide: false} : {}), anchor: 'top', offset: [0, -20],
             font: {family: 'sans-serif', size: '18px', fill: '#ffffff'}}},
-        text: {order: 11, text_source: 'name', collide: false, offset: [0, 25],
+        text: {order: 11, text_source: 'name', collide: false, interactive: true, offset: [0, 25],
           font: {family: 'sans-serif', size: '18px', fill: '#ff0000'}}
       }}}}, {type, cacheProjectedMeshes: true},
     new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
@@ -187,6 +242,15 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     await expect.poll(async () => (await counts()).green, {timeout: 20000}).toBeGreaterThan(150);
     await expect.poll(async () => (await counts()).white, {timeout: 20000}).toBeGreaterThan(100);
     await expect.poll(async () => (await counts()).red, {timeout: 20000}).toBeGreaterThan(100);
+    const selectedLayer = deck.props.layers[0];
+    if (!(selectedLayer instanceof ProjectedBasemapLayer)) throw new Error('Expected the projected annotation layer');
+    expect((await selectedLayer.getFeatureAt({x: 256, y: 160}))?.feature).toMatchObject({properties: {name: 'Ground label'}});
+    const atlas = (await readCanvasPixels(canvas)).data;
+    const firstTextPixel = Array.from({length: atlas.length / 4}, (_, index) => index).find(index =>
+      atlas[index * 4] > 80 && atlas[index * 4 + 1] < 40 && atlas[index * 4 + 2] < 40);
+    if (firstTextPixel === undefined) throw new Error('Missing rendered standalone text');
+    expect((await selectedLayer.getFeatureAt({x: firstTextPixel % 512, y: Math.floor(firstTextPixel / 512)}, {radius: 4}))?.feature)
+      .toMatchObject({properties: {name: 'Ground label'}});
     const before = await counts();
     deck.setProps({viewState: {target, zoom: 3}});
     await expect.poll(async () => Math.abs((await counts()).green - before.green)).toBeLessThan(40);

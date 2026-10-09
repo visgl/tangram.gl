@@ -15,12 +15,15 @@ import {validateProjectionEngine} from '../procedures/projected-coordinate-trans
 import type {ProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {normalizeProjectionExecutionOptions} from '../procedures/projection-batch-executor';
 import type {ProjectionExecutionStatistics} from '../procedures/projection-batch-executor';
+import type {FeatureSelectionResult} from '../types';
 
 
 interface FrameOptions {renderViewId?: string}
 
 /** Minimal scene surface needed by the host-driven renderer. */
 interface RendererScene {
+    /** Schedule a viewport-local feature query for a subsequent render. */
+    getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number}): Promise<FeatureSelectionResult | undefined>;
     /** Shared source/style tile ownership across every eye. */
     tile_manager: {getResourceStatistics(): TileResourceStatistics};
     view: View;
@@ -131,6 +134,21 @@ export default class Renderer {
     /** Returns source credits without coupling the renderer to DOM, deck.gl or Leaflet controls. */
     getAttributions(): Promise<string[]> {
         return this.scene.getAttributions();
+    }
+
+    /**
+     * Query interactive draws in top-origin CSS pixels of the active render view.
+     * The host must continue rendering while this asynchronous GPU/worker query is
+     * pending. This does not implement deck.gl picking or terrain intersections.
+     */
+    getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number} = {}): Promise<FeatureSelectionResult | undefined> {
+        if (this.destroyed) return Promise.reject(new Error('Cannot query a destroyed renderer'));
+        if (![pixel.x, pixel.y, options.radius ?? 0].every(Number.isFinite) || (options.radius ?? 0) < 0) {
+            return Promise.reject(new Error('Selection coordinates and non-negative radius must be finite'));
+        }
+        const pending = this.scene.getFeatureAt({...pixel}, {...options});
+        this.scene.requestRedraw();
+        return pending;
     }
 
     /** Resolve source capabilities without publishing archive handles or changing source policy. */

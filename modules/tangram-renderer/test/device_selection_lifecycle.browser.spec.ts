@@ -19,6 +19,7 @@ function createSelection(bytes = new Uint8Array([7, 0, 0, 0])) {
   const framebuffer = {colorAttachments: [{texture}], destroy: vi.fn()};
   const encoder = {copyTextureToBuffer: vi.fn(), finish: vi.fn(() => ({})), destroy: vi.fn()};
   const device = {type: 'webgl', createFramebuffer: vi.fn(() => framebuffer),
+    createTexture: vi.fn(() => ({destroy: vi.fn()})),
     createBuffer: vi.fn(() => staging), createCommandEncoder: vi.fn(() => encoder), submit: vi.fn()};
   const worker = {postMessage: vi.fn(), addEventListener: vi.fn()};
   const selection = new FeatureSelection(null, [worker], () => false, device as unknown as Device);

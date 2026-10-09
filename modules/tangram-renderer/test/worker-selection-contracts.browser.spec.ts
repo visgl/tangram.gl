@@ -205,7 +205,7 @@ test('ordinary IO returns a response; main-thread proxy IO returns a transferabl
 
 test('selection replies preserve arbitrary payloads, stable change detection and sent/unsent cancellation', async () => {
     const framebuffer = {destroy: vi.fn()};
-    const device = {createFramebuffer: () => framebuffer};
+    const device = {createFramebuffer: () => framebuffer, createTexture: () => ({destroy: vi.fn()})};
     const selection = new FeatureSelection(null, [], undefined, device as unknown as import('@luma.gl/core').Device);
     const feature = {custom: ['street', 5]};
     const first = selection.getFeatureAt({x: 0.5, y: 0.5}, {radius: null});

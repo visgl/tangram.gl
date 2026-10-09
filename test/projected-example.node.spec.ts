@@ -63,6 +63,6 @@ test.each([true, false])('imagery/vector %s includes curated noncolliding city a
   const source = JSON.parse(decodeURIComponent(scene.sources.annotations.url.split(',')[1]));
   expect(source.features).toHaveLength(5);
   expect(source.features[0]).toMatchObject({geometry: {type: 'Point'}, properties: {name: 'New York'}});
-  expect(scene.layers.annotations.draw.points).toMatchObject({collide: false,
+  expect(scene.layers.annotations.draw.points).toMatchObject({collide: false, interactive: true,
     text: {collide: false, text_source: 'name'}});
 });

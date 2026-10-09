@@ -70,9 +70,11 @@ test.each([{format: 'r8unorm'}, {dimension: '3d'}, {samples: 4}])('unsupported t
   expect(fixture.mocks.createBuffer).not.toHaveBeenCalled();
 });
 
-test('selection clips the GPU copy but retains the requested radius and transparent edge padding', async () => {
-  const fixture = createReadback();
-  const result = await readSelectionPixels(fixture.device, fixture.texture, {x: 0, y: 1}, {x: 0.25, y: 0.25});
+test.each(['webgl', 'webgpu'])('%s: selection clips the copy and retains transparent edge padding', async type => {
+  const bytes = new Uint8Array(type === 'webgpu' ? 256 : 4);
+  bytes.set([7, 0, 0, 1]);
+  const fixture = createReadback(type, bytes);
+  const result = await readSelectionPixels(fixture.device, fixture.texture, {x: 0, y: type === 'webgpu' ? 0 : 1}, {x: 0.25, y: 0.25});
   expect(result.width).toBe(2);
   expect(result.height).toBe(2);
   expect([...result.pixels]).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 1]);
@@ -80,6 +82,14 @@ test('selection clips the GPU copy but retains the requested radius and transpar
     origin: [0, 0, 0], width: 1, height: 1
   }));
   expect(findSelectionKey(result.pixels, 2, 2)).toEqual({key: 16777223, workerId: 1});
+});
+
+test.each(['webgl', 'webgpu'])('%s: selection translates top-origin CSS coordinates to native rows', async type => {
+  const fixture = createReadback(type, new Uint8Array(type === 'webgpu' ? 256 : 4));
+  await readSelectionPixels(fixture.device, fixture.texture, {x: 0.25, y: 0.25});
+  expect(fixture.encoder.copyTextureToBuffer).toHaveBeenCalledWith(expect.objectContaining({
+    origin: [1, type === 'webgpu' ? 1 : 3, 0], width: 1, height: 1
+  }));
 });
 
 test.each([{x: 1, y: 0.5}, {x: 0.5, y: 0}])('an outside edge pixel %j is empty without an invalid GPU copy', async point => {

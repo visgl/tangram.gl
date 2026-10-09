@@ -53,8 +53,8 @@ Object.assign(Points, {
     collision: true,  // style includes a collision pass
     blend: 'overlay', // overlays drawn on top of all other styles, with blending
 
-    getWGSLShaderSource() {
-        return buildPointsWGSL(Boolean(this.cpu_projection));
+    getWGSLShaderSource(selection = false) {
+        return buildPointsWGSL(Boolean(this.cpu_projection), selection);
     },
 
     init(options = {}) {

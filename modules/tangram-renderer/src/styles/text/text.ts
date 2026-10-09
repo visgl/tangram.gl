@@ -61,7 +61,7 @@ export interface TextStyleRuntime extends TextLabelRuntime {
     buildLabels(size: LabelPointCoordinate | LabelPointCoordinate[], geometry: TextGeometry, layout: LabelLayout, totalSize?: LabelPointCoordinate): TextRenderLabel[];
     buildLineLabels(line: LabelPointCoordinate[], size: LabelPointCoordinate | LabelPointCoordinate[], layout: LabelLayout, totalSize?: LabelPointCoordinate): TextRenderLabel[];
     init(options?: {generation?: number; styles?: unknown; sources?: Record<string, unknown>}): void;
-    getWGSLShaderSource(): string;
+    getWGSLShaderSource(selection?: boolean): string;
     makeVertexTemplate(style: TextFeatureStyle, mesh: TextBuildMesh): number[];
     addFeature(feature: TextFeature, draw: TextLabelDraw, context: TextContext): void;
     endData(tile: TextTile): Promise<TextTileData | undefined>;
@@ -81,8 +81,8 @@ Object.assign(TextStyle, {
     super: Points,
     built_in: true,
 
-    getWGSLShaderSource(this: TextStyleRuntime) {
-        return buildTextWGSL(Boolean(this.cpu_projection));
+    getWGSLShaderSource(this: TextStyleRuntime, selection = false) {
+        return buildTextWGSL(Boolean(this.cpu_projection), selection);
     },
 
     init(this: TextStyleRuntime, options = {}) {

@@ -29,9 +29,9 @@ Object.assign(Polygons, {
     fragment_shader_src: polygons_fs,
     selection: true, // enable feature selection
 
-    getWGSLShaderSource(this: GeometryStyleRuntime) {
+    getWGSLShaderSource(this: GeometryStyleRuntime, selection = false) {
         return buildPolygonsWGSL({ raster: this.raster === 'color', lighting: this.portable_lighting_mode,
-            lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection) });
+            lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection), selection });
     },
 
     init(this: GeometryStyleRuntime) {
@@ -151,7 +151,7 @@ Object.assign(Polygons, {
                     static: (variant.normal || portable_normal ? null : [0, 0, 1])
                 }, // gets padded to 4-bytes
                 { name: 'a_color', size: 4, type: gl.UNSIGNED_BYTE, normalized: true },
-                { name: 'a_selection_color', size: 4, type: gl.UNSIGNED_BYTE, normalized: true, static: (variant.selection ? null : [0, 0, 0, 0]) },
+                { name: 'a_selection_color', size: 4, type: gl.UNSIGNED_BYTE, normalized: true, static: (variant.selection || portable_normal ? null : [0, 0, 0, 0]) },
                 { name: 'a_texcoord', size: 2, type: gl.UNSIGNED_SHORT, normalized: true, static: (variant.texcoords ? null : [0, 0]) }
             ];
 
@@ -202,7 +202,7 @@ Object.assign(Polygons, {
         this.vertex_template[i++] = (style.alpha != null ? style.alpha : style.color[3]) * 255;
 
         // a_selection_color.rgba - selection color
-        if (mesh.variant.selection) {
+        if (mesh.variant.selection || this.shader_language === 'wgsl') {
             this.vertex_template[i++] = style.selection_color[0] * 255;
             this.vertex_template[i++] = style.selection_color[1] * 255;
             this.vertex_template[i++] = style.selection_color[2] * 255;

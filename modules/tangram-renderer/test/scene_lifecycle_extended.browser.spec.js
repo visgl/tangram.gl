@@ -346,7 +346,7 @@ describe('Scene public helpers', () => {
         scene.selection.getFeatureAt.mockRejectedValue(new Error('pick'));
         await expect(scene.getFeatureAt({x: 1, y: 1}, {})).resolves.toEqual({error: expect.any(Error)});
         scene.portable_rendering = true;
-        await expect(scene.getFeatureAt({x: 1, y: 1}, {})).resolves.toBeUndefined();
+        await expect(scene.getFeatureAt({x: 1, y: 1}, {})).resolves.toEqual({error: expect.any(Error)});
     });
 
     test('queries, deduplicates, and groups worker features', async () => {

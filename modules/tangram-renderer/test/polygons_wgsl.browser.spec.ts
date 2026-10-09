@@ -2,8 +2,25 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, test} from 'vitest';
 import { buildPolygonsWGSL } from '../src/styles/polygons/polygons_wgsl';
+import {buildLinesWGSL} from '../src/styles/lines/lines_wgsl';
+import {buildPointsWGSL} from '../src/styles/points/points_wgsl';
+import {buildTextWGSL} from '../src/styles/text/text_wgsl';
+
+test.each([false, true])('selection variants share geometry and use flat unlit keys; CPU projection=%s', cpuProjection => {
+    for (const source of [buildPolygonsWGSL({cpuProjection, selection: true, raster: true}),
+        buildLinesWGSL({cpuProjection, selection: true, animated: true}),
+        buildPointsWGSL(cpuProjection, true), buildTextWGSL(cpuProjection, true)]) {
+        expect(source).toContain('a_selection_color: vec4<f32>');
+        expect(source).toContain('@interpolate(flat) selection_color: vec4<f32>');
+        expect(source).toContain('output.selection_color = attributes.a_selection_color;');
+        expect(source).toContain('return input.selection_color;');
+        expect(source.includes('a_projected_position')).toBe(cpuProjection);
+    }
+    expect(buildPointsWGSL(cpuProjection, true)).toContain('if (color.a < 0.001)');
+    expect(buildTextWGSL(cpuProjection, true)).toContain('if (atlas_color.a < 0.001)');
+});
 
 describe('Polygon WGSL', function () {
     it('builds a vector-color shader with Tangram camera and tile blocks', function () {

@@ -30,6 +30,27 @@ function frame(overrides: Partial<HostFrameOptions> = {}): HostFrame {
 afterEach(() => vi.restoreAllMocks());
 
 describe('atomic multi-view host contract', () => {
+    test('feature queries validate coordinates, copy inputs, schedule a redraw and reject released renderers', async () => {
+        const renderer = new Renderer({});
+        const result = {feature: {properties: {name: 'sample'}}, changed: true};
+        const selection = vi.spyOn(renderer.scene, 'getFeatureAt').mockResolvedValue(result);
+        const redraw = vi.spyOn(renderer.scene, 'requestRedraw');
+        const pixel = {x: 20, y: 40}, options = {radius: 5};
+        expect(await renderer.getFeatureAt(pixel, options)).toEqual(result);
+        expect(selection).toHaveBeenCalledWith(pixel, options);
+        expect(selection.mock.calls[0][0]).not.toBe(pixel);
+        expect(selection.mock.calls[0][1]).not.toBe(options);
+        expect(redraw).toHaveBeenCalledTimes(1);
+        for (const invalid of [{x: NaN, y: 1}, {x: 1, y: Infinity}]) {
+            await expect(renderer.getFeatureAt(invalid)).rejects.toThrow('finite');
+        }
+        for (const radius of [-1, Infinity, NaN]) {
+            await expect(renderer.getFeatureAt(pixel, {radius})).rejects.toThrow('finite');
+        }
+        expect(selection).toHaveBeenCalledTimes(1);
+        renderer.destroy();
+        await expect(renderer.getFeatureAt(pixel)).rejects.toThrow('destroyed');
+    });
     test('projection rebuilds retain source identity, serialize updates, recover failures and reject released scenes', async () => {
         const renderer = new Renderer({});
         const sources = {};

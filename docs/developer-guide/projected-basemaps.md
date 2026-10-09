@@ -506,9 +506,9 @@ atlas UVs, offsets and pixel sizes use Tangram's existing GLSL/WGSL paths. Quads
 not subdivided or reordered. Anchors outside the projection domain hide their quads.
 The example adds a small curated city-marker dataset on both imagery and vectors.
 
-This is annotation support, **not projected label collision or feature picking**.
+This is annotation support, **not projected label collision**.
 Labels may overlap. Line/polygon labels, curved-road labels, elevated anchors,
-custom shader blocks and interactive draws are rejected. Dense tile-based datasets
+custom shader blocks are rejected. Dense tile-based datasets
 can repeat labels across tile boundaries; prefer curated point sources for now.
 
 ## Elevated surfaces and lighting
@@ -539,7 +539,38 @@ Elevation does not change source tile coverage or navigation's ground footprint.
 
 ## Next steps
 
-Projected collision, mixed-LOD seam stitching, feature picking, terrain,
+Projected collision, mixed-LOD seam stitching, terrain,
 projection morphing and arbitrary projection domains are not implemented by this entry.
 Existing Mercator and GlobeView behavior remains unchanged; FirstPersonView has
 an independent opt-in elevation range for conservative tile selection.
+
+## Feature selection
+
+Set `interactive: true` on a supported polygon, road, point or text draw
+to register its source feature. `ProjectedBasemapLayer.getFeatureAt({x, y},
+{radius: 6})` returns an asynchronous selection result on WebGL 2 and WebGPU.
+Raster imagery has no selectable source features; interactive raster draws are rejected.
+Coordinates and radius are viewport-local, top-origin **CSS pixels**, not geographic
+coordinates or device pixels. A result contains `feature`, `changed` and `pixel`;
+GPU/worker failures use the existing `{error}` result contract. Unloaded scenes or
+scenes without interactive features may return `undefined`.
+
+```typescript
+const result = await projectedLayer.getFeatureAt({x: click.x, y: click.y}, {radius: 6});
+if (result?.error) console.error(result.error);
+else console.log(result?.feature);
+```
+
+The layer requests a redraw, but the host must keep rendering while the query is
+pending. Direct renderer hosts use the same `Renderer.getFeatureAt` API. The query
+uses the active render view, so select and render the intended eye before querying
+multi-view scenes; this is not a whole-canvas stereo resolver. The example exposes
+selection through clickable city markers, separately from the geographic cursor probe.
+
+Selection draws reuse refined/clipped meshes, projected elevation, layer order and
+depth. Noninteractive geometry can occlude interactive features. WGSL point/text
+atlas transparency and line dash masks are respected; the existing GLSL selection
+silhouette behavior is retained. The fixed 256×256 selection target is an approximate
+screen-space query, not a full-resolution pixel-perfect hit test. Coarse globe fallback
+meshes do not supply feature hits. This API does not implement deck.gl's synchronous
+`pickObject`, terrain ray intersections, projected collision or spatial-controller picking.

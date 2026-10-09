@@ -234,7 +234,7 @@ test(`${DEVICE_TYPE}: stereo eyes independently occlude an anchor at the globe h
   expect(countLabelPixels(image, 1, image.width / 2)).toBeGreaterThan(30);
 });
 
-test.runIf(DEVICE_TYPE === 'webgl')(`${DEVICE_TYPE}: selection rejects far-side globe point geometry`, async () => {
+test(`${DEVICE_TYPE}: selection rejects far-side globe point geometry`, async () => {
   harness = new RenderingHarness('globe');
   harness.presentation.setViewState({longitude: 10, latitude: 20, zoom: 0});
   await harness.initialize(createLabelScene('points'));
@@ -242,11 +242,11 @@ test.runIf(DEVICE_TYPE === 'webgl')(`${DEVICE_TYPE}: selection rejects far-side 
   const viewport = new GlobeViewport({width: 512, height: 320, longitude: 10, latitude: 20, zoom: 0});
   const near = viewport.project([10, 20]);
   const far = viewport.project([-160, 20]);
-  expect((await harness.pick(near[0], near[1]))?.feature?.properties?.name).toBe('near');
+  expect((await harness.pick(near[0], near[1]))?.feature).toMatchObject({properties: {name: 'near'}});
   expect((await harness.pick(far[0], far[1]))?.feature).toBeFalsy();
   harness.presentation.setViewState({longitude: -160});
   await harness.settle();
   const rotated = new GlobeViewport({width: 512, height: 320, longitude: -160, latitude: 20, zoom: 0});
   const visible = rotated.project([-160, 20]);
-  expect((await harness.pick(visible[0], visible[1]))?.feature?.properties?.name).toBe('far');
+  expect((await harness.pick(visible[0], visible[1]))?.feature).toMatchObject({properties: {name: 'far'}});
 });

@@ -598,11 +598,12 @@ export var Style = {
             }
         );
 
-        if (this.selection && this.shader_language === 'glsl') {
+        if (this.selection) {
+            const selection_source = this.shader_language === 'wgsl' ? this.getWGSLShaderSource(true) : null;
             this.selection_program = new ShaderProgram(
                 this.gl,
-                this.vertex_shader_src,
-                selection_fragment_source,
+                selection_source ?? this.vertex_shader_src,
+                selection_source ?? selection_fragment_source,
                 {
                     name: (this.name + ' (selection)'),
                     defines: selection_defines,
