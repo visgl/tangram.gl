@@ -117,6 +117,7 @@ export default class Scene {
         this.frame = 0;
         this.last_main_render = -1;         // frame counter for last main render pass
         this.last_selection_render = -1;    // frame counter for last selection render pass
+        this.selection_render_pending = false; // unfinished pipeline draws invalidate the selection target
         this.media_capture = new MediaCapture();
         this.selection = null;
         this.selection_feature_count = 0;
@@ -704,6 +705,9 @@ export default class Scene {
 
         // Render selection pass (if needed)
         if (selection) {
+            // Permit retrying an unfinished pass; delayed readback remains locked
+            // between frames until every selection pipeline is ready.
+            this.selection_render_pending = false;
             if (this.view.panning || this.view.user_input_active) {
                 this.selection.clearPendingRequests();
                 return;
@@ -754,6 +758,7 @@ export default class Scene {
                     gl.viewport(0, 0, this.canvas.width, this.canvas.height);
                     gl.clearColor(...this.background.computed_color);
                 }
+                if (this.selection_render_pending) return true;
                 this.last_selection_render = this.frame;
             }
 
@@ -970,6 +975,7 @@ export default class Scene {
                         meshRenderer: this.mesh_renderer,
                         renderState: this.mesh_render_state
                     })) {
+                        if (program_key === 'selection_program') this.selection_render_pending = true;
                         this.requestRedraw();
                     }
                     render_count += mesh.geometry_count;
@@ -1736,7 +1742,8 @@ export default class Scene {
     }
 
     resetFeatureSelection() {
-        this.selection = new FeatureSelection(this.gl, this.workers, () => this.building, this.device);
+        this.selection = new FeatureSelection(this.gl, this.workers,
+            () => this.building || this.selection_render_pending, this.device);
         this.last_render_count = 0; // force re-evaluation of selection map
     }
 

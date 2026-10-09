@@ -349,6 +349,9 @@ export default class FeatureSelection {
     /** Read each request without raw GL handles; late/canceled reads cannot update selection state. */
     async readDeviceRequests(): Promise<void> {
         for (const request of Object.values(this.requests)) {
+            // A subsequent frame may invalidate the target while a previous
+            // request awaits its worker. Leave the remaining requests queued.
+            if (this.locked) return;
             if (this.destroyed || this.requests[request.id] !== request || request.sent || request.reading) continue;
             request.reading = true;
             try {

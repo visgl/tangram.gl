@@ -136,3 +136,26 @@ test('locked device selection defers reading until a later unlocked render', asy
   expect(await pending).toMatchObject({changed: false});
   fixture.selection.destroy();
 });
+
+test('invalidation during a worker reply leaves subsequent requests queued until the target is ready', async () => {
+  const fixture = createSelection();
+  let locked = false;
+  fixture.selection._lock_fn = () => locked;
+  const first = fixture.selection.getFeatureAt({x: 0.5, y: 0.5}, {radius: undefined});
+  const second = fixture.selection.getFeatureAt({x: 0.6, y: 0.5}, {radius: undefined});
+  fixture.lookup.mockImplementationOnce(async () => {
+    locked = true;
+    return {id: 0, feature: {name: 'building'}};
+  });
+  await fixture.selection.readDeviceRequests();
+  expect((await first).feature).toEqual({name: 'building'});
+  expect(fixture.staging.readAsync).toHaveBeenCalledOnce();
+  expect(fixture.selection.hasPendingRequests()).toBe(true);
+  locked = false;
+  fixture.lookup.mockResolvedValueOnce({id: 1, feature: {name: 'building'}});
+  await fixture.selection.readDeviceRequests();
+  expect((await second).feature).toEqual({name: 'building'});
+  expect(fixture.staging.readAsync).toHaveBeenCalledTimes(2);
+  expect(fixture.selection.hasPendingRequests()).toBe(false);
+  fixture.selection.destroy();
+});
