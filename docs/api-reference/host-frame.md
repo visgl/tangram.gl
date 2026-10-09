@@ -380,19 +380,14 @@ separate work.
 
 ### `animationTime`
 
-Optional non-negative elapsed scene time in seconds, shared by every eye.
-Supply it when the host uses an XR or other non-wall-clock timeline. Without it,
+Optional finite, non-negative elapsed scene time in seconds, shared by every eye.
+Supply it for deterministic capture or an XR/host-owned animation clock. It
+changes shader animation, not camera movement or style zoom. Without it,
 the renderer captures elapsed time when a logical frame starts. Submitting a new
 frame object or submitting an eye again starts the next logical frame;
 switching to another eye does not advance time. Submissions count even when a
 draw is skipped during initialization or because nothing needs rendering.
 Background tasks are processed once per logical frame.
-
-### `animationTime`
-
-Optional finite, non-negative time in seconds, shared by every eye in the frame.
-Use it for deterministic capture or a host-owned animation clock. Omission uses
-elapsed scene time. It changes shader animation, not camera movement or style zoom.
 
 ## Static methods
 

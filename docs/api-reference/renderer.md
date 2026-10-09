@@ -47,8 +47,9 @@ renderer does not depend on deck.gl and does not create a second host device.
 
 ### `Renderer.create(config, options)` / `new Renderer(config, options)`
 
-Creates the scene without loading it. `config` is a scene URL, object or array
-of scene definitions. Supply
+Creates the scene without loading it. `config` is a scene URL or object.
+To combine scene definitions, use `{import: [sceneA, sceneB]}`, not a top-level
+array. Supply
 the host's `device`, optional `canvas`, and `requestRedraw` callback; `numWorkers`
 and the source/projection options below configure worker execution. A custom
 `workerURL` overrides the normal embedded scene-worker Blob. This renderer forces
