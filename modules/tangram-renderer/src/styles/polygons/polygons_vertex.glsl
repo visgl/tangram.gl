@@ -22,6 +22,9 @@ attribute vec4 a_position;
 attribute vec4 a_color;
 #ifdef TANGRAM_CPU_PROJECTED
     attribute vec3 a_projected_position;
+    #ifndef TANGRAM_EXTRUDE_LINES
+        attribute vec3 a_projected_normal;
+    #endif
 #endif
 
 // Optional normal attribute, otherwise default to up
@@ -153,6 +156,9 @@ void main() {
     v_normal = u_projection_mode == 1
         ? tangramGlobeNormal(v_world_position.xyz, TANGRAM_NORMAL)
         : normalize(u_normalMatrix * TANGRAM_NORMAL);
+    #if defined(TANGRAM_CPU_PROJECTED) && !defined(TANGRAM_EXTRUDE_LINES)
+        v_normal = normalize(a_projected_normal);
+    #endif
     v_world_position = wrapWorldPosition(v_world_position);
 
     // Modify position before camera projection

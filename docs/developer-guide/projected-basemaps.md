@@ -7,7 +7,7 @@ Copyright (c) vis.gl contributors
 # Experimental projected basemaps
 
 The optional `@vis.gl/tangram-layers/experimental/projected-basemaps` entry renders
-flat Tangram polygons, raster meshes, meter/pixel roads and noncolliding ground annotations in deck.gl's `OrthographicView`. Workers
+Tangram polygons, raster meshes, meter/pixel roads and noncolliding ground annotations in deck.gl's `OrthographicView`. Workers
 subdivide the packed tile geometry and project it with math.gl before transferring
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
@@ -511,8 +511,35 @@ Labels may overlap. Line/polygon labels, curved-road labels, elevated anchors,
 custom shader blocks and interactive draws are rejected. Dense tile-based datasets
 can repeat labels across tile boundaries; prefer curated point sources for now.
 
+## Elevated surfaces and lighting
+
+Set `allowElevation: true` in the projection options passed to
+`createProjectedBasemapScene` to enable polygon `z`/`extrude` and raster `z`.
+Ground-only remains the default. Workers retain physical height: one meter maps
+to `256 / 6378137` common units, independent of latitude and map projection.
+Packed height has 1/16-meter precision and a signed 16-bit range
+(-2048 to 2047.9375 meters); the worker rejects out-of-range heights before packing.
+Source refinement and domain clipping interpolate heights and retain vertical
+walls, including walls with zero XY area. Source bytes, feature IDs and layer
+order remain unchanged. This is building/elevated-surface support, not a terrain loader.
+
+Polygon and raster styles may explicitly use `lighting: 'vertex'` or
+`lighting: 'fragment'`. Ambient and directional lights (including native luma.gl
+definitions) use projected common axes. Wall normals use the inverse transpose
+of a sampled projection Jacobian, rather than reusing Mercator normals. Host and
+worker-local engines use the same batched probes; singular Jacobians fail explicitly.
+Materials support ambient/diffuse colors, without specular terms or normal maps.
+Point/spot lights, geographic light directions, lit roads, elevated annotations
+and custom shader blocks remain unsupported. Omitted lighting retains the
+existing unlit projected behavior.
+
+The orthographic camera must enclose the elevated content: set an appropriate
+`target[2]`, `near` and `far` for the chosen common-unit height and camera zoom.
+Elevation does not change source tile coverage or navigation's ground footprint.
+
 ## Next steps
 
-Projected collision, mixed-LOD seam stitching, feature picking, lighting, height,
+Projected collision, mixed-LOD seam stitching, feature picking, terrain,
 projection morphing and arbitrary projection domains are not implemented by this entry.
-Existing Mercator, GlobeView and FirstPersonView integrations remain unchanged.
+Existing Mercator and GlobeView behavior remains unchanged; FirstPersonView has
+an independent opt-in elevation range for conservative tile selection.

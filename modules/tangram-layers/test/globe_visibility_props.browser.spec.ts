@@ -78,3 +78,37 @@ test('updates first-person extent without recreating the scene and reports inval
   expect(setFrame).toHaveBeenCalledTimes(frames);
   expect(raiseError.mock.calls.at(-1)?.[0].message).toMatch(/maxGroundExtent/);
 });
+
+test('updates first-person elevation candidates without recreating the scene or changing the camera', () => {
+  class BaseLayer {}
+  const viewport = new FirstPersonViewport({width: 800, height: 600,
+    longitude: 179.99, latitude: 60, position: [0, 0, 600], pitch: -80, far: 20000});
+  const createRenderer = vi.fn();
+  const Layer = createTangramLayerClass({Layer: BaseLayer,
+    ClassicWebGLRenderer: {create: createRenderer}, Renderer: undefined});
+  const layer = new Layer();
+  const setFrame = vi.fn();
+  layer.raiseError = vi.fn();
+  layer.props = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
+    firstPersonElevationRange: [0, 0], onSceneError: vi.fn()};
+  layer.context = {viewport, deck: {getViewports: () => [viewport]}};
+  const record = {renderer: {setFrame}, deckCanvas: document.createElement('canvas'),
+    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null};
+  layer.state = {tangramRecord: record};
+  layer._synchronizeTangramScene(record);
+  const before = setFrame.mock.calls.at(-1)?.[0];
+  expect(before.projection.visibleBounds).toBeNull();
+  layer.props = {...layer.props, firstPersonElevationRange: [0, 1500]};
+  layer.updateState({props: layer.props});
+  layer._synchronizeTangramScene(record);
+  const after = setFrame.mock.calls.at(-1)?.[0];
+  expect(after.projection.visibleBounds).not.toBeNull();
+  expect(after.camera).toEqual(before.camera);
+  expect(createRenderer).not.toHaveBeenCalled();
+  expect(layer.raiseError).not.toHaveBeenCalled();
+  const frames = setFrame.mock.calls.length;
+  layer.props = {...layer.props, firstPersonElevationRange: [1500, 0]};
+  layer._synchronizeTangramScene(record);
+  expect(setFrame).toHaveBeenCalledTimes(frames);
+  expect(layer.raiseError.mock.calls.at(-1)?.[0].message).toMatch(/Elevation range/);
+});

@@ -16,7 +16,7 @@ the optional WebXR entry shares one scene across stereo eyes.
 | --- | --- | --- |
 | MapView | Flat or perspective Web Mercator, host matrices | Custom GLSL effects are not automatically translated to WGSL |
 | GlobeView | Radius-256 sphere; refined polygons, roads and raster meshes; per-eye horizon tests | No polar-cap data; elevated bounds must be supplied conservatively |
-| FirstPersonView | Finite frustum intersected with flat ground, bounded per eye | No terrain intersections or elevated-only visibility |
+| FirstPersonView | Finite frustum intersected with ground or an opt-in height slab, bounded per eye | Conservative tile candidates, not terrain intersections or occlusion |
 | OrthographicView | Optional CPU-projected polygons, rasters, roads and annotations | Five fixed projection domains; no collision or feature selection |
 | WebXR | Mono, interactive stereo preview, immersive eye matrices and room placement | Headset validation and immersive attribution remain separate gates |
 
@@ -103,7 +103,7 @@ style zoom, mesh refinement and cache residency.
 
 ### 5. Support FirstPersonView near the horizon
 
-Implemented: intersect all twelve finite frustum edges with flat ground, clip
+Implemented: intersect all twelve finite frustum edges with ground or a declared height slab, clip
 to a configurable eye-centered extent (default 20 km per east/north axis), then
 take geographic bounds. The near/far planes remain authoritative; Mercator
 latitude scale and unwrapped antimeridian coordinates are preserved.
@@ -111,8 +111,9 @@ latitude scale and unwrapped antimeridian coordinates are preserved.
 Horizon-crossing eyes retain ground; sky-only eyes explicitly select no ground.
 Stereo/immersive eyes contribute separate footprints to the shared union.
 
-Next: terrain intersections and elevated geometry visible without a ground
-footprint. The current default zoom estimate is footprint-derived; it is not
+`firstPersonElevationRange` retains elevated-only geometry without a ground footprint,
+while `[0, 0]` keeps the ground-only default. Negative physical heights are supported.
+Next: terrain intersections and occlusion. The current default zoom estimate is footprint-derived; it is not
 a screen-space-error guarantee.
 
 ### 6. Align labels, lighting, and picking with projection

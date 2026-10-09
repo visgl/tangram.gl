@@ -48,7 +48,7 @@ struct PolygonAttributes {
     @location(0) a_position: vec4<i32>,
     @location(1) a_normal: vec4<f32>,
     @location(2) a_color: vec4<f32>,
-    ${cpuProjection ? '@location(3) a_projected_position: vec3<f32>,' : ''}
+    ${cpuProjection ? '@location(3) a_projected_position: vec3<f32>, @location(4) a_projected_normal: vec3<f32>,' : ''}
 };
 
 struct PolygonVaryings {
@@ -83,6 +83,7 @@ fn vertexMain(attributes: PolygonAttributes) -> PolygonVaryings {
         surface_normal = tangramGlobeNormal(world_position.xyz, surface_normal);
     }
     ${configured ? `else { surface_normal = normalize(TangramTile.u_normalMatrix * surface_normal); }` : ''}
+    ${cpuProjection ? 'surface_normal = normalize(attributes.a_projected_normal);' : ''}
     let light_direction = normalize(vec3<f32>(0.35, -0.45, 0.82));
     let diffuse = max(dot(surface_normal, light_direction), 0.0);
     // Roof/wall classification stays local; geographic north is not surface up.

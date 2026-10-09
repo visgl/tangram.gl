@@ -52,6 +52,8 @@ export type ProjectedBasemapOptions = {
     maxProjectedError?: number;
     /** Reuse completed projected meshes; host engines require a stable worker-local cache identity. */
     cacheProjectedMeshes?: boolean;
+    /** Opt into packed polygon/raster elevation and polygon extrusion; ground-only by default. */
+    allowElevation?: boolean;
 };
 
 /** Worker-local packed triangle input; the original tile coordinates must survive. */
@@ -84,6 +86,20 @@ export type ProjectedMesh = {
 export type MeshProjector = (request: MeshProjectionRequest) => ProjectedMesh | Promise<ProjectedMesh>;
 
 let meshProjector: MeshProjector | undefined;
+
+/** Projected lighting currently supports ambient and common-space directional lights only. */
+export function validateProjectedLights(value: unknown): void {
+    if (value === undefined || value === null) return;
+    if (typeof value !== 'object') throw new Error('Projected lights must be an array or record');
+    for (const definition of Object.values(value)) {
+        const light = definition && typeof definition === 'object' && 'luma' in definition ? definition.luma : definition;
+        if (!light || typeof light !== 'object' || !('type' in light) ||
+            !['ambient', 'directional'].includes(String(light.type)) ||
+            ('directionSpace' in light && light.directionSpace !== 'common')) {
+            throw new Error('Projected lighting supports ambient and common-space directional lights only');
+        }
+    }
+}
 
 /** Validate fixed or strictly ordered zoom-stop distances with one unit across every stop. */
 export function getProjectedRoadUnit(value: unknown, positive = true): 'm' | 'px' {
@@ -156,6 +172,8 @@ export function normalizeProjectedBasemapOptions(value: unknown): ProjectedBasem
     const maxAdditionalVertices = 'maxAdditionalVertices' in value ? value.maxAdditionalVertices : 65536;
     const maxProjectedError = 'maxProjectedError' in value ? value.maxProjectedError : undefined;
     const cacheProjectedMeshes = 'cacheProjectedMeshes' in value ? value.cacheProjectedMeshes : false;
+    const allowElevation = 'allowElevation' in value ? value.allowElevation : false;
+    if (typeof allowElevation !== 'boolean') throw new Error('CPU projection elevation must be boolean');
     if (typeof cacheProjectedMeshes !== 'boolean') throw new Error('CPU projection mesh caching must be boolean');
     if (maxProjectedError !== undefined && (typeof maxProjectedError !== 'number' || !Number.isFinite(maxProjectedError) || maxProjectedError <= 0)) {
         throw new Error('CPU projection requires a positive finite projected error');
@@ -169,5 +187,5 @@ export function normalizeProjectedBasemapOptions(value: unknown): ProjectedBasem
     if (type !== 'equal-earth' && type !== 'albers' && type !== 'equirectangular' &&
         type !== 'mercator' && type !== 'web-mercator') throw new Error('Invalid CPU projection');
     return {type, maxAngularSpan, maxAdditionalVertices, ...(maxProjectedError === undefined ? {} : {maxProjectedError}),
-        ...(cacheProjectedMeshes ? {cacheProjectedMeshes: true} : {})};
+        ...(cacheProjectedMeshes ? {cacheProjectedMeshes: true} : {}), ...(allowElevation ? {allowElevation: true} : {})};
 }

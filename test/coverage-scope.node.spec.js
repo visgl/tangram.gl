@@ -46,13 +46,15 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(164);
+    expect(sourceFiles).toHaveLength(166);
     expect(sourceFiles.some(filePath => filePath.endsWith('procedures/projection-batch-executor.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('experimental/projected-symbol-mesh.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('experimental/projected-mesh-refinement.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('experimental/projected-mesh-cache.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('experimental/projected-mesh-domain.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('experimental/projected-mesh.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('experimental/projected-normal.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('gl/vertex-constants.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('procedures/mesh-projector.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('builders/geometry-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('gl/vertex-types.ts'))).toBe(true);

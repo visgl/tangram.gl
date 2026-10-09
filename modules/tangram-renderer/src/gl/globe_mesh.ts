@@ -26,6 +26,8 @@ export type GlobeMeshOptions = {
     maxAdditionalVertices?: number;
     /** Optional expanded tile-space position for packed ribbons; never changes the preserved attributes. */
     getPosition?: (vertex: DataView) => [number, number];
+    /** Optional packed height for topology checks on elevated surfaces; curvature still uses XY. */
+    getElevation?: (vertex: DataView) => number;
     /** Optional additional edge decision; callers must use the same criterion across adjacent meshes. */
     shouldSplitEdge?: (first: DataView, second: DataView) => boolean;
     /** Fan partial-edge refinements around an interior vertex instead of introducing a long diagonal. */
@@ -34,7 +36,7 @@ export type GlobeMeshOptions = {
 
 const INTERPOLATED_ATTRIBUTES = new Set([
     'a_position', 'a_normal', 'a_color', 'a_texcoord', 'a_extrude', 'a_offset',
-    'a_z_and_offset_scale', 'a_projected_position', 'a_projected_stroke', 'a_projected_normals', 'a_projected_widths'
+    'a_z_and_offset_scale', 'a_projected_position', 'a_projected_normal', 'a_projected_stroke', 'a_projected_normals', 'a_projected_widths'
 ]);
 
 /**
@@ -159,9 +161,17 @@ export function refineGlobeMesh(
                     [readComponent(view, position, 0), readComponent(view, position, 1)];
                 const cross = (first: number[], second: number[], third: number[]): number =>
                     (second[0] - first[0]) * (third[1] - first[1]) - (second[1] - first[1]) * (third[0] - first[0]);
-                const orientation = cross(positions[start], positions[end], positions[opposite]);
+                const topologyPosition = (index: number): [number, number, number] => [
+                    ...positions[index], options.getElevation?.(new DataView(records[index].buffer,
+                        records[index].byteOffset, layout.stride)) ?? 0];
+                const corners = [start, end, opposite].map(topologyPosition);
+                const axes = selectTrianglePlane(corners);
+                const flatten = (position: readonly [number, number, number]): [number, number] =>
+                    [position[axes[0]], position[axes[1]]];
+                const centerPoint = flatten([...point, options.getElevation?.(view) ?? 0]);
+                const orientation = cross(flatten(corners[0]), flatten(corners[1]), flatten(corners[2]));
                 if (boundary.some((corner, boundaryEdge) =>
-                    cross(positions[corner], positions[boundary[(boundaryEdge + 1) % boundary.length]], point) * orientation <= 0)) {
+                    cross(flatten(topologyPosition(corner)), flatten(topologyPosition(boundary[(boundaryEdge + 1) % boundary.length])), centerPoint) * orientation <= 0)) {
                     throw new RangeError('Globe mesh: refinement exceeds packed position precision');
                 }
                 const center = records.length;
@@ -195,6 +205,20 @@ export function refineGlobeMesh(
         vertices: refinedVertices,
         indices: records.length <= 65536 ? new Uint16Array(output) : new Uint32Array(output)
     };
+}
+
+/** Choose the dominant source-space plane so vertical walls retain the same packed-precision checks as roofs. */
+export function selectTrianglePlane(points: readonly (readonly [number, number, number])[]): readonly [0 | 1 | 2, 0 | 1 | 2] {
+    const planes = [[0, 1], [0, 2], [1, 2]] as const;
+    let selected: typeof planes[number] = planes[0];
+    let maximumArea = 0;
+    for (const plane of planes) {
+        const [first, second] = plane;
+        const area = Math.abs((points[1][first] - points[0][first]) * (points[2][second] - points[0][second]) -
+            (points[1][second] - points[0][second]) * (points[2][first] - points[0][first]));
+        if (area > maximumArea) {maximumArea = area; selected = plane;}
+    }
+    return selected;
 }
 
 /** Preserve Tangram's packed interpolation and flat IDs at refinement or clipping intersections. */

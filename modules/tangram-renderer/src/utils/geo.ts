@@ -10,6 +10,7 @@ import {
     unprojectMetersToLngLatWithMath
 } from '../procedures/web-mercator-math';
 import {PROJECTION_CONSTANTS, getMercatorMetersPerPixel} from '../scene/projection_math';
+import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 
 export type Coordinate = number[];
 export type Meters = {x: number; y: number};
@@ -79,7 +80,7 @@ Geo.metersPerTile = function (z: number): number {
 // Conversion functions based on an defined tile scale
 Geo.tile_scale = 4096; // coordinates are locally scaled to the range [0, tile_scale]
 Geo.units_per_pixel = Geo.tile_scale / Geo.tile_size;
-Geo.height_scale = 16;  // provides sub-meter precision for height values (16ths of a meters)
+Geo.height_scale = PACKED_HEIGHT_SCALE;  // provides sub-meter precision for height values (16ths of a meters)
 
 const units_per_meter: number[] = [];
 Geo.unitsPerMeter = function (z: number): number {

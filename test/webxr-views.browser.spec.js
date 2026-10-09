@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, test} from 'vitest';
 import {Timeline} from '@luma.gl/engine';
 import {Matrix4} from '@math.gl/core';
 import {
@@ -16,6 +16,18 @@ import {
 } from '../examples/webxr/webxr-views';
 
 describe('WebXR deck.gl views', () => {
+  test.each(['mono', 'stereo-preview'])('height-aware first-person %s retains sky-facing elevated candidates per eye', mode => {
+    const view = new WebXRFirstPersonView({id: 'elevated', far: 20000,
+      firstPersonMaxGroundExtent: 1000, firstPersonElevationRange: [0, 1500]});
+    const manager = new WebXRViewManager({view, mode,
+      viewState: {longitude: 179.99, latitude: 60, position: [0, 0, 200], bearing: 0, pitch: -80}});
+    const frame = manager.createFrame({width: 800, height: 300, mode});
+    for (const eye of frame.renderViews) {
+      expect(eye.hostFrame.projection.visibleBounds).not.toBeNull();
+      expect(eye.hostFrame.projection).toEqual(view.getHostFrameForCamera(eye.deckViewport, eye.camera).projection);
+    }
+    manager.finalize();
+  });
   it.each(['mono', 'stereo-preview'])(
     'routes DOM mouse dragging and double-click through gesture recognition in %s', async (mode) => {
       const element = document.createElement('canvas');

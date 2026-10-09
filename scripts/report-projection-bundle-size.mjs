@@ -25,6 +25,9 @@ for (const [label, entry, external] of entries) {
   if (!external && imports.some(input => /@deck\.gl\//.test(input))) {
     throw new Error('Projection worker unexpectedly includes deck.gl');
   }
+  if (!external && imports.some(input => /utils\/geo\.ts$/.test(input))) {
+    throw new Error('Projection worker unexpectedly includes the full legacy Geo namespace');
+  }
   const bytes = result.outputFiles[0].contents;
   console.log(`| ${label} | ${(bytes.length / 1000).toFixed(1)} KB | ${(gzipSync(bytes).length / 1000).toFixed(1)} KB |`);
 }

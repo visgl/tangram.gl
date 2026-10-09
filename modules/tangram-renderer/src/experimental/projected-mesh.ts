@@ -10,6 +10,8 @@ import {mercator} from '@math.gl/projection/projections/merc';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from '../procedures/projected-coordinate-transform';
+import {projectSurfaceNormal} from './projected-normal';
+import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 import type {MeshProjectionRequest, ProjectedMesh, ProjectedBasemapOptions, MeshProjectionStatistics} from '../procedures/mesh-projector';
 import {ProjectedMeshPreparationCache} from './projected-mesh-cache';
 import {clipProjectedMesh, getProjectedSourceDomain} from './projected-mesh-domain';
@@ -160,6 +162,16 @@ function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRe
     const projected = layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_position');
     const extrusion = layout.dynamic_attribs.find(attribute => attribute.name === 'a_extrude');
     const line = request.geometry === 'lines';
+    const surfaceNormal = layout.dynamic_attribs.find(attribute => attribute.name === 'a_normal');
+    const projectedNormal = layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_normal');
+    if (projectedNormal && (projectedNormal.type !== 5126 || projectedNormal.size !== 3 ||
+        projectedNormal.offset === undefined || projectedNormal.offset < 0 || projectedNormal.offset + 12 > layout.stride)) {
+        throw new Error('CPU projection requires a valid projected normal layout');
+    }
+    if (surfaceNormal && (surfaceNormal.type !== 5120 || surfaceNormal.size < 3 ||
+        surfaceNormal.offset === undefined || surfaceNormal.offset < 0 || surfaceNormal.offset + 3 > layout.stride)) {
+        throw new Error('CPU projection requires a packed surface normal');
+    }
     const overzoom = tile.overzoom2 ?? 1;
     if (!position || position.type !== 5122 || position.size !== 4 || position.offset === undefined ||
         !projected || projected.type !== 5126 || projected.size !== 3 || projected.offset === undefined ||
@@ -193,7 +205,8 @@ function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRe
     const source = new DataView(request.vertices.buffer, request.vertices.byteOffset, request.vertices.byteLength);
     for (let offset = 0; offset < source.byteLength; offset += layout.stride) {
         const heightOffset = line ? layout.dynamic_attribs.find(attribute => attribute.name === 'a_z_and_offset_scale')?.offset : position.offset + 4;
-        if (heightOffset !== undefined && source.getInt16(offset + heightOffset, true) !== 0) throw new Error('CPU projection does not support elevation or extrusion');
+        if (heightOffset !== undefined && source.getInt16(offset + heightOffset, true) !== 0 &&
+            (line || !projection.allowElevation)) throw new Error('CPU projection elevation requires allowElevation for polygon/raster meshes');
     }
     // A ribbon's real corners are centerline + packed extrusion. Refine those
     // edges (including width and round joins), not only the collapsed centerline.
@@ -245,6 +258,24 @@ function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRe
     const normals = layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_normals');
     const widths = layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_widths');
     const vertexCount = result.vertices.byteLength / layout.stride;
+    // Four clamped probes per wall normal share the final host/local batch.
+    // Domain-edge probes use their actual physical separation (one-sided there).
+    const normalSamples = new Map<number, {offset: number; eastSpan: number; northSpan: number}>();
+    if (!line && projectedNormal?.offset !== undefined && surfaceNormal?.offset !== undefined) {
+        for (let index = 0; index < vertexCount; index++) {
+            const vertex = new DataView(result.vertices.buffer, result.vertices.byteOffset + index * layout.stride, layout.stride);
+            if (vertex.getInt8(surfaceNormal.offset) === 0 && vertex.getInt8(surfaceNormal.offset + 1) === 0) continue;
+            const samples = [[-8, 0], [8, 0], [0, -8], [0, 8]].map(displacement =>
+                geographicPosition(vertex, false, [displacement[0], displacement[1]]));
+            const latitudeScale = Math.cos(geographicPosition(vertex)[1] * Math.PI / 180);
+            const mercatorY = (latitude: number) => SPHERE_RADIUS * Math.asinh(Math.tan(latitude * Math.PI / 180));
+            normalSamples.set(index, {offset: coordinates.length,
+                eastSpan: (samples[1][0] - samples[0][0]) * Math.PI / 180 * SPHERE_RADIUS * latitudeScale,
+                northSpan: (mercatorY(samples[3][1]) - mercatorY(samples[2][1])) * latitudeScale});
+            for (const sample of samples) coordinates.push(...sample);
+        }
+    }
+    const roadSamplesOffset = coordinates.length / 2;
     if (line && stroke?.offset !== undefined) for (let offset = 0; offset < result.vertices.byteLength; offset += layout.stride) {
         coordinates.push(...geographicPosition(new DataView(result.vertices.buffer, result.vertices.byteOffset + offset, layout.stride), true));
     }
@@ -271,7 +302,25 @@ function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRe
         const offset = index * layout.stride + projected.offset;
         output.setFloat32(offset, positions[index * 2], true);
         output.setFloat32(offset + 4, positions[index * 2 + 1], true);
-        output.setFloat32(offset + 8, 0, true);
+        output.setFloat32(offset + 8, line ? 0 :
+            output.getInt16(index * layout.stride + position.offset + 4, true) / PACKED_HEIGHT_SCALE * PROJECTED_COMMON_SCALE, true);
+        if (projectedNormal?.offset !== undefined) {
+            const normalOffset = projectedNormal.offset;
+            const packedOffset = surfaceNormal?.offset;
+            const normal: [number, number, number] = packedOffset === undefined ? [0, 0, 1] : [
+                output.getInt8(index * layout.stride + packedOffset) / 127,
+                output.getInt8(index * layout.stride + packedOffset + 1) / 127,
+                output.getInt8(index * layout.stride + packedOffset + 2) / 127];
+            const sample = normalSamples.get(index);
+            const transformed = sample ? projectSurfaceNormal(normal,
+                [(positions[sample.offset + 2] - positions[sample.offset]) / sample.eastSpan,
+                    (positions[sample.offset + 3] - positions[sample.offset + 1]) / sample.eastSpan],
+                [(positions[sample.offset + 6] - positions[sample.offset + 4]) / sample.northSpan,
+                    (positions[sample.offset + 7] - positions[sample.offset + 5]) / sample.northSpan]) : normal;
+            const length = Math.hypot(...transformed);
+            if (!Number.isFinite(length) || length === 0) throw new Error('Projected surface normal must be nonzero and finite');
+            transformed.forEach((value, component) => output.setFloat32(index * layout.stride + normalOffset + component * 4, value / length, true));
+        }
         if (line && stroke?.offset !== undefined) {
             const vertex = new DataView(result.vertices.buffer, result.vertices.byteOffset + index * layout.stride, layout.stride);
             const pixelScale = vertex.getFloat32(stroke.offset + 12, true);
@@ -282,7 +331,7 @@ function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRe
                 const sourceNormals = [0, 1].map(normal => [vertex.getFloat32(normalsOffset + normal * 8, true),
                     vertex.getFloat32(normalsOffset + normal * 8 + 4, true)]);
                 const projectedNormals = [0, 1].map(normal => {
-                    const sample = (2 * vertexCount + index * 4 + normal * 2) * 2;
+                    const sample = (roadSamplesOffset + vertexCount + index * 4 + normal * 2) * 2;
                     const tangentX = positions[sample + 2] - positions[sample];
                     const tangentY = positions[sample + 3] - positions[sample + 1];
                     const length = Math.hypot(tangentX, tangentY);

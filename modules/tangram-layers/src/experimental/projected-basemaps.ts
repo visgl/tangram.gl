@@ -4,7 +4,7 @@
 
 import {Layer} from '@deck.gl/core';
 import {Matrix4} from '@math.gl/core';
-import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates, getProjectedRoadUnit} from '@vis.gl/tangram-renderer/core';
+import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates, getProjectedRoadUnit, validateProjectedLights} from '@vis.gl/tangram-renderer/core';
 import type {HostFrameOptions, HostTileResourceOptions, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
 import createTangramLayerClass from '../tangram-layer.js';
 
@@ -92,6 +92,7 @@ export function getProjectedViewFrame(viewport: ProjectedViewport, options: Proj
 export function createProjectedBasemapScene(scene: Record<string, unknown>, projection: ProjectedBasemapOptions,
     workerUrl: string): Record<string, unknown> {
     const options = normalizeProjectedBasemapOptions(projection);
+    validateProjectedLights(scene.lights);
     const url = new URL(workerUrl);
     if (!['http:', 'https:', 'blob:'].includes(url.protocol)) throw new Error('Projection worker requires an HTTP(S) or Blob URL');
     if (scene.import !== undefined) throw new Error('Initial projected basemaps require a self-contained inline scene');
@@ -99,17 +100,25 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
     for (const value of Object.values(styles)) {
         const style = readRecord(value, 'style');
         if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(String(style.base)) || style.mix !== undefined ||
-            style.shaders !== undefined || (style.lighting !== undefined && style.lighting !== false)) {
-            throw new Error('Projected styles require unlit ground or annotation bases without mixins or shaders');
+            style.shaders !== undefined || (style.lighting !== undefined && style.lighting !== false &&
+                (!['polygons', 'raster'].includes(String(style.base)) || !['vertex', 'fragment'].includes(String(style.lighting))))) {
+            throw new Error('Projected styles require ground/annotation bases or vertex/fragment-lit surfaces without mixins or shaders');
         }
-        if (style.draw !== undefined) validateFlatDraw(readRecord(style.draw, 'style draw defaults'));
+        if (style.material !== undefined) {
+            const material = readRecord(style.material, 'material');
+            if (material.normal !== undefined || (material.specular !== undefined && material.specular !== 0)) {
+                throw new Error('Projected lighting supports diffuse materials without normal maps or specular terms');
+            }
+        }
+        if (style.draw !== undefined) validateFlatDraw(readRecord(style.draw, 'style draw defaults'),
+            Boolean(options.allowElevation && ['polygons', 'raster'].includes(String(style.base))));
         if (style.base === 'lines') {
             validateRoadDraw(style, false);
             if (style.draw !== undefined) validateRoadDraw(readRecord(style.draw, 'style draw defaults'), false);
         }
     }
     for (const layer of Object.values(readRecord(scene.layers ?? {}, 'layers'))) {
-        validateProjectedDraws(readRecord(layer, 'root layer'), styles);
+        validateProjectedDraws(readRecord(layer, 'root layer'), styles, {}, Boolean(options.allowElevation));
     }
     const settings = scene.scene;
     if (settings !== undefined && (!settings || typeof settings !== 'object' || Array.isArray(settings))) {
@@ -124,7 +133,7 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
 
 /** Reject unsupported authored features before any worker starts or a partial map can appear. */
 function validateProjectedDraws(node: Record<string, unknown>, styles: Record<string, unknown>,
-    inheritedDraws: Record<string, Record<string, unknown>> = {}): void {
+    inheritedDraws: Record<string, Record<string, unknown>> = {}, allowElevation = false): void {
     const effectiveDraws = {...inheritedDraws};
     if (node.draw !== undefined) {
         for (const [name, value] of Object.entries(readRecord(node.draw, 'draw'))) {
@@ -133,9 +142,9 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
             const styleName = String(draw.style ?? name);
             const style = styleName in styles ? readRecord(styles[styleName], 'draw style definition') : {base: styleName};
             if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(String(style.base))) {
-                throw new Error('Projected basemaps currently support only flat, noninteractive polygon and raster draws');
+                throw new Error('Projected basemaps require supported surface, road or annotation bases');
             }
-            validateFlatDraw(draw);
+            validateFlatDraw(draw, allowElevation && ['polygons', 'raster'].includes(String(style.base)));
             if (style.base === 'points' || style.base === 'text') {
                 const defaults = style.draw === undefined ? {} : readRecord(style.draw, 'annotation defaults');
                 const annotation = mergeAnnotationDraws(defaults, draw);
@@ -156,7 +165,7 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
         // Match Tangram layer parsing: configuration records are not child layers.
         if (!['filter', 'draw', 'visible', 'enabled', 'data', 'exclusive', 'priority'].includes(key) &&
             value && typeof value === 'object' && !Array.isArray(value)) {
-            validateProjectedDraws(readRecord(value, 'layer'), styles, effectiveDraws);
+            validateProjectedDraws(readRecord(value, 'layer'), styles, effectiveDraws, allowElevation);
         }
     }
 }
@@ -171,9 +180,9 @@ function mergeAnnotationDraws(defaults: Record<string, unknown>, draw: Record<st
     return merged;
 }
 
-/** Apply the same ground-only restrictions to layer draws and inherited style defaults. */
-function validateFlatDraw(draw: Record<string, unknown>): void {
-    if ((draw.extrude !== undefined && draw.extrude !== false) || draw.z !== undefined || draw.interactive === true) {
+/** Apply height opt-in and noninteractive restrictions to layer draws and inherited style defaults. */
+function validateFlatDraw(draw: Record<string, unknown>, allowElevation = false): void {
+    if ((!allowElevation && ((draw.extrude !== undefined && draw.extrude !== false) || draw.z !== undefined)) || draw.interactive === true) {
         throw new Error('Projected basemaps currently support only flat, noninteractive polygon and raster draws');
     }
 }

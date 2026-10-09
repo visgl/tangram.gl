@@ -25,7 +25,7 @@ import WorkerBroker from '../utils/worker_broker';
 import makeWireframeForTriangleElementData from '../builders/wireframe';
 import debugSettings from '../utils/debug_settings';
 import Geo from '../utils/geo';
-import {normalizeProjectedBasemapOptions, projectTileMesh} from '../procedures/mesh-projector';
+import {normalizeProjectedBasemapOptions, projectTileMesh, validateProjectedLights} from '../procedures/mesh-projector';
 
 import selection_fragment_source from '../selection/selection_fragment.glsl';
 import rasters_source from './raster/raster_globals.glsl';
@@ -42,7 +42,15 @@ export var Style = {
         this.cpu_projection = config?.scene?.cpu_projection === undefined ? undefined :
             normalizeProjectedBasemapOptions(config.scene.cpu_projection);
         if (this.cpu_projection) {
-            if (this.lighting && this.lighting !== false) throw new Error('CPU projection requires unlit ground geometry');
+            validateProjectedLights(config.lights);
+            if (this.lighting && !(['polygons', 'raster'].includes(this.baseStyle()) &&
+                ['vertex', 'fragment'].includes(this.lighting))) throw new Error('CPU projection lighting requires polygon/raster vertex or fragment mode');
+            const specular = this.material?.specular?.amount ?? this.material?.specular;
+            const zeroSpecular = specular === undefined || specular === 0 ||
+                (Array.isArray(specular) && specular.slice(0, 3).every(value => value === 0));
+            if (this.material?.normal || !zeroSpecular) {
+                throw new Error('CPU projection supports diffuse materials without normal maps or specular terms');
+            }
         }
         this.defines = (Object.prototype.hasOwnProperty.call(this, 'defines') && this.defines) || {}; // #defines to be injected into the shaders
         this.shaders = (Object.prototype.hasOwnProperty.call(this, 'shaders') && this.shaders) || {}; // shader customization (uniforms, defines, blocks, etc.)
@@ -91,7 +99,7 @@ export var Style = {
         this.material.inject(this);
 
         // Set lighting mode: fragment, vertex, or none (specified as 'false')
-        Light.setMode(this.cpu_projection ? false : this.lighting, this);
+        Light.setMode(this.cpu_projection ? this.lighting ?? false : this.lighting, this);
 
         // Setup raster samplers if needed
         this.setupRasters();

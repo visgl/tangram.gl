@@ -4,7 +4,7 @@
 
 import {Matrix4} from '@math.gl/core';
 import {describe, expect, test} from 'vitest';
-import {calculatePlanarGroundBounds} from '../src/scene/ground_footprint';
+import {calculatePlanarGroundBounds, calculatePlanarVolumeBounds} from '../src/scene/ground_footprint';
 import type {HostCamera} from '../src/types';
 
 function camera(view = new Matrix4(), projection = new Matrix4()): HostCamera {
@@ -12,6 +12,34 @@ function camera(view = new Matrix4(), projection = new Matrix4()): HostCamera {
 }
 
 describe('finite planar ground footprint', () => {
+    test('height slab includes elevated-only visibility and preserves the ground-only default', () => {
+        const input = camera(new Matrix4().translate([0, 0, -10]));
+        expect(calculatePlanarGroundBounds(input)).toBeNull();
+        expect(calculatePlanarVolumeBounds(input, [9, 11])).toEqual({sw: {x: -1, y: -1}, ne: {x: 1, y: 1}});
+        expect(calculatePlanarVolumeBounds(input, [0, 8])).toBeNull();
+        expect(calculatePlanarVolumeBounds(input, [12, 20])).toBeNull();
+        expect(calculatePlanarVolumeBounds(camera(), [0, 0])).toEqual(calculatePlanarGroundBounds(camera()));
+    });
+
+    test('includes interior slab extrema, negative heights and clipped stereo-eye unions without mutating cameras', () => {
+        const input = camera(new Matrix4().rotateX(Math.PI / 4).translate([0, 0, -10]));
+        const original = Array.from(input.view);
+        const bounds = calculatePlanarVolumeBounds(input, [8, 12]);
+        expect(bounds).not.toBeNull();
+        expect(bounds!.ne.y - bounds!.sw.y).toBeGreaterThan(2);
+        expect(calculatePlanarVolumeBounds(input, [8, 12], {sw: {x: -0.5, y: -0.5}, ne: {x: 0.5, y: 0.5}}))
+            .toEqual({sw: {x: -0.5, y: -0.5}, ne: {x: 0.5, y: 0.5}});
+        expect(Array.from(input.view)).toEqual(original);
+        expect(calculatePlanarVolumeBounds(camera(new Matrix4().translate([0, 0, 10])), [-11, -9])).not.toBeNull();
+        const left = calculatePlanarVolumeBounds(camera(new Matrix4().translate([1, 0, -10])), [9, 11]);
+        const right = calculatePlanarVolumeBounds(camera(new Matrix4().translate([-1, 0, -10])), [9, 11]);
+        expect(left?.sw.x).toBe(-2);
+        expect(right?.ne.x).toBe(2);
+    });
+
+    test.each([[1, 0], [NaN, 0], [0, Infinity]])('rejects invalid elevation ranges %j', (minimum, maximum) => {
+        expect(() => calculatePlanarVolumeBounds(camera(), [minimum, maximum])).toThrow('finite ordered heights');
+    });
     test('intersects a frustum whose ground hits lie on near/far plane edges, not corner rays', () => {
         // At the horizon, no upper ray hits ground. Finite edge intersections still bound it.
         const view = new Matrix4().lookAt({eye: [0, 0, 2], center: [0, 10, 2], up: [0, 0, 1]});

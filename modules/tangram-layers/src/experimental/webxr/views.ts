@@ -18,6 +18,14 @@ import FirstPersonViewAdapter, {getFirstPersonFrameForCamera} from '../../first_
 import GlobeViewAdapter from '../../globe_view_adapter.js';
 import type {XRDeckViewport, XREyeViewportOptions, XRHostFrameFields, XRProjectionOptions} from './types.js';
 
+/** Shared conservative visibility policy for mono and actual stereo eye cameras. */
+type FirstPersonVisibilityProperties = {
+  /** Maximum local geographic east/north extent per axis, in meters. */
+  firstPersonMaxGroundExtent?: number;
+  /** Finite ordered physical height interval, in meters; defaults to ground only. */
+  firstPersonElevationRange?: readonly [number, number];
+};
+
 /**
  * Map controller that keeps touch pinch rotation enabled while treating a
  * two-finger trackpad gesture as a map pan.
@@ -104,10 +112,10 @@ export class WebXRMapView extends MapView {
 export class WebXRFirstPersonView extends FirstPersonView {
   static displayName = 'WebXRFirstPersonView';
   /** Base deck view settings plus Tangram's bounded ground visibility policy. */
-  declare props: FirstPersonViewProps & {firstPersonMaxGroundExtent?: number};
+  declare props: FirstPersonViewProps & FirstPersonVisibilityProperties;
 
   /** Configure the logical first-person view and optional ground extent. */
-  constructor(props: FirstPersonViewProps & {firstPersonMaxGroundExtent?: number} = {}) {
+  constructor(props: FirstPersonViewProps & FirstPersonVisibilityProperties = {}) {
     super(props);
   }
 
@@ -121,7 +129,8 @@ export class WebXRFirstPersonView extends FirstPersonView {
   }
 
   getHostFrame(viewport: FirstPersonViewport): XRHostFrameFields {
-    const frame = FirstPersonViewAdapter.getFrame(viewport, {maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined});
+    const frame = FirstPersonViewAdapter.getFrame(viewport, {maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined,
+      elevationRange: this.props.firstPersonElevationRange});
     return {
       view: frame.view,
       projection: frame.projection,
@@ -134,7 +143,8 @@ export class WebXRFirstPersonView extends FirstPersonView {
   getHostFrameForCamera(viewport: XRDeckViewport, camera: HostCamera, options: {width?: number; height?: number} = {}): XRHostFrameFields {
     return getFirstPersonFrameForCamera(viewport, camera, {
       ...options,
-      maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined
+      maxGroundExtent: this.props.firstPersonMaxGroundExtent ?? undefined,
+      elevationRange: this.props.firstPersonElevationRange
     });
   }
 

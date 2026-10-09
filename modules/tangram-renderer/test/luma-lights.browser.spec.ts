@@ -292,6 +292,31 @@ describe('scene light integration', () => {
         expect(buffer.destroy).toHaveBeenCalledTimes(1);
     });
 
+    test.each(['vertex', 'fragment'])('projected %s lighting creates a named-light block and removes it when disabled', lighting => {
+        const scene = Object.create(Scene.prototype);
+        scene.config = SceneLoader.finalize({config: {
+            scene: {cpu_projection: {type: 'equal-earth', allowElevation: true}},
+            styles: {building: {base: 'polygons', lighting}},
+            lights: {sun: {type: 'directional', diffuse: '#ff0000', ambient: 0, direction: [0, 0, -1]}}
+        }, bundle: null}).config;
+        scene.shader_language = 'wgsl';
+        scene.view = createView();
+        const buffer = {destroy: vi.fn()};
+        scene.createUniformBuffer = vi.fn(() => buffer);
+        vi.spyOn(Light, 'inject').mockImplementation(() => {});
+        scene.createLights();
+        expect(scene.config.scene.lighting).not.toBe('configured');
+        expect(scene.uniform_buffers.TangramLighting).toBe(buffer);
+        expect(scene.getLumaLightDefinitions()[0].tangram.diffuse).toEqual([1, 0, 0]);
+        scene.config.styles.building.lighting = false;
+        scene.createLights();
+        expect(buffer.destroy).toHaveBeenCalledTimes(1);
+        expect(scene.uniform_buffers.TangramLighting).toBeUndefined();
+        scene.config.styles = {};
+        scene.createLights();
+        expect(scene.createUniformBuffer).toHaveBeenCalledTimes(1);
+    });
+
     test('creates native light arrays and snapshots without mutating the authored array', () => {
         const lights = [{type: 'ambient', color: [255, 128, 0]}];
         const config = SceneLoader.finalize({config: {lights}, bundle: null}).config;

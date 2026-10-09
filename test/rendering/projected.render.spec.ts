@@ -5,6 +5,9 @@
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Deck, OrthographicView, type Layer, type LayerProps} from '@deck.gl/core';
+import {Matrix4} from '@math.gl/core';
+import {HostFrame} from '@vis.gl/tangram-renderer/core';
+import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';
 import {ProjectedBasemapLayer, createProjectedBasemapScene, ProjectedBasemapNavigation,
   selectProjectedTileDetail} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
@@ -52,6 +55,93 @@ function createRoadScene(maximumSourceZoom = 6) {
 }
 
 beforeEach(() => commands.startRenderingDiagnostics());
+
+test.each([
+    {lighting: 'vertex', native: true}, {lighting: 'fragment', native: true},
+    {lighting: 'vertex', native: false}, {lighting: 'fragment', native: false}
+] as const)(`${DEVICE_TYPE}: elevated projected roofs render $lighting lighting; native=$native`, async ({lighting, native}) => {
+    harness = new RenderingHarness();
+    await harness.initializeDevice();
+    const navigation = new ProjectedBasemapNavigation(createProjectedExampleProjectionEngine());
+    const point = await navigation.projectPosition([-100, 40], 'equal-earth');
+    const source = `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features: [{
+        type: 'Feature', properties: {height: 100}, geometry: {type: 'Polygon', coordinates: [[
+            [-100.005, 39.995], [-99.995, 39.995], [-99.995, 40.005], [-100.005, 40.005], [-100.005, 39.995]
+        ]]}
+    }]}))}`;
+    const scene = createProjectedBasemapScene({sources: {building: {type: 'GeoJSON', url: source, max_zoom: 6}},
+        lights: native ? [{type: 'directional', color: [255, 0, 0], intensity: 0.5, direction: [0, 0, -1]}] :
+            {sun: {type: 'directional', diffuse: [0.5, 0, 0], ambient: 0, direction: [0, 0, -1]}},
+        styles: {building: {base: 'polygons', lighting, material: {ambient: 0, diffuse: 1, specular: 0}}},
+        layers: {building: {data: {source: 'building'}, draw: {building: {order: 0, color: '#fff', extrude: true}}}}},
+        {type: 'equal-earth', allowElevation: true}, `${location.origin}/modules/tangram-renderer/dist/projected-basemaps-worker.js`);
+    const errors: Error[] = [];
+    deck = new Deck({canvas: harness.canvas, width: '100%', height: '100%', device: harness.device!, useDevicePixels: 1,
+        views: new OrthographicView({id: 'projected', flipY: false}),
+        initialViewState: {target: [point[0], point[1], 0.02], zoom: 12},
+        layers: [new FixtureLayer({id: 'elevated', scene, projectedTileZoom: 6,
+            projectedVisibleBounds: [-101, 39, -99, 41], onSceneError: error => errors.push(error)})],
+        onError: error => errors.push(error)});
+    await expect.poll(async () => {
+        const pixels = (await readCanvasPixels(harness!.canvas)).data;
+        let lit = 0;
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+            if (pixels[offset] > 115 && pixels[offset] < 140 && pixels[offset + 1] < 10 && pixels[offset + 2] < 10) lit++;
+        }
+        return lit;
+    }, {timeout: 15000}).toBeGreaterThan(100);
+    expect(errors).toEqual([]);
+    navigation.dispose();
+});
+
+test.each(['vertex', 'fragment'] as const)(`${DEVICE_TYPE}: projected %s lighting uses transformed visible wall normals`, async lighting => {
+    harness = new RenderingHarness();
+    const navigation = new ProjectedBasemapNavigation(createProjectedExampleProjectionEngine());
+    const target = await navigation.projectPosition([-130, 50], 'albers');
+    // Independently derive the west wall's common-space normal perpendicular
+    // to its north tangent. Albers rotates it away from the packed [-1,0,0].
+    const south = await navigation.projectPosition([-130.005, 49.999999], 'albers');
+    const north = await navigation.projectPosition([-130.005, 50.000001], 'albers');
+    const tangent = [north[0] - south[0], north[1] - south[1]];
+    const expectedRed = 127.5 * tangent[1] / Math.hypot(...tangent) / Math.hypot(1, 0.15);
+    const untransformedRed = 127.5 / Math.hypot(1, 0.15);
+    expect(Math.abs(expectedRed - untransformedRed)).toBeGreaterThan(6);
+    const source = {type: 'FeatureCollection', features: [{type: 'Feature', properties: {height: 1000},
+        geometry: {type: 'Polygon', coordinates: [[[-130.005, 49.995], [-129.995, 49.995],
+            [-129.995, 50.005], [-130.005, 50.005], [-130.005, 49.995]]]}}]};
+    const scene = createProjectedBasemapScene({scene: {background: {color: '#000'}},
+        sources: {building: {type: 'GeoJSON', max_zoom: 6,
+            url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`}},
+        lights: {sun: {type: 'directional', diffuse: [0.5, 0, 0], ambient: 0, direction: [1, 0, -0.15]}},
+        styles: {building: {base: 'polygons', lighting, material: {ambient: 0, diffuse: 1, specular: 0}}},
+        layers: {building: {data: {source: 'building'}, draw: {building: {order: 0, color: '#fff', extrude: true}}}}},
+        {type: 'albers', allowElevation: true}, new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+    await harness.initialize(scene);
+    const scale = 2 ** 12;
+    const projection = new Matrix4().ortho({left: -256 / scale, right: 256 / scale,
+        bottom: -160 / scale, top: 160 / scale, near: 0.1, far: 100}).multiplyRight(new Matrix4().lookAt({
+        eye: [target[0] - 1, target[1] - 1, 1], center: [target[0], target[1], 0.02], up: [0, 0, 1]
+    }));
+    const frame = new HostFrame({viewport: {width: 512, height: 320},
+        projection: {type: 'projected', visibleBounds: [-131, 49, -129, 51]},
+        geographicAnchor: {longitude: -130, latitude: 50, zoom: 6}, tileZoom: 6, tileBuffer: 0,
+        renderViews: [{id: 'wall', camera: {view: new Float64Array(new Matrix4()),
+            projection: new Float64Array(projection), position: [0, 0, 1]}}]});
+    await expect.poll(async () => {
+        harness!.renderer.setFrame(frame);
+        const pass = harness!.device.beginRenderPass({clearColor: [0, 0, 0, 1], clearDepth: 1, clearStencil: 0});
+        harness!.renderer.render({frame, renderPass: pass, force: true});
+        submitEyeRenderPass(harness!.device, pass);
+        const pixels = (await readCanvasPixels(harness!.canvas)).data;
+        let walls = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+            if (Math.abs(pixels[index] - expectedRed) < 4 && pixels[index + 1] < 10 && pixels[index + 2] < 10) walls++;
+        }
+        return walls;
+    }, {timeout: 15000}).toBeGreaterThan(100);
+    expect(harness.errors).toEqual([]);
+    navigation.dispose();
+});
 
 test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
   `${DEVICE_TYPE}: projected %s annotations retain pixel size and render attached/standalone atlas text`, async type => {
@@ -142,6 +232,9 @@ test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with out
   const before = await thickness();
   expect(before).toBeLessThanOrEqual(20);
   deck.setProps({viewState: {target, zoom: 3}});
+  // Thickness is deliberately zoom-invariant; polling it can accept the old
+  // frame. Draw the new camera before recording the solid-area comparison.
+  deck.redraw('sample projected road camera');
   await expect.poll(thickness).toBeGreaterThan(8);
   expect(Math.abs(await thickness() - before)).toBeLessThanOrEqual(2);
   const greenPixels = async () => {
