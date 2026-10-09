@@ -12,6 +12,7 @@ import {getSidebarMarkdownPaths, normalizeLlmMarkdown, prepareLlmOutput} from '.
 const config = {url: 'https://vis.gl', baseUrl: '/tangram.gl/', title: 'tangram.gl'};
 const directories: string[] = [];
 const require = createRequire(import.meta.url);
+const rehypeCodeBlocks = require('../website/scripts/rehype-code-blocks.cjs');
 
 afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, {recursive: true, force: true});
@@ -57,6 +58,30 @@ test('sidebar inventory covers overview, nested categories and explicit document
   expect(getSidebarMarkdownPaths([{type: 'category', items: ['README', {type: 'category', items: [
     {type: 'doc', id: 'api-reference/host-frame'}, 'developer-guide/working-with-ai'
   ]}]}])).toEqual(['docs.md', 'docs/api-reference/host-frame.md', 'docs/developer-guide/working-with-ai.md']);
+});
+
+test('Prism extraction preserves code language, indentation and blank lines without markup spacing', () => {
+  const line = (value: string) => ({type: 'element', tagName: 'div', properties: {className: ['token-line']}, children: [
+    {type: 'element', tagName: 'span', children: [{type: 'text', value}]}, {type: 'element', tagName: 'br'}
+  ]});
+  const code = {type: 'element', tagName: 'code', properties: {className: ['codeBlockLines']}, children: [
+    line('sources:'), line('  map: {}'), line(''), line('layers: {}')
+  ]};
+  const tree = {type: 'root', children: [{type: 'element', tagName: 'pre', properties: {className: ['prism-code', 'language-yaml']}, children: [code]}]};
+  rehypeCodeBlocks()(tree);
+  expect(code.properties.className).toEqual(['language-yaml']);
+  expect(code.children).toEqual([{type: 'text', value: 'sources:\n  map: {}\n\nlayers: {}'}]);
+  rehypeCodeBlocks()(tree);
+  expect(code.children).toEqual([{type: 'text', value: 'sources:\n  map: {}\n\nlayers: {}'}]);
+});
+
+test('ordinary preformatted code retains explicit breaks and an existing code language', () => {
+  const code = {type: 'element', tagName: 'code', properties: {className: ['language-json']}, children: [
+    {type: 'text', value: '{'}, {type: 'element', tagName: 'br'}, {type: 'text', value: '  "layers": {}\n}'}
+  ]};
+  rehypeCodeBlocks()({type: 'element', tagName: 'pre', children: [code]});
+  expect(code.properties.className).toEqual(['language-json']);
+  expect(code.children).toEqual([{type: 'text', value: '{\n  "layers": {}\n}'}]);
 });
 
 test('requires every sidebar document in the generated index', () => {
@@ -111,6 +136,7 @@ test('production build uses the same site origin, exclusions and no full-text ou
     includePages: false, includeVersionedDocs: false,
     excludeRoutes: ['/tangram.gl/examples/**', '/tangram.gl/docs/examples/**']
   }});
+  expect(plugin[1].content.beforeDefaultRehypePlugins).toEqual([rehypeCodeBlocks]);
   const sidebar = require('../website/sidebars.js');
   expect(getSidebarMarkdownPaths(sidebar.docsSidebar)).toContain('docs/developer-guide/working-with-ai.md');
   const manifest = JSON.parse(readFileSync(new URL('../website/package.json', import.meta.url), 'utf8'));

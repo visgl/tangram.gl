@@ -5,6 +5,7 @@
 // @ts-check
 
 const path = require('path');
+const rehypeCodeBlocks = require('./scripts/rehype-code-blocks.cjs');
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -81,6 +82,7 @@ const config = {
           includeDocs: true,
           includeVersionedDocs: false,
           includeGeneratedIndex: true,
+          beforeDefaultRehypePlugins: [rehypeCodeBlocks],
           excludeRoutes: ['/tangram.gl/examples/**', '/tangram.gl/docs/examples/**']
         }
       }
