@@ -444,7 +444,7 @@ results, and readback/worker failures reject internal requests instead of leavin
 them pending. `Scene.getFeatureAt()` retains its existing `{error}` result on failure.
 The staging buffer is released on success and failure. This does not guarantee
 stall-free WebGL picking: luma's WebGL `readAsync()` may still synchronize with
-the GPU. WebGPU supports selection shaders for polygons/rasters, lines, points and
+the GPU. WebGPU supports selection shaders for polygons, lines, points and
 text, using a copyable RGBA8 attachment, target-specific pipelines, native-row
 conversion and padded asynchronous readback. Its selection encoder is independent
 of the host's open render pass.
