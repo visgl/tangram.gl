@@ -8,6 +8,12 @@ import {Texture} from '@luma.gl/core';
 import FeatureSelection from '../src/selection/selection';
 import Scene from '../src/scene/classic_scene';
 
+test.each([false, true])('uninitialized scenes do not allocate selection resources (portable: %s)', async portable => {
+  const scene = {initialized: false, portable_rendering: portable, resetFeatureSelection: vi.fn()};
+  expect(await Scene.prototype.getFeatureAt.call(scene, {x: 20, y: 30})).toBeUndefined();
+  expect(scene.resetFeatureSelection).not.toHaveBeenCalled();
+});
+
 test('device selection owns and releases its framebuffer without raw texture attachment', () => {
   const framebuffer = {get handle() { throw new Error('Raw handle accessed'); }, destroy: vi.fn()};
   const createFramebuffer = vi.fn(() => framebuffer);
