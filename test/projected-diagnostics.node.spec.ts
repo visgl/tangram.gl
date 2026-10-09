@@ -60,6 +60,12 @@ test('host kernel diagnostics remain separate from worker refinement and GPU res
   const host = {activeRequests: 1, completedRequests: 2, failedRequests: 3, cancelledRequests: 4,
     batches: 5, submittedPositions: 6, yieldCount: 7, maxBatchPositions: 8};
   const snapshot = {...host};
+  for (const workers of [[], [{workerId: 0}]]) {
+    const waiting = formatProjectedDiagnostics(workers, resources, host);
+    expect(waiting).toContain('Waiting for projected-worker diagnostics');
+    expect(waiting).toContain('Host kernel work: 1 active, 2 completed, 3 failed / 4 cancelled');
+    expect(waiting).not.toContain('Cumulative work:');
+  }
   const scene = {getTileSourceStatistics: async () => [{projectionWork}],
     getProjectionEngineStatistics: () => host, tile_manager: {getResourceStatistics: () => resources}};
   const updateText = vi.fn();
