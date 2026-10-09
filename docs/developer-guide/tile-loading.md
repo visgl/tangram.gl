@@ -111,7 +111,7 @@ worker reset. Cancelled tile/preprocessor results cannot publish late geometry.
 Legacy function providers need not support transport cancellation, but their late
 results are likewise ignored. Source metadata failures remain explicit rejections.
 
-The pinned loaders.gl PMTiles alpha.9 drops archive attribution from normalized metadata.
+The pinned loaders.gl PMTiles alpha.11 drops archive attribution from normalized metadata.
 The Tangram adapter also reads and caches raw archive JSON and combines its
 credits with any normalized credits until that upstream gap is fixed. Encoded
 `tileMIMEType` is distinct from the `pmtiles` container format; authored `decoder`
@@ -205,7 +205,7 @@ without explicitly reconciling those semantics.
 
 ## Comparative validation
 
-Tests use published `@loaders.gl/tiles@5.0.0-alpha.10`, not copied source or a local
+Tests use published `@loaders.gl/tiles@5.0.0-alpha.11`, not copied source or a local
 checkout. Both engines receive the same compact fixtures. Frozen expected
 footprints additionally guard against two adapters agreeing on the same mistake.
 Real browser source tests compare postprocessed MVT, GeoJSON and raster payloads.

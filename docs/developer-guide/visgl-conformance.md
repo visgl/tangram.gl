@@ -22,9 +22,9 @@ This structure lets us measure compatibility before changing runtime behavior:
 
 | Procedure | Production implementation | Candidate | Current result |
 | --- | --- | --- | --- |
-| Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/config/yaml-loader` alpha.10 | All 26 classic scene files match; flow merges, timestamps and scientific scalar syntax still differ |
-| Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/mvt/mvt-geojson-loader` alpha.9 | Points, lines, polygons, extents, IDs and `parse_json` match; an authored `__tangram_layer` property is still overwritten by the candidate |
-| Archive loading | Optional worker provider | `@loaders.gl/pmtiles` alpha.9 | Hermetic 16 KB PMTiles v3 fixture checks range requests, raw bytes, metadata, credits and both MVT decoders |
+| Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/config/yaml-loader` alpha.11 | All 26 classic scene files match; flow merges, timestamps and scientific scalar syntax still differ |
+| Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/mvt/mvt-geojson-loader` alpha.11 | Points, lines, polygons, extents, IDs and `parse_json` match; an authored `__tangram_layer` property is still overwritten by the candidate |
+| Archive loading | Optional worker provider | `@loaders.gl/pmtiles` alpha.11 | Hermetic 16 KB PMTiles v3 fixture checks range requests, raw bytes, metadata, credits and both MVT decoders |
 | Web Mercator | `@math.gl/web-mercator` plus Tangram meter adapter | Tangram projection formulas | Edge-domain round trips and tile selection match within numeric tolerance |
 | Matrix operations | `@math.gl/core` `Matrix3`/`Matrix4` in camera and tile paths | Golden outputs captured from `gl-mat3@1.0.0` and `gl-mat4@1.1.4` | Identity, transforms, projection, look-at, inversion, and singular-matrix behavior match in conformance tests |
 
@@ -98,7 +98,7 @@ coverage.
 
 ## Current parser probes and rollout gate
 
-The following snapshot uses master `1d62e568` and its lockfile.
+The following snapshot uses loaders.gl `5.0.0-alpha.11` and math.gl `5.0.0-alpha.15`.
 Run `yarn bundle-size:parsers` to reproduce minified browser probes including
 the Tangram normalization adapter. The script also rejects accidental Arrow/GIS
 conversion imports in the lightweight MVT graph. Measurements use decimal KB:
@@ -106,9 +106,9 @@ conversion imports in the lightweight MVT graph. Measurements use decimal KB:
 | Parser with adapter | Minified | Gzip |
 | --- | ---: | ---: |
 | Legacy YAML | 32.4 KB | 10.6 KB |
-| loaders.gl YAML alpha.10 | 9.6 KB | 3.1 KB |
+| loaders.gl YAML alpha.11 | 9.6 KB | 3.1 KB |
 | Legacy MVT | 25.1 KB | 8.1 KB |
-| loaders.gl lightweight MVT alpha.9 | 27.8 KB | 9.3 KB |
+| loaders.gl lightweight MVT alpha.11 | 27.8 KB | 9.3 KB |
 
 These supersede historical broad-import parser estimates, not the matrix
 migration numbers. Both default parser switches remain blocked by the semantic

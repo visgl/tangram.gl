@@ -75,7 +75,7 @@ const layer = new ProjectedBasemapLayer({scene, projectionEngine, projectedTileZ
 // const renderer = Renderer.create(scene, {device, canvas, projectionEngine});
 ```
 
-`@math.gl/projection` is an optional peer. Install a compatible alpha.13 factory
+`@math.gl/projection` is an optional peer. Install a compatible alpha.15 factory
 when using this option. Tangram exposes a structural factory contract without
 importing the optional package's types or a default factory in its normal entries. Register only the
 algorithms you need. Lazy factories are supported through
