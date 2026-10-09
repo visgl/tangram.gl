@@ -10,7 +10,9 @@ test.each([ts.ModuleKind.Node16, ts.ModuleKind.NodeNext])('public layer declarat
   const fileName = resolve('test/package-types.consumer.mts');
   const source = `
     import {TangramLayer} from '@vis.gl/tangram-layers';
-    import type {RendererOptions, ProjectionEngine} from '@vis.gl/tangram-renderer/core';
+    import {ProjectionBatchExecutor, Renderer} from '@vis.gl/tangram-renderer/core';
+    import {ProjectedBasemapNavigation} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+    import type {RendererOptions, ProjectionEngine, ProjectionExecutionStatistics} from '@vis.gl/tangram-renderer/core';
     const options: RendererOptions = {};
     const engine: ProjectionEngine = {
       createProjection: () => ({projectFlatSync: positions => positions}),
@@ -21,6 +23,14 @@ test.each([ts.ModuleKind.Node16, ts.ModuleKind.NodeNext])('public layer declarat
     // @ts-expect-error A transform is not a factory; the optional-peer-free type must not become any.
     new TangramLayer({scene: 'scene.yaml', projectionEngine: {projectSync: () => []}});
     options.projectionEngine = engine;
+    options.projectionEngineExecution = {maxBatchPositions: 256};
+    new TangramLayer({scene: 'scene.yaml', projectionEngine: engine, projectionEngineExecution: options.projectionEngineExecution});
+    const renderer = Renderer.create({}, options);
+    const statistics: ProjectionExecutionStatistics | undefined = renderer.getProjectionEngineStatistics();
+    const navigation = new ProjectedBasemapNavigation(engine, options.projectionEngineExecution);
+    navigation.projectPositions(new Float64Array([0, 0]), 'equal-earth', {signal: new AbortController().signal});
+    new ProjectionBatchExecutor(options.projectionEngineExecution).execute(new Float64Array([0, 0]),
+      () => engine.createProjectionAsync(), {signal: new AbortController().signal});
   `;
   const options: ts.CompilerOptions = {module, moduleResolution: module === ts.ModuleKind.Node16 ?
     ts.ModuleResolutionKind.Node16 : ts.ModuleResolutionKind.NodeNext,

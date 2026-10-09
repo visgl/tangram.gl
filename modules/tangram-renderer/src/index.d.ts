@@ -60,6 +60,7 @@ export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmb
 export type {Light as LumaLight} from '@luma.gl/shadertools';
 export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
 export type {MeshProjectionStatistics} from './procedures/mesh-projector';
+export type {ProjectionExecutionOptions, ProjectionExecutionStatistics} from './procedures/projection-batch-executor.js';
 
 export declare class Scene {
   static create(config: SceneDefinition, options?: RendererOptions): Scene;
@@ -73,6 +74,8 @@ export declare class Scene {
   getSourceMetadata(): Promise<Record<string, import('./sources/tile_source_metadata').TangramTileSourceMetadata>>;
   /** Detached decoded acquisition diagnostics from each current worker. */
   getTileSourceStatistics(): Promise<import('./types').TileSourceStatistics[]>;
+  /** Detached cooperative host execution counters; absent for worker-local kernels. */
+  getProjectionEngineStatistics(): import('./procedures/projection-batch-executor.js').ProjectionExecutionStatistics | undefined;
   /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
   getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   setDataSource(name: string, config: SceneDataSource): Promise<unknown> | undefined;
@@ -102,6 +105,8 @@ export declare class ClassicWebGLRenderer {
   getSourceMetadata(): Promise<Record<string, import('./sources/tile_source_metadata').TangramTileSourceMetadata>>;
   /** Per-worker built-in source-procedure slots; separate from renderer mesh-build accounting. */
   getTileSourceStatistics(): Promise<import('./types').TileSourceStatistics[]>;
+  /** Detached cooperative host execution counters; absent for worker-local kernels. */
+  getProjectionEngineStatistics(): import('./procedures/projection-batch-executor.js').ProjectionExecutionStatistics | undefined;
   /** Current-eye luma.gl definitions with exact Tangram-only shading extensions. */
   getLumaLightDefinitions(): import('./lights/light-definitions').TangramLightMapping[];
   subscribe(listeners: SceneListeners): void;

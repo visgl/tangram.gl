@@ -11,7 +11,7 @@ import createTangramLayerClass from '../tangram-layer.js';
 export {ProjectedBasemapNavigation, getProjectedGeographicBounds} from './projected-navigation';
 export type {ProjectedNavigationViewport, ProjectedBasemapType, ProjectedGeographicBounds,
     ProjectedGeographicPosition, ProjectedFitOptions, ProjectedFitViewState,
-    ProjectedCameraCoverage, ProjectedFocusTransition} from './projected-navigation';
+    ProjectedCameraCoverage, ProjectedFocusTransition, ProjectedNavigationRequestOptions} from './projected-navigation';
 export {selectProjectedTileDetail} from './projected-detail';
 export type {ProjectedTileDetailOptions, ProjectedTileDetail} from './projected-detail';
 

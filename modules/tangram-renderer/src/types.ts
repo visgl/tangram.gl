@@ -182,6 +182,8 @@ export type LegacyHostFrame = {
 export type RendererOptions = {
   /** Optional caller-owned CRS factory for CPU-projected basemaps; ordinary Mercator/globe cameras are unchanged. */
   projectionEngine?: ProjectionEngine;
+  /** Host kernel chunking policy; captured at renderer creation and independent of worker/build budgets. */
+  projectionEngineExecution?: import('./procedures/projection-batch-executor').ProjectionExecutionOptions;
   device?: Device;
   /** Optional worker script URL; otherwise the package uses its embedded worker. */
   workerURL?: string;

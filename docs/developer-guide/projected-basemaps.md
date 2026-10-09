@@ -100,6 +100,37 @@ workers, so keep the factory reference stable. Tangram never modifies or destroy
 the caller's engine, even if shared by multiple renderers. Pending work is rejected
 on teardown; factory/transform errors surface through `onSceneError`.
 
+### Cooperative host execution
+
+Injected kernels receive at most **4,096 coordinate pairs per synchronous call**
+by default. Larger mesh and navigation requests yield to a browser task between
+chunks, allowing input and painting to proceed. Set a stable
+`projectionEngineExecution: {maxBatchPositions: 1024}` object on the layer or
+renderer to customize this limit (integer 1–65,536). It is captured at creation;
+changing its identity on a layer recreates the scene. It does not change tile
+detail, refinement, worker concurrency or memory budgets. The full input and
+output buffers are still allocated; this is a per-call work limit, not a memory
+limit or a guarantee of milliseconds per frame.
+
+Both the host adapter and `new ProjectedBasemapNavigation(engine, executionOptions)`
+snapshot coordinate inputs **before** awaiting compilation. Caller mutations or
+transfers cannot change pending requests. Navigation's `projectPositions`,
+`projectPosition`, `unprojectPosition` and `unprojectScreenPosition` accept an
+optional final `{signal: AbortSignal}` argument. Cancellation rejects with
+`AbortError`, publishes no partial result and leaves shared compilation and other
+requests usable. The example cancels obsolete hover probes. Disposal rejects even
+a pending compilation promptly; it cannot interrupt a synchronous kernel already
+running or cancel the caller-owned factory's compilation.
+
+`renderer.getProjectionEngineStatistics()` (also available on its scene) returns
+detached cumulative host counters, or `undefined` for worker-local projection.
+Navigation has independent `getExecutionStatistics()` counters. Active, completed,
+failed and cancelled requests are separate from submitted positions, kernel calls
+and scheduled yields. Position/call totals include work attempted by requests that
+later fail or cancel; invalid or already-aborted inputs are not counted. The
+example displays host work separately from worker refinement and GPU/cache
+residency. These counters are not timing measurements.
+
 ## Projection and coordinate contract
 
 ### Switching projections without reloading tiles

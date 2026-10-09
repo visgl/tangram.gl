@@ -13,6 +13,8 @@ import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {validateProjectionEngine} from '../procedures/projected-coordinate-transform';
 import type {ProjectedBasemapOptions} from '../procedures/mesh-projector';
+import {normalizeProjectionExecutionOptions} from '../procedures/projection-batch-executor';
+import type {ProjectionExecutionStatistics} from '../procedures/projection-batch-executor';
 
 
 interface FrameOptions {renderViewId?: string}
@@ -37,6 +39,8 @@ interface RendererScene {
     getSourceMetadata(): Promise<Record<string, TangramTileSourceMetadata>>;
     /** Shared built-in load queue diagnostics from each worker, independent of mesh builds. */
     getTileSourceStatistics(): Promise<TileSourceStatistics[]>;
+    /** Host-side kernel work, absent for the worker-local implementation. */
+    getProjectionEngineStatistics(): ProjectionExecutionStatistics | undefined;
     /** Returns detached lighting descriptors for the currently active eye. */
     getLumaLightDefinitions(): TangramLightMapping[];
     resizeMap(width: number, height: number): void;
@@ -73,6 +77,7 @@ export default class Renderer {
     constructor(config: SceneDefinition, options: RendererOptions = {}) {
         validateConcurrentTileLoads(options.maxConcurrentTileLoadsPerWorker);
         validateProjectionEngine(options.projectionEngine);
+        normalizeProjectionExecutionOptions(options.projectionEngineExecution);
         this.gpuBackend = options.device ? new LumaDeviceRenderer(options.device) : null;
         // Retain the historical field while integrations migrate to gpuBackend.
         this.device_renderer = this.gpuBackend;
@@ -136,6 +141,11 @@ export default class Renderer {
     /** Inspect source procedures without confusing their slots with renderer mesh-build slots. */
     getTileSourceStatistics(): Promise<TileSourceStatistics[]> {
         return this.scene.getTileSourceStatistics();
+    }
+
+    /** Inspect cooperative host projection work without conflating it with source/GPU residency. */
+    getProjectionEngineStatistics(): ProjectionExecutionStatistics | undefined {
+        return this.scene.getProjectionEngineStatistics();
     }
 
     /** Resolve Tangram lights into luma.gl definitions, retaining non-equivalent Tangram extensions. */

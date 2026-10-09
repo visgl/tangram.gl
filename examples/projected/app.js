@@ -17,7 +17,8 @@ import {createProjectedDiagnosticsPoller, createProjectedSceneLoadHandler} from 
 const parameters = new URLSearchParams(location.search);
 // The caller owns one stable factory; the renderer caches independent compiled CRS transforms.
 const projectionEngine = createProjectedExampleProjectionEngine();
-const navigation = new ProjectedBasemapNavigation(projectionEngine);
+const projectionEngineExecution = {maxBatchPositions: 4096};
+const navigation = new ProjectedBasemapNavigation(projectionEngine, projectionEngineExecution);
 const device = parameters.get('device') || (navigator.gpu ? 'webgpu' : 'webgl');
 const projectionSelector = document.querySelector('#projection');
 const basemapSelector = document.querySelector('#basemap');
@@ -43,6 +44,7 @@ let projectionGeneration = 0;
 let projectionPending = false;
 let navigationGeneration = 0;
 let probeGeneration = 0;
+let probeController;
 let detailTimer;
 let disposed = false;
 let viewState = {target: [0, 0, 0], zoom: projectionSelector.value === 'albers' ? 0 : -1.5};
@@ -99,6 +101,7 @@ async function changeProjection() {
   projectionPending = true;
   navigationGeneration++;
   probeGeneration++;
+  probeController?.abort();
   clearTimeout(detailTimer);
   const type = projectionSelector.value;
   try {
@@ -140,6 +143,7 @@ async function fitLoadingRegion() {
     if (disposed || generation !== navigationGeneration) return;
     viewState = fitted;
     probeGeneration++;
+    probeController?.abort();
     deck.setProps({viewState});
     scheduleDetail();
   } catch (error) {
@@ -150,12 +154,14 @@ async function fitLoadingRegion() {
 /** Invert CSS cursor coordinates on the ground plane; this does not select rendered features. */
 async function probeCoordinates(event) {
   const generation = ++probeGeneration;
+  probeController?.abort();
+  probeController = new AbortController();
   const viewport = deck?.getViewports()[0];
   if (!viewport || disposed) return;
   const rectangle = document.querySelector('#projected-map').getBoundingClientRect();
   try {
     const position = await navigation.unprojectScreenPosition(viewport,
-      [event.clientX - rectangle.left, event.clientY - rectangle.top], activeProjection);
+      [event.clientX - rectangle.left, event.clientY - rectangle.top], activeProjection, {signal: probeController.signal});
     if (disposed || generation !== probeGeneration) return;
     coordinateProbe.textContent = position ? `${position[0].toFixed(4)}°, ${position[1].toFixed(4)}°` : 'Outside projection domain';
   } catch (error) {
@@ -174,6 +180,7 @@ async function initialize(resetCoverage = true) {
   if (disposed) return;
   navigationGeneration++;
   probeGeneration++;
+  probeController?.abort();
   clearTimeout(detailTimer);
   const type = activeProjection;
   if (!projectionPending) projectionSelector.value = type;
@@ -219,7 +226,7 @@ async function initialize(resetCoverage = true) {
   refinementError = refinementSelector.value === 'adaptive' ? 2 / 2 ** Math.ceil(viewState.zoom) : undefined;
   url.searchParams.set('refinement', refinementSelector.value);
   history.replaceState(null, '', url);
-  const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene, projectionEngine,
+  const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene, projectionEngine, projectionEngineExecution,
     // OpenFreeMap transportation starts at zoom 4; overview imagery only needs zoom 2.
     projectedProjection: {type, cacheProjectedMeshes: true, ...(refinementError === undefined ? {} : {maxProjectedError: refinementError})}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
     projectedVisibleBounds: loadingBounds, projectedMaxTiles: 256, visible: !coverageEmpty,
@@ -246,6 +253,7 @@ async function initialize(resetCoverage = true) {
     onViewStateChange: event => {
       viewState = event.viewState;
       probeGeneration++;
+      probeController?.abort();
       deck.setProps({viewState});
       scheduleDetail();
     },
@@ -282,6 +290,7 @@ document.querySelector('#fit-region').addEventListener('click', fitLoadingRegion
 document.querySelector('#projected-map').addEventListener('pointermove', probeCoordinates);
 document.querySelector('#projected-map').addEventListener('pointerleave', () => {
   probeGeneration++;
+  probeController?.abort();
   coordinateProbe.textContent = 'Move over the map to inspect coordinates';
 });
 document.querySelector('#fullscreen').addEventListener('click', () => {
@@ -305,6 +314,7 @@ window.addEventListener('pagehide', () => {
   projectionGeneration++;
   navigationGeneration++;
   probeGeneration++;
+  probeController?.abort();
   clearTimeout(detailTimer);
   diagnosticsPoller.destroy();
   navigation.dispose();

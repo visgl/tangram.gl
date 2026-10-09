@@ -11,7 +11,7 @@ import type {GlobeViewAdapterOptions} from './globe_view_adapter.js';
 import type {FirstPersonViewAdapterOptions} from './first_person_view_adapter.js';
 import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types.js';
 import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
-import type {ProjectionEngine} from '@vis.gl/tangram-renderer/core';
+import type {ProjectionEngine, ProjectionExecutionOptions} from '@vis.gl/tangram-renderer/core';
 import type {LayerProps} from '@deck.gl/core';
 import type {SceneDefinition} from '@vis.gl/tangram-renderer/core';
 
@@ -21,6 +21,8 @@ export type TangramLayerProps = LayerProps & {
   scene: SceneDefinition;
   /** Caller-owned CRS factory for CPU-projected basemaps; omitted keeps worker-local math.gl transforms. */
   projectionEngine?: ProjectionEngine;
+  /** Immutable host kernel chunking policy; changing it recreates the scene, like changing the engine. */
+  projectionEngineExecution?: ProjectionExecutionOptions;
   /** Remaining existing Tangram bridge properties. */
   [property: string]: unknown;
 };
@@ -116,6 +118,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         record.sceneBasePath !== props.sceneBasePath ||
         record.apiKey !== props.apiKey ||
         record.projectionEngine !== (props.projectionEngine ?? undefined) ||
+        record.projectionEngineExecution !== (props.projectionEngineExecution ?? undefined) ||
         record.maxConcurrentTileLoadsPerWorker !== (props.maxConcurrentTileLoadsPerWorker ?? undefined);
 
       if (shouldCreateScene) {
@@ -237,6 +240,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         sceneBasePath: props.sceneBasePath,
         apiKey: props.apiKey,
         projectionEngine: props.projectionEngine ?? undefined,
+        projectionEngineExecution: props.projectionEngineExecution ?? undefined,
         maxConcurrentTileLoadsPerWorker: props.maxConcurrentTileLoadsPerWorker ?? undefined,
         canvasWidth: null,
         canvasHeight: null,
@@ -258,6 +262,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
           device,
           canvas: deckCanvas,
           projectionEngine: record.projectionEngine,
+          projectionEngineExecution: record.projectionEngineExecution,
           maxConcurrentTileLoadsPerWorker: record.maxConcurrentTileLoadsPerWorker,
           requestRedraw: () => {
             if (!record.disposed && record.owner.setNeedsRedraw) {
@@ -471,6 +476,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
   TangramLayer.layerName = 'TangramLayer';
   TangramLayer.defaultProps = {
     projectionEngine: null,
+    projectionEngineExecution: null,
     scene: null,
     sceneBasePath: null,
     apiKey: null,

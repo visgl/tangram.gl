@@ -8,7 +8,7 @@ import createTangramLayerClass from '../src/tangram-layer';
 import Renderer from '../../tangram-renderer/src/scene/renderer';
 import WorkerBroker from '../../tangram-renderer/src/utils/worker_broker';
 
-test('engine identity is forwarded, retained across updates and replaced or omitted explicitly', async () => {
+test('engine and execution policy identities are forwarded, retained and replaced or omitted explicitly', async () => {
     class BaseLayer {}
     const createRenderer = vi.fn((_scene: unknown, _options: Record<string, unknown>) =>
         ({scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined), destroy: vi.fn()}));
@@ -24,20 +24,49 @@ test('engine identity is forwarded, retained across updates and replaced or omit
     const properties = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
         onSceneLoad: vi.fn(), onSceneError: vi.fn()};
     try {
-        for (const projectionEngine of [createProjectionEngine(), createProjectionEngine(), undefined]) {
-            layer.props = {...properties, projectionEngine};
+        const engine = createProjectionEngine();
+        const cases = [
+            {projectionEngine: engine, projectionEngineExecution: undefined},
+            {projectionEngine: createProjectionEngine(), projectionEngineExecution: undefined},
+            {projectionEngine: undefined, projectionEngineExecution: undefined},
+            {projectionEngine: engine, projectionEngineExecution: {maxBatchPositions: 2}},
+            {projectionEngine: engine, projectionEngineExecution: {maxBatchPositions: 8}},
+            {projectionEngine: engine, projectionEngineExecution: undefined}
+        ];
+        for (const {projectionEngine, projectionEngineExecution} of cases) {
+            layer.props = {...properties, projectionEngine, projectionEngineExecution};
             const previous = layer.state.tangramRecord;
             layer.updateState({props: layer.props});
             const record = layer.state.tangramRecord;
             await record.loadPromise;
             expect(createRenderer.mock.calls.at(-1)?.[1].projectionEngine).toBe(projectionEngine);
+            expect(createRenderer.mock.calls.at(-1)?.[1].projectionEngineExecution).toBe(projectionEngineExecution);
             if (previous) expect(previous.renderer.destroy).toHaveBeenCalledOnce();
             layer.updateState({props: {...layer.props}});
             expect(layer.state.tangramRecord).toBe(record);
         }
-        expect(createRenderer).toHaveBeenCalledTimes(3);
+        expect(createRenderer).toHaveBeenCalledTimes(cases.length);
         expect(layer.raiseError).not.toHaveBeenCalled();
     } finally {layer.finalizeState(); synchronize.mockRestore();}
+});
+
+test('host execution diagnostics are detached and invalid policies allocate no broker endpoints', async () => {
+    const engine = createProjectionEngine();
+    const existing = Object.keys(WorkerBroker.targets);
+    expect(() => Renderer.create({}, {projectionEngine: engine, projectionEngineExecution: {maxBatchPositions: 0}}))
+        .toThrow('maxBatchPositions');
+    expect(Object.keys(WorkerBroker.targets)).toEqual(existing);
+    const renderer = Renderer.create({}, {projectionEngine: engine, projectionEngineExecution: {maxBatchPositions: 2}});
+    try {
+        expect(renderer.getProjectionEngineStatistics()).toMatchObject({maxBatchPositions: 2, activeRequests: 0, batches: 0});
+        const statistics = renderer.getProjectionEngineStatistics();
+        if (!statistics) throw new Error('Missing injected host statistics');
+        statistics.batches = 100;
+        expect(renderer.getProjectionEngineStatistics()?.batches).toBe(0);
+    } finally {renderer.destroy();}
+    const workerLocalRenderer = Renderer.create({});
+    try {expect(workerLocalRenderer.getProjectionEngineStatistics()).toBeUndefined();}
+    finally {workerLocalRenderer.destroy();}
 });
 
 test('renderer isolates each engine broker endpoint and removes it on teardown', () => {
