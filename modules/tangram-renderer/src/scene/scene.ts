@@ -1509,7 +1509,13 @@ export default class Scene {
                 this.lights[light.name] = Light.create(this.view, light);
             }
         }
-        const configured = this.shader_language === 'wgsl' && (this.config.scene?.lighting === 'configured' ||
+        // CPU-projected surfaces explicitly opt into diffuse lighting. Named
+        // Tangram lights must use the same bounded WGSL path as native lights;
+        // otherwise only WebGL consumes the authored light contributions.
+        const projectedLighting = this.config.scene?.cpu_projection !== undefined &&
+            Object.values(this.config.styles || {}).some(style =>
+                style && ['vertex', 'fragment'].includes(style.lighting));
+        const configured = this.shader_language === 'wgsl' && (projectedLighting || this.config.scene?.lighting === 'configured' ||
             Object.values(this.config.lights).some(light => light && typeof light === 'object' && 'luma' in light));
         if (configured) {
             getPortableLightUniforms(this.getLumaLightDefinitions()); // Reject resource overflow before compiling styles.
