@@ -42,6 +42,41 @@ function readPosition(vertex: DataView): [number, number] {
 
 beforeEach(() => clearProjectedMeshPreparation());
 
+test('opt-in completed meshes restore a projection without kernel work and survive transfer', () => {
+    const input = request([[0, 0], [100, 0], [0, -100]], 1, 1, 6);
+    input.projection.cacheProjectedMeshes = true;
+    // Real worker tiles carry lifecycle/source records, sometimes circular; only geometric fields belong in keys.
+    Object.assign(input.tile, {lifecycle: input.tile});
+    const first = projectBasemapMesh(input);
+    const expected = {vertices: first.vertices.slice(), indices: first.indices.slice()};
+    projectBasemapMesh({...input, projection: {...input.projection, type: 'equal-earth'}});
+    structuredClone(first.vertices, {transfer: [first.vertices.buffer]});
+    expect(projectBasemapMesh(input)).toEqual(expected);
+    expect(getProjectedMeshWorkStatistics().completedMeshes).toBe(2);
+    expect(getProjectedMeshPreparationStatistics().projectedResults).toMatchObject({entries: 2, hits: 1, misses: 2});
+    const changed = input.vertices.slice();
+    changed[layout.offset.a_selection_color] = 42;
+    projectBasemapMesh({...input, vertices: changed});
+    projectBasemapMesh({...input, projection: {...input.projection, maxAngularSpan: 10}});
+    expect(getProjectedMeshPreparationStatistics().projectedResults).toMatchObject({entries: 4, hits: 1, misses: 4});
+});
+
+test('host output reuse requires opt-in immutable engine identity and isolates independent engines', async () => {
+    const input = request([[0, 0], [100, 0], [0, -100]], 1, 1, 6);
+    input.projection.cacheProjectedMeshes = true;
+    const projectPositions = vi.fn(async (coordinates: Float64Array) => coordinates.fill(1));
+    const first = await projectBasemapMeshWithEngine({...input, projectPositions, projectionCacheKey: 'engine-1'});
+    const second = await projectBasemapMeshWithEngine({...input, projectPositions, projectionCacheKey: 'engine-1'});
+    expect(second).toEqual(first);
+    expect(second.vertices.buffer).not.toBe(first.vertices.buffer);
+    expect(projectPositions).toHaveBeenCalledOnce();
+    await projectBasemapMeshWithEngine({...input, projectPositions, projectionCacheKey: 'engine-2'});
+    await projectBasemapMeshWithEngine({...input, projectPositions});
+    await projectBasemapMeshWithEngine({...input, projectPositions});
+    expect(projectPositions).toHaveBeenCalledTimes(4);
+    expect(getProjectedMeshPreparationStatistics().projectedResults).toMatchObject({entries: 2, hits: 1, misses: 2});
+});
+
 test('projection work snapshots count submitted samples, completed meshes and rejected batches separately', async () => {
     const input = request([[0, 0], [100, 0], [0, -100]], 1, 1, 6);
     const result = projectBasemapMesh(input);

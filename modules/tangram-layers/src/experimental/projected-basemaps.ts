@@ -4,7 +4,7 @@
 
 import {Layer} from '@deck.gl/core';
 import {Matrix4} from '@math.gl/core';
-import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates} from '@vis.gl/tangram-renderer/core';
+import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates, getProjectedRoadUnit} from '@vis.gl/tangram-renderer/core';
 import type {HostFrameOptions, HostTileResourceOptions, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
 import createTangramLayerClass from '../tangram-layer.js';
 
@@ -98,9 +98,9 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
     const styles = readRecord(scene.styles ?? {}, 'styles');
     for (const value of Object.values(styles)) {
         const style = readRecord(value, 'style');
-        if (!['polygons', 'raster', 'lines'].includes(String(style.base)) || style.mix !== undefined ||
+        if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(String(style.base)) || style.mix !== undefined ||
             style.shaders !== undefined || (style.lighting !== undefined && style.lighting !== false)) {
-            throw new Error('Projected styles require an unlit polygons/raster/lines base without mixins or shaders');
+            throw new Error('Projected styles require unlit ground or annotation bases without mixins or shaders');
         }
         if (style.draw !== undefined) validateFlatDraw(readRecord(style.draw, 'style draw defaults'));
         if (style.base === 'lines') {
@@ -128,14 +128,24 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
     const effectiveDraws = {...inheritedDraws};
     if (node.draw !== undefined) {
         for (const [name, value] of Object.entries(readRecord(node.draw, 'draw'))) {
-            const draw = {...effectiveDraws[name], ...readRecord(value, 'draw style')};
+            const draw = mergeAnnotationDraws(effectiveDraws[name] ?? {}, readRecord(value, 'draw style'));
             effectiveDraws[name] = draw;
             const styleName = String(draw.style ?? name);
             const style = styleName in styles ? readRecord(styles[styleName], 'draw style definition') : {base: styleName};
-            if (!['polygons', 'raster', 'lines'].includes(String(style.base))) {
+            if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(String(style.base))) {
                 throw new Error('Projected basemaps currently support only flat, noninteractive polygon and raster draws');
             }
             validateFlatDraw(draw);
+            if (style.base === 'points' || style.base === 'text') {
+                const defaults = style.draw === undefined ? {} : readRecord(style.draw, 'annotation defaults');
+                const annotation = mergeAnnotationDraws(defaults, draw);
+                if (annotation.collide !== false) throw new Error('Projected annotations require explicit collide: false');
+                if (annotation.text !== undefined) {
+                    const text = readRecord(annotation.text, 'attached text');
+                    if (text.collide !== false) throw new Error('Projected annotations require explicit collide: false');
+                    validateFlatDraw(text);
+                }
+            }
             if (style.base === 'lines') {
                 const defaults = style.draw === undefined ? {} : readRecord(style.draw, 'style draw defaults');
                 validateRoadDraw({...defaults, ...draw}, true);
@@ -151,6 +161,16 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
     }
 }
 
+/** Preserve nested attached-text settings when applying style defaults or child-layer overrides. */
+function mergeAnnotationDraws(defaults: Record<string, unknown>, draw: Record<string, unknown>): Record<string, unknown> {
+    const merged = {...defaults, ...draw};
+    if (defaults.text && typeof defaults.text === 'object' && !Array.isArray(defaults.text) &&
+        draw.text && typeof draw.text === 'object' && !Array.isArray(draw.text)) {
+        merged.text = {...readRecord(defaults.text, 'attached text defaults'), ...readRecord(draw.text, 'attached text')};
+    }
+    return merged;
+}
+
 /** Apply the same ground-only restrictions to layer draws and inherited style defaults. */
 function validateFlatDraw(draw: Record<string, unknown>): void {
     if ((draw.extrude !== undefined && draw.extrude !== false) || draw.z !== undefined || draw.interactive === true) {
@@ -164,26 +184,20 @@ function readRecord(value: unknown, label: string): Record<string, unknown> {
     return Object.fromEntries(Object.entries(value));
 }
 
-/** Static meter/pixel roads share the existing builder; reject dynamic widths and mixed-unit offsets/outlines. */
+/** Fixed and zoom-stop meter/pixel roads share the builder; reject functions and mixed-unit offsets/outlines. */
 function validateRoadDraw(draw: Record<string, unknown>, requireWidth: boolean): void {
     if (draw.outline !== undefined) readRecord(draw.outline, 'road outline');
     if (['next_width', 'next_offset', 'texture'].some(key => draw[key] !== undefined)) {
         throw new Error('Projected roads require static ribbons without dynamic widths or external textures');
     }
-    const parse = (value: unknown, positive: boolean): 'm' | 'px' => {
-        const match = typeof value === 'string' ? /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(m|px)\s*$/.exec(value) : null;
-        const number = typeof value === 'number' ? value : match ? Number(match[1]) : NaN;
-        if (!Number.isFinite(number) || (positive && number <= 0)) throw new Error('Projected roads require an explicit positive fixed-meter or pixel width');
-        return match?.[2] === 'px' ? 'px' : 'm';
-    };
     if (draw.width !== undefined || requireWidth) {
-        const unit = parse(draw.width, true);
-        if (draw.offset !== undefined && parse(draw.offset, false) !== unit) throw new Error('Projected road offsets must use the width unit');
+        const unit = getProjectedRoadUnit(draw.width);
+        if (draw.offset !== undefined && getProjectedRoadUnit(draw.offset, false) !== unit) throw new Error('Projected road offsets must use the width unit');
         if (draw.outline !== undefined) {
             const outline = readRecord(draw.outline, 'road outline');
             validateFlatDraw(outline);
             if (outline.style !== undefined) throw new Error('Projected road outlines must use the parent line style');
-            if (parse(outline.width, true) !== unit) throw new Error('Projected road outlines must use the width unit');
+            if (getProjectedRoadUnit(outline.width) !== unit) throw new Error('Projected road outlines must use the width unit');
             validateRoadDraw(outline, true);
         }
     }

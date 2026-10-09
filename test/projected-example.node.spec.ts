@@ -48,11 +48,21 @@ test('projected vector example requests the source zoom where transportation sta
   // A 512-pixel source would subtract one zoom, silently requesting road-free zoom 3.
   expect(scene.sources).toMatchObject({map: {tile_size: 256, max_zoom: 6, tilejson: OPENFREEMAP_TILEJSON}});
   expect(scene.layers).toMatchObject({roads: {data: {layer: 'transportation'},
-    draw: {traffic: {width: '6px', cap: 'round', join: 'round', outline: {width: '1px'}}}}});
+    draw: {traffic: {width: [[4, '3px'], [6, '6px'], [8, '10px']], cap: 'round', join: 'round',
+      outline: {width: [[4, '1px'], [8, '2px']]}}}}});
   expect(createProjectedExampleScene(false)).not.toBe(scene);
 });
 
 test('projected raster example retains lower-detail Blue Marble imagery', () => {
   expect(getProjectedExampleTileZoom(true)).toBe(2);
   expect(createProjectedExampleScene(true).sources).toMatchObject({blueMarble: {url: BLUE_MARBLE_URL}});
+});
+
+test.each([true, false])('imagery/vector %s includes curated noncolliding city annotations', raster => {
+  const scene = createProjectedExampleScene(raster);
+  const source = JSON.parse(decodeURIComponent(scene.sources.annotations.url.split(',')[1]));
+  expect(source.features).toHaveLength(5);
+  expect(source.features[0]).toMatchObject({geometry: {type: 'Point'}, properties: {name: 'New York'}});
+  expect(scene.layers.annotations.draw.points).toMatchObject({collide: false,
+    text: {collide: false, text_source: 'name'}});
 });

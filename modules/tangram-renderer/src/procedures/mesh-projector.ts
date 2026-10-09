@@ -14,6 +14,8 @@ export interface MeshPreparationStatistics {
     hits: number;
     /** Requests requiring a new preparation. */
     misses: number;
+    /** Optional detached statistics for the independently bounded, opt-in projected output cache. */
+    projectedResults?: {entries: number; bytes: number; hits: number; misses: number};
 }
 
 /** Cumulative projection work in one worker, reset with source preparation; not resident GPU memory. */
@@ -48,6 +50,8 @@ export type ProjectedBasemapOptions = {
     maxAdditionalVertices?: number;
     /** Optional sampled edge/interior error in common units; ribbons use edges only. */
     maxProjectedError?: number;
+    /** Reuse completed projected meshes; host engines require a stable worker-local cache identity. */
+    cacheProjectedMeshes?: boolean;
 };
 
 /** Worker-local packed triangle input; the original tile coordinates must survive. */
@@ -61,11 +65,13 @@ export interface MeshProjectionRequest {
     /** Source tile's north-west EPSG:3857 origin and actual data zoom. */
     tile: {min: {x: number; y: number}; coords: {z: number}; overzoom2?: number; style_z?: number};
     /** Lines carry centerline positions and separate packed extrusion; other meshes are already expanded. */
-    geometry?: 'polygons' | 'raster' | 'lines';
+    geometry?: 'polygons' | 'raster' | 'lines' | 'points' | 'text';
     /** Validated scene-wide projection and refinement limits. */
     projection: ProjectedBasemapOptions;
     /** Optional worker-local bridge to a caller-owned host engine; never serialized with the scene. */
     projectPositions?: (coordinates: Float64Array) => Promise<Float64Array>;
+    /** Immutable host transform identity for opt-in result caching; absence bypasses host result caching. */
+    projectionCacheKey?: string;
 }
 
 /** Completed packed mesh, independent of projection backend ownership. */
@@ -78,6 +84,32 @@ export type ProjectedMesh = {
 export type MeshProjector = (request: MeshProjectionRequest) => ProjectedMesh | Promise<ProjectedMesh>;
 
 let meshProjector: MeshProjector | undefined;
+
+/** Validate fixed or strictly ordered zoom-stop distances with one unit across every stop. */
+export function getProjectedRoadUnit(value: unknown, positive = true): 'm' | 'px' {
+    const parse = (distance: unknown): 'm' | 'px' => {
+        const match = typeof distance === 'string' ? /^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*(m|px)\s*$/.exec(distance) : null;
+        const number = typeof distance === 'number' ? distance : match ? Number(match[1]) : NaN;
+        if (!Number.isFinite(number) || (positive && number <= 0)) throw new Error('Projected roads require finite distances and positive widths');
+        return match?.[2] === 'px' ? 'px' : 'm';
+    };
+    if (!Array.isArray(value)) return parse(value);
+    if (!value.length) throw new Error('Projected road zoom stops must not be empty');
+    let previousZoom = -Infinity;
+    let unit: 'm' | 'px' | undefined;
+    for (const stop of value) {
+        if (!Array.isArray(stop) || stop.length !== 2 || typeof stop[0] !== 'number' ||
+            !Number.isFinite(stop[0]) || stop[0] < 0 || stop[0] > 22 || stop[0] <= previousZoom) {
+            throw new Error('Projected road zoom stops require strictly increasing levels in [0, 22]');
+        }
+        previousZoom = stop[0];
+        const current = parse(stop[1]);
+        if (unit && unit !== current) throw new Error('Projected road zoom stops must keep one unit');
+        unit = current;
+    }
+    if (!unit) throw new Error('Projected road zoom stops must not be empty');
+    return unit;
+}
 let clearPreparation: (() => void) | undefined;
 let getPreparationStatistics: (() => MeshPreparationStatistics) | undefined;
 let getProjectionStatistics: (() => MeshProjectionStatistics) | undefined;
@@ -123,6 +155,8 @@ export function normalizeProjectedBasemapOptions(value: unknown): ProjectedBasem
     const maxAngularSpan = 'maxAngularSpan' in value ? value.maxAngularSpan : 4;
     const maxAdditionalVertices = 'maxAdditionalVertices' in value ? value.maxAdditionalVertices : 65536;
     const maxProjectedError = 'maxProjectedError' in value ? value.maxProjectedError : undefined;
+    const cacheProjectedMeshes = 'cacheProjectedMeshes' in value ? value.cacheProjectedMeshes : false;
+    if (typeof cacheProjectedMeshes !== 'boolean') throw new Error('CPU projection mesh caching must be boolean');
     if (maxProjectedError !== undefined && (typeof maxProjectedError !== 'number' || !Number.isFinite(maxProjectedError) || maxProjectedError <= 0)) {
         throw new Error('CPU projection requires a positive finite projected error');
     }
@@ -134,5 +168,6 @@ export function normalizeProjectedBasemapOptions(value: unknown): ProjectedBasem
     const type = value.type;
     if (type !== 'equal-earth' && type !== 'albers' && type !== 'equirectangular' &&
         type !== 'mercator' && type !== 'web-mercator') throw new Error('Invalid CPU projection');
-    return {type, maxAngularSpan, maxAdditionalVertices, ...(maxProjectedError === undefined ? {} : {maxProjectedError})};
+    return {type, maxAngularSpan, maxAdditionalVertices, ...(maxProjectedError === undefined ? {} : {maxProjectedError}),
+        ...(cacheProjectedMeshes ? {cacheProjectedMeshes: true} : {})};
 }

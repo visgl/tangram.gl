@@ -52,6 +52,56 @@ function createRoadScene(maximumSourceZoom = 6) {
 
 beforeEach(() => commands.startRenderingDiagnostics());
 
+test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
+  `${DEVICE_TYPE}: projected %s annotations retain pixel size and render attached/standalone atlas text`, async type => {
+    harness = new RenderingHarness();
+    await harness.initializeDevice();
+    const engine = createProjectedExampleProjectionEngine();
+    const navigation = new ProjectedBasemapNavigation(engine);
+    const target = await navigation.projectPosition([-100, 40], type);
+    const source = {type: 'FeatureCollection', features: [{type: 'Feature', properties: {name: 'Ground label'},
+      geometry: {type: 'Point', coordinates: [-100, 40]}}]};
+    const scene = createProjectedBasemapScene({scene: {background: {color: '#000'}},
+      styles: {markers: {base: 'points', draw: {collide: false,
+        text: type === 'albers' ? false : {collide: false}}}},
+      sources: {annotations: {type: 'GeoJSON',
+        url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`}},
+      layers: {annotations: {data: {source: 'annotations'}, draw: {
+        markers: {order: 10, size: '20px', color: '#00ff00',
+          text: {text_source: 'name', ...(type === 'albers' ? {collide: false} : {}), anchor: 'top', offset: [0, -20],
+            font: {family: 'sans-serif', size: '18px', fill: '#ffffff'}}},
+        text: {order: 11, text_source: 'name', collide: false, offset: [0, 25],
+          font: {family: 'sans-serif', size: '18px', fill: '#ff0000'}}
+      }}}}, {type, cacheProjectedMeshes: true},
+    new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+    const errors = harness.errors, canvas = harness.canvas;
+    deck = new Deck({canvas, device: harness.device, width: 512, height: 320,
+      useDevicePixels: false, views: new OrthographicView({id: 'projected', flipY: false}),
+      viewState: {target, zoom: 1}, _animate: true, onError: error => errors.push(error.message),
+      layers: [new FixtureLayer({id: 'annotations', scene, projectionEngine: engine,
+        projectedTileZoom: 2, projectedStyleZoom: 6, projectedVisibleBounds: [-130, 20, -70, 60],
+        onSceneError: error => errors.push(error.message)})]});
+    const counts = async () => {
+      expect(errors).toEqual([]);
+      const pixels = (await readCanvasPixels(canvas)).data;
+      const result = {green: 0, white: 0, red: 0};
+      for (let offset = 0; offset < pixels.length; offset += 4) {
+        const red = pixels[offset], green = pixels[offset + 1], blue = pixels[offset + 2];
+        if (green > 80 && red < 40 && blue < 40) result.green++;
+        if (red > 80 && green > 80 && blue > 80) result.white++;
+        if (red > 80 && green < 40 && blue < 40) result.red++;
+      }
+      return result;
+    };
+    await expect.poll(async () => (await counts()).green, {timeout: 20000}).toBeGreaterThan(150);
+    await expect.poll(async () => (await counts()).white, {timeout: 20000}).toBeGreaterThan(100);
+    await expect.poll(async () => (await counts()).red, {timeout: 20000}).toBeGreaterThan(100);
+    const before = await counts();
+    deck.setProps({viewState: {target, zoom: 3}});
+    await expect.poll(async () => Math.abs((await counts()).green - before.green)).toBeLessThan(40);
+    expect(errors).toEqual([]);
+  });
+
 test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with outlines, dashes and animated traffic`, async () => {
   harness = new RenderingHarness();
   await harness.initializeDevice();
@@ -66,8 +116,9 @@ test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with out
   const createScene = (animated: boolean, dashed: boolean) => createProjectedBasemapScene({
     scene: {background: {color: '#000000'}}, styles: {traffic: {base: 'lines', animated}},
     sources: {roads: {type: 'GeoJSON', url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`, max_zoom: 6}},
-    layers: {roads: {data: {source: 'roads'}, draw: {traffic: {width: '12px', offset: '2px', color: '#20d0b0',
-      order: 2, outline: {width: '2px', color: '#f08020'}, ...(dashed ? {dash: [3, 2]} : {})}}}}
+    layers: {roads: {data: {source: 'roads'}, draw: {traffic: {width: [[4, '6px'], [6, '12px'], [8, '18px']],
+      offset: [[4, '1px'], [6, '2px']], color: '#20d0b0',
+      order: 2, outline: {width: [[4, '1px'], [6, '2px']] , color: '#f08020'}, ...(dashed ? {dash: [3, 2]} : {})}}}}
   }, {type: 'equal-earth', maxProjectedError: 0.5},
   new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
   const layer = (scene: Record<string, unknown>) => new FixtureLayer({id: 'pixel-roads', scene, projectionEngine: engine,
@@ -235,14 +286,15 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
 );
 
 test.each([
-  {raster: false, injected: false}, {raster: true, injected: false},
-  {raster: false, injected: true}, {raster: true, injected: true}
-])(`${DEVICE_TYPE}: projection switches retain tiles/workers (raster=$raster, injected=$injected)`, async ({raster, injected}) => {
+  {raster: false, injected: false, cached: false}, {raster: true, injected: false, cached: false},
+  {raster: false, injected: true, cached: false}, {raster: true, injected: true, cached: false},
+  {raster: false, injected: false, cached: true}, {raster: true, injected: true, cached: true}
+])(`${DEVICE_TYPE}: projection switches retain tiles/workers (raster=$raster, injected=$injected, cached=$cached)`, async ({raster, injected, cached}) => {
   harness = new RenderingHarness();
   await harness.initializeDevice();
   const errors = harness.errors;
   const canvas = harness.canvas;
-  const scene = createProjectedBasemapScene(raster ? createRasterScene() : createPolygonScene(), {type: 'equal-earth'},
+  const scene = createProjectedBasemapScene(raster ? createRasterScene() : createPolygonScene(), {type: 'equal-earth', cacheProjectedMeshes: cached},
     new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
   let loadedScene: Scene | undefined;
   let completedProjection = '';
@@ -254,7 +306,7 @@ test.each([
     createProjectionAsync: options => {compiledTypes.push(options); return engine.createProjectionAsync(options);}
   } : undefined;
   const createLayer = (type: ProjectedBasemapOptions['type']) => new FixtureLayer({id: 'warm-projected-fixture',
-    scene, projectedTileZoom: 2, projectedProjection: {type}, projectionEngine,
+    scene, projectedTileZoom: 2, projectedProjection: {type, cacheProjectedMeshes: cached}, projectionEngine,
     onSceneLoad: value => {loadedScene = value; loadCount++;},
     onProjectionChange: () => {completedProjection = type;}, onSceneError: error => errors.push(error.message)});
   deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
@@ -273,7 +325,12 @@ test.each([
   await expect.poll(async () => (await initialScene.getTileSourceStatistics())
     .reduce((count, value) => count + value.loadingTiles + value.queuedTiles, 0), {timeout: 20000}).toBe(0);
   const statistics = await initialScene.getTileSourceStatistics();
-  for (const type of ['albers', 'mercator', 'web-mercator', 'equirectangular', 'equal-earth'] as const) {
+  // Eight raster tiles per worker across five projections exceed the 32-entry LRU.
+  // Check a short warm round trip before intentionally exercising eviction.
+  const sequence = cached
+    ? ['albers', 'equal-earth', 'mercator', 'web-mercator', 'equirectangular', 'equal-earth'] as const
+    : ['albers', 'mercator', 'web-mercator', 'equirectangular', 'equal-earth'] as const;
+  for (const type of sequence) {
     deck.setProps({layers: [createLayer(type)]});
     await expect.poll(() => completedProjection, {timeout: 20000}).toBe(type);
     await expect.poll(async () => {
@@ -287,6 +344,8 @@ test.each([
       .toEqual(statistics.map(value => value.acquisitions));
     const preparation = (await initialScene.getTileSourceStatistics()).map(value => value.projectionPreparation);
     expect(preparation.every(value => value && value.entries <= 64 && value.bytes <= 16 * 1024 * 1024)).toBe(true);
+    if (cached) expect(preparation.every(value => !value?.projectedResults ||
+      (value.projectedResults.entries <= 32 && value.projectedResults.bytes <= 16 * 1024 * 1024))).toBe(true);
   }
   const finalStatistics = await initialScene.getTileSourceStatistics();
   expect(finalStatistics.every(value => value.projectionWork !== undefined && value.projectionWork.failedMeshes === 0)).toBe(true);
@@ -295,6 +354,8 @@ test.each([
   expect(finalStatistics.reduce((hits, value) => hits + (value.projectionPreparation?.hits ?? 0), 0))
     .toBeGreaterThan(statistics.reduce((hits, value) => hits + (value.projectionPreparation?.hits ?? 0), 0));
   if (injected) expect(compiledTypes).toHaveLength(5);
+  if (cached) expect(finalStatistics.reduce((hits, value) => hits + (value.projectionPreparation?.projectedResults?.hits ?? 0), 0),
+    JSON.stringify(finalStatistics.map(value => value.projectionPreparation))).toBeGreaterThan(0);
 });
 
 test.each([false, true])(`${DEVICE_TYPE}: source detail round trips retain style zoom, workers and warm tile meshes (injected %s)`, async injected => {

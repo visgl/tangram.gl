@@ -174,9 +174,10 @@ export var Style = {
                 mesh.vertex_elements = mesh.vertex_data.element_buffer;
                 mesh.vertex_data = mesh.vertex_data.vertex_buffer; // convert from instance to raw typed array
                 if (this.cpu_projection) {
-                    if (!['polygons', 'raster', 'lines'].includes(this.baseStyle())) throw new Error('CPU projection currently supports only ground polygon, raster and line meshes');
+                    if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(this.baseStyle())) throw new Error('CPU projection requires ground meshes or screen-facing annotations');
                     const projected = await projectTileMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements,
                         layout: this.vertexLayoutForMeshVariant(mesh.variant), tile, geometry: this.baseStyle(), projection: this.cpu_projection,
+                        projectionCacheKey: this.projection_target,
                         projectPositions: this.projection_target ? coordinates => WorkerBroker.postMessage(
                             `${this.projection_target}.projectPositions`, WorkerBroker.withTransferables(coordinates, this.cpu_projection.type)) : undefined});
                     mesh.vertex_data = projected.vertices;

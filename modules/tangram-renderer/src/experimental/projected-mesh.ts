@@ -14,11 +14,13 @@ import type {MeshProjectionRequest, ProjectedMesh, ProjectedBasemapOptions, Mesh
 import {ProjectedMeshPreparationCache} from './projected-mesh-cache';
 import {clipProjectedMesh, getProjectedSourceDomain} from './projected-mesh-domain';
 import {refineProjectedMesh} from './projected-mesh-refinement';
+import {projectSymbolMesh} from './projected-symbol-mesh';
 import type {ProjectedRefinementWork} from './projected-mesh-refinement';
 
 const SPHERE_RADIUS = 6378137;
 const transforms = new Map<ProjectedBasemapOptions['type'], ProjectionTransform>();
 const preparationCache = new ProjectedMeshPreparationCache();
+let projectedResultCache = new ProjectedMeshPreparationCache(16 * 1024 * 1024, 32);
 let projectionStatistics = createProjectionStatistics();
 
 /** Start a new worker-lifecycle snapshot; pending requests retain their old accounting epoch. */
@@ -30,6 +32,8 @@ function createProjectionStatistics(): MeshProjectionStatistics {
 /** Release optional worker-owned preparation and compiled local transforms on worker reset. */
 export function clearProjectedMeshPreparation(): void {
     preparationCache.clear();
+    projectedResultCache.clear();
+    projectedResultCache = new ProjectedMeshPreparationCache(16 * 1024 * 1024, 32);
     transforms.clear();
     projectionStatistics = createProjectionStatistics();
 }
@@ -40,8 +44,20 @@ export function getProjectedMeshWorkStatistics(): MeshProjectionStatistics {
 }
 
 /** Internal worker diagnostics for verifying warm source topology independently of target projection. */
-export function getProjectedMeshPreparationStatistics(): ReturnType<ProjectedMeshPreparationCache['getStatistics']> {
-    return preparationCache.getStatistics();
+export function getProjectedMeshPreparationStatistics(): import('../procedures/mesh-projector').MeshPreparationStatistics {
+    const projectedResults = projectedResultCache.getStatistics();
+    return {...preparationCache.getStatistics(), ...(projectedResults.misses ? {projectedResults} : {})};
+}
+
+/** Include every source-layout, tile, target and refinement input; never reuse across host transform identities. */
+function getProjectedResultCacheKey(request: MeshProjectionRequest): string {
+    return JSON.stringify({projection: normalizeProjectedBasemapOptions(request.projection),
+        geometry: request.geometry, tileZoom: request.tile.coords.z,
+        min: [request.tile.min.x, request.tile.min.y], overzoom: request.tile.overzoom2 ?? 1,
+        styleZoom: request.tile.style_z,
+        engine: request.projectPositions ? request.projectionCacheKey : 'local-kernels',
+        stride: request.layout.stride, attributes: request.layout.dynamic_attribs.map(attribute =>
+            [attribute.name, attribute.type, attribute.size, attribute.offset, attribute.normalized])});
 }
 
 /** Project ground degrees to north-positive common coordinates (256 units per sphere radius). */
@@ -65,6 +81,11 @@ export function projectBasemapPosition(position: readonly [number, number], type
 
 /** Refine in packed tile space, then write separate projected positions, preserving UVs and feature IDs. */
 export function projectBasemapMesh(request: MeshProjectionRequest): ProjectedMesh {
+    if (request.projection.cacheProjectedMeshes) {
+        const result = projectedResultCache.getOrCreate(getProjectedResultCacheKey(request), request.vertices, request.indices,
+            () => projectBasemapMesh({...request, projection: {...request.projection, cacheProjectedMeshes: false}}));
+        return {vertices: result.vertices.slice(), indices: result.indices.slice()};
+    }
     const work = {edgeRounds: 0, interiorRounds: 0};
     const statistics = projectionStatistics;
     try {
@@ -89,6 +110,11 @@ export function projectBasemapMesh(request: MeshProjectionRequest): ProjectedMes
 
 /** Batch all refined vertices through the injected host engine, never one RPC per vertex. */
 export async function projectBasemapMeshWithEngine(request: MeshProjectionRequest): Promise<ProjectedMesh> {
+    if (request.projectPositions && request.projection.cacheProjectedMeshes && request.projectionCacheKey) {
+        const result = await projectedResultCache.getOrCreateAsync(getProjectedResultCacheKey(request), request.vertices, request.indices,
+            () => projectBasemapMeshWithEngine({...request, projection: {...request.projection, cacheProjectedMeshes: false}}));
+        return {vertices: result.vertices.slice(), indices: result.indices.slice()};
+    }
     const work = {edgeRounds: 0, interiorRounds: 0};
     const statistics = projectionStatistics;
     try {
@@ -127,6 +153,7 @@ function recordCompletedProjection(request: MeshProjectionRequest, result: Proje
 /** Share refinement and tile conventions between worker-local and host-injected transforms. */
 function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRefinementWork): Generator<Float64Array, ProjectedMesh, Float64Array> {
     const projection = normalizeProjectedBasemapOptions(request.projection);
+    if (request.geometry === 'points' || request.geometry === 'text') return yield* projectSymbolMesh(request);
     const {tile, layout} = request;
     const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * Math.PI * SPHERE_RADIUS);
     const position = layout.dynamic_attribs.find(attribute => attribute.name === 'a_position');
