@@ -547,8 +547,8 @@ an independent opt-in elevation range for conservative tile selection.
 ## Feature selection
 
 Set `interactive: true` on a supported polygon, road, point or text draw
-to register its source feature. `ProjectedBasemapLayer.getFeatureAt({x, y},
-{radius: 6})` returns an asynchronous selection result on WebGL 2 and WebGPU.
+to register its source feature. `ProjectedBasemapLayer.getFeatureAt(pixel, options)`
+returns an asynchronous selection result on WebGL 2 and WebGPU.
 Raster imagery has no selectable source features; interactive raster draws are rejected.
 Coordinates and radius are viewport-local, top-origin **CSS pixels**, not geographic
 coordinates or device pixels. A result contains `feature`, `changed` and `pixel`;
