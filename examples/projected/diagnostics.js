@@ -14,6 +14,10 @@ export function formatProjectedDiagnostics(workers, resources) {
   const totals = {completedMeshes: 0, failedMeshes: 0, sourceVertices: 0, outputVertices: 0,
     outputTriangles: 0, projectionBatches: 0, projectedPositions: 0, edgeRounds: 0, interiorRounds: 0};
   let supported = false;
+  const cached = {entries: 0, bytes: 0, hits: 0, misses: 0};
+  for (const worker of workers) if (worker.projectionPreparation?.projectedResults) {
+    for (const key of Object.keys(cached)) cached[key] += worker.projectionPreparation.projectedResults[key];
+  }
   for (const worker of workers) if (worker.projectionWork) {
     supported = true;
     for (const key of Object.keys(totals)) totals[key] += worker.projectionWork[key];
@@ -22,6 +26,7 @@ export function formatProjectedDiagnostics(workers, resources) {
   return `Cumulative work: ${totals.completedMeshes} meshes, ${totals.sourceVertices} → ${totals.outputVertices} vertices, ` +
     `${totals.outputTriangles} triangles; ${totals.edgeRounds} edge / ${totals.interiorRounds} interior rounds; ` +
     `${totals.projectionBatches} batches / ${totals.projectedPositions} positions; ${totals.failedMeshes} failures. ` +
+    `Projected cache: ${cached.hits} hits / ${cached.misses} misses, ${cached.entries} meshes (${(cached.bytes / 1000000).toFixed(1)} MB). ` +
     `Current residency: ${resources.activeBuilds} active / ${resources.queuedBuilds} queued builds, ` +
     `${resources.cachedTiles} evictable tiles (${(resources.cachedMeshBytes / 1000000).toFixed(1)} MB mesh buffers).`;
 }

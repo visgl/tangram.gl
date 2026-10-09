@@ -54,6 +54,8 @@ export type TextSource = TextSourceValue | TextSourceValue[] | Record<string, Te
 
 /** Text draw properties before/after property-cache preprocessing. */
 export interface TextLabelDraw extends TextDraw {
+    /** Enable collision placement; projected ground annotations require explicit false. */
+    collide?: boolean | ((context: TextContext) => boolean);
     text_source?: TextSource;
     offset?: unknown;
     buffer?: unknown;

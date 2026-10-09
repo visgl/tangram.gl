@@ -14,9 +14,10 @@ const PI = Math.PI;
  * The shader applies the buffered screen-space shape and samples the luma-owned
  * atlas texture without reading a backend texture handle.
  *
+ * @param cpuProjection Use preprojected ground anchors for noncolliding point annotations.
  * @returns {string} Complete WGSL source for Tangram's text style.
  */
-export function buildTextWGSL() {
+export function buildTextWGSL(cpuProjection = false) {
     return `
 @group(0) @binding(3) var u_texture: texture_2d<f32>;
 @group(0) @binding(4) var u_textureSampler: sampler;
@@ -32,6 +33,7 @@ struct TextAttributes {
     @location(6) a_pre_angles: vec4<i32>,
     @location(7) a_angles: vec4<i32>,
     @location(8) a_offsets: vec4<u32>,
+    ${cpuProjection ? '@location(9) a_projected_position: vec3<f32>,' : ''}
 };
 
 struct TextVaryings {
@@ -119,13 +121,14 @@ fn vertexMain(attributes: TextAttributes) -> TextVaryings {
         f32(attributes.a_position.z),
         1.0
     );
-    let projected_position = tangramModelView(local_position);
+    let projected_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};
     if (TangramView.u_projection_mode == 1 && tangramGlobeOccluded(projected_position.xyz,
         (TangramTile.u_model * local_position).z, TangramCamera.u_eye)) {
         output.position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
         return output;
     }
     var clip_position = TangramCamera.u_projection * projected_position;
+    ${cpuProjection ? 'clip_position.z = (clip_position.z + clip_position.w) * 0.5;' : ''}
     let screen_offset = shape * clip_position.w * 2.0 *
         TangramView.u_device_pixel_ratio / TangramView.u_resolution;
     clip_position = vec4<f32>(

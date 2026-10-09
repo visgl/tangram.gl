@@ -205,7 +205,7 @@ async function initialize(resetCoverage = true) {
     loadedScene = undefined;
     diagnostics.textContent = 'Waiting for projected-worker diagnostics…';
     preparedBasemap = basemapSelector.value;
-    preparedScene = createProjectedBasemapScene(createProjectedExampleScene(raster), {type},
+    preparedScene = createProjectedBasemapScene(createProjectedExampleScene(raster), {type, cacheProjectedMeshes: true},
       new URL('../../modules/tangram-renderer/dist/projected-basemaps-worker.js', import.meta.url).href);
   }
   updateAttribution(document.querySelector('#attribution'), getConfiguredAttributions(preparedScene));
@@ -221,7 +221,7 @@ async function initialize(resetCoverage = true) {
   history.replaceState(null, '', url);
   const layers = [new ProjectedBasemapLayer({id: 'projected-basemap', scene: preparedScene, projectionEngine,
     // OpenFreeMap transportation starts at zoom 4; overview imagery only needs zoom 2.
-    projectedProjection: {type, ...(refinementError === undefined ? {} : {maxProjectedError: refinementError})}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
+    projectedProjection: {type, cacheProjectedMeshes: true, ...(refinementError === undefined ? {} : {maxProjectedError: refinementError})}, projectedTileZoom: selectedDetail, projectedStyleZoom: 6,
     projectedVisibleBounds: loadingBounds, projectedMaxTiles: 256, visible: !coverageEmpty,
     tileResources: {maxConcurrentBuilds: 8, maxCachedTiles: 256, maxCachedMeshBytes: 32 * 1024 * 1024},
     onSceneLoad: createProjectedSceneLoadHandler(preparedScene,

@@ -27,6 +27,9 @@ attribute vec4 a_shape;
 attribute vec4 a_color;
 attribute vec2 a_texcoord;
 attribute vec2 a_offset;
+#ifdef TANGRAM_CPU_PROJECTED
+attribute vec3 a_projected_position;
+#endif
 
 uniform float u_point_type;
 
@@ -145,7 +148,12 @@ void main() {
 
     // Position
     vec4 world_position;
+    #ifdef TANGRAM_CPU_PROJECTED
+    world_position = vec4(a_projected_position, 1.);
+    vec4 position = world_position;
+    #else
     vec4 position = tangramModelView(vec4(a_position.xyz, 1.), world_position);
+    #endif
     // Occlude the shared geographic anchor before screen-space offsets. This
     // also applies to text and selection programs using this vertex shader.
     if (u_projection_mode == 1 && tangramGlobeOccluded(position.xyz, world_position.z, u_eye)) {

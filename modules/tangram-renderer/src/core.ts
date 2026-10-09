@@ -5,6 +5,7 @@
 export {default as Renderer} from './scene/renderer';
 export {default as HostFrame} from './scene/host_frame';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
+export {getProjectedRoadUnit} from './procedures/mesh-projector';
 export {countProjectedTileCoordinates, getTileGeographicBounds} from './tile/tile_traversal_adapter';
 export {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from './procedures/projected-coordinate-transform';
 export type {ProjectionEngine, ProjectionEngineTransform} from './types';
