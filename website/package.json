@@ -7,7 +7,7 @@
   "scripts": {
     "prepare-assets": "yarn workspace @vis.gl/tangram-renderer build && yarn workspace @vis.gl/tangram-layers build && yarn workspace @vis.gl/tangram-classic build && node scripts/copy-assets.mjs",
     "start": "yarn prepare-assets && docusaurus start",
-    "build": "yarn prepare-assets && docusaurus build",
+    "build": "yarn prepare-assets && docusaurus build && node scripts/prepare-llm-output.mjs",
     "serve": "docusaurus serve",
     "clear": "docusaurus clear"
   },
@@ -16,6 +16,7 @@
     "@docusaurus/faster": "^3.10.2",
     "@docusaurus/preset-classic": "^3.10.2",
     "@mdx-js/react": "^3.1.1",
+    "@signalwire/docusaurus-plugin-llms-txt": "1.2.2",
     "prism-react-renderer": "^2.4.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

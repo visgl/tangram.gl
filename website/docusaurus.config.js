@@ -5,6 +5,7 @@
 // @ts-check
 
 const path = require('path');
+const rehypeCodeBlocks = require('./scripts/rehype-code-blocks.cjs');
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
@@ -55,6 +56,39 @@ const config = {
   ],
 
   plugins: [
+    [
+      '@signalwire/docusaurus-plugin-llms-txt',
+      {
+        siteTitle: 'tangram.gl',
+        siteDescription: 'Experimental Tangram scene rendering, styling and deck.gl basemap integration on WebGPU and WebGL 2.',
+        // Plugin 1.x includes the deployment subpath in its hierarchy and URLs.
+        // The post-build step normalizes that prefix and validates all outputs.
+        depth: 4,
+        // Source-derived descriptions see the SPDX MDX comment, not the prose.
+        // The post-build step derives summaries from rendered Markdown instead.
+        enableDescriptions: false,
+        includeOrder: [
+          '/tangram.gl/docs',
+          '/tangram.gl/docs/get-started/**',
+          '/tangram.gl/docs/api-reference/**',
+          '/tangram.gl/docs/developer-guide/**',
+          '/tangram.gl/docs/contributor-guide/**'
+        ],
+        onRouteError: 'throw',
+        content: {
+          enableMarkdownFiles: true,
+          enableLlmsFullTxt: false,
+          relativePaths: false,
+          includeBlog: false,
+          includePages: false,
+          includeDocs: true,
+          includeVersionedDocs: false,
+          includeGeneratedIndex: true,
+          beforeDefaultRehypePlugins: [rehypeCodeBlocks],
+          excludeRoutes: ['/tangram.gl/examples/**', '/tangram.gl/docs/examples/**']
+        }
+      }
+    ],
     [
       '@docusaurus/plugin-content-docs',
       {
