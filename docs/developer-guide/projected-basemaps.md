@@ -7,7 +7,7 @@ Copyright (c) vis.gl contributors
 # Experimental projected basemaps
 
 The optional `@vis.gl/tangram-layers/experimental/projected-basemaps` entry renders
-flat Tangram polygons, raster meshes and static meter/pixel roads in deck.gl's `OrthographicView`. Workers
+flat Tangram polygons, raster meshes, meter/pixel roads and noncolliding ground annotations in deck.gl's `OrthographicView`. Workers
 subdivide the packed tile geometry and project it with math.gl before transferring
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
@@ -158,10 +158,24 @@ and do not cap total scene memory. Worker reset releases the preparation cache.
 `renderer.getTileSourceStatistics()` includes optional per-worker
 `projectionPreparation: {entries, bytes, hits, misses}` diagnostics for this entry.
 
-Target positions are always recomputed, including for a caller-owned engine;
-mutable engine registrations/results are not cached. Every output owns separate
-transferable buffers. This avoids repeated refinement, not all styling/build work:
-styles are still evaluated during a rebuild, and region clipping is target-specific.
+By default target positions are recomputed, including for caller-owned engines.
+Set `cacheProjectedMeshes: true` in the prepared scene's projection options and
+every `projectedProjection` override to retain completed projected outputs too.
+Each worker limits that independent LRU to 32 meshes and 16 MiB of original/output
+buffers. Keys include target projection, refinement settings, layout, tile metadata,
+styled source bytes and engine identity. Returning to a previous projection can
+then skip projection and refinement entirely. Oversized meshes are not retained;
+concurrent misses may still perform duplicate work. Worker reset clears both caches
+and late asynchronous replies cannot repopulate a cleared cache.
+
+Host caching requires an **immutable engine for the lifetime of its scene**. The
+layer supplies a scene-specific identity; replace the engine/scene to invalidate it.
+Direct procedure callers must supply `projectionCacheKey` to opt in to host reuse;
+without it host results are always recomputed. Leave caching disabled for mutable
+engines. Every returned output owns separate transferable buffers. Style evaluation
+still runs during rebuilds. Diagnostics expose optional
+`projectionPreparation.projectedResults: {entries, bytes, hits, misses}`; cumulative
+projection work counts actual computations, not cache hits.
 
 | `type` | Projection parameters | Initial coverage |
 | --- | --- | --- |
@@ -247,9 +261,10 @@ as EPSG:3857 meters or use the Mercator/globe surface helpers. The scene's
 
 ## Supported scenes and resource limits
 
-Use self-contained inline scenes and unlit ground `polygons`, `raster` or `lines` styles.
+Use self-contained inline scenes and unlit ground `polygons`, `raster` or `lines` styles,
+plus noncolliding `points`/`text` annotations on Point/MultiPoint sources.
 The scene helper rejects imports, mixins, shader injection, extrusion, elevation,
-interactive feature draws, points and text. Unsupported features fail
+interactive feature draws and collision-enabled or nonground annotations. Unsupported features fail
 explicitly rather than rendering partly in the wrong coordinate system.
 
 The worker keeps original packed positions, UVs, ordering and feature IDs in
@@ -263,7 +278,7 @@ queue drains. Restore a valid budget and request the projection again to rebuild
 even restoring the previous options retries after a failed update. Other queued
 updates remain usable, and late failed batches release their texture references.
 
-## Static projected roads
+## Projected roads
 
 Line draws require an explicit positive width, either a number (Tangram's default
 meter unit), a meter string such as `width: '5000m'`, or a pixel string such as `width: '6px'`. Style-level draw defaults
@@ -461,7 +476,7 @@ provide diagnostics.
 
 ### Projected road styling
 
-Static widths accept meters (`'1000m'` or a numeric meter width) or CSS pixels
+Widths accept meters (`'1000m'` or a numeric meter width) or CSS pixels
 (`'6px'`). Packed projected centers and corners give the shader a direction;
 pixel strokes then apply their radius in screen space in both GLSL and WGSL,
 without scaling width when the orthographic camera zooms. Caps and joins retain
@@ -470,12 +485,34 @@ units as the width. Dash arrays use Tangram's existing generated textures.
 Styles with `animated: true` receive portable two-lane traffic using frame time
 on both backends. The vector example uses pixel roads, outlines and traffic.
 
-Dynamic width/offset expressions, mixed-unit outlines, alternate outline styles,
+Widths, offsets and outline widths also accept strictly increasing zoom stops,
+for example `width: [[4, '3px'], [6, '6px'], [8, '10px']]`. All values in a stop
+sequence must have the same unit; offsets and outlines must match the main width.
+Tangram evaluates these at **style zoom**, not OrthographicView camera zoom or
+source detail. The example deliberately keeps style zoom at 6 while camera/detail
+change. Widths must remain positive; offsets can be negative or zero. Stops have
+finite zoom levels in [0, 22].
+
+Function-based width/offset expressions, mixed-unit outlines, alternate outline styles,
 external road textures and arbitrary shader blocks remain explicitly unsupported.
 This is the portable traffic effect, not unrestricted execution of legacy TRON mixins.
 
+## Ground point and text annotations
+
+Point and MultiPoint features can use `points`, attached text, or standalone `text`
+draws. Set `collide: false` explicitly on each point/text draw, including attached
+text. Anchors are CPU-projected once per unique source position; screen-space quads,
+atlas UVs, offsets and pixel sizes use Tangram's existing GLSL/WGSL paths. Quads are
+not subdivided or reordered. Anchors outside the projection domain hide their quads.
+The example adds a small curated city-marker dataset on both imagery and vectors.
+
+This is annotation support, **not projected label collision or feature picking**.
+Labels may overlap. Line/polygon labels, curved-road labels, elevated anchors,
+custom shader blocks and interactive draws are rejected. Dense tile-based datasets
+can repeat labels across tile boundaries; prefer curated point sources for now.
+
 ## Next steps
 
-Labels, feature picking, lighting, height,
+Projected collision, mixed-LOD seam stitching, feature picking, lighting, height,
 projection morphing and arbitrary projection domains are not implemented by this entry.
 Existing Mercator, GlobeView and FirstPersonView integrations remain unchanged.

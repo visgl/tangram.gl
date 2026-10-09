@@ -5,6 +5,7 @@
 export {ClassicWebGLRenderer as Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from '@vis.gl/tangram-renderer';
 export {calculatePlanarGroundBounds} from './scene/ground_footprint';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
+export {getProjectedRoadUnit} from './procedures/mesh-projector';
 export {countProjectedTileCoordinates, getTileGeographicBounds} from './tile/tile_traversal_adapter';
 export {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from './procedures/projected-coordinate-transform';
 export {ProjectionBatchExecutor} from './procedures/projection-batch-executor.js';

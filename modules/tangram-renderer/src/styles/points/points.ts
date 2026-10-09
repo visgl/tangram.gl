@@ -54,7 +54,7 @@ Object.assign(Points, {
     blend: 'overlay', // overlays drawn on top of all other styles, with blending
 
     getWGSLShaderSource() {
-        return buildPointsWGSL();
+        return buildPointsWGSL(Boolean(this.cpu_projection));
     },
 
     init(options = {}) {
@@ -85,6 +85,7 @@ Object.assign(Points, {
 
     // Setup defines common to points base and child (text) styles
     setupDefines () {
+        this.defines.TANGRAM_CPU_PROJECTED = Boolean(this.cpu_projection);
         // If we're not rendering as overlay, we need a layer attribute
         if (this.blend !== 'overlay') {
             this.defines.TANGRAM_LAYER_ORDER = true;
@@ -127,6 +128,9 @@ Object.assign(Points, {
         let tile = context.tile;
         if (tile.generation !== this.generation) {
             return;
+        }
+        if (this.cpu_projection && !['Point', 'MultiPoint'].includes(feature.geometry.type)) {
+            throw new Error('Projected annotations require Point or MultiPoint source geometry');
         }
 
         // Point styling
@@ -404,6 +408,9 @@ Object.assign(Points, {
     },
 
     _preprocess (draw) {
+        if (this.cpu_projection && (draw.collide !== false || (draw.text && draw.text.collide !== false))) {
+            throw new Error('Projected annotations require explicit collide: false');
+        }
         draw.color = StyleParser.createColorPropertyCache(draw.color);
         draw.alpha = StyleParser.createPropertyCache(draw.alpha);
         draw.texture = (draw.texture !== undefined ? draw.texture : this.texture); // optional or default texture
@@ -685,6 +692,10 @@ Object.assign(Points, {
             this.vertex_template[i++] = mesh.variant.point_type;
         }
 
+        if (this.cpu_projection) {
+            const projected = mesh.vertex_data.vertex_layout.index.a_projected_position;
+            for (let component = 0; component < 3; component++) this.vertex_template[projected + component] = 0;
+        }
         if (add_custom_attribs) {
             this.addCustomAttributesToVertexTemplate(style, i);
         }
@@ -875,6 +886,8 @@ Object.assign(Points, {
 
     // track mesh data for label on main thread, for additional cross-tile collision/repeat passes
     trackLabel (label, linked, mesh, geom_count/*, context*/) {
+        // Projected annotations explicitly disable collision; retain atlas ranges/topology without planar repeat passes.
+        if (this.cpu_projection) return;
         // track if collision is enabled, or if the label is near enough to the tile edge to
         // necessitate further repeat checking
         if (label.layout.collide || label.may_repeat_across_tiles) {
@@ -930,7 +943,8 @@ Object.assign(Points, {
                     { name: 'a_selection_color', size: 4, type: gl.UNSIGNED_BYTE, normalized: true },
                     { name: 'a_outline_color', size: 4, type: gl.UNSIGNED_BYTE, normalized: true },
                     { name: 'a_outline_edge', size: 1, type: gl.FLOAT, normalized: false },
-                    { name: 'a_point_type', size: 1, type: gl.FLOAT, normalized: false }
+                    { name: 'a_point_type', size: 1, type: gl.FLOAT, normalized: false },
+                    ...(this.cpu_projection ? [{name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false}] : [])
                 ]);
             }
             return this.vertex_layouts.portable;
@@ -954,6 +968,7 @@ Object.assign(Points, {
             ];
 
             this.addCustomAttributesToAttributeList(attribs);
+            if (this.cpu_projection) attribs.push({name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false});
             this.vertex_layouts[variant.shader_point] = new VertexLayout(attribs);
         }
         return this.vertex_layouts[variant.shader_point];

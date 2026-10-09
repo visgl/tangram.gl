@@ -207,6 +207,12 @@ positions also include failed work. These are cumulative per-worker counts, rese
 with source preparation, not resident geometry or GPU memory. Ordinary workers
 omit the fields. See [refinement diagnostics](../developer-guide/projected-basemaps.md#refinement-diagnostics).
 
+Opt-in `cacheProjectedMeshes: true` adds
+`projectionPreparation.projectedResults: {entries, bytes, hits, misses}` for an
+independent 32-entry / 16 MiB worker LRU. Work counters exclude cache hits.
+Caller-owned engines must stay immutable for the scene lifetime; leave this option
+disabled for mutable engines. See [warm projected outputs](../developer-guide/projected-basemaps.md#switching-projections-without-reloading-tiles).
+
 ### `renderer.getTileResourceStatistics()`
 
 Returns a detached snapshot of `activeBuilds`, `queuedBuilds`, `residentTiles`,

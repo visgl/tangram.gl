@@ -12,9 +12,10 @@ import {GLOBE_VISIBILITY_WGSL} from '../globe_visibility_wgsl';
  * circle rendering without scalar WebGL uniforms. All point variants share an
  * all-buffered vertex layout so WebGPU never depends on constant attributes.
  *
+ * @param cpuProjection Use preprojected ground anchors while retaining screen-space billboard shapes.
  * @returns {string} Complete WGSL source for Tangram's point style.
  */
-export function buildPointsWGSL() {
+export function buildPointsWGSL(cpuProjection = false) {
     return `
 @group(0) @binding(3) var u_texture: texture_2d<f32>;
 @group(0) @binding(4) var u_textureSampler: sampler;
@@ -30,6 +31,7 @@ struct PointAttributes {
     @location(6) a_outline_color: vec4<f32>,
     @location(7) a_outline_edge: f32,
     @location(8) a_point_type: f32,
+    ${cpuProjection ? '@location(9) a_projected_position: vec3<f32>,' : ''}
 };
 
 struct PointVaryings {
@@ -94,13 +96,14 @@ fn vertexMain(attributes: PointAttributes) -> PointVaryings {
         f32(attributes.a_position.z),
         1.0
     );
-    let projected_position = tangramModelView(local_position);
+    let projected_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};
     if (TangramView.u_projection_mode == 1 && tangramGlobeOccluded(projected_position.xyz,
         (TangramTile.u_model * local_position).z, TangramCamera.u_eye)) {
         output.position = vec4<f32>(2.0, 2.0, 2.0, 1.0);
         return output;
     }
     var clip_position = TangramCamera.u_projection * projected_position;
+    ${cpuProjection ? 'clip_position.z = (clip_position.z + clip_position.w) * 0.5;' : ''}
     let screen_offset = shape * clip_position.w * 2.0 *
         TangramView.u_device_pixel_ratio / TangramView.u_resolution;
     clip_position = vec4<f32>(

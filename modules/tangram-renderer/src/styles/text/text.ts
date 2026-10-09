@@ -40,6 +40,8 @@ interface TextBuildMesh {
 }
 /** Checked standalone-text style, extending only the point/style capabilities it consumes. */
 export interface TextStyleRuntime extends TextLabelRuntime {
+    /** Optional ground-anchor projection; screen-space glyph geometry remains unchanged. */
+    cpu_projection?: import('../../procedures/mesh-projector').ProjectedBasemapOptions;
     /** Whether this is a built-in renderer style. */
     built_in: boolean;
     super: {makeVertexTemplate(this: TextStyleRuntime, style: TextFeatureStyle, mesh: TextBuildMesh, addCustom: boolean): number[]};
@@ -80,7 +82,7 @@ Object.assign(TextStyle, {
     built_in: true,
 
     getWGSLShaderSource(this: TextStyleRuntime) {
-        return buildTextWGSL();
+        return buildTextWGSL(Boolean(this.cpu_projection));
     },
 
     init(this: TextStyleRuntime, options = {}) {
@@ -128,6 +130,9 @@ Object.assign(TextStyle, {
         let tile = context.tile;
         if (tile.generation !== this.generation) {
             return;
+        }
+        if (this.cpu_projection && !['Point', 'MultiPoint'].includes(feature.geometry.type)) {
+            throw new Error('Projected annotations require Point or MultiPoint source geometry');
         }
 
         let type = feature.geometry.type;
@@ -231,6 +236,7 @@ Object.assign(TextStyle, {
 
     // Sets up caching for draw properties
     _preprocess (this: TextStyleRuntime, draw: TextLabelDraw) {
+        if (this.cpu_projection && draw.collide !== false) throw new Error('Projected annotations require explicit collide: false');
         draw.blend_order = this.getBlendOrderForDraw(draw); // from draw block, or fall back on default style blend order
         return this.preprocessText(draw);
     },
@@ -347,6 +353,7 @@ Object.assign(TextStyle, {
             ];
 
             this.addCustomAttributesToAttributeList(attribs);
+            if (this.cpu_projection) attribs.push({name: 'a_projected_position', size: 3, type: gl.FLOAT, normalized: false});
             this.vertex_layouts[variant.shader_point as unknown as string] = new VertexLayout(attribs);
         }
         return this.vertex_layouts[variant.shader_point as unknown as string];

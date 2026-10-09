@@ -76,3 +76,53 @@ test('distinct byte arrays with the same lookup hash cannot reuse another mesh',
 test.each([[-1, 1], [1, -1], [NaN, 1], [1, Infinity], [1.5, 1]])('rejects invalid cache limits %s/%s', (bytes, entries) => {
     expect(() => new ProjectedMeshPreparationCache(bytes, entries)).toThrow(RangeError);
 });
+
+test('asynchronous results retain detached inputs and failed replies remain retryable', async () => {
+    const cache = new ProjectedMeshPreparationCache();
+    const vertices = new Uint8Array([1, 2]);
+    const indices = new Uint16Array([0, 1, 0]);
+    const prepare = vi.fn(async () => ({vertices: new Uint8Array([8, 9]), indices}));
+    prepare.mockRejectedValueOnce(new Error('engine unavailable'));
+    await expect(cache.getOrCreateAsync('target', vertices, indices, prepare)).rejects.toThrow('engine unavailable');
+    const result = await cache.getOrCreateAsync('target', vertices, indices, prepare);
+    expect(await cache.getOrCreateAsync('target', vertices.slice(), indices.slice(), prepare)).toBe(result);
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(cache.getStatistics()).toMatchObject({entries: 1, hits: 1, misses: 2});
+});
+
+test('concurrent asynchronous misses retain one completed result, without pretending to coalesce work', async () => {
+    const cache = new ProjectedMeshPreparationCache();
+    const prepare = vi.fn(async () => ({vertices: new Uint8Array(2), indices: new Uint16Array(3)}));
+    await Promise.all([cache.getOrCreateAsync('same', new Uint8Array(2), false, prepare),
+        cache.getOrCreateAsync('same', new Uint8Array(2), false, prepare)]);
+    expect(prepare).toHaveBeenCalledTimes(2);
+    expect(cache.getStatistics()).toEqual({entries: 1, bytes: 10, hits: 0, misses: 2});
+});
+
+test('reset during an asynchronous preparation prevents stale residency', async () => {
+    const cache = new ProjectedMeshPreparationCache();
+    let complete = () => {};
+    const pending = new Promise<void>(resolve => {complete = resolve;});
+    const prepare = vi.fn(async () => {await pending; return {vertices: new Uint8Array(2), indices: new Uint16Array(3)};});
+    const result = cache.getOrCreateAsync('target', new Uint8Array(2), false, prepare);
+    cache.clear();
+    complete();
+    await result;
+    expect(cache.getStatistics()).toEqual({entries: 0, bytes: 0, hits: 0, misses: 0});
+    await cache.getOrCreateAsync('target', new Uint8Array(2), false, prepare);
+    expect(prepare).toHaveBeenCalledTimes(2);
+});
+
+test('asynchronous preparation snapshots source before callers mutate its input', async () => {
+    const cache = new ProjectedMeshPreparationCache();
+    const vertices = new Uint8Array([1, 2]);
+    const original = vertices.slice();
+    const prepare = vi.fn(async () => ({vertices: new Uint8Array([7, 8]), indices: new Uint16Array(3)}));
+    const pending = cache.getOrCreateAsync('target', vertices, false, prepare);
+    vertices.fill(9);
+    await pending;
+    await cache.getOrCreateAsync('target', original, false, prepare);
+    expect(prepare).toHaveBeenCalledOnce();
+    await cache.getOrCreateAsync('target', vertices, false, prepare);
+    expect(prepare).toHaveBeenCalledTimes(2);
+});

@@ -9,6 +9,68 @@ import {createProjectedBasemapScene, getProjectedViewFrame, ProjectedBasemapLaye
 
 afterEach(() => vi.restoreAllMocks());
 
+test.each(['m', 'px'])('projected road zoom stops preserve %s units through defaults and outlines', unit => {
+    const scene = {styles: {road: {base: 'lines', draw: {width: [[2, `2${unit}`], [8, `10${unit}`]],
+        offset: [[2, `-1${unit}`], [8, `2${unit}`]], outline: {width: [[2, `1${unit}`], [8, `2${unit}`]]}}}},
+        layers: {roads: {draw: {road: {order: 2}}, child: {draw: {road: {color: '#fff'}}}}}};
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+});
+
+test.each([[], [[2, '2px'], [2, '3px']], [[8, '2px'], [2, '3px']], [[2, '2px'], [8, '3m']],
+    [[-1, '2px']], [[23, '2px']], [[2, '0px']], [[2, '2px', 1]], [[NaN, '2px']]].map(width => ({width})))(
+    'invalid projected road stops fail before worker startup: $width', ({width}) => {
+        expect(() => createProjectedBasemapScene({layers: {roads: {draw: {lines: {width}}}}},
+            {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow();
+    });
+
+test('projected point/text annotations require explicit noncolliding, noninteractive ground draws', () => {
+    const scene = {styles: {labels: {base: 'text', draw: {collide: false}}}, layers: {
+        points: {draw: {points: {collide: false, text: {collide: false, text_source: 'name'}}}},
+        text: {draw: {labels: {text_source: 'name'}}}}};
+    expect(() => createProjectedBasemapScene(scene, {type: 'albers'}, 'https://example.test/worker.js')).not.toThrow();
+    for (const draw of [{}, {collide: true}, {collide: false, interactive: true}, {collide: false, z: 2},
+        {collide: false, text: {collide: true}}, {collide: false, text: {collide: false, z: 1}}]) {
+        expect(() => createProjectedBasemapScene({layers: {annotations: {draw: {points: draw}}}},
+            {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow();
+    }
+});
+
+test('attached text merges noncolliding style defaults without mutating the authored scene', () => {
+    const scene = {styles: {markers: {base: 'points', draw: {collide: false, text: {collide: false}}}},
+        layers: {markers: {draw: {markers: {text: {text_source: 'name'}}}}}};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+    for (const text of [{collide: true}, {collide: false, interactive: true}, {collide: false, z: 1}, null, []]) {
+        expect(() => createProjectedBasemapScene({...scene, layers: {markers: {draw: {markers: {text}}}}},
+            {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow();
+    }
+});
+
+test('attached text objects replace disabled style defaults without bypassing collision checks', () => {
+    const text = {collide: false, text_source: 'name'};
+    const scene = {styles: {markers: {base: 'points', draw: {collide: false, text: false}}},
+        layers: {markers: {draw: {markers: {text}}}}};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+    for (const text of [{text_source: 'name'}, {collide: true, text_source: 'name'}]) {
+        expect(() => createProjectedBasemapScene({...scene, layers: {markers: {draw: {markers: {text}}}}},
+            {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow('collide');
+    }
+});
+
+test('child annotation draws preserve attached-text collision settings and explicit overrides', () => {
+    const scene = {layers: {markers: {draw: {points: {collide: false, text: {collide: false}}},
+        child: {draw: {points: {text: {text_source: 'name'}}}}}}};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+    expect(() => createProjectedBasemapScene({layers: {markers: {...scene.layers.markers,
+        child: {draw: {points: {text: {collide: true}}}}}}},
+        {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow('collide');
+});
+
 test('projection-only property updates are deduplicated, restore the authored default and ignore disposed records', async () => {
     const scene = createProjectedBasemapScene({sources: {}, layers: {}}, {type: 'equal-earth'}, 'https://example.test/projection.js');
     vi.spyOn(Object.getPrototypeOf(ProjectedBasemapLayer.prototype), 'updateState').mockImplementation(() => {});
@@ -139,7 +201,7 @@ test('prepares an inline scene without mutating authored records and deduplicate
 
 test.each([
     {import: 'scene.yaml'},
-    {styles: {road: {base: 'points'}}},
+    {styles: {road: {base: 'points', shaders: {}}}},
     {styles: {ground: {base: 'polygons', draw: {extrude: true}}}},
     {styles: {ground: {base: 'raster', draw: {z: 1}}}},
     {styles: {ground: {base: 'polygons', draw: {interactive: true}}}},
@@ -159,7 +221,7 @@ test('layer filter/data property names are not mistaken for nested draw blocks',
     }};
     expect(() => createProjectedBasemapScene(scene, {type: 'mercator'}, 'https://example.test/projection.js')).not.toThrow();
     expect(() => createProjectedBasemapScene({...scene, layers: {ground: {child: {draw: {points: {order: 0}}}}}},
-        {type: 'mercator'}, 'https://example.test/projection.js')).toThrow('flat');
+        {type: 'mercator'}, 'https://example.test/projection.js')).toThrow('collide');
 });
 
 test.each(['filter', 'data', 'draw', 'priority', 'visible', 'enabled', 'exclusive'])(
@@ -167,7 +229,7 @@ test.each(['filter', 'data', 'draw', 'priority', 'visible', 'enabled', 'exclusiv
         const scene = {layers: {[name]: {data: {source: 'map'}, draw: {polygons: {order: 0}}}}};
         expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).not.toThrow();
         const unsupported = {layers: {[name]: {data: {source: 'map'}, draw: {points: {order: 0}}}}};
-        expect(() => createProjectedBasemapScene(unsupported, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('flat');
+        expect(() => createProjectedBasemapScene(unsupported, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('collide');
     });
 
 test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)('the %s layer dispatches the opt-in adapter and reports invalid views', type => {
@@ -205,10 +267,10 @@ test('fixed-meter roads accept style defaults, aliases and ordinary caps/joins',
     }
 });
 
-test.each([undefined, 0, -1, Infinity, '3km', [1, 2], [[2, '5m']], 'function() {return 10;}'])(
+test.each([undefined, 0, -1, Infinity, '3km', [1, 2], [[2, '5m'], [1, '5m']], 'function() {return 10;}'])(
     'projected roads reject nonfixed or missing width %j before starting workers', width => {
         const scene = {layers: {roads: {draw: {lines: {width, order: 1}}}}};
-        expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('fixed-meter');
+        expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow();
     });
 
 test.each(['outline', 'texture', 'dash', 'animated', 'next_width', 'next_offset'])(
@@ -233,7 +295,7 @@ test.each(['12px', '12000m'])('static %s roads accept offsets, parent outlines, 
 
 test('explicit draw style cannot bypass supported-style validation', () => {
     expect(() => createProjectedBasemapScene({layers: {ground: {draw: {polygons: {style: 'text'}}}}},
-        {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('flat');
+        {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('collide');
 });
 
 test('road widths inherit through child layers, while unsupported child overrides fail early', () => {
@@ -241,7 +303,7 @@ test('road widths inherit through child layers, while unsupported child override
         primary: {filter: {class: 'primary'}, draw: {lines: {color: '#fff'}}}}}};
     expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/projection.js')).not.toThrow();
     expect(() => createProjectedBasemapScene({layers: {roads: {...scene.layers.roads,
-        primary: {draw: {lines: {width: [[2, '2px']]}}}}}}, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('fixed-meter');
+        primary: {draw: {lines: {width: [[2, '2px'], [4, '4m']]}}}}}}, {type: 'equal-earth'}, 'https://example.test/projection.js')).toThrow('one unit');
 });
 
 test('custom ground styles and explicit bounds are supported, but invalid settings and Albers footprints fail', () => {

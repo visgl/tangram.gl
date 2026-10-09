@@ -79,6 +79,14 @@ test('host kernel diagnostics remain separate from worker refinement and GPU res
   } finally {poller.destroy();}
 });
 
+test('projected cache diagnostics aggregate across workers independently of work and GPU residency', () => {
+  const cache = {entries: 2, bytes: 1000000, hits: 5, misses: 2};
+  const workers = [{projectionWork, projectionPreparation: {projectedResults: cache}},
+    {projectionWork, projectionPreparation: {projectedResults: {...cache}}}];
+  expect(formatProjectedDiagnostics(workers, resources)).toContain('Projected cache: 10 hits / 4 misses, 4 meshes (2.0 MB)');
+  expect(cache).toEqual({entries: 2, bytes: 1000000, hits: 5, misses: 2});
+});
+
 test('polling skips unloaded scenes, never overlaps requests and discards replacement/disposal replies', async () => {
   vi.useFakeTimers();
   const first = deferred<unknown[]>();

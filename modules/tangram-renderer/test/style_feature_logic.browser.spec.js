@@ -9,6 +9,7 @@ import {Polygons} from '../src/styles/polygons/polygons';
 import {TextLabels} from '../src/styles/text/text_labels';
 import LabelPoint from '../src/labels/label_point';
 import StyleParser from '../src/styles/style_parser';
+import Geo from '../src/utils/geo';
 
 function createContext(overrides = {}) {
   return {
@@ -70,6 +71,25 @@ function createLines() {
   lines.addCustomAttributesToVertexTemplate = vi.fn();
   return lines;
 }
+
+test('projected zoom-stop widths/offsets bake style zoom without geographic next-zoom interpolation', () => {
+  const lines = createLines();
+  lines.cpu_projection = {type: 'equal-earth'};
+  const draw = lines._preprocess({width: [[4, '6px'], [6, '12px'], [8, '18px']],
+    offset: [[4, '-1px'], [6, '2px']], color: '#fff'});
+  for (const zoom of [4, 6, 8]) {
+    const metersPerPixel = Geo.metersPerPixel(zoom);
+    const context = createContext({zoom, meters_per_pixel: metersPerPixel});
+    const style = {};
+    lines.calcWidth(draw, style, context);
+    lines.calcOffset(draw, style, context);
+    expect(style.width_scale).toBe(0);
+    expect(style.offset_scale).toBe(0);
+    expect(style.width).toBeCloseTo((zoom === 4 ? 6 : zoom === 6 ? 12 : 18) * metersPerPixel * 2);
+    expect(style.offset).toBeCloseTo((zoom === 4 ? -1 : 2) * metersPerPixel * 2);
+    expect(style.projected_pixel_scale).toBe(1 / (metersPerPixel * 2));
+  }
+});
 
 describe('point style behavior', () => {
   test('preprocesses draw properties and computes layout defaults', () => {

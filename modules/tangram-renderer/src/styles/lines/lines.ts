@@ -27,6 +27,7 @@ import polygons_vs from '../polygons/polygons_vertex.glsl';
 import polygons_fs from '../polygons/polygons_fragment.glsl';
 import {buildLinesWGSL} from './lines_wgsl';
 import {GLOBE_PROJECTION_GLSL} from '../../scene/projection_shaders';
+import {getProjectedRoadUnit} from '../../procedures/mesh-projector';
 
 export const Lines: LineStyleRuntime = Object.create(Style);
 
@@ -134,7 +135,7 @@ Object.assign(Lines, {
         }
 
         let next_width;
-        if (draw.next_width) {
+        if (draw.next_width && !this.cpu_projection) {
             next_width = this.calcDistanceNextZoom(draw.next_width, context);
         }
         else {
@@ -151,7 +152,9 @@ Object.assign(Lines, {
 
         // calculate relative change in line width between zooms
         // interpolate from the line width at the zoom mid-point, towards/away from the previous/next integer zoom
-        if (draw.next_width) {
+        // Projected scenes have an explicit style zoom independent of data/camera zoom.
+        // Bake that zoom's width; geographic shaders alone interpolate toward next zoom.
+        if (draw.next_width && !this.cpu_projection) {
             next_width *= 2; // NB: a given width is twice as big in screen space at the next zoom
             let mid_width = (width + next_width) * 0.5;
             style.width = mid_width * context.units_per_meter_overzoom; // width at zoom mid-point
@@ -192,7 +195,7 @@ Object.assign(Lines, {
         else if (draw.offset) {
             let offset = this.calcDistance(draw.offset, context);
 
-            if (draw.next_offset) {
+            if (draw.next_offset && !this.cpu_projection) {
                 let next_offset = this.calcDistanceNextZoom(draw.next_offset, context) * 2;
 
                 if (Math.abs(offset) >= Math.abs(next_offset)) {
@@ -344,7 +347,7 @@ Object.assign(Lines, {
     },
 
     _preprocess (this: LineStyleRuntime, draw: RawGeometryDraw) {
-        if (this.cpu_projection && !draw.preprocessed) draw.projected_pixel_width = typeof draw.width === 'string' && /px\s*$/.test(draw.width);
+        if (this.cpu_projection && !draw.preprocessed) draw.projected_pixel_width = getProjectedRoadUnit(draw.width) === 'px';
         draw.color = StyleParser.createColorPropertyCache(draw.color);
         draw.alpha = StyleParser.createPropertyCache(draw.alpha);
         draw.width = StyleParser.createPropertyCache(draw.width, StyleParser.parseUnits);
