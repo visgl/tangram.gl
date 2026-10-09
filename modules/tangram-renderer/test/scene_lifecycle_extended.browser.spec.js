@@ -200,6 +200,29 @@ describe('Scene host lifecycle', () => {
 });
 
 describe('Scene render orchestration', () => {
+    test('selection initialization locks readback for builds and unfinished pipelines', () => {
+        const scene = createScene();
+        const texture = {destroy: vi.fn()};
+        const framebuffer = {destroy: vi.fn()};
+        scene.device = {createTexture: () => texture, createFramebuffer: () => framebuffer};
+        scene.workers = [];
+        scene.building = false;
+        scene.selection_render_pending = false;
+        scene.last_render_count = 10;
+        scene.resetFeatureSelection();
+        expect(scene.last_render_count).toBe(0);
+        expect(scene.selection.locked).toBe(false);
+        scene.selection_render_pending = true;
+        expect(scene.selection.locked).toBe(true);
+        scene.selection_render_pending = false;
+        scene.building = true;
+        expect(scene.selection.locked).toBe(true);
+        scene.building = false;
+        expect(scene.selection.locked).toBe(false);
+        scene.selection.destroy();
+        expect(framebuffer.destroy).toHaveBeenCalledOnce();
+        expect(texture.destroy).toHaveBeenCalledOnce();
+    });
     test('pending selection pipelines retry without reading or committing an incomplete target', () => {
         const pass = {end: vi.fn()};
         const encoder = {beginRenderPass: () => pass, finish: () => ({}), destroy: vi.fn()};
