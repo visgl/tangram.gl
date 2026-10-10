@@ -1,0 +1,71 @@
+# tangram-layers
+# SPDX-License-Identifier: MIT
+# Copyright (c) vis.gl contributors
+
+# POC: hillshade from Terrarium heights, not a normal-map URL substitution.
+# Classic WebGL 2 only; does not displace geometry or enable terrain picking.
+scene:
+  background:
+    color: '#dce6d8'
+sources:
+  elevation:
+    type: Raster
+    url: https://tiles.mapterhorn.com/{z}/{x}/{y}.webp
+    tile_size: 512
+    # Planet archive has complete global coverage through z12; overzoom above it.
+    max_zoom: 12
+    # Interpolating encoded channels across a carry creates false heights.
+    filtering: nearest
+    attribution: '<a href="https://mapterhorn.com/attribution">© Mapterhorn</a>'
+  basemap:
+    type: MVT
+    tilejson: https://tiles.openfreemap.org/planet
+    tile_size: 512
+    max_zoom: 14
+    attribution: >-
+      <a href="https://openfreemap.org" target="_blank">OpenFreeMap</a>
+      <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a>
+      Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>
+styles:
+  mapterhorn-hillshade:
+    base: raster
+    lighting: false
+    shaders:
+      blocks:
+        global: |
+          float mapterhornHeight(vec4 sample_color) {
+              return dot(sample_color.rgb * 255., vec3(256., 1., 1. / 256.)) - 32768.;
+          }
+        color: |
+          vec2 pixel = currentRasterPixel(0);
+          // Source UVs run north-to-south; common Mercator Y runs south-to-north.
+          float west = mapterhornHeight(sampleRasterAtPixel(0, pixel - vec2(1., 0.)));
+          float east = mapterhornHeight(sampleRasterAtPixel(0, pixel + vec2(1., 0.)));
+          float north = mapterhornHeight(sampleRasterAtPixel(0, pixel - vec2(0., 1.)));
+          float south = mapterhornHeight(sampleRasterAtPixel(0, pixel + vec2(0., 1.)));
+          float latitude = 2. * atan(exp(worldPosition().y / 6378137.)) - 1.5707963267948966;
+          float pixel_meters = 40075016.68557849 / exp2(u_tile_origin.w)
+              / rasterPixelSize(0).x / u_raster_offsets[0].z * cos(latitude);
+          vec3 terrain_normal = normalize(vec3(west - east, south - north, 2. * pixel_meters));
+          float shade = .35 + .65 * max(0., dot(terrain_normal, normalize(vec3(-1., 1., 1.))));
+          color = vec4(vec3(.78, .86, .72) * shade, 1.);
+layers:
+  terrain:
+    data: {source: elevation, layer: _default}
+    draw:
+      mapterhorn-hillshade: {order: 0}
+  water:
+    data: {source: basemap, layer: water}
+    draw:
+      polygons: {order: 1, color: '#b8d7e9'}
+  roads:
+    data: {source: basemap, layer: transportation}
+    draw:
+      lines: {order: 2, color: '#fff3dc', width: 1px}
+  places:
+    data: {source: basemap, layer: place}
+    draw:
+      text:
+        order: 3
+        text_source: name
+        font: {family: sans-serif, size: 12px, fill: '#243128', stroke: {color: white, width: 2px}}

@@ -80,6 +80,11 @@ page, so the examples sidebar stays visible while you move between demos.
 ## @vis.gl/tangram-renderer
 
 <div className="example-tile-grid">
+  <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/mapterhorn.yaml">
+    <span className="example-tile__eyebrow">WebGL 2 · terrain POC</span>
+    <strong>Mapterhorn hillshade</strong>
+    <span>Terrarium elevation tiles shaded on the GPU, with OpenFreeMap water, roads and places.</span>
+  </a>
   <a className="example-tile" href="/tangram.gl/examples/classic">
     <img className="example-tile__image" src="/tangram.gl/img/examples/renderer-playground.webp" alt="" loading="lazy" />
     <span className="example-tile__eyebrow">Playground</span>
