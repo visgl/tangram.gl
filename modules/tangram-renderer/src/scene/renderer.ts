@@ -15,7 +15,8 @@ import {validateProjectionEngine} from '../procedures/projected-coordinate-trans
 import type {ProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {normalizeProjectionExecutionOptions} from '../procedures/projection-batch-executor';
 import type {ProjectionExecutionStatistics} from '../procedures/projection-batch-executor';
-import type {FeatureSelectionResult} from '../types';
+import type {FeatureSelectionResult, FeatureSelectionOptions} from '../types';
+import {Matrix4} from '@math.gl/core';
 
 
 interface FrameOptions {renderViewId?: string}
@@ -23,9 +24,11 @@ interface FrameOptions {renderViewId?: string}
 /** Minimal scene surface needed by the host-driven renderer. */
 interface RendererScene {
     /** Schedule a viewport-local feature query for a subsequent render. */
-    getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number}): Promise<FeatureSelectionResult | undefined>;
+    getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number; renderViewId?: string; width?: number; height?: number}): Promise<FeatureSelectionResult | undefined>;
+    /** Switch only selection ownership; shared workers/features remain unchanged. */
+    setFeatureSelectionView?(id: string, retainedIds: readonly string[]): void;
     /** Shared source/style tile ownership across every eye. */
-    tile_manager: {getResourceStatistics(): TileResourceStatistics};
+    tile_manager: {getResourceStatistics(): TileResourceStatistics; updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void};
     view: View;
     config: {animated?: boolean; scene?: {cpu_projection?: unknown}} | null;
     animated: boolean;
@@ -137,18 +140,30 @@ export default class Renderer {
     }
 
     /**
-     * Query interactive draws in top-origin CSS pixels of the active render view.
+     * Query interactive draws in top-origin CSS pixels, optionally routed to a named
+     * render view or resolved from full-canvas coordinates in the current HostFrame.
      * The host must continue rendering while this asynchronous GPU/worker query is
      * pending. This does not implement deck.gl picking or terrain intersections.
      */
-    getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number} = {}): Promise<FeatureSelectionResult | undefined> {
+    getFeatureAt(pixel: {x: number; y: number}, options: FeatureSelectionOptions = {}): Promise<FeatureSelectionResult | undefined> {
         if (this.destroyed) return Promise.reject(new Error('Cannot query a destroyed renderer'));
         if (![pixel.x, pixel.y, options.radius ?? 0].every(Number.isFinite) || (options.radius ?? 0) < 0) {
             return Promise.reject(new Error('Selection coordinates and non-negative radius must be finite'));
         }
-        const pending = this.scene.getFeatureAt({...pixel}, {...options});
+        let resolved;
+        try {
+            if (!this.host_frame && (options.renderViewId !== undefined || options.coordinateSpace === 'canvas')) {
+                throw new Error('View-aware selection requires a HostFrame');
+            }
+            resolved = this.host_frame?.resolveSelectionPoint(pixel, options, this.active_render_view_id ?? undefined);
+        } catch (error) {
+            return Promise.reject(error);
+        }
+        if (resolved === null) return Promise.resolve({feature: null, changed: false, pixel: {...pixel}});
+        const pending = this.scene.getFeatureAt(resolved?.pixel ?? {...pixel}, {radius: options.radius,
+            ...(resolved ? {renderViewId: resolved.view.id, width: resolved.view.viewport.width, height: resolved.view.viewport.height} : {})});
         this.scene.requestRedraw();
-        return pending;
+        return resolved ? pending.then(result => result && {...result, pixel: {...pixel}, renderViewId: resolved.view.id}) : pending;
     }
 
     /** Resolve source capabilities without publishing archive handles or changing source policy. */
@@ -193,7 +208,13 @@ export default class Renderer {
                 this.scene.resizeMap(viewport.width, viewport.height);
             }
         }, () => {
-            this.scene.setCameraMatrices(render_view.camera);
+            // CPU-projected shaders bypass the tile model-view transform. Compose the
+            // host view here so rendering, collision and selection use the same camera.
+            this.scene.setCameraMatrices(host_frame.projection.type === 'projected' ? {
+                ...render_view.camera, view: new Float64Array(new Matrix4()),
+                projection: new Float64Array(new Matrix4(Array.from(render_view.camera.projection))
+                    .multiplyRight(Array.from(render_view.camera.view)))
+            } : render_view.camera);
             this.host_frame = host_frame;
             this.active_render_view_id = render_view.id;
         });
@@ -205,6 +226,7 @@ export default class Renderer {
         if (render_view_changed) {
             this.scene.dirty = true;
         }
+        this.scene.setFeatureSelectionView?.(render_view.id, host_frame.renderViews.map(view => view.id));
         return host_frame;
     }
 
@@ -230,6 +252,9 @@ export default class Renderer {
             if (this.host_frame) {
                 this.scene.host_animation_time = this.host_frame.animationTime ?? Math.max(0, (Date.now() - this.scene.start_time) / 1000);
             }
+        }
+        if (this.host_frame?.projection.type === 'projected') {
+            this.scene.tile_manager.updateProjectedLabels(this.host_frame, this.gpuBackend?.device.type !== 'webgpu');
         }
         const rendered = this.scene.updateScene({ renderPass });
         if (this.submittedViews.size === 0) {

@@ -38,7 +38,7 @@ import MediaCapture from '../utils/media_capture';
 import setupSceneDebug from './scene_debug';
 import {getWorkerURL} from './worker_url';
 import type {ViewScene} from './view';
-import type {SceneListeners, SceneDefinition, SceneLoadOptions, TileSourceStatistics} from '../types';
+import type {SceneListeners, SceneDefinition, SceneLoadOptions, TileSourceStatistics, FeatureSelectionResult} from '../types';
 import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 import type {RenderPass} from '@luma.gl/core';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
@@ -47,6 +47,14 @@ import {normalizeProjectionExecutionOptions} from '../procedures/projection-batc
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
+    /** Active eye's independently owned selection target. */
+    declare selection: FeatureSelection | null;
+    /** Retained readback contexts; source feature maps remain shared in workers. */
+    declare selection_views: Map<string, {selection: FeatureSelection; lastRender: number; pending: boolean}>;
+    /** Current eye's pipeline-readiness lock, saved when another eye becomes active. */
+    declare selection_render_pending: boolean;
+    /** Last completed selection frame for the active eye. */
+    declare last_selection_render: number;
     declare subscribe: (listeners: SceneListeners) => void;
     declare view: View;
     /** Tile worker and mesh ownership for the active scene. */
@@ -120,6 +128,8 @@ export default class Scene {
         this.selection_render_pending = false; // unfinished pipeline draws invalidate the selection target
         this.media_capture = new MediaCapture();
         this.selection = null;
+        this.selection_views = new Map();
+        this.selection_view_id = null;
         this.selection_feature_count = 0;
         this.fetching_selection_map = null;
         this.prev_textures = null; // textures from previously loaded scene (used for cleanup)
@@ -521,7 +531,7 @@ export default class Scene {
     }
 
     destroyWorkers() {
-        this.selection = null; // selection needs to be re-initialized when workers are
+        this.destroyFeatureSelection(); // selections retain worker references and must be recreated
         if (Array.isArray(this.workers)) {
             log.setWorkers(null);
             this.workers.forEach((worker) => {
@@ -722,8 +732,12 @@ export default class Scene {
                     let encoder = this.device.type === 'webgpu' ? this.device.createCommandEncoder({id: 'tangram-selection'}) : null;
                     let selection_pass = null;
                     try {
+                        // Host eye scissors use full-canvas origins; selection targets
+                        // are view-local, including the attachment clear at pass creation.
+                        const {width, height} = this.selection.fbo_size;
                         selection_pass = (encoder ?? this.device).beginRenderPass({
                             framebuffer: this.selection.framebuffer,
+                            parameters: {viewport: [0, 0, width, height], scissorRect: [0, 0, width, height]},
                             clearColor: FeatureSelection.defaultColor,
                             clearDepth: 1
                         });
@@ -1116,7 +1130,8 @@ export default class Scene {
     }
 
     // Request feature selection at given pixel. Runs async and returns results via a promise.
-    getFeatureAt(pixel, { radius } = {}) {
+    getFeatureAt(pixel, { radius, renderViewId, width, height }:
+        {radius?: number; renderViewId?: string; width?: number; height?: number} = {}): Promise<FeatureSelectionResult | undefined> {
         if (!this.initialized) {
             log('debug', 'Scene.getFeatureAt() called before scene was initialized');
             return Promise.resolve();
@@ -1126,29 +1141,32 @@ export default class Scene {
         if (this.selection_feature_count === 0) {
             return Promise.resolve();
         }
+        width ??= this.view.size.css.width;
+        height ??= this.view.size.css.height;
 
         // only instantiate feature selection on-demand
-        if (!this.selection) {
+        if (renderViewId === undefined && !this.selection) {
             this.resetFeatureSelection();
         }
+        const selection = renderViewId === undefined ? this.selection : this.getFeatureSelectionView(renderViewId).selection;
 
         // Scale point and radius to [0..1] range
         let point = {
-            x: pixel.x / this.view.size.css.width,
-            y: pixel.y / this.view.size.css.height
+            x: pixel.x / width,
+            y: pixel.y / height
         };
 
         if (radius > 0) {
             radius  = {
-                x: radius / this.view.size.css.width,
-                y: radius / this.view.size.css.height
+                x: radius / width,
+                y: radius / height
             };
         }
         else {
             radius = null;
         }
 
-        return this.selection.getFeatureAt(point, { radius }).
+        return selection.getFeatureAt(point, { radius }).
             then(selection => Object.assign(selection, { pixel })).
             catch(error => Promise.resolve({ error }));
     }
@@ -1735,16 +1753,59 @@ export default class Scene {
     }
 
     destroyFeatureSelection() {
+        for (const state of this.selection_views?.values() ?? []) state.selection.destroy();
+        this.selection_views?.clear();
+        this.selection_view_id = null;
         if (this.selection) {
             this.selection.destroy();
-            this.selection = null;
         }
+        this.selection = null;
     }
 
     resetFeatureSelection() {
+        this.destroyFeatureSelection();
         this.selection = new FeatureSelection(this.gl, this.workers,
             () => this.building || this.selection_render_pending, this.device);
         this.last_render_count = 0; // force re-evaluation of selection map
+    }
+
+    /** Allocate one readback target/queue per eye, never a separate source feature map. */
+    getFeatureSelectionView(id: string): {selection: FeatureSelection; lastRender: number; pending: boolean} {
+        let state = this.selection_views.get(id);
+        if (!state) {
+            state = {selection: null, lastRender: -1, pending: false};
+            state.selection = new FeatureSelection(this.gl, this.workers,
+                () => this.building || (this.selection === state.selection ? this.selection_render_pending : state.pending), this.device);
+            this.selection_views.set(id, state);
+            if (this.selection_view_id === id) {
+                // A host may render again without calling setFrame after its query.
+                this.selection = state.selection;
+                this.last_selection_render = state.lastRender;
+                this.selection_render_pending = state.pending;
+            }
+        }
+        return state;
+    }
+
+    /** Select an eye's target before drawing; invalidate removed views and preserve in-flight reads. */
+    setFeatureSelectionView(id, retainedIds) {
+        if (this.selection_view_id === null && this.selection) this.selection.destroy();
+        const previous = this.selection_views.get(this.selection_view_id);
+        if (previous) {
+            previous.lastRender = this.last_selection_render;
+            previous.pending = this.selection_render_pending;
+        }
+        for (const [key, state] of this.selection_views) {
+            if (!retainedIds.includes(key)) {
+                state.selection.destroy();
+                this.selection_views.delete(key);
+            }
+        }
+        const state = this.selection_views.get(id);
+        this.selection_view_id = id;
+        this.selection = state?.selection ?? null;
+        this.last_selection_render = state?.lastRender ?? -1;
+        this.selection_render_pending = state?.pending ?? false;
     }
 
     resetWorkerFeatureSelection(sources = null) {

@@ -152,10 +152,10 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
             if (style.base === 'points' || style.base === 'text') {
                 const defaults = style.draw === undefined ? {} : readRecord(style.draw, 'annotation defaults');
                 const annotation = mergeAnnotationDraws(defaults, draw);
-                if (annotation.collide !== false) throw new Error('Projected annotations require explicit collide: false');
+                if (annotation.collide !== undefined && typeof annotation.collide !== 'boolean') throw new Error('Projected collide must be boolean');
                 if (annotation.text !== undefined) {
                     const text = readRecord(annotation.text, 'attached text');
-                    if (text.collide !== false) throw new Error('Projected annotations require explicit collide: false');
+                    if (text.collide !== undefined && typeof text.collide !== 'boolean') throw new Error('Projected collide must be boolean');
                     validateFlatDraw(text);
                 }
             }
@@ -250,12 +250,8 @@ export class ProjectedBasemapLayer extends BaseProjectedBasemapLayer {
      * This is not deck.gl's synchronous picking API. The host must keep rendering
      * until the selection pass and worker lookup finish; the layer requests a redraw.
      */
-    getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number} = {}): Promise<import('@vis.gl/tangram-renderer/core').FeatureSelectionResult | undefined> {
-        const record = this.state.tangramRecord;
-        if (!record || record.disposed || record.loadFailed) return Promise.resolve(undefined);
-        const pending = record.renderer.getFeatureAt(pixel, options);
-        record.owner.setNeedsRedraw();
-        return pending;
+    getFeatureAt(pixel: {x: number; y: number}, options: import('@vis.gl/tangram-renderer/core').FeatureSelectionOptions = {}): Promise<import('@vis.gl/tangram-renderer/core').FeatureSelectionResult | undefined> {
+        return super.getFeatureAt(pixel, options);
     }
     /** deck.gl's stable layer identity for state transfer between property updates. */
     static layerName = 'ProjectedBasemapLayer';

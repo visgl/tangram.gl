@@ -13,7 +13,7 @@ import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types.js';
 import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
 import type {ProjectionEngine, ProjectionExecutionOptions} from '@vis.gl/tangram-renderer/core';
 import type {LayerProps} from '@deck.gl/core';
-import type {SceneDefinition} from '@vis.gl/tangram-renderer/core';
+import type {SceneDefinition, FeatureSelectionOptions, FeatureSelectionResult} from '@vis.gl/tangram-renderer/core';
 
 /** Tangram-specific properties in addition to ordinary deck.gl layer properties. */
 export type TangramLayerProps = LayerProps & {
@@ -178,6 +178,15 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
 
     finalizeState() {
       this._disposeTangramRecord(this.state && this.state.tangramRecord);
+    }
+
+    /** Asynchronously query a view-local or canvas CSS pixel; the host must keep drawing. */
+    getFeatureAt(pixel: {x: number; y: number}, options: FeatureSelectionOptions = {}): Promise<FeatureSelectionResult | undefined> {
+      const record = this.state.tangramRecord;
+      if (!record || record.disposed || record.loadFailed) return Promise.resolve(undefined);
+      const pending = record.renderer.getFeatureAt(pixel, options);
+      record.owner.setNeedsRedraw();
+      return pending;
     }
 
     get isLoaded() {

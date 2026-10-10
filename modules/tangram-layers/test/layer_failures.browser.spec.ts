@@ -10,7 +10,7 @@ import createTangramLayerClass from '../src/tangram-layer';
 function createHarness() {
   class BaseLayer {}
   const renderer = {scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined),
-    destroy: vi.fn(), setFrame: vi.fn()};
+    destroy: vi.fn(), setFrame: vi.fn(), getFeatureAt: vi.fn().mockResolvedValue({feature: {id: 7}, renderViewId: 'right'})};
   const create = vi.fn((_source: unknown, _options: {requestRedraw: () => void}) => renderer);
   const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create}, Renderer: undefined});
   const layer = new Layer();
@@ -25,6 +25,24 @@ function createHarness() {
   layer.context = {device, viewport, deck: {getCanvas: () => canvas, getViewports: () => [viewport]}};
   return {layer, renderer, create, canvas, device};
 }
+
+test('ordinary layers forward canvas/eye query options to the renderer and keep the current owner drawing', async () => {
+  const {layer, renderer} = createHarness();
+  expect(await layer.getFeatureAt({x: 500, y: 100})).toBeUndefined();
+  const owner = createHarness().layer;
+  const record = layer._createTangramRecord(layer.props);
+  if (!record) throw new Error('Expected a renderer record');
+  layer.state.tangramRecord = record;
+  await record.loadPromise;
+  record.owner = owner;
+  const options = {coordinateSpace: 'canvas' as const, renderViewId: 'right', radius: 3};
+  expect(await layer.getFeatureAt({x: 500, y: 100}, options)).toEqual({feature: {id: 7}, renderViewId: 'right'});
+  expect(renderer.getFeatureAt).toHaveBeenCalledExactlyOnceWith({x: 500, y: 100}, options);
+  expect(owner.setNeedsRedraw).toHaveBeenCalledOnce();
+  record.loadFailed = true;
+  expect(await layer.getFeatureAt({x: 500, y: 100})).toBeUndefined();
+  layer.finalizeState();
+});
 
 test.each(['scene', 'canvas', 'device', 'pipeline', 'webgl-state', 'webgl-canvas'] as const)
   ('rejects missing or mismatched %s before allocating a renderer', missing => {

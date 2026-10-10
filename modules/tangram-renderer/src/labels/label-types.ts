@@ -10,6 +10,10 @@ export type LabelPointCoordinate = [number, number];
 
 /** Normalized layout supplied by point/text styles before label construction. */
 export interface LabelLayout extends CollisionLayout {
+    /** Screen-space collision policy deferred until projected cameras are known. */
+    projected_collide?: boolean;
+    /** Source/style/feature identity for buffered copies, absent for anonymous points. */
+    projected_identity?: string;
     /** Pixel offset before geographic scaling. */
     offset: LabelPointCoordinate;
     /** Collision padding in pixels. */
@@ -67,7 +71,7 @@ export interface SerializedLabel {
     /** Original tile-local position. */
     position: LabelPointCoordinate;
     /** Minimal repeat/collision settings. */
-    layout: Pick<LabelLayout, 'priority' | 'collide' | 'repeat_distance' | 'repeat_group' | 'buffer' | 'italic'>;
+    layout: Pick<LabelLayout, 'priority' | 'collide' | 'repeat_distance' | 'repeat_group' | 'buffer' | 'italic' | 'projected_collide' | 'projected_identity'>;
     /** Point/straight dimensions, absent for articulated text. */
     size?: LabelPointCoordinate;
     /** Rotation for point/straight placement. */

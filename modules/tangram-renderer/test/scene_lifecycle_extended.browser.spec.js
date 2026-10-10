@@ -231,7 +231,7 @@ describe('Scene render orchestration', () => {
         const tile = {meshes: {ground: [mesh]}, shouldProxyForStyle: () => true};
         const scene = {
             device: {type: 'webgpu', createCommandEncoder: () => encoder, submit: vi.fn()},
-            selection: {framebuffer: {}, get locked() {return scene.selection_render_pending;}, read: vi.fn()},
+            selection: {framebuffer: {}, fbo_size: {width: 256, height: 256}, get locked() {return scene.selection_render_pending;}, read: vi.fn()},
             selection_render_pending: false,
             view: {panning: false, user_input_active: false, projection: {type: 'mercator'}, setupTile: vi.fn()},
             styles: {ground: style}, tile_manager: {getRenderableTiles: () => [tile]},

@@ -142,14 +142,26 @@ export type TileSourceStatistics = DecodedTileStatistics & {
   projectionWork?: import('./procedures/mesh-projector').MeshProjectionStatistics;
 };
 
+/** CSS-pixel query coordinates and view routing for asynchronous feature selection. */
+export interface FeatureSelectionOptions {
+  /** Non-negative CSS-pixel search radius. */
+  radius?: number;
+  /** Explicit eye/view identity; omitted canvas queries choose the last overlapping view. */
+  renderViewId?: string;
+  /** Default view-local pixels, or full-target top-origin CSS pixels for stereo routing. */
+  coordinateSpace?: 'view' | 'canvas';
+}
+
 /** Asynchronous selection of a built-in worker feature or an application-defined payload. */
 export type FeatureSelectionResult = {
   /** Cloneable metadata from the worker; null/undefined means no hit. */
   feature?: unknown;
   /** Whether the selected feature differs from the previous completed query. */
   changed?: boolean;
-  /** Viewport-local, top-origin CSS pixel requested by the host. */
+  /** Caller-requested top-origin CSS pixel, in the selected coordinate space. */
   pixel?: {x: number; y: number};
+  /** View/eye used for the query; pixel remains in the caller's requested coordinate space. */
+  renderViewId?: string;
   /** Readback, cancellation or worker failure, preserving Scene's result contract. */
   error?: unknown;
 };

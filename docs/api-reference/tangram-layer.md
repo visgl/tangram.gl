@@ -501,9 +501,21 @@ The deck-owned device, canvas, and render pass are never destroyed by `TangramLa
 
 ### Picking
 
-Tangram features are not exposed through deck.gl's picking API in the current alpha. Overlay
-layers remain fully pickable. Use the renderer [`Scene` query API](./scene.md) when application
-logic needs access to Tangram feature data.
+Tangram features are not exposed through deck.gl's synchronous picking API.
+Overlay layers remain fully pickable. For Tangram draws marked `interactive: true`,
+use the asynchronous layer query while continuing to render:
+
+```typescript
+const result = await layer.getFeatureAt({x, y}, {
+  coordinateSpace: 'canvas', // full-target CSS pixels; default is active-view-local
+  radius: 6
+});
+```
+
+An explicit `renderViewId` selects another eye's local pixels. Canvas routing and
+independent per-eye GPU targets are also available directly through
+[`Renderer.getFeatureAt`](./renderer.md#getfeatureatpixel-options).
+This does not perform spatial ray/terrain picking.
 
 ## Source
 

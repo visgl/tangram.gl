@@ -409,6 +409,11 @@ export const TextLabels: TextLabelMethods = {
         }
 
         // Max number of subdivisions to try
+        if (this.cpu_projection) {
+            // Preserve text identity even without IDs; position matching prevents unrelated names collapsing.
+            layout.projected_identity = JSON.stringify([layout.projected_identity ?? [context.source, context.layer,
+                this.name, draw.key], String(text)]);
+        }
         layout.subdiv = tile.overzoom2;
 
         layout.align = draw.align;

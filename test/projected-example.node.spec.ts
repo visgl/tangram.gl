@@ -65,7 +65,7 @@ test.each([true, false])('imagery/vector %s includes curated noncolliding city a
   expect(source.features).toHaveLength(5);
   expect(source.features[0]).toMatchObject({geometry: {type: 'Point'}, properties: {name: 'New York'}});
   expect(scene.layers.annotations.draw.points).toMatchObject({collide: false, interactive: true,
-    text: {collide: false, text_source: 'name'}});
+    text: {collide: true, optional: true, text_source: 'name'}});
 });
 
 test('feature click results ignore obsolete navigation, scene replacement and disposal', async () => {
