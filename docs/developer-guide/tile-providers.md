@@ -96,6 +96,37 @@ TileJSON credit is the straightforward choice. The public service currently
 offers no SLA guarantee. Follow the provider's current instructions rather than
 treating this document as a substitute for its terms.
 
+## Mapterhorn elevation (POC)
+
+The classic playground's **Mapterhorn hillshade (POC)** scene uses
+[Mapterhorn's public endpoint](https://mapterhorn.com/data-access/) as its default
+elevation source: `https://tiles.mapterhorn.com/{z}/{x}/{y}.webp`, 512-pixel,
+Terrarium-encoded tiles. It conservatively caps data zoom at 12, the global planet
+archive's documented range, and overzooms higher views. Regional higher-resolution
+coverage is not yet selected dynamically.
+
+Height in meters is `R * 256 + G + B / 256 - 32768` for byte-valued RGB. The POC
+uses nearest filtering to avoid encoded-channel interpolation across carries,
+then central differences and latitude-adjusted physical pixel spacing for shading.
+The existing normal-map sources are **not** changed: Terrarium heights cannot be
+sampled as encoded normals. Raster-edge samples clamp to the tile; neighbor-aware
+seam handling and smooth decoded-height interpolation remain follow-ups.
+
+This is classic WebGL 2 hillshade, not terrain displacement, automatic elevation
+loading, terrain picking or a WebGPU implementation. OpenFreeMap remains the vector
+default; TRON and other examples are unchanged. A production switch for Walkabout
+and Refill needs normal generation and style conformance first.
+
+Mapterhorn heights can also drive displaced terrain meshes and terrain queries;
+the provider is not limited to hillshading. This POC demonstrates only shading.
+Mesh displacement, edge stitching, terrain LOD, and globe-aware height sampling
+remain separate renderer integration work.
+
+The scene retains linked [Mapterhorn data attribution](https://mapterhorn.com/attribution/)
+alongside OpenFreeMap/OpenMapTiles/OpenStreetMap credits. Mapterhorn combines
+several open-data sources; its code license is not the terrain data license.
+Use current source-specific credits/terms when redistributing data or exports.
+
 ## NASA Blue Marble imagery
 
 The deck.gl and WebXR MapView, GlobeView and FirstPersonView examples, classic

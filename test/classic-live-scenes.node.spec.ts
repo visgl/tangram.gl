@@ -119,7 +119,8 @@ describe('classic live style choices', () => {
     expect(source.attribution).toBe(OPENFREEMAP_ATTRIBUTION);
   });
 
-  test.each(SCENE_OPTIONS.filter(option => !['projection-morph.yaml', 'nasa-blue-marble.yaml'].some(name => option.value.endsWith(name))))('$label uses OpenFreeMap vector tiles and provider credits', option => {
+  // The standalone terrain POC uses its own OpenFreeMap overlay source, tested separately below.
+  test.each(SCENE_OPTIONS.filter(option => !['projection-morph.yaml', 'nasa-blue-marble.yaml', 'mapterhorn.yaml'].some(name => option.value.endsWith(name))))('$label uses OpenFreeMap vector tiles and provider credits', option => {
     const scene = readImportedScene(option.value.replace('styles/', ''));
     for (const name of ['mapzen', 'tilezen']) {
       expect(sceneValue(scene, `sources.${name}`)).toMatchObject({type: 'MVT', url: '', url_params: null, tilejson: OPENFREEMAP_TILEJSON});

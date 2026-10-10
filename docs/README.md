@@ -15,6 +15,17 @@ Copyright (c) vis.gl contributors
 With gratitude to Brett Camper, the Mapzen team, the original Tangram contributors
 and the open mapping community. This project preserves and extends their work.
 
+<div className="project-credits" aria-label="Project and tile-provider acknowledgements">
+  <a href="https://github.com/tangrams/tangram"><img src="/tangram.gl/img/credits/tangram.png" alt="Tangram" width="126" height="50" /></a>
+  <a href="https://www.mapzen.com/"><img src="/tangram.gl/img/credits/mapzen.png" alt="Mapzen" width="160" height="50" /></a>
+  <a href="https://openfreemap.org/"><img src="/tangram.gl/img/credits/openfreemap.jpg" alt="OpenFreeMap" width="50" height="50" /></a>
+  <a href="https://mapterhorn.com/"><img src="/tangram.gl/img/credits/mapterhorn.png" alt="Mapterhorn" width="147" height="50" /></a>
+</div>
+
+Original rendering by Tangram/Mapzen; vector tiles by OpenFreeMap; elevation
+tiles in the terrain POC by Mapterhorn. These acknowledgements do not replace
+[source-specific map attribution](developer-guide/tile-providers.md) or imply endorsement.
+
 tangram.gl combines a standalone luma.gl-backed Tangram renderer with a deck.gl
 basemap adapter. It is an experimental custodian fork, not the official Tangram
 website. Both module packages remain private and unpublished.
