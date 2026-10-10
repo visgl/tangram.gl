@@ -10,7 +10,8 @@ import createTangramLayerClass from '../src/tangram-layer';
 function createHarness() {
   class BaseLayer {}
   const renderer = {scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined),
-    destroy: vi.fn(), setFrame: vi.fn(), getFeatureAt: vi.fn().mockResolvedValue({feature: {id: 7}, renderViewId: 'right'})};
+    destroy: vi.fn(), setFrame: vi.fn(), getTerrainAt: vi.fn().mockReturnValue({coordinate: [0, 0, 100], renderViewId: 'right'}),
+    getFeatureAt: vi.fn().mockResolvedValue({feature: {id: 7}, renderViewId: 'right'})};
   const create = vi.fn((_source: unknown, _options: {requestRedraw: () => void}) => renderer);
   const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create}, Renderer: undefined});
   const layer = new Layer();
@@ -42,6 +43,25 @@ test('ordinary layers forward canvas/eye query options to the renderer and keep 
   record.loadFailed = true;
   expect(await layer.getFeatureAt({x: 500, y: 100})).toBeUndefined();
   layer.finalizeState();
+});
+
+test('terrain queries forward the supplied surface and eye policy without allocating or redrawing', async () => {
+  const {layer, renderer} = createHarness();
+  const surface = {projection: 'web-mercator' as const, intersectRay: vi.fn()};
+  expect(layer.getTerrainAt({x: 50, y: 20}, surface)).toBeNull();
+  const record = layer._createTangramRecord(layer.props);
+  if (!record) throw new Error('Expected renderer record');
+  layer.state.tangramRecord = record;
+  await record.loadPromise;
+  const options = {coordinateSpace: 'canvas' as const, renderViewId: 'right'};
+  expect(layer.getTerrainAt({x: 50, y: 20}, surface, options)).toEqual({coordinate: [0, 0, 100], renderViewId: 'right'});
+  expect(renderer.getTerrainAt).toHaveBeenCalledExactlyOnceWith({x: 50, y: 20}, surface, options);
+  record.loadFailed = true;
+  expect(layer.getTerrainAt({x: 50, y: 20}, surface)).toBeNull();
+  record.loadFailed = false;
+  layer.finalizeState();
+  expect(layer.getTerrainAt({x: 50, y: 20}, surface)).toBeNull();
+  expect(renderer.getTerrainAt).toHaveBeenCalledOnce();
 });
 
 test.each(['scene', 'canvas', 'device', 'pipeline', 'webgl-state', 'webgl-canvas'] as const)

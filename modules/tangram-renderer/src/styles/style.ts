@@ -41,6 +41,7 @@ export var Style = {
         this.projection_target = projection_target;
         this.cpu_projection = config?.scene?.cpu_projection === undefined ? undefined :
             normalizeProjectedBasemapOptions(config.scene.cpu_projection);
+        this.screen_space_labels = Boolean(this.cpu_projection) || config?.scene?._host_screen_space_labels === true;
         if (this.cpu_projection) {
             validateProjectedLights(config.lights);
             if (this.lighting && !(['polygons', 'raster'].includes(this.baseStyle()) &&

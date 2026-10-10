@@ -409,7 +409,7 @@ export const TextLabels: TextLabelMethods = {
         }
 
         // Max number of subdivisions to try
-        if (this.cpu_projection) {
+        if (this.screen_space_labels || this.cpu_projection) {
             // Preserve text identity even without IDs; position matching prevents unrelated names collapsing.
             layout.projected_identity = JSON.stringify([layout.projected_identity ?? [context.source, context.layer,
                 this.name, draw.key], String(text)]);

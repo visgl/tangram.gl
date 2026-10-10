@@ -64,6 +64,8 @@ const exportedNames = new Set(
     .filter(Boolean)
 );
 for (const exportName of [
+  'TerrainMeshSurface',
+  'pickTerrainAt',
   'Scene',
   'ClassicWebGLRenderer',
   'Renderer',
@@ -92,7 +94,7 @@ for (const bundlePath of ['dist/tangram.debug.mjs', 'dist/tangram.min.mjs', 'dis
       match[1].split(',').map(specifier => specifier.trim().split(/\s+as\s+/).at(-1))
     )
   );
-  for (const exportName of ['convertLumaLight', 'mapTangramLight', 'calculatePlanarVolumeBounds']) {
+  for (const exportName of ['TerrainMeshSurface', 'pickTerrainAt', 'convertLumaLight', 'mapTangramLight', 'calculatePlanarVolumeBounds']) {
     if (!bundleExportNames.has(exportName)) {
       throw new Error(`${bundlePath} is missing export: ${exportName}`);
     }

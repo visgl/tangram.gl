@@ -124,7 +124,7 @@ WGSL surface lighting. WebGL selection uses the curved geometry and matching
 occlusion test. See [lighting](../api-reference/renderer.md#light-definitions)
 for supported materials, light counts and unit conventions.
 
-Projected point/text annotations now use screen-space collision, geographic
+Externally driven Mercator, Globe and CPU-projected point/text annotations use screen-space collision, geographic
 cross-tile deduplication and one shared visibility mask across stereo eyes.
 Asynchronous feature queries support explicit views or whole-canvas coordinates,
 with independent per-eye selection targets on WebGL 2 and WebGPU.
@@ -132,9 +132,22 @@ Opt-in elevated projected points and standalone text retain physical altitude;
 attached text inherits its marker's height. Cross-tile identity includes quantized
 height, while stereo shares one collision mask. Ground-only remains the default.
 
-Next: tangent-space normal maps, terrain normals, surface-oriented labels,
-terrain-aware occlusion/picking and deck.gl synchronous picking. Globe and
-Mercator labels still use the existing planar collision layout.
+Mercator/Globe layouts retain worker candidates and resolve priority, repeat
+spacing and buffered copies against the actual host cameras. Curved text bounds
+include its packed segment offsets. Back-side globe anchors do not occupy collision
+space; wrapped globe copies deduplicate, while separate Mercator worlds remain
+distinct. The shared conservative mask prevents collisions in either stereo eye.
+Classic camera-driven scenes retain their existing planar layout.
+Bounds are conservative screen-space rectangles, not glyph-outline tests or
+alternate-anchor fitting. Custom billboard position/size shader blocks are not
+evaluated by the CPU layout; keep such effects consistent with authored geometry.
+
+Host-supplied Mercator/Globe terrain meshes now support nearest-triangle screen
+and room-ray queries, including physical altitude, near/far clipping and explicit
+eye routing. No terrain is loaded or rendered implicitly.
+
+Next: tangent-space normal maps, rendered terrain normals, surface-oriented labels,
+terrain-aware occlusion, indexed large-terrain queries and deck.gl synchronous picking.
 
 ### 7. Finish WebXR placement and interaction
 
@@ -144,7 +157,8 @@ squeeze grabs. Grabs translate a map in its starting plane or rotate a globe
 around its room center; input ownership and tracking-loss cancellation are explicit.
 
 Next: native/emulated headset validation, an in-headset attribution surface,
-grip-pose/two-handed manipulation and terrain/feature-aware spatial picking.
+grip-pose/two-handed manipulation and feature-aware spatial picking. Terrain
+queries accept an explicit mesh; DEM loading, rendering and occlusion remain separate.
 Mocked XR frames and stereo preview do not substitute for headset testing.
 Thor/webcam translation remains example-local.
 

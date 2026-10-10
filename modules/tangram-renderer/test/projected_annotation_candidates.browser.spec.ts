@@ -44,3 +44,20 @@ test('projected text identity distinguishes strings even without feature IDs and
     expect(first.projected_identity).not.toBe(create('Paris').projected_identity);
     expect(create('London', false).projected_identity).toBeUndefined();
 });
+
+test('external Globe/Mercator workers retain collision candidates while classic workers keep their layout', () => {
+    const external = Object.assign(style(false), {screen_space_labels: true});
+    const coordinates: [number, number] = [0, 0];
+    const feature = {id: 7, properties: {}, geometry: {type: 'Point' as const, coordinates}};
+    const draw = {key: 'markers/draw', collide: true};
+    const context = {source: 'cities', layer: 'places'};
+    expect(external.computeLayout({}, feature, draw, context, {})).toMatchObject({
+        collide: false, projected_collide: true, projected_identity: expect.any(String)});
+    expect(external.computeLayout({}, feature, {...draw, collide: false}, context, {})).toMatchObject({
+        collide: false, projected_collide: false});
+    expect(style(false).computeLayout({}, feature, draw, context, {})).toMatchObject({collide: true});
+    const tile = {id: 'tile', key: 'tile', generation: 1, overzoom2: 1};
+    const layout = TextLabels.computeTextLayout.call(external, {}, feature, draw,
+        {...context, geometry: 'point', tile}, tile, 'London', {style: 'normal', supersample: 1});
+    expect(layout).toMatchObject({collide: false, projected_collide: true, projected_identity: expect.any(String)});
+});

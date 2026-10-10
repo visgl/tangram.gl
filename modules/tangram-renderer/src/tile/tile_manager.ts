@@ -227,7 +227,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     updateLabels () {
         // Projected candidates need actual screen cameras, not Mercator zoom/boxes.
         // Renderer lays them out synchronously across the complete HostFrame before drawing.
-        if (this.view.projection.type === 'projected') return Promise.resolve({});
+        if (this.view.projection.type === 'projected' || this.view.camera_mode === 'external') return Promise.resolve({});
         if (this.scene.building && !this.scene.building.initial) {
             // log('debug', `Skip label layout due to on-going scene rebuild`);
             return Promise.resolve({});

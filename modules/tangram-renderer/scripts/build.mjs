@@ -63,7 +63,7 @@ function createWorkerPlugin(minified) {
 function createEntry() {
   const exportAssignment = `
     export default Tangram;
-    export {calculatePlanarGroundBounds, calculatePlanarVolumeBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
+    export {TerrainMeshSurface, pickTerrainAt, calculatePlanarGroundBounds, calculatePlanarVolumeBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter}
       from ${JSON.stringify(resolve(sourceDirectory, 'index.ts'))};
   `;
   return `
@@ -180,7 +180,7 @@ function getCoreBuildOptions() {
         import {setWorkerURL} from ${JSON.stringify(resolve(sourceDirectory, 'scene/worker_url.ts'))};
         import workerSource from 'tangram-worker';
         setWorkerURL(URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'})));
-        export {Renderer, HostFrame, LumaDeviceRenderer, calculatePlanarGroundBounds, calculatePlanarVolumeBounds, validateProjectedLights, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter,
+        export {TerrainMeshSurface, pickTerrainAt, Renderer, HostFrame, LumaDeviceRenderer, calculatePlanarGroundBounds, calculatePlanarVolumeBounds, validateProjectedLights, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter,
           PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure, normalizeProjectedBasemapOptions, getProjectedRoadUnit, countProjectedTileCoordinates, getTileGeographicBounds, getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE, ProjectionBatchExecutor}
           from ${JSON.stringify(resolve(sourceDirectory, 'core.ts'))};
       `

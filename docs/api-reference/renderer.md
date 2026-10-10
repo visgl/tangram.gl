@@ -481,6 +481,40 @@ Legacy program/resource wrappers and classic non-device selection still contain
 raw WebGL operations. Device-owned render passes and resources remain
 the preferred portable path, without a luma.gl engine dependency.
 
+### `getTerrainAt(pixel, surface, options?)`
+
+Synchronously intersects one screen ray with a host-supplied `TerrainSurface`.
+The same active-eye, `renderViewId`, and canvas-coordinate routing as `getFeatureAt`
+applies. The ray is clipped to the camera's near/far planes. A miss returns `null`;
+unknown eyes, non-finite pixels, a nonzero `radius`, projection mismatches, and
+queries without a live `HostFrame` throw. Querying does not change the active camera.
+
+```ts
+import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
+
+const surface = new TerrainMeshSurface({
+  projection: 'web-mercator',
+  positions: terrainPositions, // absolute EPSG:3857 XY, physical altitude Z, in meters
+  indices: terrainIndices // three vertex indices per triangle
+});
+const hit = renderer.getTerrainAt({x, y}, surface, {coordinateSpace: 'canvas'});
+// hit: position, coordinate [longitude, latitude, altitude], distance,
+// normal, triangleIndex, barycentric and renderViewId
+```
+
+For GlobeView supply `projection: 'globe'` and vertices already projected to
+radius-256 globe common coordinates, including elevation. `TerrainMeshSurface`
+copies its buffers, uses two-sided math.gl triangle intersections, and returns
+the nearest triangle. Normals follow mesh winding; distances use the mesh's units.
+Traversal is linear after an overall bounds rejection. Large terrain datasets
+should implement the `TerrainSurface` boundary with a spatial index.
+
+The package also exports `pickTerrainAt(hostFrame, pixel, surface, options?)` for
+hosts without a renderer. This API neither loads/renders DEMs nor associates
+triangles with worker feature IDs. It does not infer terrain from rendered meshes,
+substitute a flat plane in holes, or implement terrain occlusion. CPU-projected
+OrthographicView terrain is not supported by this geographic surface contract.
+
 ## TypeScript contracts
 
 The package root exports the runtime classes together with `RendererOptions`,

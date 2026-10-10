@@ -6,6 +6,7 @@ import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {_GlobeViewport as GlobeViewport} from '@deck.gl/core';
 import {Buffer} from '@luma.gl/core';
+import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
 import pointsVertexGLSL from '../../modules/tangram-renderer/src/styles/points/points_vertex.glsl?raw';
 import {GLOBE_VISIBILITY_WGSL} from '../../modules/tangram-renderer/src/styles/globe_visibility_wgsl';
 import {GLOBE_PROJECTION_WGSL, GLOBE_PROJECTION_GLSL} from '../../modules/tangram-renderer/src/scene/projection_shaders';
@@ -67,6 +68,48 @@ function countLabelPixels(image: ImageData, channel: 0 | 1, start = 0, end = ima
     }
   }
   return count;
+}
+
+for (const kind of ['flat', 'globe'] as const) {
+  test(`${DEVICE_TYPE}: ${kind} terrain picking uses the camera submitted to the real renderer`, async () => {
+    harness = new RenderingHarness(kind);
+    await harness.initialize();
+    await harness.settle();
+    const surface = kind === 'globe'
+      ? new TerrainMeshSurface({projection: 'globe', positions: [-20, -256, -20, 20, -256, -20, 0, -256, 20], indices: [0, 1, 2]})
+      : new TerrainMeshSurface({projection: 'web-mercator', positions: [-10000, -10000, 100, 10000, -10000, 100, 0, 10000, 100], indices: [0, 1, 2]});
+    const hit = harness.renderer.getTerrainAt({x: 256, y: 160}, surface, {coordinateSpace: 'canvas'});
+    expect(hit?.coordinate[0]).toBeCloseTo(0, 5);
+    expect(hit?.coordinate[1]).toBeCloseTo(0, 5);
+    expect(hit?.coordinate[2]).toBeCloseTo(kind === 'globe' ? 0 : 100, 5);
+    expect(hit?.renderViewId).toBeDefined();
+  });
+
+  test(`${DEVICE_TYPE}: ${kind} collision uses host cameras and restores labels after zooming`, async () => {
+    harness = new RenderingHarness(kind, 'stereo-preview');
+    const longitude = kind === 'globe' ? 1 : 0.5;
+    harness.presentation.setViewState({longitude: longitude / 2, latitude: 0, zoom: kind === 'globe' ? 0 : 5});
+    const data = {type: 'FeatureCollection', features: [
+      {type: 'Feature', properties: {name: 'priority'}, geometry: {type: 'Point', coordinates: [0, 0]}},
+      {type: 'Feature', properties: {name: 'other'}, geometry: {type: 'Point', coordinates: [longitude, 0]}}
+    ]};
+    await harness.initialize({scene: {background: {color: '#000000'}}, sources: {labels: {type: 'GeoJSON', max_zoom: 0,
+      url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data))}`}}, layers: {
+      priority: {data: {source: 'labels'}, filter: {name: 'priority'}, draw: {points: {
+        color: '#ff0000', size: '40px', priority: 1, collide: true, order: 1}}},
+      other: {data: {source: 'labels'}, filter: {name: 'other'}, draw: {points: {
+        color: '#00ff00', size: '40px', priority: 10, collide: true, order: 1}}}
+    }});
+    await harness.settle();
+    const colliding = await harness.pixels();
+    expect(countLabelPixels(colliding, 0)).toBeGreaterThan(30);
+    expect(countLabelPixels(colliding, 1)).toBe(0);
+    harness.presentation.setViewState({zoom: kind === 'globe' ? 5 : 8});
+    await harness.settle();
+    const separated = await harness.pixels();
+    expect(countLabelPixels(separated, 0)).toBeGreaterThan(30);
+    expect(countLabelPixels(separated, 1)).toBeGreaterThan(30);
+  });
 }
 
 /** Analytical segment cases in sphere-radius units, not geographic ground-normal tests. */

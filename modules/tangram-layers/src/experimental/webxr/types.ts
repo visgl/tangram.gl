@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {HostFrameOptions, HostRenderView} from '@vis.gl/tangram-renderer';
+import type {TerrainSurface, TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
 import type {Controller, FirstPersonViewState, MapViewState, View, Viewport} from '@deck.gl/core';
 import type {Matrix4} from '@math.gl/core';
 
@@ -168,18 +169,22 @@ export type XRScreenPointer = {
   eye?: 'left' | 'right' | 'center';
 };
 
-/** Geographic zero-altitude surface hit, not a rendered feature selection. */
+/** Geographic analytic or explicit terrain surface hit, not a rendered feature selection. */
 export type XRSurfaceHit = {
-  /** Longitude and latitude in degrees, with zero geographic altitude. */
+  /** Longitude/latitude degrees; zero altitude by default, physical terrain altitude when supplied. */
   coordinate: readonly [number, number, number];
   /** EPSG:3857 meters for planar content, or radius-256 globe common coordinates. */
   position: XRVector3;
   /** Rendered eye used by a screen pointer; absent for room rays and logical center-eye picks. */
   renderViewId?: string;
+  /** Triangle and normal metadata when the explicit terrain surface was intersected. */
+  terrain?: Pick<TerrainSurfaceHit, 'triangleIndex' | 'normal' | 'barycentric'>;
 };
 
 /** Snapshot used to resolve a screen pointer or XR reference-space ray. */
 export type XRSurfacePickingOptions = {
+  /** Host-owned mesh in content coordinates; a miss never falls back to the zero-height surface. */
+  terrain?: TerrainSurface;
   /** Top-origin canvas pointer in frame viewport units, or reference-space ray. */
   pointer: XRScreenPointer | XRSpatialRay;
   /** Content placement and optional finite map interaction boundary. */

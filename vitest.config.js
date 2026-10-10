@@ -27,6 +27,8 @@ export default getVitestConfig({
     },
     optimizeDeps: {include: [
       'sinon', '@luma.gl/experimental',
+      // Surface queries must not reload a browser test during lazy dependency discovery.
+      '@math.gl/culling', '@math.gl/culling/queries',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
       '@loaders.gl/pmtiles', '@loaders.gl/mvt/mvt-geojson-loader',
       '@loaders.gl/tiles',

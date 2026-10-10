@@ -205,6 +205,8 @@ export interface TextRasterTask extends TaskRecord<string[]> {
 
 /** Shared style state required by the text-label mixin. */
 export interface TextLabelState {
+    /** Host-driven billboard candidates remain available until every eye is known. */
+    screen_space_labels?: boolean;
     /** Projected candidates must bypass worker-local Mercator repeat culling. */
     cpu_projection?: import('../../procedures/mesh-projector').ProjectedBasemapOptions;
     name: string;

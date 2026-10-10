@@ -5,6 +5,7 @@
 import {Matrix4} from '@math.gl/core';
 import {MapView, FirstPersonView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {describe, expect, test} from 'vitest';
+import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
   createXRPlacementMatrix, intersectXRGlobe, intersectXRMap, pickXRSurface,
   type XRPlacement, type XRSpatialRay} from '@vis.gl/tangram-layers/experimental/webxr';
@@ -196,4 +197,36 @@ describe('room-space surface picking', () => {
       placementMatrix: new Array(16).fill(0)})).toBeNull();
     expect(pickXRSurface({pointer: {x: 10, y: 10}, placement})).toBeNull();
   });
+});
+
+test('explicit terrain supplies altitude for room rays and never substitutes a flat plane for a hole', () => {
+  const terrain = new TerrainMeshSurface({projection: 'web-mercator',
+    positions: [-2000, -2000, 100, 2000, -2000, 100, 0, 2000, 100], indices: [0, 1, 2]});
+  const placement = {type: 'map' as const, anchor: [0, 0] as const, metersPerXRUnit: 1000};
+  const hit = pickXRSurface({pointer: {origin: [0, 1, 0], direction: [0, -1, 0]}, placement, terrain});
+  expect(hit?.coordinate).toEqual([0, 0, 100]);
+  expect(hit?.terrain).toMatchObject({triangleIndex: 0, normal: [0, 0, 1]});
+  expect(pickXRSurface({pointer: {origin: [5, 1, 0], direction: [0, -1, 0]}, placement, terrain})).toBeNull();
+  expect(pickXRSurface({pointer: {origin: [1, 1, 0], direction: [0, -1, 0]}, terrain,
+    placement: {...placement, surface: {type: 'bounded', width: 0.5, height: 0.5}}})).toBeNull();
+  const globe = new TerrainMeshSurface({projection: 'globe', positions: [], indices: []});
+  expect(pickXRSurface({pointer: {origin: [0, 1, 0], direction: [0, -1, 0]}, placement, terrain: globe})).toBeNull();
+});
+
+test('terrain screen rays use their actual stereo camera, near/far range and eye identifier', () => {
+  const presentation = createPresentation('map', 'stereo-preview');
+  presentation.setViewState({longitude: 0, latitude: 0});
+  const frame = presentation.createFrame({width: 800, height: 400});
+  const terrain = new TerrainMeshSurface({projection: 'web-mercator',
+    positions: [-2000, -2000, 100, 2000, -2000, 100, 0, 2000, 100], indices: [0, 1, 2]});
+  for (const [index, x] of [[0, 200], [1, 600]]) {
+    frame.renderViews[index].camera.view = new Matrix4().translate([0, 0, -1000]);
+    frame.renderViews[index].camera.projection = new Matrix4().ortho({left: -1000, right: 1000,
+      bottom: -1000, top: 1000, near: 1, far: 2000});
+    const options = {pointer: {x, y: 200}, placement: presentation.placement, frame, terrain};
+    expect(pickXRSurface(options)).toMatchObject({coordinate: [0, 0, 100], renderViewId: index ? 'right-eye' : 'left-eye'});
+    frame.renderViews[index].camera.projection = new Matrix4().ortho({left: -1000, right: 1000,
+      bottom: -1000, top: 1000, near: 1, far: 500});
+    expect(pickXRSurface(options)).toBeNull();
+  }
 });

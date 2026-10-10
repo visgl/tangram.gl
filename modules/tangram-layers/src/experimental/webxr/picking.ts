@@ -4,7 +4,7 @@
 
 import {Matrix4} from '@math.gl/core';
 import WebMercatorViewAdapter from '../../web_mercator_view_adapter';
-import {createXRPlacementMatrix, intersectContentSurface, transformXRRayToContent} from './projection';
+import {createXRPlacementMatrix, intersectContentSurface, transformXRRayToContent, isContentPointWithinMapBounds} from './projection';
 import type {XRPresentationFrame, XRPresentationRenderView, XRSpatialRay, XRSurfaceHit,
   XRSurfacePickingOptions, XRVector3} from './types';
 
@@ -12,7 +12,8 @@ import type {XRPresentationFrame, XRPresentationRenderView, XRSpatialRay, XRSurf
  * Resolve a pointer against the zero-altitude map plane or globe sphere.
  * Screen input uses the actual rendered eye, not a reconstructed logical camera.
  * Room rays use the supplied placement snapshot. Misses, invalid rays and clipped
- * screen hits return null; this API does not select features or intersect terrain.
+ * screen hits return null. Explicit terrain meshes replace, rather than supplement,
+ * the analytic surface; this API does not select worker feature IDs or load a DEM.
  */
 export function pickXRSurface(options: XRSurfacePickingOptions): XRSurfaceHit | null {
   const {pointer, placement, frame} = options;
@@ -70,8 +71,14 @@ export function pickXRSurface(options: XRSurfacePickingOptions): XRSurfaceHit | 
   const length = Math.hypot(...ray.direction);
   if (!isFiniteVector(ray.origin) || !Number.isFinite(length) || length === 0) return null;
   const direction: XRVector3 = [ray.direction[0] / length, ray.direction[1] / length, ray.direction[2] / length];
-  const hit = intersectContentSurface({origin: ray.origin, direction}, placement, viewState);
+  if (options.terrain && options.terrain.projection !== (placement.type === 'globe' ? 'globe' : 'web-mercator')) return null;
+  const terrainHit = options.terrain?.intersectRay({origin: ray.origin, direction}, farPoint ? length : Infinity);
+  const hit: XRSurfaceHit | null = options.terrain ? (terrainHit ? {
+    position: terrainHit.position, coordinate: terrainHit.coordinate, terrain: {
+      triangleIndex: terrainHit.triangleIndex, normal: terrainHit.normal, barycentric: terrainHit.barycentric
+    }} : null) : intersectContentSurface({origin: ray.origin, direction}, placement, viewState);
   if (!hit || !isFiniteVector(hit.position)) return null;
+  if (!isContentPointWithinMapBounds(hit.position, placement, viewState)) return null;
   if (farPoint && Math.hypot(hit.position[0] - ray.origin[0], hit.position[1] - ray.origin[1],
     hit.position[2] - ray.origin[2]) > length * (1 + 1e-9)) return null;
   return renderViewId ? {...hit, renderViewId} : hit;

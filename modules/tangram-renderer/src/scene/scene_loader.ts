@@ -361,6 +361,8 @@ function finalizeScene({config, bundle}: {config?: SceneDefinition; bundle?: unk
         // Ensure top-level properties
         config.global = config.global || {};
         config.scene = config.scene || {};
+        // Internal worker policy: host cameras, not tile zoom, own billboard collision.
+        config.scene._host_screen_space_labels = cameraMode === 'external';
         config.cameras = config.cameras || {};
         const native_lights = Array.isArray(config.lights);
         const lights = normalizeSceneLights(config.lights || {}) as SceneNamedLights;

@@ -158,6 +158,13 @@ export function intersectContentSurface(
     localRay.origin[1] + localRay.direction[1] * distance,
     0
   ];
+  if (!isContentPointWithinMapBounds(hit, placement, viewState)) return null;
+  return {coordinate: metersToLongitudeLatitude(hit[0], hit[1]), position: hit};
+}
+
+/** Apply physical tabletop XY bounds equally to flat and terrain surface hits. */
+export function isContentPointWithinMapBounds(hit: XRVector3, placement: XRPlacement,
+  viewState: Record<string, unknown> = {}): boolean {
   if (placement.type === 'map' && placement.surface?.type === 'bounded') {
     const longitude = finiteNumber(viewState.longitude, placement.anchor[0]);
     const latitude = finiteNumber(viewState.latitude, placement.anchor[1]);
@@ -169,10 +176,10 @@ export function intersectContentSurface(
     const halfWidth = (placement.surface.width * placement.metersPerXRUnit) / (2 * latitudeScale);
     const halfHeight = (placement.surface.height * placement.metersPerXRUnit) / (2 * latitudeScale);
     if (Math.abs(hit[0] - centerX) > halfWidth || Math.abs(hit[1] - centerY) > halfHeight) {
-      return null;
+      return false;
     }
   }
-  return {coordinate: metersToLongitudeLatitude(hit[0], hit[1]), position: hit};
+  return true;
 }
 
 /** Intersect an XR-space ray with a placed deck.gl-compatible globe. */
