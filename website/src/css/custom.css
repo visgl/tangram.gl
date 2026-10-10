@@ -14,6 +14,29 @@
   --ifm-color-primary-lightest: #dbeafe;
 }
 
+/* Official project/provider credits on the documentation overview. */
+.project-credits {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.project-credits a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.5rem;
+  background: white;
+  border-radius: 0.25rem;
+}
+
+.project-credits img {
+  display: block;
+  object-fit: contain;
+}
+
 .hero--primary {
   min-height: 420px;
 }

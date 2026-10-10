@@ -43,6 +43,10 @@ overlay layers over these live basemaps, without a second Leaflet raster layer.
 Albers keeps its bundled US-state geometry. The outdoor terrain styles still
 use their separate elevation/normal-map sources where required.
 
+The **Mapterhorn hillshade (POC)** style opens in the Alps and uses Mapterhorn
+Terrarium height tiles with OpenFreeMap water, roads and place labels. It is a
+classic WebGL 2 shader example, not displaced 3D terrain or WebGPU support.
+
 NASA Blue Marble is available for overview imagery; its zoom-8 source is not a
 street-level satellite basemap. See [provider credits](../developer-guide/tile-providers.md).
 Use the example's fullscreen control for more editor/map space. To run the
