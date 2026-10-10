@@ -34,6 +34,10 @@ Copyright (c) vis.gl contributors
   no longer committed; application bundles are ESM-only.
 - OpenFreeMap supplies the default vector examples; NASA Blue Marble supplies
   overview imagery. Hosts display source-driven attribution.
+- Renderer and example dependencies use luma.gl 9.4.2 with deck.gl 9.4.0,
+  math.gl 5.0.0-alpha.15 and optional loaders.gl 5.0.0-alpha.11 adapters.
+  The community playground uses loaders.gl 4.5.3; its Arrow dependency is
+  patched to the same release to avoid the older package's stale 4.4 core peer.
 
 This is an alpha boundary. Renderer and adapter APIs may change before a
 stable release.

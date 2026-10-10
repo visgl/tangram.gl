@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {existsSync, readFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
 import {transpileModule, ModuleKind} from 'typescript';
 import {expect, test} from 'vitest';
 
@@ -33,6 +34,7 @@ function collectPackageImports(entry: URL, visited = new Set<string>()): Set<str
 const packageImports = collectPackageImports(new URL('../modules/tangram-layers/src/index.ts', import.meta.url));
 const rendererPackage = JSON.parse(readFileSync(new URL('../modules/tangram-renderer/package.json', import.meta.url), 'utf8'));
 const mathVersion = rendererPackage.dependencies['@math.gl/core'];
+const lumaVersion = rendererPackage.dependencies['@luma.gl/core'].replace(/^\^/, '');
 
 test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'])(
   '%s preserves deck/luma 9.4 private math dependencies alongside Tangram math 5', filePath => {
@@ -41,6 +43,7 @@ test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'
     // Do not redirect their internal imports to Tangram's public math.gl mapping.
     expect(source).not.toContain('external=@luma.gl/core,@math.gl/core');
     expect(source).toContain('deck.gl@9.4.0?bundle&external=@luma.gl/core');
+    expect(source).toContain(`https://esm.sh/@luma.gl/core@${lumaVersion}?bundle`);
     expect(source).toContain(`https://esm.sh/@math.gl/core@${mathVersion}?bundle`);
   });
 
@@ -71,6 +74,36 @@ test.each([
     );
   }
   expect(source).toContain(`https://esm.sh/@math.gl/core@${mathVersion}?bundle`);
+  const lumaImports = [...source.matchAll(/https:\/\/esm\.sh\/(@luma\.gl\/[a-z-]+)@([^?'"]+)/g)];
+  expect(lumaImports.length).toBeGreaterThan(0);
+  for (const [, , version] of lumaImports) expect(version).toBe(lumaVersion);
+});
+
+test('renderer, layer peers and WebXR use one luma release, including the lazy WebGPU adapter', () => {
+  const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
+  const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
+  expect(rendererPackage.dependencies['@luma.gl/shadertools']).toBe(`^${lumaVersion}`);
+  for (const [name, version] of Object.entries(layerPackage.peerDependencies)) {
+    if (name.startsWith('@luma.gl/')) expect(version).toBe(`^${lumaVersion}`);
+  }
+  for (const [name, version] of Object.entries(xrPackage.dependencies)) {
+    if (name.startsWith('@luma.gl/')) expect(version).toBe(lumaVersion);
+  }
+  const adapter = readFileSync(new URL('../examples/deck/app-runtime.js', import.meta.url), 'utf8');
+  expect(adapter).toContain(`https://esm.sh/@luma.gl/webgpu@${lumaVersion}?bundle&external=@luma.gl/core`);
+});
+
+test('deck.gl and the renderer resolve the same installed luma Device runtime', () => {
+  const rendererRequire = createRequire(new URL('../modules/tangram-renderer/package.json', import.meta.url));
+  const deckRequire = createRequire(rendererRequire.resolve('@deck.gl/core'));
+  expect(deckRequire.resolve('@luma.gl/core')).toBe(rendererRequire.resolve('@luma.gl/core'));
+});
+
+test('classic playground keeps loaders core and its Arrow peer on the compatible 4.5 patch', () => {
+  const classicPackage = JSON.parse(readFileSync(new URL('../examples/classic/package.json', import.meta.url), 'utf8'));
+  const repositoryPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const coreVersion = classicPackage.devDependencies['@loaders.gl/core'].replace(/^\^/, '');
+  expect(repositoryPackage.resolutions['@loaders.gl/arrow@npm:4.5.1']).toBe(coreVersion);
 });
 
 test('renderer loaders use pinned v5 alphas and layer math peers match the renderer', () => {

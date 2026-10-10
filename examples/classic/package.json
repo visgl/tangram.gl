@@ -21,7 +21,7 @@
     "@deck.gl-community/playground": "9.4.2",
     "@deck.gl/core": "^9.4.0",
     "@deck.gl/json": "^9.4.0",
-    "@loaders.gl/core": "^4.5.1",
+    "@loaders.gl/core": "^4.5.3",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "esbuild": "^0.28.1",
     "monaco-editor": "0.53.0",

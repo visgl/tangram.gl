@@ -16,6 +16,9 @@
     "url": "https://github.com/visgl/tangram.gl.git"
   },
   "homepage": "https://vis.gl/tangram.gl/",
+  "resolutions": {
+    "@loaders.gl/arrow@npm:4.5.1": "4.5.3"
+  },
   "scripts": {
     "start": "yarn workspace @vis.gl/tangram-renderer watch",
     "bootstrap": "yarn install && ocular-bootstrap",
