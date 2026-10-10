@@ -340,14 +340,16 @@ test(`${DEVICE_TYPE}: elevated markers and attached/standalone text retain indiv
         if (Math.floor(index % 512 / 256) !== eye) continue;
         const color = [pixels[index * 4], pixels[index * 4 + 1], pixels[index * 4 + 2]];
         const key = [[255, 0, 0], [0, 255, 0], [255, 255, 255], [255, 255, 0], [0, 0, 255], [0, 255, 255]]
-          .findIndex(expected => expected.every((value, component) => Math.abs(value - color[component]) < 30));
+          // Atlas glyphs have fractional coverage on Linux/SwiftShader: classify
+          // their channels, not exact full-intensity RGB (as in the atlas test below).
+          .findIndex(expected => expected.every((value, component) => value ? color[component] > 80 : color[component] < 40));
         if (key >= 0) colors[key].push(index);
       }
       return colors;
     });
   };
   await expect.poll(async () => {draw(); expect(harness!.errors).toEqual([]);
-    return (await samples()).map(colors => colors.map(color => color.length > 20));},
+    return (await samples()).map(colors => colors.map(color => color.length > 150));},
     {timeout: 20000}).toEqual([[true, true, true, true, true, true], [true, true, true, true, true, true]]);
   const colors = await samples();
   for (const eye of colors) {
