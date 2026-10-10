@@ -140,7 +140,7 @@ test('geographic copies require identity, tile separation, source-resolution pro
 test('optional map-logic entry bundles without renderer, DOM, GPU or third-party imports', async () => {
     const result = await build({entryPoints: ['modules/tangram-renderer/src/map-logic/index.ts'],
         bundle: true, format: 'esm', platform: 'neutral', write: false, metafile: true});
-    expect(Object.keys(result.metafile.inputs)).toHaveLength(5);
+    expect(Object.keys(result.metafile.inputs)).toHaveLength(7);
     expect(Object.keys(result.metafile.inputs).every(path => path.includes('/src/map-logic/'))).toBe(true);
     expect(Object.values(result.metafile.outputs).flatMap(output => output.imports)).toEqual([]);
 });

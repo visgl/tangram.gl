@@ -57,6 +57,27 @@ test('protected reuse updates LRU recency; completed off-screen data is evicted 
     expect(tileset.getEvictionKeys(() => false)).toEqual([second.key]);
 });
 
+test('consumer selections and fallback visibility protect shared content without renderer flags', () => {
+    const tileset = new TangramTileset2D<ResourceTile>();
+    const left = Symbol('left'), right = Symbol('right');
+    for (const key of ['cached', 'left', 'right', 'parent']) tileset.setTile(createTile(key));
+    tileset.setOptions({maxCachedTiles: 0});
+    tileset.attachConsumer(left);
+    tileset.updateConsumer(left, ['left', 'missing'], ['parent']);
+    tileset.updateConsumer(right, ['right', 'left'], ['parent']);
+    expect(tileset.selectedTileKeys).toEqual(['left', 'missing', 'right']);
+    expect(tileset.getEvictionKeys(() => false)).toEqual(['cached']);
+    expect(tileset.getStatistics(() => false)).toMatchObject({cachedTiles: 1, protectedTiles: 3});
+    tileset.detachConsumer(left);
+    expect(tileset.getEvictionKeys(() => false)).toEqual(['cached']);
+    tileset.attachConsumer(right);
+    expect(tileset.selectedTileKeys).toEqual([]);
+    expect(tileset.getEvictionKeys(() => false)).toEqual(['cached', 'left', 'right', 'parent']);
+    tileset.updateConsumer(left, ['left'], []);
+    tileset.finalize(() => {});
+    expect(tileset.selectedTileKeys).toEqual([]);
+});
+
 test('forgetting an active tile releases queue ownership but waits for adapter completion before pumping', () => {
     const tileset = new TangramTileset2D<ResourceTile>();
     tileset.setOptions({maxConcurrentBuilds: 1, maxCachedTiles: 0});

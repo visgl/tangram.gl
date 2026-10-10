@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {HostTileResourceOptions, TileResourceStatistics} from '../types';
+import {TileCachePolicy} from '../map-logic/tile-cache-policy';
 
 /** The byte-accounting surface shared by planar, globe, and pending-label meshes. */
 interface ResourceMesh {
@@ -50,45 +51,34 @@ export function getTileMeshBytes(tile: ResourceTile): number {
 
 /** LRU limits apply only to completed, unneeded tiles, never visible/proxy/preload work. */
 export default class TileResourceCache {
-    /** Last protected use or insertion, using monotonic logical ticks rather than wall time. */
-    private readonly lastUsed = new Map<string, number>();
-    /** Stable ordering for ties and rapid same-frame transitions. */
-    private tick = 0;
+    /** Neutral metadata policy; renderer mesh accounting stays in this adapter. */
+    private readonly policy = new TileCachePolicy();
 
     /** Mark newly retained or currently protected tiles as recently used. */
-    touch(key: string): void { this.lastUsed.set(key, ++this.tick); }
+    touch(key: string): void { this.policy.touch(key); }
 
     /** Remove metadata with the tile's worker and GPU resources. */
-    forget(key: string): void { this.lastUsed.delete(key); }
+    forget(key: string): void { this.policy.forget(key); }
 
     /** Choose oldest completed cache entries until both opt-in limits are satisfied. */
     selectEvictions(tiles: readonly ResourceTile[], options: HostTileResourceOptions | undefined,
         isPreloaded: (key: string) => boolean): string[] {
         if (options?.maxCachedTiles === undefined && options?.maxCachedMeshBytes === undefined) return [];
-        const cached = tiles.filter(tile => !this.isProtected(tile, isPreloaded));
-        cached.sort((first, second) => (this.lastUsed.get(first.key) ?? 0) - (this.lastUsed.get(second.key) ?? 0));
-        let count = cached.length;
-        let bytes = cached.reduce((total, tile) => total + getTileMeshBytes(tile), 0);
-        const evictions: string[] = [];
-        for (const tile of cached) {
-            if (count <= (options?.maxCachedTiles ?? Infinity) && bytes <= (options?.maxCachedMeshBytes ?? Infinity)) break;
-            evictions.push(tile.key);
-            count--;
-            bytes -= getTileMeshBytes(tile);
-        }
-        return evictions;
+        // As before, only walk mesh allocations for evictable tiles when a budget is enabled.
+        const records = tiles.filter(tile => !this.isProtected(tile, isPreloaded))
+            .map(tile => ({key: tile.key, bytes: getTileMeshBytes(tile), protected: false}));
+        return this.policy.selectEvictions(records, {maxCachedTiles: options?.maxCachedTiles,
+            maxCachedBytes: options?.maxCachedMeshBytes});
     }
 
     /** Detached accounting for protected residency and evictable cache separately. */
     getStatistics(tiles: readonly ResourceTile[], isPreloaded: (key: string) => boolean,
         builds: {activeBuilds: number; queuedBuilds: number}): TileResourceStatistics {
-        let cachedTiles = 0, cachedMeshBytes = 0, protectedMeshBytes = 0;
-        for (const tile of tiles) {
-            if (this.isProtected(tile, isPreloaded)) protectedMeshBytes += getTileMeshBytes(tile);
-            else { cachedTiles++; cachedMeshBytes += getTileMeshBytes(tile); }
-        }
-        return {...builds, residentTiles: tiles.length, cachedTiles, cachedMeshBytes,
-            protectedTiles: tiles.length - cachedTiles, protectedMeshBytes};
+        const statistics = this.policy.getStatistics(tiles.map(tile => ({key: tile.key,
+            protected: this.isProtected(tile, isPreloaded), bytes: getTileMeshBytes(tile)})));
+        return {...builds, residentTiles: statistics.residentTiles, cachedTiles: statistics.cachedTiles,
+            cachedMeshBytes: statistics.cachedBytes, protectedTiles: statistics.protectedTiles,
+            protectedMeshBytes: statistics.protectedBytes};
     }
 
     /** Visible union, loading work, proxy ancestors and pinned coarse tiles are never cache victims. */
@@ -97,5 +87,5 @@ export default class TileResourceCache {
     }
 
     /** Clear residency metadata on renderer teardown. */
-    clear(): void { this.lastUsed.clear(); }
+    clear(): void { this.policy.clear(); }
 }
