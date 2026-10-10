@@ -46,7 +46,11 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(168);
+    expect(sourceFiles).toHaveLength(172);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/label-placement.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/label-identity.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/screen-bounds.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/index.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('selection/terrain_surface.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('labels/projected-pass.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('procedures/projection-batch-executor.ts'))).toBe(true);
@@ -72,7 +76,7 @@ describe('coverage scope guard', () => {
     expect(sourceFiles.some(filePath => filePath.endsWith('scene/scene-resource-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('sources/tile_source_adapter.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('tile/tangram_tileset_2d.ts'))).toBe(true);
-    expect(sourceFiles.some(filePath => filePath.endsWith('tile/tile_build_queue.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/tile-build-queue.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('tile/tile_resource_cache.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('tile/globe_tile_preload.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('lights/light-definitions.ts'))).toBe(true);

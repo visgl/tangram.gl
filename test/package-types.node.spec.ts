@@ -13,6 +13,13 @@ test.each([ts.ModuleKind.Node16, ts.ModuleKind.NodeNext])('public layer declarat
     import {ProjectionBatchExecutor, Renderer} from '@vis.gl/tangram-renderer/core';
     import {ProjectedBasemapNavigation} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
     import type {RendererOptions, ProjectionEngine, ProjectionExecutionStatistics} from '@vis.gl/tangram-renderer/core';
+    import {resolveLabelPlacement, TileBuildQueue} from '@vis.gl/tangram-renderer/map-logic';
+    import type {ScreenLabelCandidate} from '@vis.gl/tangram-renderer/map-logic';
+    const labels: ScreenLabelCandidate[] = [{id: 'city', boxes: new Map([['map', [0, 0, 20, 20]]])}];
+    const visible: boolean | undefined = resolveLabelPlacement(labels, {
+      viewports: new Map([['map', {width: 800, height: 600}]])
+    }).get(labels[0]);
+    new TileBuildQueue().setLimit(2);
     const options: RendererOptions = {};
     const engine: ProjectionEngine = {
       createProjection: () => ({projectFlatSync: positions => positions}),

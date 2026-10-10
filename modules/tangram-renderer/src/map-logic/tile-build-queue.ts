@@ -16,7 +16,7 @@ export interface TileBuildTask {
     fail(error: unknown): void;
 }
 
-/** Bounded, stable-priority scheduling shared by all eyes and data sources. */
+/** CPU-only, callback-based stable-priority scheduling shared by all eyes and sources. */
 export default class TileBuildQueue {
     /** Builds that have been submitted to workers. */
     private readonly active = new Map<string, TileBuildTask>();

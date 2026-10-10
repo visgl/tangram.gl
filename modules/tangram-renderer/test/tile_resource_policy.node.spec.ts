@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import TileBuildQueue, {type TileBuildTask} from '../src/tile/tile_build_queue';
+import TileBuildQueue, {type TileBuildTask} from '../src/map-logic/tile-build-queue';
 import TileResourceCache, {getTileMeshBytes, type ResourceTile} from '../src/tile/tile_resource_cache';
 
 /** Deterministic task fixture with observable submission and failure. */
