@@ -48,10 +48,14 @@ test('ordinary layers forward canvas/eye query options to the renderer and keep 
 test('terrain queries forward the supplied surface and eye policy without allocating or redrawing', async () => {
   const {layer, renderer} = createHarness();
   const surface = {projection: 'web-mercator' as const, intersectRay: vi.fn()};
+  const uninitialized = createHarness().layer;
+  uninitialized.state = undefined;
+  expect(uninitialized.getTerrainAt({x: 50, y: 20}, surface)).toBeNull();
   expect(layer.getTerrainAt({x: 50, y: 20}, surface)).toBeNull();
   const record = layer._createTangramRecord(layer.props);
   if (!record) throw new Error('Expected renderer record');
   layer.state.tangramRecord = record;
+  expect(layer.getTerrainAt({x: 50, y: 20}, surface)).toBeNull();
   await record.loadPromise;
   const options = {coordinateSpace: 'canvas' as const, renderViewId: 'right'};
   expect(layer.getTerrainAt({x: 50, y: 20}, surface, options)).toEqual({coordinate: [0, 0, 100], renderViewId: 'right'});

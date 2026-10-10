@@ -96,9 +96,9 @@ for (const kind of ['flat', 'globe'] as const) {
     await harness.initialize({scene: {background: {color: '#000000'}}, sources: {labels: {type: 'GeoJSON', max_zoom: 0,
       url: `data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(data))}`}}, layers: {
       priority: {data: {source: 'labels'}, filter: {name: 'priority'}, draw: {points: {
-        color: '#ff0000', size: '40px', priority: 1, collide: true, order: 1}}},
+        color: '#ff0000', size: '40px', priority: 1, collide: true, repeat_group: 'shared', repeat_distance: 32, order: 1}}},
       other: {data: {source: 'labels'}, filter: {name: 'other'}, draw: {points: {
-        color: '#00ff00', size: '40px', priority: 10, collide: true, order: 1}}}
+        color: '#00ff00', size: '40px', priority: 10, collide: true, repeat_group: 'shared', repeat_distance: 32, order: 1}}}
     }});
     await harness.settle();
     const colliding = await harness.pixels();

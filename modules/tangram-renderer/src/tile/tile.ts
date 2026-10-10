@@ -192,7 +192,9 @@ export default class Tile {
         tile.debug.feature_count = 0;
         tile.debug.layers = null;
 
-        Collision.startTile(tile.id, { apply_repeat_groups: !Object.values(styles).some(style => style.cpu_projection) });
+        Collision.startTile(tile.id, {
+            apply_repeat_groups: !Object.values(styles).some(style => style.cpu_projection || style.screen_space_labels)
+        });
 
         // Process each top-level layer
         for (let layer_name in layers) {
