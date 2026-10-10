@@ -31,6 +31,9 @@ styles:
     base: raster
     lighting: false
     shaders:
+      # Latitude must use absolute Mercator Y, not wrapped procedural coordinates.
+      defines:
+        TANGRAM_WORLD_POSITION_WRAP: false
       blocks:
         global: |
           float mapterhornHeight(vec4 sample_color) {

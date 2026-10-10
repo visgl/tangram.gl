@@ -41,17 +41,17 @@ function createTerrainImage(slope: boolean): string {
 }
 
 /** Replace only live data with a tiny geographic fixture; preserve the POC's shader definition. */
-async function renderTerrain(definition: object, slope: boolean) {
+async function renderTerrain(definition: object, slope: boolean, latitude = 0) {
   scene?.destroy();
   const fixture: SceneDefinition = {...definition,
     sources: {elevation: {type: 'Raster', url: createTerrainImage(slope), tile_size: 512,
-      filtering: 'nearest', max_zoom: 12, bounds: [-0.1, -0.1, 0.1, 0.1]}},
+      filtering: 'nearest', max_zoom: 12, bounds: [-0.1, latitude - 0.1, 0.1, latitude + 0.1]}},
     layers: {terrain: {data: {source: 'elevation', layer: '_default'}, draw: {'mapterhorn-hillshade': {order: 0}}}}};
   scene = Tangram.Scene.create(fixture, {container, disableRenderLoop: true, numWorkers: 1,
     highDensityDisplay: false, webGLContextOptions: {preserveDrawingBuffer: true}}) as TerrainScene;
   const errors: string[] = [];
   scene.subscribe({error: event => errors.push(JSON.stringify(event))});
-  scene.view.setView({lng: 0, lat: 0, zoom: 11});
+  scene.view.setView({lng: 0, lat: latitude, zoom: 11});
   await scene.load();
   await expect.poll(async () => {
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
@@ -78,4 +78,9 @@ test.runIf(DEVICE_TYPE === 'webgl')('Mapterhorn POC compiles and shades decoded 
   const flat = await renderTerrain(definition, false);
   const slope = await renderTerrain(definition, true);
   expect(changedPixels(flat, slope)).toBeGreaterThan(10000);
+  const alpineSlope = await renderTerrain(definition, true, 46.6);
+  const offset = (Math.floor(slope.height / 2) * slope.width + Math.floor(slope.width * 0.6)) * 4;
+  // The same height gradient gets steeper as Mercator ground spacing shrinks with latitude.
+  // Wrapped procedural coordinates previously made both latitudes appear equatorial.
+  expect(Math.abs(alpineSlope.data[offset + 1] - slope.data[offset + 1])).toBeGreaterThan(2);
 });

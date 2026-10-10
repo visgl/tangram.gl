@@ -20,6 +20,7 @@ test('terrain POC configures Terrarium WebP heights separately from OpenFreeMap 
   expect(getPropertyPath(scene, ['sources', 'basemap', 'attribution'])).toContain('OpenStreetMap');
   expect(getPropertyPath(scene, ['styles', 'mapterhorn-hillshade', 'base'])).toBe('raster');
   expect(getPropertyPath(scene, ['styles', 'mapterhorn-hillshade', 'lighting'])).toBe(false);
+  expect(getPropertyPath(scene, ['styles', 'mapterhorn-hillshade', 'shaders', 'defines', 'TANGRAM_WORLD_POSITION_WRAP'])).toBe(false);
   expect(getPropertyPath(scene, ['styles', 'mapterhorn-hillshade', 'shaders', 'blocks', 'global'])).toContain('vec3(256., 1., 1. / 256.)');
   expect(getPropertyPath(scene, ['sources', 'normals'])).toBeUndefined();
   expect(SCENE_OPTIONS.some(option => option.value === 'styles/mapterhorn.yaml')).toBe(true);
