@@ -41,11 +41,11 @@ styles:
           }
         color: |
           vec2 pixel = currentRasterPixel(0);
-          // Source UVs run north-to-south; common Mercator Y runs south-to-north.
+          // Upload flips image rows: texture UVs and Mercator Y both increase northward.
           float west = mapterhornHeight(sampleRasterAtPixel(0, pixel - vec2(1., 0.)));
           float east = mapterhornHeight(sampleRasterAtPixel(0, pixel + vec2(1., 0.)));
-          float north = mapterhornHeight(sampleRasterAtPixel(0, pixel - vec2(0., 1.)));
-          float south = mapterhornHeight(sampleRasterAtPixel(0, pixel + vec2(0., 1.)));
+          float north = mapterhornHeight(sampleRasterAtPixel(0, pixel + vec2(0., 1.)));
+          float south = mapterhornHeight(sampleRasterAtPixel(0, pixel - vec2(0., 1.)));
           float latitude = 2. * atan(exp(worldPosition().y / 6378137.)) - 1.5707963267948966;
           float pixel_meters = 40075016.68557849 / exp2(u_tile_origin.w)
               / rasterPixelSize(0).x / u_raster_offsets[0].z * cos(latitude);
