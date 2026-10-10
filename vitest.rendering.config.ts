@@ -27,7 +27,7 @@ export default getVitestConfig({
     // Exercise published bundles (including the inlined scene worker).
     optimizeDeps: {
       include: ['@deck.gl/core', '@luma.gl/core', '@luma.gl/engine', '@luma.gl/webgl', '@luma.gl/webgpu',
-        '@luma.gl/experimental', '@math.gl/core', '@loaders.gl/mvt', 'mjolnir.js'],
+        '@luma.gl/experimental', '@math.gl/core', '@math.gl/culling', '@loaders.gl/mvt', 'mjolnir.js'],
       exclude: ['@vis.gl/tangram-renderer', '@vis.gl/tangram-layers']
     }
   },
