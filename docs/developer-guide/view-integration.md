@@ -155,6 +155,9 @@ Implemented: shared mono/stereo controllers, room-meter map/globe placement,
 1:1 first-person scale, actual-eye/room-ray surface picking and single-controller
 squeeze grabs. Grabs translate a map in its starting plane or rotate a globe
 around its room center; input ownership and tracking-loss cancellation are explicit.
+Ground/globe surface queries now delegate to math.gl analytic shapes behind a
+content-space adapter. Legacy formulas remain test-only conformance oracles;
+near/far clipping, physical tabletop edges and per-eye query routing stay Tangram-owned.
 
 Next: native/emulated headset validation, an in-headset attribution surface,
 grip-pose/two-handed manipulation and feature-aware spatial picking. Terrain

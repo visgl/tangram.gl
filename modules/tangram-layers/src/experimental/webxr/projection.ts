@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
+import {PlaneShape, SphereShape} from '@math.gl/culling';
 import {PROJECTION_CONSTANTS, unprojectGlobePosition} from '@vis.gl/tangram-renderer/core';
 import type {
   XRGeographicPosition,
@@ -17,6 +18,9 @@ import type {
 
 const TANGRAM_HALF_WORLD_METERS = 20037508.342789244;
 const GLOBE_RADIUS = PROJECTION_CONSTANTS.globeRadius;
+// Content-space queries need no shape transform: placement is inverted before picking.
+const MAP_SURFACE = new PlaneShape();
+const GLOBE_SURFACE = new SphereShape({radius: GLOBE_RADIUS});
 const MAX_MERCATOR_LATITUDE = 85.05112878;
 const DEGREES_TO_RADIANS = Math.PI / 180;
 const RADIANS_TO_DEGREES = 180 / Math.PI;
@@ -137,8 +141,10 @@ export function intersectContentSurface(
   placement: XRPlacement,
   viewState: Record<string, unknown> = {}
 ): XRSurfaceHit | null {
+  if (!localRay.origin.every(Number.isFinite) || !localRay.direction.every(Number.isFinite) ||
+      Math.hypot(...localRay.direction) === 0) return null;
   if (placement.type === 'globe') {
-    const distance = intersectSphereDistance(localRay.origin, localRay.direction, GLOBE_RADIUS);
+    const distance = intersectSphereDistance(localRay.origin, localRay.direction);
     if (distance === null) return null;
     const point: XRVector3 = [
       localRay.origin[0] + localRay.direction[0] * distance,
@@ -220,7 +226,7 @@ export function getXRGlobeVisibleBounds({
           far[1] - near[1],
           far[2] - near[2]
         ]);
-        const distance = intersectSphereDistance(near, direction, GLOBE_RADIUS);
+        const distance = intersectSphereDistance(near, direction);
         if (distance !== null) {
           coordinates.push(
             globePositionToLongitudeLatitude([
@@ -267,6 +273,7 @@ export function unionGeographicBounds(
   ];
 }
 
+/** Adapt Tangram's +Z ground normal to math.gl's +Y analytic plane. */
 function intersectPlaneDistance(
   origin: XRVector3,
   direction: XRVector3,
@@ -275,28 +282,18 @@ function intersectPlaneDistance(
   if (Math.abs(direction[2]) < 1e-8) {
     return null;
   }
-  const distance = (planeZ - origin[2]) / direction[2];
-  return distance >= 0 ? distance : null;
+  return MAP_SURFACE.intersectLocalRay(
+    [origin[0], origin[2] - planeZ, origin[1]],
+    [direction[0], direction[2], direction[1]]
+  )?.distance ?? null;
 }
 
+/** Return the nearest nonnegative ray parameter, including an inside-sphere exit. */
 function intersectSphereDistance(
   origin: XRVector3,
-  direction: XRVector3,
-  radius: number
+  direction: XRVector3
 ): number | null {
-  const originDotDirection = dot(origin, direction);
-  const discriminant =
-    originDotDirection * originDotDirection - (dot(origin, origin) - radius * radius);
-  if (discriminant < 0) {
-    return null;
-  }
-  const root = Math.sqrt(discriminant);
-  const near = -originDotDirection - root;
-  const far = -originDotDirection + root;
-  if (near >= 0) {
-    return near;
-  }
-  return far >= 0 ? far : null;
+  return GLOBE_SURFACE.intersectLocalRay(origin, direction)?.distance ?? null;
 }
 
 function globePositionToLongitudeLatitude(point: XRVector3): [number, number, number] {
@@ -326,10 +323,6 @@ function normalizeVector(vector: readonly number[]): XRVector3 {
     return [0, 0, -1];
   }
   return [vector[0] / length, vector[1] / length, vector[2] / length];
-}
-
-function dot(left: readonly number[], right: readonly number[]): number {
-  return left[0] * right[0] + left[1] * right[1] + left[2] * right[2];
 }
 
 function finiteNumber(value: unknown, fallback: number): number {

@@ -32,9 +32,25 @@ function collectPackageImports(entry: URL, visited = new Set<string>()): Set<str
 }
 
 const packageImports = collectPackageImports(new URL('../modules/tangram-layers/src/index.ts', import.meta.url));
+const webXRPackageImports = collectPackageImports(new URL('../modules/tangram-layers/src/experimental/webxr/index.ts', import.meta.url));
 const rendererPackage = JSON.parse(readFileSync(new URL('../modules/tangram-renderer/package.json', import.meta.url), 'utf8'));
 const mathVersion = rendererPackage.dependencies['@math.gl/core'];
 const lumaVersion = rendererPackage.dependencies['@luma.gl/core'].replace(/^\^/, '');
+
+test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'])(
+  '%s resolves optional WebXR shape queries without coupling the root layer to culling', filePath => {
+    const source = readFileSync(new URL(`../${filePath}`, import.meta.url), 'utf8');
+    const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
+    expect(layerPackage.dependencies['@math.gl/culling']).toBe(mathVersion);
+    expect(webXRPackageImports).toContain('@math.gl/culling');
+    expect(packageImports).not.toContain('@math.gl/culling');
+    for (const importName of webXRPackageImports) {
+      expect(source, `Missing WebXR browser mapping for ${importName}`).toMatch(
+        new RegExp(`["']${importName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']\\s*:`)
+      );
+    }
+    expect(source).toContain(`https://esm.sh/@math.gl/culling@${mathVersion}?bundle&external=@math.gl/core`);
+  });
 
 test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'])(
   '%s preserves deck/luma 9.4 private math dependencies alongside Tangram math 5', filePath => {

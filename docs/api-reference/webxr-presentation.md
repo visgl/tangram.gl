@@ -145,6 +145,13 @@ first-person ground plane, or globe sphere. It is CPU-based and works with eithe
 backend. By default it does **not** intersect terrain/buildings, select features, or account for occlusion.
 Supply an explicit `terrain` surface to intersect a host-owned triangle mesh instead.
 
+Surface intersections use `@math.gl/culling` analytic plane/sphere shapes. Tangram's
+adapter converts its +Z ground normal to the shape's +Y normal, retains the existing
+near-parallel cutoff and strict tabletop bounds, and uses the radius-256 globe surface.
+Room rays are normalized before intersection; a ray starting inside the globe uses
+its forward exit. The dependency is used only by the experimental WebXR entry, not
+the normal layer entry or renderer core.
+
 ```ts
 import {pickXRSurface} from '@vis.gl/tangram-layers/experimental/webxr';
 
