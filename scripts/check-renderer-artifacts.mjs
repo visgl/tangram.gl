@@ -14,6 +14,8 @@ const requiredArtifacts = [
   'dist/types/types.d.ts',
   'dist/types/map-logic/index.d.ts',
   'dist/map-logic.js',
+  'dist/types/shader-modules/index.d.ts',
+  'dist/shader-modules.js',
   'dist/index.js',
   'dist/core.js',
   'dist/core.js.map',
@@ -45,6 +47,7 @@ const expectedExports = {
   '.': './dist/index.js',
   './core': './dist/core.js',
   './map-logic': './dist/map-logic.js',
+  './experimental/shader-modules': './dist/shader-modules.js',
   './style-schema': './dist/style-schema.js',
   './tangram-style.schema.json': './dist/tangram-style.schema.json'
 };

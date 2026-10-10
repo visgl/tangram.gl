@@ -26,6 +26,7 @@ import Tangram, {
 } from '../modules/tangram-renderer/dist/index.js';
 import {TangramStyleSheetSchema} from '../modules/tangram-renderer/dist/style-schema.js';
 import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-style.schema.json';
+import {hillshade} from '../modules/tangram-renderer/dist/shader-modules.js';
 import {resolveLabelPlacement, TileBuildQueue, intersectsScreenBounds,
   areGeographicLabelCopies, TileResidency, TileCachePolicy} from '../modules/tangram-renderer/dist/map-logic.js';
 import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
@@ -49,12 +50,19 @@ describe('published package entrypoints', () => {
     [rendererPackage, '.', './dist/index.js'],
     [rendererPackage, './core', './dist/core.js'],
     [rendererPackage, './map-logic', './dist/map-logic.js'],
+    [rendererPackage, './experimental/shader-modules', './dist/shader-modules.js'],
     [rendererPackage, './style-schema', './dist/style-schema.js'],
     [rendererPackage, './tangram-style.schema.json', './dist/tangram-style.schema.json']
   ].map(([manifest, subpath, artifactPath]) => ({packageName: manifest.name, manifest, subpath, artifactPath})))
   ('tests the built artifact exported by $packageName $subpath', ({manifest, subpath, artifactPath}) => {
     const entry = manifest.exports[subpath];
     expect(typeof entry === 'string' ? entry : entry.import).toBe(artifactPath);
+  });
+  it('exports optional shader modules separately from the renderer', () => {
+    expect(hillshade.name).toBe('hillshade');
+    expect(hillshade.fs).toContain('hillshade_getNormal');
+    expect(hillshade.source).toContain('hillshade_getIntensity');
+    expect(Tangram).not.toHaveProperty('hillshade');
   });
   it('exports neutral projection helpers from the built core entry', () => {
     const point = projectGeographicPosition([0, 0, 100], 'globe');
