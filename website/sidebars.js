@@ -58,6 +58,7 @@ module.exports = {
             {type: 'doc', id: 'api-reference/scene', label: 'Scene API'},
             {type: 'doc', id: 'api-reference/renderer', label: 'Renderer API'},
             {type: 'doc', id: 'api-reference/host-frame', label: 'HostFrame API'},
+            {type: 'doc', id: 'api-reference/shader-modules', label: 'Experimental shader modules'},
             {
               type: 'category',
               label: 'Map utilities',

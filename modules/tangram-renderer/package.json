@@ -28,6 +28,11 @@
       "import": "./dist/map-logic.js",
       "default": "./dist/map-logic.js"
     },
+    "./experimental/shader-modules": {
+      "types": "./dist/types/shader-modules/index.d.ts",
+      "import": "./dist/shader-modules.js",
+      "default": "./dist/shader-modules.js"
+    },
     "./tangram-style.schema.json": "./dist/tangram-style.schema.json"
   },
   "files": [
@@ -45,8 +50,9 @@
     "access": "public"
   },
   "scripts": {
-    "build": "yarn build:types && node scripts/build.mjs && yarn build:entry && yarn build:map-logic && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:projection-worker && yarn build:size",
-    "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-renderer index.d.ts core.d.ts types.ts map-logic/index.ts",
+    "build": "yarn build:types && node scripts/build.mjs && yarn build:entry && yarn build:map-logic && yarn build:shader-modules && yarn build:style-schema && yarn generate-style-schema && yarn build:loaders-gl-worker && yarn build:projection-worker && yarn build:size",
+    "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-renderer index.d.ts core.d.ts types.ts map-logic/index.ts shader-modules/index.ts",
+    "build:shader-modules": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/shader-modules/index.ts --format=esm --output=modules/tangram-renderer/dist/shader-modules.js --externals=@vis.gl/tangram-layers --sourcemap=true --sourcesContent=false",
     "build:map-logic": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/map-logic/index.ts --format=esm --output=modules/tangram-renderer/dist/map-logic.js --externals=@vis.gl/tangram-layers --sourcemap=true --sourcesContent=false",
     "build:projection-worker": "yarn --cwd ../.. ocular-bundle modules/tangram-renderer/src/experimental/projected-basemaps-worker.ts --format=iife --globalName=TangramProjectedBasemaps --output=modules/tangram-renderer/dist/projected-basemaps-worker.js --externals=@vis.gl/tangram-layers --sourcemap=true --sourcesContent=false",
     "build:entry": "node scripts/write-package-entry.mjs",
