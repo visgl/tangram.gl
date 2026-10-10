@@ -10,3 +10,6 @@ export {intersectsScreenBounds, unionScreenBounds, getScreenBoundsCells} from '.
 export type {ScreenBounds, LabelViewport} from './screen-bounds';
 export {default as TileBuildQueue} from './tile-build-queue';
 export type {TileBuildTask} from './tile-build-queue';
+export {TileResidency} from './tile-residency';
+export {TileCachePolicy} from './tile-cache-policy';
+export type {TileCacheRecord, TileCacheOptions, TileCacheStatistics} from './tile-cache-policy';

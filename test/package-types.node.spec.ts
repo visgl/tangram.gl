@@ -13,8 +13,15 @@ test.each([ts.ModuleKind.Node16, ts.ModuleKind.NodeNext])('public layer declarat
     import {ProjectionBatchExecutor, Renderer} from '@vis.gl/tangram-renderer/core';
     import {ProjectedBasemapNavigation} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
     import type {RendererOptions, ProjectionEngine, ProjectionExecutionStatistics} from '@vis.gl/tangram-renderer/core';
-    import {resolveLabelPlacement, TileBuildQueue} from '@vis.gl/tangram-renderer/map-logic';
-    import type {ScreenLabelCandidate} from '@vis.gl/tangram-renderer/map-logic';
+    import {resolveLabelPlacement, TileBuildQueue, TileCachePolicy, TileResidency} from '@vis.gl/tangram-renderer/map-logic';
+    import type {ScreenLabelCandidate, TileCacheRecord, TileCacheOptions, TileCacheStatistics} from '@vis.gl/tangram-renderer/map-logic';
+    const residency = new TileResidency<string>();
+    residency.updateConsumer('eye', ['tile'], []);
+    const cacheRecord: TileCacheRecord = {key: 'tile', bytes: 100, protected: residency.isProtected('tile')};
+    const cacheOptions: TileCacheOptions = {maxCachedBytes: 0};
+    const policy = new TileCachePolicy();
+    policy.selectEvictions([cacheRecord], cacheOptions);
+    const cacheStatistics: TileCacheStatistics = policy.getStatistics([cacheRecord]);
     const labels: ScreenLabelCandidate[] = [{id: 'city', boxes: new Map([['map', [0, 0, 20, 20]]])}];
     const visible: boolean | undefined = resolveLabelPlacement(labels, {
       viewports: new Map([['map', {width: 800, height: 600}]])
