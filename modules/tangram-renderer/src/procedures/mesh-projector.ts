@@ -52,7 +52,7 @@ export type ProjectedBasemapOptions = {
     maxProjectedError?: number;
     /** Reuse completed projected meshes; host engines require a stable worker-local cache identity. */
     cacheProjectedMeshes?: boolean;
-    /** Opt into packed polygon/raster elevation and polygon extrusion; ground-only by default. */
+    /** Opt into packed surface/annotation elevation and polygon extrusion; ground-only by default. */
     allowElevation?: boolean;
 };
 

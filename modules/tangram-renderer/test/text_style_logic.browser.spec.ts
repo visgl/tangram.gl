@@ -78,6 +78,29 @@ describe('standalone text style', () => {
         expect(style.getWGSLShaderSource()).toContain('@vertex');
     });
 
+    test('queues each projected standalone text altitude independently and rejects unsupported heights', () => {
+        const style = createTextStyle();
+        style.cpu_projection = {type: 'equal-earth', allowElevation: true};
+        style.preprocessText = vi.fn(draw => draw);
+        style.queueFeature = vi.fn();
+        style.parseTextFeature = vi.fn(() => [{layout: layout(), text: 'First'}, {layout: layout(), text: 'Second'}]);
+        vi.spyOn(Collision, 'addStyle').mockImplementation(() => {});
+        const tile = {generation: 2, id: 'tile'};
+        const feature = {properties: {}, geometry: {type: 'Point', coordinates: [0, 0]}};
+        for (const height of [0, -12.99, 2047.9375]) {
+            style.addFeature(feature, style._preprocess({z: height}), {tile, zoom: 6});
+            expect(style.queueFeature).toHaveBeenLastCalledWith(expect.objectContaining({
+                layout: expect.objectContaining({projected_height: Math.trunc(height * 16) / 16})
+            }), tile);
+        }
+        for (const height of [Infinity, 2048, -2048.1]) {
+            expect(() => style.addFeature(feature, style._preprocess({z: height}), {tile})).toThrow('height');
+        }
+        style.cpu_projection.allowElevation = false;
+        expect(() => style.addFeature(feature, style._preprocess({z: 1}), {tile})).toThrow('ground anchors');
+        expect(() => style.addFeature({...feature, geometry: {type: 'Polygon'}}, {}, {tile})).toThrow('Point or MultiPoint');
+    });
+
     test('builds point, line, polygon, and multi-geometry labels', () => {
         const style = createTextStyle();
         const pointLayout = layout();

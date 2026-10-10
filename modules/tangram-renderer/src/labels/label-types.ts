@@ -14,6 +14,8 @@ export interface LabelLayout extends CollisionLayout {
     projected_collide?: boolean;
     /** Source/style/feature identity for buffered copies, absent for anonymous points. */
     projected_identity?: string;
+    /** Quantized physical anchor height in meters; omitted for nonprojected labels. */
+    projected_height?: number;
     /** Pixel offset before geographic scaling. */
     offset: LabelPointCoordinate;
     /** Collision padding in pixels. */
@@ -71,7 +73,7 @@ export interface SerializedLabel {
     /** Original tile-local position. */
     position: LabelPointCoordinate;
     /** Minimal repeat/collision settings. */
-    layout: Pick<LabelLayout, 'priority' | 'collide' | 'repeat_distance' | 'repeat_group' | 'buffer' | 'italic' | 'projected_collide' | 'projected_identity'>;
+    layout: Pick<LabelLayout, 'priority' | 'collide' | 'repeat_distance' | 'repeat_group' | 'buffer' | 'italic' | 'projected_collide' | 'projected_identity' | 'projected_height'>;
     /** Point/straight dimensions, absent for articulated text. */
     size?: LabelPointCoordinate;
     /** Rotation for point/straight placement. */

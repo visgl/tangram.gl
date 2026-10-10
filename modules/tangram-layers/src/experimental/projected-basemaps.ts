@@ -111,7 +111,10 @@ export function createProjectedBasemapScene(scene: Record<string, unknown>, proj
             }
         }
         if (style.draw !== undefined) validateFlatDraw(readRecord(style.draw, 'style draw defaults'),
-            Boolean(options.allowElevation && ['polygons', 'raster'].includes(String(style.base))));
+            Boolean(options.allowElevation && ['polygons', 'raster', 'points', 'text'].includes(String(style.base))));
+        if (style.draw !== undefined && ['points', 'text'].includes(String(style.base))) {
+            validateAnnotationDraw(readRecord(style.draw, 'annotation defaults'));
+        }
         if (style.base === 'raster' && style.draw !== undefined && readRecord(style.draw, 'raster defaults').interactive === true) {
             throw new Error('Raster imagery does not expose selectable source features');
         }
@@ -147,11 +150,13 @@ function validateProjectedDraws(node: Record<string, unknown>, styles: Record<st
             if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(String(style.base))) {
                 throw new Error('Projected basemaps require supported surface, road or annotation bases');
             }
-            validateFlatDraw(draw, allowElevation && ['polygons', 'raster'].includes(String(style.base)));
+            validateFlatDraw(draw, allowElevation && ['polygons', 'raster', 'points', 'text'].includes(String(style.base)));
             if (style.base === 'raster' && draw.interactive === true) throw new Error('Raster imagery does not expose selectable source features');
             if (style.base === 'points' || style.base === 'text') {
                 const defaults = style.draw === undefined ? {} : readRecord(style.draw, 'annotation defaults');
                 const annotation = mergeAnnotationDraws(defaults, draw);
+                validateFlatDraw(annotation, allowElevation);
+                validateAnnotationDraw(annotation);
                 if (annotation.collide !== undefined && typeof annotation.collide !== 'boolean') throw new Error('Projected collide must be boolean');
                 if (annotation.text !== undefined) {
                     const text = readRecord(annotation.text, 'attached text');
@@ -189,6 +194,12 @@ function validateFlatDraw(draw: Record<string, unknown>, allowElevation = false)
     if (!allowElevation && ((draw.extrude !== undefined && draw.extrude !== false) || draw.z !== undefined)) {
         throw new Error('Projected basemaps require flat draws unless allowElevation is enabled');
     }
+}
+
+/** Billboards may have altitude, not extrusion; attached text inherits its point's anchor height. */
+function validateAnnotationDraw(draw: Record<string, unknown>): void {
+    if (draw.extrude !== undefined && draw.extrude !== false) throw new Error('Projected annotations do not support extrusion');
+    if (draw.text !== undefined && draw.text !== false) validateFlatDraw(readRecord(draw.text, 'attached text'));
 }
 
 /** Copy validated object records without accepting arrays or prototype properties as configuration. */

@@ -145,6 +145,8 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
 function isDuplicate(candidate: Candidate, previous: Candidate): boolean {
     const identity = candidate.label.container.label.layout.projected_identity;
     if (!identity || identity !== previous.label.container.label.layout.projected_identity || candidate.tile === previous.tile) return false;
+    if ((candidate.label.container.label.layout.projected_height ?? 0) !==
+        (previous.label.container.label.layout.projected_height ?? 0)) return false;
     // At most two source quantization units tolerate independently encoded buffered points.
     const tolerance = 2 * 2 * Math.PI * 6378137 / (4096 * 2 ** Math.min(candidate.tile.coords.z, previous.tile.coords.z));
     return Math.hypot(candidate.anchor[0] - previous.anchor[0], candidate.anchor[1] - previous.anchor[1]) <= tolerance;

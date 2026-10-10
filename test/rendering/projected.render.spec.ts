@@ -288,6 +288,86 @@ test.each(['vertex', 'fragment'] as const)(`${DEVICE_TYPE}: projected %s lightin
     navigation.dispose();
 });
 
+test(`${DEVICE_TYPE}: elevated markers and attached/standalone text retain individual heights and stereo picking`, async () => {
+  harness = new RenderingHarness();
+  const source = {type: 'FeatureCollection', features: [0, 2000].map((height, index) => ({
+    type: 'Feature', id: index + 1, properties: {height, name: `Height ${height}`},
+    geometry: {type: 'Point', coordinates: [-100, 40]}
+  }))};
+  const scene = createProjectedBasemapScene({scene: {background: {color: '#000'}},
+    sources: {anchors: {type: 'GeoJSON', url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`}},
+    layers: Object.fromEntries([0, 2000].map((height, index) => [`height${index}`, {
+      data: {source: 'anchors'}, filter: {height}, draw: {
+        points: {order: 1, z: height, size: '20px', color: index ? '#00ff00' : '#ff0000', collide: false, interactive: true,
+          text: {text_source: 'name', collide: false, anchor: 'top', offset: [0, -12],
+            font: {family: 'sans-serif', size: '18px', fill: index ? '#ffff00' : '#ffffff'}}},
+        text: {order: 2, z: height, text_source: 'name', collide: false, interactive: true, offset: [0, 25],
+          font: {family: 'sans-serif', size: '18px', fill: index ? '#00ffff' : '#0000ff'}}
+      }
+    }]))}, {type: 'equal-earth', allowElevation: true},
+    new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  await harness.initialize(scene);
+  const navigation = new ProjectedBasemapNavigation(createProjectedExampleProjectionEngine());
+  const target = await navigation.projectPosition([-100, 40], 'equal-earth');
+  const frame = new HostFrame({viewport: {width: 512, height: 320}, tileZoom: 2,
+    projection: {type: 'projected', visibleBounds: [-101, 39, -99, 41]},
+    geographicAnchor: {longitude: -100, latitude: 40, zoom: 6}, renderViews: [-0.01, 0.01].map((offset, index) => ({
+      id: index ? 'right' : 'left', viewport: {x: index * 256, y: 0, width: 256, height: 320},
+      camera: {view: new Matrix4().lookAt({eye: [target[0] + offset, target[1] - 1, 1],
+        center: [target[0] + offset, target[1], 1000 * 256 / 6378137], up: [0, 0, 1]}),
+        projection: new Matrix4().ortho({left: -128 / 2048, right: 128 / 2048, bottom: -240 / 2048,
+          top: 240 / 2048, near: 0.1, far: 10}), position: [0, 0, 1]}
+    }))});
+  const draw = () => {
+    for (const [index, eye] of frame.renderViews.entries()) {
+      harness!.renderer.setFrame(frame, {renderViewId: eye.id});
+      const pass = harness!.device.beginRenderPass({clearColor: index ? false : [0, 0, 0, 1],
+        clearDepth: index ? false : 1, clearStencil: index ? false : 0});
+      pass.setParameters({viewport: [eye.viewport.x, eye.viewport.y, eye.viewport.width, eye.viewport.height],
+        scissorRect: [eye.viewport.x, eye.viewport.y, eye.viewport.width, eye.viewport.height]});
+      harness!.renderer.render({frame, renderPass: pass, renderViewId: eye.id, force: true});
+      submitEyeRenderPass(harness!.device, pass);
+    }
+  };
+  /** Locate actual framebuffer colors so selection tests do not assume camera/pixel rounding. */
+  const samples = async () => {
+    const pixels = (await readCanvasPixels(harness!.canvas)).data;
+    return [0, 1].map(eye => {
+      const colors: number[][] = Array.from({length: 6}, () => []);
+      for (let index = 0; index < pixels.length / 4; index++) {
+        if (Math.floor(index % 512 / 256) !== eye) continue;
+        const color = [pixels[index * 4], pixels[index * 4 + 1], pixels[index * 4 + 2]];
+        const key = [[255, 0, 0], [0, 255, 0], [255, 255, 255], [255, 255, 0], [0, 0, 255], [0, 255, 255]]
+          .findIndex(expected => expected.every((value, component) => Math.abs(value - color[component]) < 30));
+        if (key >= 0) colors[key].push(index);
+      }
+      return colors;
+    });
+  };
+  await expect.poll(async () => {draw(); expect(harness!.errors).toEqual([]);
+    return (await samples()).map(colors => colors.map(color => color.length > 20));},
+    {timeout: 20000}).toEqual([[true, true, true, true, true, true], [true, true, true, true, true, true]]);
+  const colors = await samples();
+  for (const eye of colors) {
+    const meanY = (color: number[]) => color.reduce((sum, pixel) => sum + Math.floor(pixel / 512), 0) / color.length;
+    expect(Math.abs(meanY(eye[0]) - meanY(eye[1]))).toBeGreaterThan(60);
+    for (const index of [0, 1]) {
+      expect(Math.abs(meanY(eye[index]) - meanY(eye[index + 2]))).toBeLessThan(40);
+      expect(Math.abs(meanY(eye[index]) - meanY(eye[index + 4]))).toBeLessThan(40);
+    }
+  }
+  let completed = false;
+  const requests = colors.flatMap(eye => [0, 1, 4, 5].map(index => ({pixel: eye[index][Math.floor(eye[index].length / 2)], id: index % 2 + 1})));
+  const queries = Promise.all(requests.map(({pixel}) => harness!.renderer.getFeatureAt(
+    {x: pixel % 512, y: Math.floor(pixel / 512)}, {coordinateSpace: 'canvas', radius: 2})))
+    .then(results => {completed = true; return results;});
+  await expect.poll(() => {draw(); return completed;}, {timeout: 20000}).toBe(true);
+  (await queries).forEach((result, index) => expect(result).toMatchObject({renderViewId: index < 4 ? 'left' : 'right',
+    feature: {id: requests[index].id, properties: {height: requests[index].id === 1 ? 0 : 2000}}}));
+  expect(harness.errors).toEqual([]);
+  navigation.dispose();
+});
+
 test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
   `${DEVICE_TYPE}: projected %s annotations retain pixel size and render attached/standalone atlas text`, async type => {
     harness = new RenderingHarness();

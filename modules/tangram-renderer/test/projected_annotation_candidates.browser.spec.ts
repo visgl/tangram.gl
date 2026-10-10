@@ -28,6 +28,8 @@ test('projected worker candidates preserve authored collision and distinguish so
     expect(style().computeLayout({}, {properties: {}}, draw, context, {}).projected_identity).toBeUndefined();
     expect(style(false).computeLayout({}, {id: 7, properties: {}}, draw, context, {})).toMatchObject({collide: true});
     expect(textLayoutToJSON({...layout, repeat_distance: 320}).repeat_distance).toBe(80);
+    expect(textLayoutToJSON({...layout, projected_height: -1.0625})).toMatchObject({projected_height: -1.0625});
+    expect(textLayoutToJSON(layout)).not.toHaveProperty('projected_height');
 });
 
 test('projected text identity distinguishes strings even without feature IDs and leaves classic layouts alone', () => {

@@ -18,6 +18,8 @@ import LabelLine from '../../labels/label_line';
 import gl from '../../gl/constants'; // web workers don't have access to GL context, so import all GL constants
 import VertexLayout from '../../gl/vertex_layout';
 import {buildTextWGSL} from './text_wgsl';
+import StyleParser from '../style_parser';
+import {PACKED_HEIGHT_SCALE, packProjectedAnnotationHeight} from '../../gl/vertex-constants';
 
 /** Mesh variant controlling static attributes and point/text shader layout. */
 interface TextMeshVariant {
@@ -26,6 +28,8 @@ interface TextMeshVariant {
 }
 /** Mutable feature styling consumed by the inherited point quad builder. */
 interface TextFeatureStyle {
+    /** Projected signed-short height, captured independently for each queued feature. */
+    z?: number;
     label?: TextRenderLabel;
     size?: LabelPointCoordinate | {straight?: LabelPointCoordinate; curved?: LabelPointCoordinate[]};
     texcoords?: number[] | {straight?: TextSprite; curved?: TextSprite[]};
@@ -40,7 +44,7 @@ interface TextBuildMesh {
 }
 /** Checked standalone-text style, extending only the point/style capabilities it consumes. */
 export interface TextStyleRuntime extends TextLabelRuntime {
-    /** Optional ground-anchor projection; screen-space glyph geometry remains unchanged. */
+    /** Optional anchor projection; screen-space glyph geometry remains unchanged. */
     cpu_projection?: import('../../procedures/mesh-projector').ProjectedBasemapOptions;
     /** Whether this is a built-in renderer style. */
     built_in: boolean;
@@ -145,6 +149,11 @@ Object.assign(TextStyle, {
         if (!q) {
             return;
         }
+        if (this.cpu_projection) {
+            const height = packProjectedAnnotationHeight(StyleParser.evalCachedDistanceProperty(draw.z, context),
+                this.cpu_projection.allowElevation) / PACKED_HEIGHT_SCALE;
+            for (const candidate of Array.isArray(q) ? q : [q]) candidate.layout.projected_height = height;
+        }
 
         // text can be an array if a `left` or `right` orientation key is defined for the text source
         // in which case, push both text sources to the queue
@@ -187,6 +196,7 @@ Object.assign(TextStyle, {
                 // setup styling object expected by Style class
                 let style = this.feature_style;
                 style.label = q.label;
+                if (this.cpu_projection) style.z = (q.layout.projected_height ?? 0) * PACKED_HEIGHT_SCALE;
 
                 if (text_info.text_settings.can_articulate){
                     // unpack logical sizes of each segment into an array for the style
@@ -237,6 +247,7 @@ Object.assign(TextStyle, {
     // Sets up caching for draw properties
     _preprocess (this: TextStyleRuntime, draw: TextLabelDraw) {
         draw.blend_order = this.getBlendOrderForDraw(draw); // from draw block, or fall back on default style blend order
+        if (this.cpu_projection) draw.z = StyleParser.createPropertyCache(draw.z, StyleParser.parseUnits);
         return this.preprocessText(draw);
     },
 

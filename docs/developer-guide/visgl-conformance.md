@@ -33,7 +33,10 @@ unquoted `rgba(...)`. The complete classic corpus is compared directly, without
 expected failures or edits to scene fixtures. Additional semantic checks expose
 remaining gaps: flow-style `<<` remains a literal property, timestamps remain
 strings instead of `Date`, and `1e3` becomes a number instead of Tangram's string.
-These are explicit incompatibility tests, not a claim that the default parser
+Flow merge handling and explicit-key precedence are addressed in
+[loaders.gl #4195](https://github.com/visgl/loaders.gl/pull/4195); the pinned
+release and production parser remain unchanged until that fix is published and
+conformance is rerun. These are explicit incompatibility tests, not a claim that the default parser
 can safely change. MVT also retains its legacy default until the injected
 layer-property collision can be eliminated without losing authored properties.
 MLT remains an explicitly selected worker decoder; there is no legacy MLT parser
@@ -75,6 +78,30 @@ feature flag. Camera and tile transforms now call math.gl's native matrix APIs
 directly while preserving Tangram's caller-owned typed-array boundaries. The
 legacy projection formula remains in tests, and captured matrix outputs preserve
 the matrix comparison after the legacy packages are removed.
+
+## Candidates for upstream sharing
+
+The following are opportunities, not production switches or claims of equivalence.
+Compare identical fixtures and measure the optional dependency graph before replacing
+an implementation. Keep Tangram styling and packed vertex formats in renderer adapters.
+
+| Priority | Owner | Candidate and required boundary |
+| --- | --- | --- |
+| 1 | loaders.gl/config | Fix flow-style merge handling and offer explicit scalar-schema compatibility for timestamps/scientific notation. The existing scene corpus and semantic mismatch cases are ready-made regression fixtures. |
+| 2 | loaders.gl/mvt | Return source-layer provenance separately from authored properties, so an internal grouping field cannot overwrite a user's property. Preserve the lightweight GeoJSON parser subpath and Tangram's normalization/`parse_json` adapter. |
+| 3 | math.gl/polygon | Extend triangle subdivision with asynchronous/batched transforms and pluggable attribute interpolation. Tangram currently batches edge/interior probes through a worker RPC; a synchronous per-position callback cannot replace that contract. Preserve indexed seams, height-aware wall topology, budgets and determinism. |
+| 4 | loaders.gl/tiles | Evaluate shared Tileset2D with Tangram's existing traversal adapter. Request/cache primitives already exist upstream; compare generation cancellation, worker-build completion, parent fallback pinning and CPU/GPU resource release before replacing Tangram's build queue/cache. Upstream only the missing lifecycle hooks. |
+| 5 | math.gl/culling | Evaluate the existing analytic sphere/plane shapes for WebXR picking instead of copying Tangram's intersection helpers. Adapt +Y plane versus Tangram's +Z plane, normalized/non-normalized rays, near-parallel tolerances, inside-sphere hits and bounded-tabletop behavior. Add a lightweight entry only if bundle probes justify it. |
+
+PMTiles metadata/attribution propagation is another focused loaders.gl compatibility
+candidate; first verify whether the latest upstream source already fixes the published
+alpha behavior described below. Native-import compatibility should be evaluated separately
+from browser worker behavior.
+
+Checked integer quantization could become a geometry utility if a second consumer
+needs it. Tangram's 1/16-meter signed-short height slot is not itself a shared geospatial
+contract, so the small packing helper remains local. Collision priorities, linked
+point/text placement and atlas byte ranges also remain Tangram responsibilities.
 
 ## Historical matrix-migration baseline
 

@@ -25,12 +25,27 @@ test('elevated polygons and diffuse directional lighting are explicit opt-ins an
         expect(() => createProjectedBasemapScene({...scene, lights}, {type: 'equal-earth', allowElevation: true},
             'https://example.test/worker.js')).toThrow('common-space directional');
     }
-    for (const base of ['points', 'text', 'lines']) {
+    for (const base of ['lines']) {
         expect(() => createProjectedBasemapScene({styles: {shape: {base, draw: {collide: false, width: '2px', z: 1}}}},
             {type: 'equal-earth', allowElevation: true}, 'https://example.test/worker.js')).toThrow('flat');
     }
     expect(() => createProjectedBasemapScene({...scene, styles: {buildings: {...scene.styles.buildings, material: {specular: 1}}}},
         {type: 'equal-earth', allowElevation: true}, 'https://example.test/worker.js')).toThrow('diffuse');
+});
+
+test.each(['points', 'text'])('projected %s altitude is opt-in through layer inheritance and style defaults', base => {
+    const scene = {styles: {labels: {base, draw: {z: 100, ...(base === 'points' ? {text: {text_source: 'name'}} : {})}}},
+        layers: {labels: {draw: {labels: {order: 1}}, child: {draw: {labels: {z: -20}}}}}};
+    const original = structuredClone(scene);
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth'}, 'https://example.test/worker.js')).toThrow('flat');
+    expect(() => createProjectedBasemapScene(scene, {type: 'equal-earth', allowElevation: true}, 'https://example.test/worker.js')).not.toThrow();
+    expect(scene).toEqual(original);
+    for (const draw of [{extrude: true}, {extrude: [0, 100]}, {text: {z: 20}}, {text: {extrude: true}}]) {
+        expect(() => createProjectedBasemapScene({styles: {labels: {base, draw}}, layers: {labels: {draw: {labels: {order: 1}}}}},
+            {type: 'equal-earth', allowElevation: true}, 'https://example.test/worker.js')).toThrow();
+        expect(() => createProjectedBasemapScene({layers: {labels: {draw: {[base]: draw}}}},
+            {type: 'equal-earth', allowElevation: true}, 'https://example.test/worker.js')).toThrow();
+    }
 });
 
 test.each(['m', 'px'])('projected road zoom stops preserve %s units through defaults and outlines', unit => {
