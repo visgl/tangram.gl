@@ -55,6 +55,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
+    "@math.gl/culling": "5.0.0-alpha.15",
     "@vis.gl/tangram-renderer": "workspace:^"
   },
   "peerDependencies": {

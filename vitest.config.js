@@ -27,6 +27,8 @@ export default getVitestConfig({
     },
     optimizeDeps: {include: [
       'sinon', '@luma.gl/experimental',
+      // WebXR analytic queries must not trigger dependency discovery during tests.
+      '@math.gl/culling',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
       '@loaders.gl/pmtiles', '@loaders.gl/mvt/mvt-geojson-loader',
       '@loaders.gl/tiles',
