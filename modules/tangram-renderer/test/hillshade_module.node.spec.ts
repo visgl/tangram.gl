@@ -32,7 +32,10 @@ test('optional shader entry bundles without renderer or third-party runtime code
     if (!result.metafile) { throw new Error('Expected an esbuild dependency graph'); }
     expect(Object.keys(result.metafile.inputs).sort()).toEqual([
         'modules/tangram-renderer/src/shader-modules/hillshade.ts',
-        'modules/tangram-renderer/src/shader-modules/index.ts'
+        'modules/tangram-renderer/src/shader-modules/index.ts',
+        'modules/tangram-renderer/src/shader-modules/planar.ts',
+        'modules/tangram-renderer/src/shader-modules/sphere-map.ts',
+        'modules/tangram-renderer/src/shader-modules/triplanar.ts'
     ]);
     expect(Object.values(result.metafile.outputs).every(output => output.imports.length === 0)).toBe(true);
 });
