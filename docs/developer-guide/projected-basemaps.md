@@ -7,7 +7,7 @@ Copyright (c) vis.gl contributors
 # Experimental projected basemaps
 
 The optional `@vis.gl/tangram-layers/experimental/projected-basemaps` entry renders
-Tangram polygons, raster meshes, meter/pixel roads and ground annotations in deck.gl's `OrthographicView`. Workers
+Tangram polygons, raster meshes, meter/pixel roads and point/text annotations in deck.gl's `OrthographicView`. Workers
 subdivide the packed tile geometry and project it with math.gl before transferring
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
@@ -263,8 +263,8 @@ as EPSG:3857 meters or use the Mercator/globe surface helpers. The scene's
 
 Use self-contained inline scenes and unlit ground `polygons`, `raster` or `lines` styles,
 plus screen-collided `points`/`text` annotations on Point/MultiPoint sources.
-The scene helper rejects imports, mixins, shader injection and nonground annotations.
-Surface elevation and diffuse lighting require explicit opt-ins, described below.
+The scene helper rejects imports, mixins and shader injection.
+Surface/annotation elevation and diffuse lighting require explicit opt-ins, described below.
 Supported vector draws can be interactive; raster imagery is not feature-selectable. Unsupported features fail
 explicitly rather than rendering partly in the wrong coordinate system.
 
@@ -498,7 +498,7 @@ Function-based width/offset expressions, mixed-unit outlines, alternate outline 
 external road textures and arbitrary shader blocks remain explicitly unsupported.
 This is the portable traffic effect, not unrestricted execution of legacy TRON mixins.
 
-## Ground point and text annotations
+## Point and text annotations
 
 Point and MultiPoint features can use `points`, attached text, or standalone `text`
 draws. Collision defaults to enabled; set `collide: false` to allow overlapping
@@ -516,10 +516,33 @@ Camera changes relayout retained candidates without reloading or rebuilding tile
 Buffered copies are deduplicated across tiles by source/style/draw/feature identity
 and geographic anchor, allowing two source quantization units of tolerance. Text
 without an ID also uses its string identity; anonymous points are not deduplicated.
-Distinct source IDs, draws, and distant MultiPoint anchors remain independent.
+Distinct source IDs, draws, distant MultiPoint anchors and different quantized heights remain independent.
 `collide: false` does not disable cross-tile deduplication or authored repeat rules.
-Line/polygon labels, curved-road labels, elevated anchors, alternate-anchor retries
+Line/polygon labels, curved-road labels, alternate-anchor retries
 on the host, and custom shader blocks remain unsupported.
+
+With `allowElevation: true`, `points.z` and standalone `text.z` specify physical
+meters, including negative heights. Attached text inherits its point's height;
+an independent attached `text.z` or annotation `extrude` is rejected. Heights are
+truncated toward zero to 1/16 meter, with the same signed-short range as surfaces
+(-2048 to 2047.9375 meters). Invalid evaluated heights fail before storage can wrap.
+
+```js
+const scene = createProjectedBasemapScene({
+  sources: {places: {type: 'GeoJSON', url: '/places.geojson'}},
+  layers: {places: {data: {source: 'places'}, draw: {
+    points: {order: 10, z: 100, size: '12px', color: '#ffcd66', interactive: true,
+      text: {text_source: 'name', font: {size: '14px', fill: '#fff'}}}
+  }}}
+}, {type: 'equal-earth', allowElevation: true}, workerUrl);
+```
+
+Screen collision and asynchronous selection use the elevated anchor in each
+eye's camera. Glyphs remain screen-facing, not surface-aligned. A top-down
+orthographic view changes depth, not the anchor's screen XY; an oblique
+`HostFrame` camera makes vertical separation visible. Enclose the content in
+the camera's depth range. Elevation does not change source tile coverage or
+navigation's ground footprint, and does not sample terrain.
 
 ## Elevated surfaces and lighting
 
@@ -539,7 +562,7 @@ definitions) use projected common axes. Wall normals use the inverse transpose
 of a sampled projection Jacobian, rather than reusing Mercator normals. Host and
 worker-local engines use the same batched probes; singular Jacobians fail explicitly.
 Materials support ambient/diffuse colors, without specular terms or normal maps.
-Point/spot lights, geographic light directions, lit roads, elevated annotations
+Point/spot lights, geographic light directions, lit roads
 and custom shader blocks remain unsupported. Omitted lighting retains the
 existing unlit projected behavior.
 

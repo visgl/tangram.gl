@@ -196,6 +196,7 @@ export function textLayoutToJSON (layout: LabelLayout): SerializedLabel['layout'
         priority: layout.priority,
         ...(layout.projected_collide === undefined ? {} : {projected_collide: layout.projected_collide}),
         ...(layout.projected_identity === undefined ? {} : {projected_identity: layout.projected_identity}),
+        ...(layout.projected_height === undefined ? {} : {projected_height: layout.projected_height}),
         collide: layout.collide,
         repeat_distance: layout.projected_collide === undefined ? layout.repeat_distance :
             (layout.repeat_distance ?? 0) / layout.units_per_pixel,

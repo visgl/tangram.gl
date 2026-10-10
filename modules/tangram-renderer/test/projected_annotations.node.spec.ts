@@ -10,12 +10,13 @@ import type {LabelTile, LabelMesh} from '../src/labels/main-pass-types';
 
 /** Hermetic projected point quad and its worker snapshot; no canvas or service is needed. */
 function tile(id: number, x = 0, properties: {identity?: string; priority?: number; collide?: boolean;
-    linked?: number; projectedX?: number; domain?: boolean; buffer?: [number, number]; rotation?: number} = {}): LabelTile {
+    linked?: number; projectedX?: number; height?: number; domain?: boolean; buffer?: [number, number]; rotation?: number} = {}): LabelTile {
     const vertices = new Uint8Array(24 * 4);
     const data = new DataView(vertices.buffer);
     for (let index = 0; index < 4; index++) {
         const offset = index * 24;
         data.setFloat32(offset, properties.projectedX ?? x, true);
+        data.setFloat32(offset + 8, (properties.height ?? 0) * 256 / 6378137, true);
         data.setInt16(offset + 12, (index % 2 ? 10 : -10) * 256, true);
         data.setInt16(offset + 14, (index < 2 ? 10 : -10) * 256, true);
         data.setInt16(offset + 16, (properties.rotation ?? 0) * 4096, true);
@@ -26,6 +27,7 @@ function tile(id: number, x = 0, properties: {identity?: string; priority?: numb
         labels: {[id]: {container: {label: {id, type: 'point', position: [x, 0],
             layout: {collide: false, projected_collide: properties.collide ?? true,
                 projected_identity: properties.identity, priority: properties.priority ?? id,
+                projected_height: properties.height,
                 buffer: properties.buffer ?? [0, 0]}}, linked: properties.linked}, ranges: [[0, 4]]}},
         upload: vi.fn()};
     return {coords: {z: 2}, style_z: 6, build_id: id, min: {x: 0, y: 0}, span: {x: 1},
@@ -98,6 +100,17 @@ test('buffered cross-tile copies deduplicate even with collide false; unrelated 
     expect(mask(first)).toEqual([1, 1, 1, 1]);
     expect(mask(duplicate)).toEqual([0, 0, 0, 0]);
     for (const value of [distant, other, anonymous]) expect(mask(value)).toEqual([1, 1, 1, 1]);
+});
+
+test('cross-tile identity includes quantized altitude; absent height still deduplicates with zero', () => {
+    const ground = tile(1, 0, {identity: 'source/style/feature', collide: false});
+    const groundCopy = tile(2, 0, {identity: 'source/style/feature', collide: false, height: 0});
+    const elevated = tile(3, 0, {identity: 'source/style/feature', collide: false, height: 100});
+    const elevatedCopy = tile(4, 0, {identity: 'source/style/feature', collide: false, height: 100});
+    const differentHeight = tile(5, 0, {identity: 'source/style/feature', collide: false, height: 100.0625});
+    layoutProjectedAnnotations([differentHeight, elevatedCopy, groundCopy, elevated, ground], frame(1));
+    for (const value of [ground, elevated, differentHeight]) expect(mask(value)).toEqual([1, 1, 1, 1]);
+    for (const value of [groundCopy, elevatedCopy]) expect(mask(value)).toEqual([0, 0, 0, 0]);
 });
 
 test('required point/text pairs are atomic; optional text may hide without suppressing its parent', () => {

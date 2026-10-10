@@ -9,6 +9,8 @@ import Texture from '../src/gl/texture';
 import Collision from '../src/labels/collision';
 import LabelPoint from '../src/labels/label_point';
 import debugSettings from '../src/utils/debug_settings';
+import StyleParser from '../src/styles/style_parser';
+import {compileFunctionString} from '../src/utils/functions';
 
 function createPoints() {
     const points = Object.create(Points);
@@ -154,6 +156,33 @@ describe('point style lifecycle', () => {
 
         points.addFeature({geometry: {type: 'Point'}, properties: {}}, draw, {...context, tile: {...tile, generation: 2}});
         expect(queue).toHaveBeenCalledTimes(1);
+    });
+
+    test('validates projected point heights through preprocessing and dynamic scene expressions', () => {
+        const points = createPoints();
+        points.cpu_projection = {type: 'equal-earth', allowElevation: true};
+        const tile = {generation: 3, id: 'tile', units_per_pixel: 1};
+        const feature = {properties: {height: 12}, geometry: {type: 'Point', coordinates: [0, 0]}};
+        const context = {feature, layer: 'places', tile, zoom: 10};
+        vi.spyOn(Collision, 'addStyle').mockImplementation(() => {});
+        const queue = vi.spyOn(points, 'queueFeature').mockImplementation(() => {});
+        const drawHeight = height => points._preprocess({color: '#fff', size: 20, z: height});
+        for (const height of [NaN, 'bad', [[10, NaN]], () => NaN,
+            compileFunctionString('function() { return NaN; }', StyleParser.wrapFunction)]) {
+            expect(() => points.addFeature(feature, drawHeight(height), context)).toThrow('height');
+        }
+        const height = compileFunctionString('function() { return feature.height; }', StyleParser.wrapFunction);
+        points.addFeature(feature, drawHeight(height), context);
+        expect(queue).toHaveBeenLastCalledWith(expect.objectContaining({
+            style: expect.objectContaining({z: 192, projected_height: 12})
+        }), tile);
+        const failedHeight = () => { throw new Error('height expression failed'); };
+        expect(() => points.addFeature(feature, drawHeight(failedHeight), context)).toThrow('height expression failed');
+        points.cpu_projection = undefined;
+        points.addFeature(feature, drawHeight(NaN), context);
+        expect(queue).toHaveBeenLastCalledWith(expect.objectContaining({
+            style: expect.objectContaining({z: 0})
+        }), tile);
     });
 
     test('computes priority variants and starts missing tile queues', () => {

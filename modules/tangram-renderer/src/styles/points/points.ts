@@ -12,6 +12,7 @@ import {Style} from '../style';
 import StyleParser from '../style_parser';
 import gl from '../../gl/constants'; // web workers don't have access to GL context, so import all GL constants
 import VertexLayout from '../../gl/vertex_layout';
+import {PACKED_HEIGHT_SCALE, packProjectedAnnotationHeight} from '../../gl/vertex-constants';
 import { buildQuadForPoint } from '../../builders/points';
 import Texture from '../../gl/texture';
 import Geo from '../../utils/geo';
@@ -211,7 +212,11 @@ Object.assign(Points, {
         style.angle = StyleParser.evalProperty(draw.angle, context) || 0;
 
         // points can be placed off the ground
-        style.z = StyleParser.evalCachedDistanceProperty(draw.z, context) || StyleParser.defaults.z;
+        const height = this.cpu_projection ? StyleParser.evalProjectedHeightProperty(draw.z, context) :
+            StyleParser.evalCachedDistanceProperty(draw.z, context);
+        style.z = this.cpu_projection ? packProjectedAnnotationHeight(height, this.cpu_projection.allowElevation) :
+            (height || StyleParser.defaults.z);
+        if (this.cpu_projection) style.projected_height = style.z / PACKED_HEIGHT_SCALE;
 
         style.tile_edges = draw.tile_edges; // usually activated for debugging, or rare visualization needs
 
@@ -232,6 +237,7 @@ Object.assign(Points, {
 
         if (tf) {
             tf.layout.parent = style; // parent point will apply additional anchor/offset to text
+            if (this.cpu_projection) tf.layout.projected_height = style.projected_height;
 
             // Text labels have a default priority of 0.5 below their parent point (+0.5, priority is lower-is-better)
             // This can be overriden, as long as it is less than or equal to the default
@@ -386,6 +392,8 @@ Object.assign(Points, {
                 // setup styling object expected by Style class
                 let style = this.feature_style;
                 style.label = q.label;
+                // The shared feature_style belongs to the last point, not necessarily this text.
+                if (this.cpu_projection) style.z = (q.layout.projected_height ?? 0) * PACKED_HEIGHT_SCALE;
                 style.linked = q.linked; // TODO: move linked into label to avoid extra prop tracking?
                 style.size = text_info.size.logical_size;
                 style.texcoords = text_info.align[q.label.align].texcoords;
@@ -419,7 +427,8 @@ Object.assign(Points, {
             draw.outline.width = StyleParser.createPropertyCache(draw.outline.width, StyleParser.parsePositiveNumber);
         }
 
-        draw.z = StyleParser.createPropertyCache(draw.z, StyleParser.parseUnits);
+        draw.z = this.cpu_projection ? StyleParser.createProjectedHeightPropertyCache(draw.z) :
+            StyleParser.createPropertyCache(draw.z, StyleParser.parseUnits);
 
         // Size (1d value or 2d array)
         try {

@@ -8,6 +8,8 @@ import {TextStyle} from '../src/styles/text/text';
 import Collision from '../src/labels/collision';
 import LabelLine from '../src/labels/label_line';
 import LabelPoint from '../src/labels/label_point';
+import StyleParser from '../src/styles/style_parser';
+import {compileFunctionString} from '../src/utils/functions';
 
 function createTextStyle(): any {
     const style = Object.create(TextStyle);
@@ -76,6 +78,43 @@ describe('standalone text style', () => {
         expect(style.queues).toEqual({});
         expect(style.resetText).toHaveBeenCalled();
         expect(style.getWGSLShaderSource()).toContain('@vertex');
+    });
+
+    test('queues each projected standalone text altitude independently and rejects unsupported heights', () => {
+        const style = createTextStyle();
+        style.cpu_projection = {type: 'equal-earth', allowElevation: true};
+        style.preprocessText = vi.fn(draw => draw);
+        style.queueFeature = vi.fn();
+        style.parseTextFeature = vi.fn(() => [{layout: layout(), text: 'First'}, {layout: layout(), text: 'Second'}]);
+        vi.spyOn(Collision, 'addStyle').mockImplementation(() => {});
+        const tile = {generation: 2, id: 'tile'};
+        const feature = {properties: {}, geometry: {type: 'Point', coordinates: [0, 0]}};
+        for (const height of [0, -12.99, 2047.9375]) {
+            style.addFeature(feature, style._preprocess({z: height}), {tile, zoom: 6});
+            expect(style.queueFeature).toHaveBeenLastCalledWith(expect.objectContaining({
+                layout: expect.objectContaining({projected_height: Math.trunc(height * 16) / 16})
+            }), tile);
+        }
+        const invalidCompiledHeight = compileFunctionString('function() { return Number(feature.height); }',
+            StyleParser.wrapFunction);
+        // Legacy scene expressions still normalize NaN for other style properties.
+        expect(typeof invalidCompiledHeight === 'function' && invalidCompiledHeight({feature})).toBeNull();
+        for (const height of [NaN, Infinity, 2048, -2048.1, 'invalid', [[6, NaN]],
+            () => NaN, invalidCompiledHeight]) {
+            expect(() => style.addFeature(feature, style._preprocess({z: height}), {tile, feature})).toThrow('height');
+        }
+        for (const [height, expectedHeight] of [[undefined, 0], [null, 0], [() => null, 0],
+            ['12m', 12], [() => 12, 12],
+            [compileFunctionString('function() { return global.height; }', StyleParser.wrapFunction), 12],
+            [[[5, '10m'], [7, '14m']], 12]]) {
+            style.addFeature(feature, style._preprocess({z: height}), {tile, feature, zoom: 6, global: {height: 12}});
+            expect(style.queueFeature).toHaveBeenLastCalledWith(expect.objectContaining({
+                layout: expect.objectContaining({projected_height: expectedHeight})
+            }), tile);
+        }
+        style.cpu_projection.allowElevation = false;
+        expect(() => style.addFeature(feature, style._preprocess({z: 1}), {tile})).toThrow('ground anchors');
+        expect(() => style.addFeature({...feature, geometry: {type: 'Polygon'}}, {}, {tile})).toThrow('Point or MultiPoint');
     });
 
     test('builds point, line, polygon, and multi-geometry labels', () => {

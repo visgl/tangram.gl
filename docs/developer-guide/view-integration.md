@@ -17,7 +17,7 @@ the optional WebXR entry shares one scene across stereo eyes.
 | MapView | Flat or perspective Web Mercator, host matrices | Custom GLSL effects are not automatically translated to WGSL |
 | GlobeView | Radius-256 sphere; refined polygons, roads and raster meshes; per-eye horizon tests | No polar-cap data; elevated bounds must be supplied conservatively |
 | FirstPersonView | Finite frustum intersected with ground or an opt-in height slab, bounded per eye | Conservative tile candidates, not terrain intersections or occlusion |
-| OrthographicView | Optional CPU-projected surfaces, roads, annotations and async feature selection | Five fixed projection domains; no projected collision or terrain picking |
+| OrthographicView | CPU-projected surfaces, roads, height-aware billboard collision and per-eye async selection | Five fixed projection domains; no terrain picking or surface-oriented labels |
 | WebXR | Mono, interactive stereo preview, immersive eye matrices and room placement | Headset validation and immersive attribution remain separate gates |
 
 See [TangramLayer](../api-reference/tangram-layer.md),
@@ -128,6 +128,9 @@ Projected point/text annotations now use screen-space collision, geographic
 cross-tile deduplication and one shared visibility mask across stereo eyes.
 Asynchronous feature queries support explicit views or whole-canvas coordinates,
 with independent per-eye selection targets on WebGL 2 and WebGPU.
+Opt-in elevated projected points and standalone text retain physical altitude;
+attached text inherits its marker's height. Cross-tile identity includes quantized
+height, while stereo shares one collision mask. Ground-only remains the default.
 
 Next: tangent-space normal maps, terrain normals, surface-oriented labels,
 terrain-aware occlusion/picking and deck.gl synchronous picking. Globe and

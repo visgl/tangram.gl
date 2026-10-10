@@ -3,6 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {getProjectedSourceDomain} from './projected-mesh-domain';
+import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
+import {PROJECTED_COMMON_SCALE} from '../procedures/projected-coordinate-transform';
 import type {MeshProjectionRequest, ProjectedMesh} from '../procedures/mesh-projector';
 
 /** Project billboard anchors without subdividing, reordering or clipping atlas quads or label byte ranges. */
@@ -21,6 +23,7 @@ export function* projectSymbolMesh(request: MeshProjectionRequest): Generator<Fl
         ![tile.min.x, tile.min.y].every(Number.isFinite) || !Number.isSafeInteger(tile.coords.z) ||
         tile.coords.z < 0 || tile.coords.z > 22) throw new Error('Projected symbols require a packed billboard layout and finite tile metadata');
     const projectedOffset = projected.offset;
+    const positionOffset = position.offset;
     const count = request.vertices.byteLength / layout.stride;
     const indices = request.indices === false ? new Uint32Array(Array.from({length: count}, (_, index) => index)) : request.indices.slice();
     if (indices.length % 3 || indices.some(index => index >= count)) throw new Error('Projected symbols require valid triangle indices');
@@ -33,7 +36,9 @@ export function* projectSymbolMesh(request: MeshProjectionRequest): Generator<Fl
     const anchorIndices: number[] = [];
     for (let index = 0; index < count; index++) {
         const offset = index * layout.stride;
-        if (view.getInt16(offset + position.offset + 4, true) !== 0) throw new Error('Projected symbols require ground anchors');
+        if (view.getInt16(offset + position.offset + 4, true) !== 0 && !request.projection.allowElevation) {
+            throw new Error('Projected symbols require ground anchors unless allowElevation is enabled');
+        }
         const x = tile.min.x + view.getInt16(offset + position.offset, true) / unitsPerMeter;
         const y = tile.min.y + view.getInt16(offset + position.offset + 2, true) / unitsPerMeter;
         if (x < domain[0] || x > domain[2] || y < domain[1] || y > domain[3]) {
@@ -62,7 +67,8 @@ export function* projectSymbolMesh(request: MeshProjectionRequest): Generator<Fl
         const offset = index * layout.stride + projectedOffset;
         view.setFloat32(offset, positions[anchor * 2], true);
         view.setFloat32(offset + 4, positions[anchor * 2 + 1], true);
-        view.setFloat32(offset + 8, 0, true);
+        const height = view.getInt16(index * layout.stride + positionOffset + 4, true) / PACKED_HEIGHT_SCALE;
+        view.setFloat32(offset + 8, height * PROJECTED_COMMON_SCALE, true);
     });
     return {vertices, indices};
 }

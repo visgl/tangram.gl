@@ -9,6 +9,7 @@ import type LabelLine from '../../labels/label_line';
 import type TextCanvas from './text_canvas';
 import type {TextDraw, TextSettingsResult} from './text_settings';
 import type {TaskRecord} from '../../utils/task';
+import type {PropertyCache} from '../property-types';
 
 /** Labels submitted by standalone text and attached point text. */
 export type TextRenderLabel = LabelPoint | Exclude<ReturnType<typeof LabelLine.create>, false>;
@@ -56,6 +57,8 @@ export type TextSource = TextSourceValue | TextSourceValue[] | Record<string, Te
 
 /** Text draw properties before/after property-cache preprocessing. */
 export interface TextLabelDraw extends TextDraw {
+    /** Standalone projected text altitude, cached in physical meters after preprocessing. */
+    z?: PropertyCache;
     /** Internal scene draw-group identity, used to keep independent annotations separate. */
     key?: string;
     /** Enable collision placement; projected annotations resolve it in screen space. */

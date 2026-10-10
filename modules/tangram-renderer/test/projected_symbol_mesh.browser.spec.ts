@@ -7,6 +7,8 @@ import VertexLayout from '../src/gl/vertex_layout';
 import Geo from '../src/utils/geo';
 import {projectBasemapMesh, projectBasemapMeshWithEngine} from '../src/experimental/projected-mesh';
 import type {MeshProjectionRequest, ProjectedBasemapOptions} from '../src/procedures/mesh-projector';
+import {PACKED_HEIGHT_SCALE, packProjectedAnnotationHeight} from '../src/gl/vertex-constants';
+import {PROJECTED_COMMON_SCALE} from '../src/procedures/projected-coordinate-transform';
 
 const layout = new VertexLayout([
     {name: 'a_position', size: 4, type: 5122},
@@ -81,4 +83,45 @@ test('symbol validation rejects heights, invalid indices/layouts and bad host re
     for (const response of [new Float64Array([1]), new Float64Array([NaN, 2]), new Float64Array([Infinity, 2])]) {
         await expect(projectBasemapMeshWithEngine({...request(), projectPositions: async () => response})).rejects.toThrow('symbol-position batch');
     }
+});
+
+test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator'] as const)(
+    '%s preserves signed symbol heights while sharing XY projection batches across altitudes', async type => {
+        const input = request(type);
+        input.projection.allowElevation = true;
+        const heights = [-2048, -0.0625, 0, 2047.9375];
+        const source = new DataView(input.vertices.buffer);
+        heights.forEach((height, index) => source.setInt16(index * layout.stride + 4,
+            packProjectedAnnotationHeight(height, true), true));
+        const original = input.vertices.slice();
+        const projectPositions = vi.fn(async (coordinates: Float64Array) => {
+            expect(coordinates).toHaveLength(2);
+            return new Float64Array([10, 20]);
+        });
+        for (const result of [projectBasemapMesh(input),
+            await projectBasemapMeshWithEngine({...input, geometry: 'text', projectPositions})]) {
+            const output = new DataView(result.vertices.buffer);
+            expect(result.indices).toEqual(input.indices);
+            heights.forEach((height, index) => {
+                const offset = index * layout.stride;
+                expect(output.getFloat32(offset + layout.offset.a_projected_position + 8, true))
+                    .toBeCloseTo(height * PROJECTED_COMMON_SCALE, 8);
+                expect(result.vertices.slice(offset, offset + layout.offset.a_projected_position)).toEqual(
+                    original.slice(offset, offset + layout.offset.a_projected_position));
+            });
+        }
+        expect(projectPositions).toHaveBeenCalledOnce();
+        expect(input.vertices).toEqual(original);
+    });
+
+test('height packing rejects nonfinite, nonscalar, non-opt-in and overflowing values before Int16 storage', () => {
+    for (const height of [NaN, Infinity, -Infinity, '100', [], {}, 2048, -2048.001]) {
+        expect(() => packProjectedAnnotationHeight(height, true)).toThrow();
+    }
+    expect(() => packProjectedAnnotationHeight(0.01)).toThrow('ground anchors');
+    expect(packProjectedAnnotationHeight(undefined)).toBe(0);
+    expect(packProjectedAnnotationHeight(null)).toBe(0);
+    expect(packProjectedAnnotationHeight(0)).toBe(0);
+    expect(packProjectedAnnotationHeight(12.99, true)).toBe(Math.trunc(12.99 * PACKED_HEIGHT_SCALE));
+    expect(packProjectedAnnotationHeight(-12.99, true)).toBe(Math.trunc(-12.99 * PACKED_HEIGHT_SCALE));
 });
