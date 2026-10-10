@@ -6,10 +6,16 @@ import {Matrix4} from '@math.gl/core';
 import type HostFrame from '../scene/host_frame';
 import type {LabelMesh, LabelTile, MeshLabel} from './main-pass-types';
 import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS, projectGeographicPosition} from '../scene/projection_math';
+import {resolveLabelPlacement} from '../map-logic/label-placement';
+import type {ScreenLabelCandidate} from '../map-logic/label-placement';
+import {areGeographicLabelCopies} from '../map-logic/label-identity';
+import type {GeographicLabelAnchor} from '../map-logic/label-identity';
+import {unionScreenBounds as unionBounds} from '../map-logic/screen-bounds';
+import type {ScreenBounds} from '../map-logic/screen-bounds';
 
-type Bounds = [number, number, number, number];
+type Bounds = ScreenBounds;
 /** One worker identity may have multiple atlas/outline mesh ranges. */
-interface Candidate {
+interface Candidate extends ScreenLabelCandidate, GeographicLabelAnchor {
     id: string;
     label: MeshLabel;
     tile: LabelTile;
@@ -17,9 +23,7 @@ interface Candidate {
     boxes: Map<string, Bounds>;
     anchor: [number, number];
     height: number;
-    shown?: boolean;
 }
-
 /** Immutable domain eligibility must survive later hide/show writes. */
 const eligible = new WeakMap<LabelMesh, Map<MeshLabel, boolean>>();
 
@@ -53,7 +57,11 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
                         const data = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
                         const height = label.container.label.layout.projected_height ?? (first === undefined ||
                             mesh.vertex_layout.offset.a_position === undefined ? 0 : data.getInt16(first + mesh.vertex_layout.offset.a_position + 4, true));
-                        candidate = {id, label, tile, parts: [], boxes: new Map(), height, anchor: [
+                        const layout = label.container.label.layout;
+                        candidate = {id, label, tile, parts: [], boxes: new Map(), height,
+                            linkedId: String(label.container.linked), collide: layout.projected_collide,
+                            identity: layout.projected_identity, repeatGroup: layout.repeat_group, repeatDistance: layout.repeat_distance,
+                            sourceTileIdentity: tile, sourceZoom: tile.coords.z, anchor: [
                             tile.min.x + position[0] / unitsPerMeter, tile.min.y + position[1] / unitsPerMeter]};
                         candidates.set(id, candidate);
                     }
@@ -70,74 +78,19 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
     const sorted = [...candidates.values()].sort((left, right) =>
         left.label.container.label.layout.priority - right.label.container.label.layout.priority ||
         left.tile.build_id - right.tile.build_id || Number(left.id) - Number(right.id));
-    const identities = new Map<string, Candidate[]>();
-    const repeatGroups = new Map<string, Candidate[]>();
-    const grids = new Map<string, Map<string, Set<Candidate>>>();
-    const placing = new Set<Candidate>();
-    function place(candidate: Candidate): boolean {
-        if (candidate.shown !== undefined) return candidate.shown;
-        if (placing.has(candidate)) return false;
-        placing.add(candidate);
-        const linked = candidates.get(String(candidate.label.container.linked));
-        const required = linked && String(linked.label.container.linked) === candidate.id;
-        const group = required ? [candidate, linked] : [candidate];
-        if (linked && !required && !place(linked)) {
-            candidate.shown = false;
-            placing.delete(candidate);
-            return false;
-        }
-        const show = group.every(member => {
-            const layout = member.label.container.label.layout;
-            return member.boxes.size > 0 &&
-                !(identities.get(layout.projected_identity ?? '') ?? []).some(previous => isDuplicate(member, previous, frame.projection.type === 'globe')) &&
-                !(repeatGroups.get(layout.repeat_group ?? '') ?? []).some(previous => repeats(member, previous));
-        }) &&
-            group.every(member => member.label.container.label.layout.projected_collide === false ||
-                [...member.boxes].every(([eye, box]) => {
-                    const grid = grids.get(eye);
-                    if (!grid) return true;
-                    const nearby = new Set<Candidate>();
-                    for (const cell of cells(box, frame.getRenderView(eye).viewport)) for (const previous of grid.get(cell) ?? []) nearby.add(previous);
-                    return [...nearby].every(previous => {
-                        if (previous === linked) return true; // Optional text may overlap its own marker.
-                        const other = previous.boxes.get(eye)!;
-                        return !intersects(box, other);
-                    });
-                }));
-        for (const member of group) {
-            member.shown = show;
-            if (!show) continue;
-            const layout = member.label.container.label.layout;
-            if (layout.projected_identity) {
-                const copies = identities.get(layout.projected_identity) ?? [];
-                copies.push(member);
-                identities.set(layout.projected_identity, copies);
-            }
-            if (layout.repeat_group && layout.repeat_distance) {
-                const repeated = repeatGroups.get(layout.repeat_group) ?? [];
-                repeated.push(member);
-                repeatGroups.set(layout.repeat_group, repeated);
-            }
-            for (const [eye, box] of member.boxes) {
-                let grid = grids.get(eye);
-                if (!grid) grids.set(eye, grid = new Map());
-                for (const cell of cells(box, frame.getRenderView(eye).viewport)) {
-                    let bucket = grid.get(cell);
-                    if (!bucket) grid.set(cell, bucket = new Set());
-                    bucket.add(member);
-                }
-            }
-        }
-        placing.delete(candidate);
-        return show;
-    }
-    sorted.forEach(place);
+    const visibility = resolveLabelPlacement(sorted, {
+        viewports: new Map(frame.renderViews.map(eye => [eye.id, eye.viewport])),
+        isDuplicate: (candidate, previous) => areGeographicLabelCopies(candidate, previous, {
+            worldWidth: 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius,
+            wrapHorizontal: frame.projection.type === 'globe'
+        })
+    });
     const uploads = new Set<LabelMesh>();
     for (const candidate of sorted) for (const {mesh, label} of candidate.parts) {
         const view = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
         for (const [start, count] of label.ranges) for (let index = 0; index < count; index++) {
             const offset = start + index * mesh.vertex_layout.stride + mesh.vertex_layout.offset.a_shape + 6;
-            const shown = candidate.shown && eligible.get(mesh)?.get(label) ? 1 : 0;
+            const shown = visibility.get(candidate) && eligible.get(mesh)?.get(label) ? 1 : 0;
             if (view.getInt16(offset, true) !== shown) {
                 view.setInt16(offset, shown, true);
                 uploads.add(mesh);
@@ -148,31 +101,6 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
     const pending = tiles.some(tile => tile.pending_label_meshes !== null);
     tiles.forEach(tile => tile.swapPendingLabels());
     return uploads.size > 0 || pending;
-}
-
-/** Compare only matching source/style identities at the same quantized geographic anchor. */
-function isDuplicate(candidate: Candidate, previous: Candidate, globe: boolean): boolean {
-    const identity = candidate.label.container.label.layout.projected_identity;
-    if (!identity || identity !== previous.label.container.label.layout.projected_identity || candidate.tile === previous.tile) return false;
-    if (candidate.height !== previous.height) return false;
-    // At most two source quantization units tolerate independently encoded buffered points.
-    const tolerance = 2 * 2 * Math.PI * 6378137 / (4096 * 2 ** Math.min(candidate.tile.coords.z, previous.tile.coords.z));
-    const circumference = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius;
-    const horizontal = candidate.anchor[0] - previous.anchor[0];
-    // Wrapped Mercator worlds draw separately; all globe copies project to one surface.
-    const difference = globe ? horizontal - Math.round(horizontal / circumference) * circumference : horizontal;
-    return Math.hypot(difference, candidate.anchor[1] - previous.anchor[1]) <= tolerance;
-}
-
-/** Authored repeat groups retain their CSS-pixel spacing in each projected eye. */
-function repeats(candidate: Candidate, previous: Candidate): boolean {
-    const layout = candidate.label.container.label.layout;
-    if (!layout.repeat_distance || !layout.repeat_group || layout.repeat_group !== previous.label.container.label.layout.repeat_group) return false;
-    return [...candidate.boxes].some(([eye, box]) => {
-        const other = previous.boxes.get(eye);
-        return other !== undefined && Math.hypot((box[0] + box[2] - other[0] - other[2]) / 2,
-            (box[1] + box[3] - other[1] - other[3]) / 2) < layout.repeat_distance!;
-    });
 }
 
 /** Reconstruct the shader's rotated pixel quad from retained packed geometry, including atlas ranges. */
@@ -256,21 +184,4 @@ function mixCurve(values: readonly number[], zoom: number): number {
     const mix = (left: number, right: number, amount: number) => left * (1 - amount) + right * amount;
     return zoom < 0.33 ? mix(values[0], values[1], 3 * zoom) : mix(values[1],
         mix(values[2], values[3], 3 * (Math.max(zoom, 0.66) - 0.66)), 3 * (Math.max(0.33, Math.min(0.66, zoom)) - 0.33));
-}
-
-/** Conservative rotated-quad broad-phase; touching padded edges do not collide. */
-function intersects(left: Bounds, right: Bounds): boolean {
-    return left[0] < right[2] && left[2] > right[0] && left[1] < right[3] && left[3] > right[1];
-}
-/** Join ranges belonging to one atlas/outline annotation. */
-function unionBounds(left: Bounds | undefined, right: Bounds): Bounds {
-    return left ? [Math.min(left[0], right[0]), Math.min(left[1], right[1]),
-        Math.max(left[2], right[2]), Math.max(left[3], right[3])] : right;
-}
-/** Screen-cell membership avoids comparing every label against every previous label. */
-function* cells(box: Bounds, viewport: {width: number; height: number}): Generator<string> {
-    // Padding and offsets can greatly exceed a viewport; index only visible cells.
-    for (let x = Math.floor(Math.max(0, box[0]) / 64); x <= Math.floor(Math.min(viewport.width, box[2]) / 64); x++) {
-        for (let y = Math.floor(Math.max(0, box[1]) / 64); y <= Math.floor(Math.min(viewport.height, box[3]) / 64); y++) yield `${x},${y}`;
-    }
 }

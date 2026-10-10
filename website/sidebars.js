@@ -20,6 +20,7 @@ module.exports = {
         'get-started/getting-started',
         'developer-guide/working-with-ai',
         'developer-guide/architecture',
+        'developer-guide/map-logic',
         'developer-guide/view-integration',
         'developer-guide/projection-conventions',
         'developer-guide/projected-basemaps',
@@ -57,6 +58,18 @@ module.exports = {
             {type: 'doc', id: 'api-reference/scene', label: 'Scene API'},
             {type: 'doc', id: 'api-reference/renderer', label: 'Renderer API'},
             {type: 'doc', id: 'api-reference/host-frame', label: 'HostFrame API'},
+            {
+              type: 'category',
+              label: 'Map utilities',
+              collapsed: false,
+              link: {type: 'doc', id: 'api-reference/map-logic'},
+              items: [
+                'api-reference/map-logic/label-placement',
+                'api-reference/map-logic/label-identity',
+                'api-reference/map-logic/screen-bounds',
+                'api-reference/map-logic/tile-build-queue'
+              ]
+            },
             {type: 'doc', id: 'api-reference/styling', label: 'Styling reference'}
           ]
         },

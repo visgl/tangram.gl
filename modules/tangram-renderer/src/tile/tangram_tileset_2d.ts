@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import TileBuildQueue from './tile_build_queue';
+import TileBuildQueue from '../map-logic/tile-build-queue';
 import TileResourceCache from './tile_resource_cache';
 import type {ResourceTile} from './tile_resource_cache';
 import type {HostTileResourceOptions, TileResourceStatistics} from '../types';

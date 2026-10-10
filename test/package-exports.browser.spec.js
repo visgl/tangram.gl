@@ -26,6 +26,8 @@ import Tangram, {
 } from '../modules/tangram-renderer/dist/index.js';
 import {TangramStyleSheetSchema} from '../modules/tangram-renderer/dist/style-schema.js';
 import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-style.schema.json';
+import {resolveLabelPlacement, TileBuildQueue, intersectsScreenBounds,
+  areGeographicLabelCopies} from '../modules/tangram-renderer/dist/map-logic.js';
 import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
   calculatePlanarGroundBounds as coreGroundBounds,
   PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure,
@@ -46,6 +48,7 @@ describe('published package entrypoints', () => {
     [layerPackage, './experimental/webxr', './dist/experimental/webxr.js'],
     [rendererPackage, '.', './dist/index.js'],
     [rendererPackage, './core', './dist/core.js'],
+    [rendererPackage, './map-logic', './dist/map-logic.js'],
     [rendererPackage, './style-schema', './dist/style-schema.js'],
     [rendererPackage, './tangram-style.schema.json', './dist/tangram-style.schema.json']
   ].map(([manifest, subpath, artifactPath]) => ({packageName: manifest.name, manifest, subpath, artifactPath})))
@@ -62,6 +65,14 @@ describe('published package entrypoints', () => {
     expect(globe.project([0, 0, 100])).toEqual(point);
     expect(globe.positionUnits).toBe('globe-common-units');
     expect(getGeographicProjectionProcedure('web-mercator').unproject([0, 0, 100])).toEqual([0, 0, 100]);
+  });
+  it('exports working CPU utilities from the built optional entry', () => {
+    const candidate = {id: 'city', boxes: new Map([['map', [0, 0, 20, 20]]])};
+    expect(resolveLabelPlacement([candidate], {viewports: new Map([['map', {width: 100, height: 100}]])}).get(candidate)).toBe(true);
+    expect(new TileBuildQueue().getCounts()).toEqual({activeBuilds: 0, queuedBuilds: 0});
+    expect(intersectsScreenBounds([0, 0, 20, 20], [20, 0, 40, 20])).toBe(false);
+    expect(areGeographicLabelCopies).toBeTypeOf('function');
+    expect(Tangram).not.toHaveProperty('resolveLabelPlacement');
   });
   it('exposes a working host-only core while preserving the classic root', () => {
     const renderer = new CoreRenderer({});

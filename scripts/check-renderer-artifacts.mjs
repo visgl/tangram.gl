@@ -12,6 +12,8 @@ const requiredArtifacts = [
   'dist/types/index.d.ts',
   'dist/types/core.d.ts',
   'dist/types/types.d.ts',
+  'dist/types/map-logic/index.d.ts',
+  'dist/map-logic.js',
   'dist/index.js',
   'dist/core.js',
   'dist/core.js.map',
@@ -42,6 +44,7 @@ for (const artifactPath of requiredArtifacts) {
 const expectedExports = {
   '.': './dist/index.js',
   './core': './dist/core.js',
+  './map-logic': './dist/map-logic.js',
   './style-schema': './dist/style-schema.js',
   './tangram-style.schema.json': './dist/tangram-style.schema.json'
 };
