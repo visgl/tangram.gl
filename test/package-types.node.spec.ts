@@ -10,9 +10,10 @@ test.each([ts.ModuleKind.Node16, ts.ModuleKind.NodeNext])('public layer declarat
   const fileName = resolve('test/package-types.consumer.mts');
   const source = `
     import {TangramLayer} from '@vis.gl/tangram-layers';
-    import {hillshade} from '@vis.gl/tangram-renderer/experimental/shader-modules';
+    import {hillshade, triplanar, planar, sphereMap} from '@vis.gl/tangram-renderer/experimental/shader-modules';
     import type {ShaderModule} from '@luma.gl/shadertools';
     const shaderModule: ShaderModule = hillshade;
+    const materialModules: ShaderModule[] = [triplanar, planar, sphereMap];
     import {ProjectionBatchExecutor, Renderer} from '@vis.gl/tangram-renderer/core';
     import {ProjectedBasemapNavigation} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
     import type {RendererOptions, ProjectionEngine, ProjectionExecutionStatistics} from '@vis.gl/tangram-renderer/core';

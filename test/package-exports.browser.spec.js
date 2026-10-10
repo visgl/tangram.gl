@@ -26,7 +26,7 @@ import Tangram, {
 } from '../modules/tangram-renderer/dist/index.js';
 import {TangramStyleSheetSchema} from '../modules/tangram-renderer/dist/style-schema.js';
 import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-style.schema.json';
-import {hillshade} from '../modules/tangram-renderer/dist/shader-modules.js';
+import {hillshade, triplanar, planar, sphereMap} from '../modules/tangram-renderer/dist/shader-modules.js';
 import {resolveLabelPlacement, TileBuildQueue, intersectsScreenBounds,
   areGeographicLabelCopies, TileResidency, TileCachePolicy} from '../modules/tangram-renderer/dist/map-logic.js';
 import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
@@ -63,6 +63,11 @@ describe('published package entrypoints', () => {
     expect(hillshade.fs).toContain('hillshade_getNormal');
     expect(hillshade.source).toContain('hillshade_getIntensity');
     expect(Tangram).not.toHaveProperty('hillshade');
+    for (const shaderModule of [triplanar, planar, sphereMap]) {
+      expect(shaderModule.fs).toBeTypeOf('string');
+      expect(shaderModule.source).toBeTypeOf('string');
+      expect(Tangram).not.toHaveProperty(shaderModule.name);
+    }
   });
   it('exports neutral projection helpers from the built core entry', () => {
     const point = projectGeographicPosition([0, 0, 100], 'globe');

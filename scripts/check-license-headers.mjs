@@ -29,6 +29,9 @@ const VENDORED_PATH_PREFIXES = [
 ];
 
 const TANGRAM_RENDERER_FILES = new Set([
+  'modules/tangram-renderer/src/shader-modules/triplanar.ts',
+  'modules/tangram-renderer/src/shader-modules/planar.ts',
+  'modules/tangram-renderer/src/shader-modules/sphere-map.ts',
   'examples/classic/leaflet-layer.js',
   'modules/tangram-renderer/src/builders/common.ts',
   'modules/tangram-renderer/src/builders/points.ts',
@@ -162,6 +165,9 @@ const TANGRAM_RENDERER_FILES = new Set([
 // Tangram-derived files that have received substantive vis.gl modifications.
 // Keep the original Tangram notice and append the vis.gl modification notice.
 const VISGL_MODIFIED_TANGRAM_FILES = new Set([
+  'modules/tangram-renderer/src/shader-modules/triplanar.ts',
+  'modules/tangram-renderer/src/shader-modules/planar.ts',
+  'modules/tangram-renderer/src/shader-modules/sphere-map.ts',
   'README.md',
   'CONTRIBUTING.md',
   'modules/tangram-renderer/README.md',
