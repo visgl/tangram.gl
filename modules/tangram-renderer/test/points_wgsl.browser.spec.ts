@@ -4,8 +4,19 @@
 
 import {describe, expect, it} from 'vitest';
 import {buildPointsWGSL} from '../src/styles/points/points_wgsl';
+import {globeHorizon} from '../src/shader-modules/globe-horizon';
 
 describe('Point WGSL', function () {
+    it('includes one shared horizon module in visible and selection programs', () => {
+        for (const cpuProjection of [false, true]) {
+            for (const selection of [false, true]) {
+                const source = buildPointsWGSL(cpuProjection, selection);
+                expect(source).toContain(globeHorizon.source);
+                expect(source.match(/fn globeHorizon_isOccluded\(/g)).toHaveLength(1);
+                expect(source).toContain('globeHorizon_getAnchor(position, altitude, 256.0, 6370972.0)');
+            }
+        }
+    });
     it('occludes globe anchors per eye before applying screen offsets', function () {
         const source = buildPointsWGSL();
         const condition = 'TangramView.u_projection_mode == 1 && tangramGlobeOccluded(projected_position.xyz,';

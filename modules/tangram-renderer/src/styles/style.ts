@@ -29,6 +29,7 @@ import {normalizeProjectedBasemapOptions, projectTileMesh, validateProjectedLigh
 
 import selection_fragment_source from '../selection/selection_fragment.glsl';
 import rasters_source from './raster/raster_globals.glsl';
+import {heightDecode} from '../shader-modules/height-decode';
 
 // Base class
 
@@ -722,7 +723,9 @@ export var Style = {
             this.defines.TANGRAM_MODEL_POSITION_BASE_ZOOM_VARYING = true;
 
             // Uniforms and samplers
-            this.replaceShaderBlock('raster', rasters_source, 'Raster');
+            // Global style blocks are compiled in both stages, even when only
+            // the fragment stage samples rasters. Decoding itself is binding-free.
+            this.replaceShaderBlock('raster', `${heightDecode.vs}\n${rasters_source}`, 'Raster');
         }
     },
 

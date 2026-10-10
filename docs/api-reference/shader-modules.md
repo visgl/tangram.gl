@@ -146,6 +146,14 @@ meter step. Normalized-channel rounding and cancellation can also introduce a sm
 absolute error near sea level (up to about `0.004` meter for Terrarium in the tested
 GPU backends). Do not use this shader as a lossless archive decoder.
 
+Tangram's GLSL raster block includes these functions in both shader stages so
+custom global blocks can call them. The Mapterhorn hillshade example uses
+`heightDecode_getTerrarium(sample_color.rgb)`; texture lookup, nearest filtering,
+neighbor spacing and illumination are unchanged. The decoder preserves fractional
+blue-channel elevation by regrouping the same Terrarium formula. The example
+remains WebGL 2-only: this does not add WGSL translation of arbitrary YAML blocks,
+terrain displacement or terrain picking. The standalone module supports both languages.
+
 ## globeHorizon
 
 ```typescript
@@ -176,7 +184,10 @@ camera distances or near-boundary differences below f32 precision are unsupporte
 Call separately for each stereo eye. This is sphere occlusion only, not frustum
 culling, terrain occlusion, collision resolution or screen clipping.
 
-Current terrain styles and globe label shaders remain unchanged. Opt-in modules
-do not register automatically or replace Tangram shader blocks.
+Tangram's point and text programs (including feature selection) use this module
+through a small adapter retaining the existing radii, per-eye camera, geographic
+altitude, surface tolerance and rejection before screen-space offsets. No renderer
+or core entry re-exports the module. Tangram shader blocks remain available; no
+global luma shader-assembler registration is required.
 
 See the [shader reuse assessment](../developer-guide/shader-modules.md).

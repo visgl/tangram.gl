@@ -11,6 +11,7 @@ import {RasterTileSource} from '../src/sources/raster';
 import WorkerBroker from '../src/utils/worker_broker';
 import ShaderProgram from '../src/gl/shader_program';
 import debugSettings from '../src/utils/debug_settings';
+import {heightDecode} from '../src/shader-modules/height-decode';
 
 function createStyle(overrides = {}) {
     const style = Object.create(Style);
@@ -199,6 +200,11 @@ describe('generic style data lifecycle', () => {
             TANGRAM_RASTER_TEXTURE_COLOR: true
         });
         expect(style.shaders.blocks.raster).toHaveLength(1);
+        expect(style.shaders.blocks.raster[0]).toContain(heightDecode.vs);
+        // Repeated setup replaces the existing block; it cannot duplicate helpers.
+        style.setupRasters();
+        expect(style.shaders.blocks.raster).toHaveLength(1);
+        expect(style.shaders.blocks.raster[0].match(/float heightDecode_getTerrarium\(/g)).toHaveLength(1);
 
         style.main_thread_target = 'Style_custom_4';
         vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([

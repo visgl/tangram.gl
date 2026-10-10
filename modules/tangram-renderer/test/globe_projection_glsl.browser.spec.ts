@@ -9,8 +9,22 @@ import {GLOBE_PROJECTION_GLSL} from '../src/scene/projection_shaders';
 import {Polygons} from '../src/styles/polygons/polygons';
 import {Points} from '../src/styles/points/points';
 import {Lines} from '../src/styles/lines/lines';
+import {TextStyle} from '../src/styles/text/text';
+import {GLOBE_VISIBILITY_GLSL} from '../src/styles/globe_visibility_wgsl';
+import {globeHorizon} from '../src/shader-modules/globe-horizon';
 
 describe('Globe projection GLSL', function () {
+    it('shares horizon helpers once in point, text and inherited selection vertices', () => {
+        for (const style of [Points, TextStyle]) {
+            const source: unknown = Reflect.get(style, 'vertex_shader_src');
+            if (typeof source !== 'string') throw new Error('Missing annotation vertex shader');
+            expect(source).toContain(GLOBE_VISIBILITY_GLSL);
+            expect(source).toContain(globeHorizon.vs);
+            expect(source).not.toContain('#pragma tangram: globe_visibility');
+            expect(source.match(/bool globeHorizon_isOccluded\(/g)).toHaveLength(1);
+            expect(source.match(/bool tangramGlobeOccluded\(/g)).toHaveLength(1);
+        }
+    });
     it('assembles projection for polygon, line and point consumers before compiling', () => {
         for (const style of [Polygons, Lines, Points]) {
             expect(style.vertex_shader_src).toContain(GLOBE_PROJECTION_GLSL);
