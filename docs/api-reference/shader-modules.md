@@ -40,9 +40,10 @@ color.rgb *= shade;
 - `ambient`: clamped to `[0, 1]`. Intensity is
   `ambient + (1 - ambient) * max(dot(normal, light), 0)`, bounded by `[0, 1]`.
 
-Zero light contributes only ambient. Defensive `1e-6` denominator floors prevent
-zero-vector/spacing division, but do not replace meaningful finite units. Negative
-spacing is treated by magnitude. Nonfinite inputs are unsupported.
+Zero light contributes only ambient. Every nonzero light direction is normalized
+independently of its magnitude. A defensive `1e-6` spacing floor prevents division
+by zero, but does not replace meaningful finite units. Negative spacing is treated
+by magnitude. Nonfinite inputs are unsupported.
 
 This is local directional hillshading, not cast shadows, ambient occlusion or a
 complete material model. The host owns texture sampling, elevation decoding,

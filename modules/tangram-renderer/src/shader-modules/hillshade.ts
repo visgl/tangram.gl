@@ -14,10 +14,17 @@ vec3 hillshade_getNormal(vec4 heights, vec2 spacing) {
     return normalize(vec3(gradient, 1.));
 }
 
+// Rescaling avoids length underflow/overflow and keeps every nonzero direction scale invariant.
+vec3 hillshade_normalizeDirection(vec3 direction) {
+    float scale = max(max(abs(direction.x), abs(direction.y)), abs(direction.z));
+    if (scale == 0.) { return vec3(0.); }
+    return normalize(direction / scale);
+}
+
 // Light direction points from the surface towards the light in the same local frame.
 float hillshade_getIntensity(vec3 normal, vec3 light_direction, float ambient) {
-    vec3 unit_normal = normal / max(length(normal), 0.000001);
-    vec3 unit_light = light_direction / max(length(light_direction), 0.000001);
+    vec3 unit_normal = hillshade_normalizeDirection(normal);
+    vec3 unit_light = hillshade_normalizeDirection(light_direction);
     float diffuse = clamp(dot(unit_normal, unit_light), 0., 1.);
     float base = clamp(ambient, 0., 1.);
     return base + (1. - base) * diffuse;
@@ -33,9 +40,15 @@ fn hillshade_getNormal(heights: vec4<f32>, spacing: vec2<f32>) -> vec3<f32> {
     return normalize(vec3<f32>(gradient, 1.0));
 }
 
+fn hillshade_normalizeDirection(direction: vec3<f32>) -> vec3<f32> {
+    let scale = max(max(abs(direction.x), abs(direction.y)), abs(direction.z));
+    if (scale == 0.0) { return vec3<f32>(0.0); }
+    return normalize(direction / scale);
+}
+
 fn hillshade_getIntensity(normal: vec3<f32>, light_direction: vec3<f32>, ambient: f32) -> f32 {
-    let unit_normal = normal / max(length(normal), 0.000001);
-    let unit_light = light_direction / max(length(light_direction), 0.000001);
+    let unit_normal = hillshade_normalizeDirection(normal);
+    let unit_light = hillshade_normalizeDirection(light_direction);
     let diffuse = clamp(dot(unit_normal, unit_light), 0.0, 1.0);
     let base = clamp(ambient, 0.0, 1.0);
     return base + (1.0 - base) * diffuse;

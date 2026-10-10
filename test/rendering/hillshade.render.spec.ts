@@ -17,6 +17,9 @@ const samples = [
     {heights: [0, 0, 0, 4], spacing: [1, 2], light: [0, -1, 1], ambient: 0},
     {heights: [-2, 6, 4, -8], spacing: [2, 3], light: [3, 2, 1], ambient: 0.1},
     {heights: [0, 0, 0, 0], spacing: [1, 1], light: [0, 0, 0], ambient: 0.25},
+    {heights: [0, 0, 0, 0], spacing: [1, 1], light: [0, 0, 0.0000005], ambient: 0},
+    {heights: [0, 0, 0, 0], spacing: [1, 1], light: [0, 0, 1e20], ambient: 0},
+    {heights: [0, 2, 0, 0], spacing: [1, 1], light: [-0.0000005, 0, 0.0000005], ambient: 0.2},
     {heights: [0, 0, 0, 0], spacing: [1, 1], light: [0, 0, -1], ambient: -1},
     {heights: [0, 0, 0, 0], spacing: [1, 1], light: [0, 0, -1], ambient: 2},
     {heights: [0, 0.000002, 0, 0], spacing: [0, -1], light: [-1, 0, 1], ambient: 0}
@@ -29,7 +32,7 @@ function calculateExpected(sample: typeof samples[number]): number {
     const normal = [(sample.heights[0] - sample.heights[1]) / (2 * Math.max(Math.abs(sample.spacing[0]), 1e-6)),
         (sample.heights[2] - sample.heights[3]) / (2 * Math.max(Math.abs(sample.spacing[1]), 1e-6)), 1];
     const normalLength = Math.hypot(...normal);
-    const lightLength = Math.max(Math.hypot(...sample.light), 1e-6);
+    const lightLength = Math.hypot(...sample.light) || 1;
     const diffuse = Math.max(0, Math.min(1, normal.reduce((sum, value, index) =>
         sum + value * sample.light[index], 0) / normalLength / lightLength));
     const ambient = Math.max(0, Math.min(1, sample.ambient));
