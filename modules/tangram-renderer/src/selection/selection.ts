@@ -42,6 +42,12 @@ export default class FeatureSelection {
     declare framebuffer: Framebuffer | null | undefined;
     /** Explicit copyable attachment; the framebuffer does not own supplied textures. */
     private selectionTexture: DeviceTexture | null = null;
+    /** Legacy color attachment owned by this target, never shared through a fixed texture name. */
+    private legacySelectionTexture: {destroy(): void} | null = null;
+    /** Legacy depth attachment released with its framebuffer. */
+    private depthRenderbuffer: WebGLRenderbuffer | null = null;
+    /** Unique names also isolate eyes belonging to different scenes/contexts. */
+    private static nextAttachmentId = 0;
     /** Owned legacy GL framebuffer, installed only on the GL path. */
     declare fbo: WebGLFramebuffer | null | undefined;
     /** Deliberately uninitialized until the first request retains legacy ID allocation. */
@@ -118,13 +124,16 @@ export default class FeatureSelection {
         var fbo_texture = (Texture as unknown as {
             create(gl: WebGLRenderingContext, name: string, options: {filtering: string}): {
                 texture: WebGLTexture; setData(width: number, height: number, data: null, options: {filtering: string}): void;
+                destroy(): void;
             };
-        }).create( this.gl!, '__selection_fbo', { filtering: 'nearest' });
+        }).create( this.gl!, `__selection_fbo_${FeatureSelection.nextAttachmentId++}`, { filtering: 'nearest' });
+        this.legacySelectionTexture = fbo_texture;
         fbo_texture.setData(this.fbo_size.width, this.fbo_size.height, null, { filtering: 'nearest' });
         this.gl!.framebufferTexture2D(this.gl!.FRAMEBUFFER, this.gl!.COLOR_ATTACHMENT0, this.gl!.TEXTURE_2D, fbo_texture.texture, 0);
 
         // Renderbuffer for the FBO depth attachment
         var fbo_depth_rb = this.gl!.createRenderbuffer();
+        this.depthRenderbuffer = fbo_depth_rb;
         this.gl!.bindRenderbuffer(this.gl!.RENDERBUFFER, fbo_depth_rb);
         this.gl!.renderbufferStorage(this.gl!.RENDERBUFFER, this.gl!.DEPTH_COMPONENT16, this.fbo_size.width, this.fbo_size.height);
         this.gl!.framebufferRenderbuffer(this.gl!.FRAMEBUFFER, this.gl!.DEPTH_ATTACHMENT, this.gl!.RENDERBUFFER, fbo_depth_rb);
@@ -154,7 +163,10 @@ export default class FeatureSelection {
             this.gl!.bindFramebuffer(this.gl!.FRAMEBUFFER, null);
         }
 
-        // TODO: free texture?
+        this.legacySelectionTexture?.destroy();
+        this.legacySelectionTexture = null;
+        if (this.gl && this.depthRenderbuffer) this.gl.deleteRenderbuffer(this.depthRenderbuffer);
+        this.depthRenderbuffer = null;
     }
 
     // external lock function determines when it's safe to read/write from selection buffer

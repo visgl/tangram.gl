@@ -7,6 +7,7 @@ import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import Renderer from '../src/scene/renderer';
 import Scene from '../src/scene/scene';
+import FeatureSelection from '../src/selection/selection';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -99,4 +100,58 @@ test('selection targets, pending compilation locks and request lifetimes are iso
     scene.destroyFeatureSelection();
     expect((await left)?.error).toBeInstanceOf(Error);
     expect(createTexture).toHaveBeenCalledTimes(2);
+});
+
+test('initial load and reload restore the retained eye before rendering queued queries', async () => {
+    const scene = Scene.create({});
+    vi.spyOn(Scene, 'create').mockReturnValue(scene);
+    const renderer = new Renderer({});
+    Object.assign(scene, {initialized: true, selection_feature_count: 1,
+        device: {createTexture: () => ({destroy: vi.fn()}), createFramebuffer: () => ({destroy: vi.fn()})}});
+    renderer.setFrame(frame());
+    vi.spyOn(scene, 'load').mockImplementation(async () => scene.resetFeatureSelection());
+    vi.spyOn(scene, 'processTasks').mockImplementation(() => {});
+    vi.spyOn(scene, 'updateScene').mockImplementation(() => {
+        expect(scene.selection_view_id).toBe('left');
+        const selection = scene.getFeatureSelectionView('left').selection;
+        expect(scene.selection).toBe(selection);
+        for (const request of Object.values(selection.requests)) selection.finishRead({id: request.id, feature: {id: 'hit'}});
+        return true;
+    });
+    for (let count = 0; count < 2; count++) {
+        await renderer.load();
+        expect(scene.selection_view_id).toBeNull();
+        const pending = renderer.getFeatureAt({x: 20, y: 20});
+        renderer.render(); // No new frame or view ID supplied after load.
+        expect(await pending).toMatchObject({feature: {id: 'hit'}, renderViewId: 'left'});
+    }
+    scene.initialized = false;
+    renderer.destroy();
+});
+
+test('legacy WebGL selection eyes retain independent complete attachments and release only their own resources', () => {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl');
+    if (!gl) throw new Error('Chromium must provide a WebGL context for legacy selection conformance');
+    const left = new FeatureSelection(gl, []);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, left.fbo!);
+    const leftTexture = gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
+    const leftDepth = gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
+    const right = new FeatureSelection(gl, []);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, right.fbo!);
+    const rightTexture = gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_NAME);
+    expect(rightTexture).not.toBe(leftTexture);
+    expect(gl.checkFramebufferStatus(gl.FRAMEBUFFER)).toBe(gl.FRAMEBUFFER_COMPLETE);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, left.fbo!);
+    expect(gl.checkFramebufferStatus(gl.FRAMEBUFFER)).toBe(gl.FRAMEBUFFER_COMPLETE);
+    left.destroy();
+    left.destroy();
+    expect(gl.isTexture(leftTexture)).toBe(false);
+    expect(gl.isRenderbuffer(leftDepth)).toBe(false);
+    expect(gl.isTexture(rightTexture)).toBe(true);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, right.fbo!);
+    expect(gl.checkFramebufferStatus(gl.FRAMEBUFFER)).toBe(gl.FRAMEBUFFER_COMPLETE);
+    right.destroy();
+    expect(gl.isTexture(rightTexture)).toBe(false);
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
 });

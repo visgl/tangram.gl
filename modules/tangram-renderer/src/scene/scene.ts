@@ -47,6 +47,12 @@ import {normalizeProjectionExecutionOptions} from '../procedures/projection-batc
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
+    /** Whether scene resources and workers are ready for queries/draws. */
+    declare initialized: boolean;
+    /** Active selection owner; loading clears this while a Renderer may retain its frame. */
+    declare selection_view_id: string | null;
+    /** Scene-local style activation and blend-order ownership. */
+    declare style_manager: StyleManager;
     /** Active eye's independently owned selection target. */
     declare selection: FeatureSelection | null;
     /** Retained readback contexts; source feature maps remain shared in workers. */

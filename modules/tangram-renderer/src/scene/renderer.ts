@@ -243,6 +243,11 @@ export default class Renderer {
             }
             this.setFrame(this.host_frame, { renderViewId });
         }
+        if (this.host_frame && this.active_render_view_id) {
+            // Loading/reloading clears scene selection ownership, not the retained host frame.
+            this.scene.setFeatureSelectionView?.(this.active_render_view_id,
+                this.host_frame.renderViews.map(view => view.id));
+        }
         if (force) {
             this.scene.dirty = true;
         }

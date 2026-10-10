@@ -34,22 +34,26 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
     const candidates = new Map<string, Candidate>();
     for (const tile of tiles) {
         const meshes = {...tile.meshes, ...tile.pending_label_meshes};
-        for (const parts of Object.values(meshes)) for (const mesh of parts) {
-            if (!mesh.valid || !mesh.labels || mesh.vertex_layout.offset.a_projected_position === undefined) continue;
-            for (const label of Object.values(mesh.labels)) {
-                const id = String(label.container.label.id);
-                let candidate = candidates.get(id);
-                if (!candidate) {
-                    const position = label.container.label.position;
-                    const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * Math.PI * 6378137);
-                    candidate = {id, label, tile, parts: [], boxes: new Map(), anchor: [
-                        tile.min.x + position[0] / unitsPerMeter, tile.min.y + position[1] / unitsPerMeter]};
-                    candidates.set(id, candidate);
-                }
-                candidate.parts.push({mesh, label});
-                for (const {eye, matrix} of cameras) {
-                    const box = getScreenBounds(mesh, label, matrix, eye.viewport.width, eye.viewport.height, clockwiseRotation);
-                    if (box) candidate.boxes.set(eye.id, unionBounds(candidate.boxes.get(eye.id), box));
+        for (const [style, parts] of Object.entries(meshes)) {
+            // A resident proxy may no longer draw this style once its child labels are ready.
+            if (tile.isProxy() && tile.shouldProxyForStyle?.(style) === false) continue;
+            for (const mesh of parts) {
+                if (!mesh.valid || !mesh.labels || mesh.vertex_layout.offset.a_projected_position === undefined) continue;
+                for (const label of Object.values(mesh.labels)) {
+                    const id = String(label.container.label.id);
+                    let candidate = candidates.get(id);
+                    if (!candidate) {
+                        const position = label.container.label.position;
+                        const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * Math.PI * 6378137);
+                        candidate = {id, label, tile, parts: [], boxes: new Map(), anchor: [
+                            tile.min.x + position[0] / unitsPerMeter, tile.min.y + position[1] / unitsPerMeter]};
+                        candidates.set(id, candidate);
+                    }
+                    candidate.parts.push({mesh, label});
+                    for (const {eye, matrix} of cameras) {
+                        const box = getScreenBounds(mesh, label, matrix, eye.viewport.width, eye.viewport.height, clockwiseRotation);
+                        if (box) candidate.boxes.set(eye.id, unionBounds(candidate.boxes.get(eye.id), box));
+                    }
                 }
             }
         }

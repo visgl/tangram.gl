@@ -206,10 +206,18 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         return this.tileset.getStatistics(key => this.isTilePreloaded(key));
     }
 
-    /** Layout annotations before drawing and activate newly swapped styles without restarting tile work. */
+    /** Layout annotations before drawing and refresh proxy/style ownership after label swaps. */
     updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void {
         const tiles = this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for);
+        const pending = tiles.some(tile => tile.pending_label_meshes !== null);
         if (layoutProjectedAnnotations(tiles, frame, {clockwiseRotation})) {
+            if (pending) {
+                // Swapped child styles can retire proxies. Relayout before this same frame draws,
+                // otherwise an invisible older proxy keeps suppressing the child's annotations.
+                this.updateTileStates();
+                layoutProjectedAnnotations(this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for),
+                    frame, {clockwiseRotation});
+            }
             this.style_manager.updateActiveStyles(this.renderable_tiles);
             this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
             this.scene.requestRedraw();
