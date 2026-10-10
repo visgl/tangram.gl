@@ -12,18 +12,20 @@ modules. Use both luma shader assemblers and compare actual WebGL 2 / WebGPU pix
 against an independent CPU reference before proposing an upstream module.
 
 The [experimental shader modules](../api-reference/shader-modules.md) include
-hillshade and a batch of material coordinate helpers: triplanar, planar and
-sphere-map mapping. Hillshade consumes decoded elevations and metric spacing;
+hillshade, RGB height decoding, globe horizon occlusion and material coordinate
+helpers: triplanar, planar and sphere-map mapping. Hillshade consumes decoded elevations and metric spacing;
 material helpers leave textures and normal-map interpretation with the host.
 GPU conformance compares mapping outputs against independent CPU results and
-the original material GLSL with only its sampling boundary replaced.
+the original material GLSL with only its sampling boundary replaced. Height tests
+cover channel carries and f32 limits before pixel quantization; horizon tests compare
+both original Tangram languages against independent CPU segment calculations.
 
 | Candidate | Existing implementation | Reuse boundary |
 | --- | --- | --- |
-| RGB height decoding | Terrain example blocks | Encoding coefficients independent of sampling; preserve channel-carry precision. |
+| RGB height decoding adoption | Provider-specific terrain blocks | Optional Terrarium, Terrain-RGB and affine decoding are available; keep sampling/no-data/datum decisions host-owned. |
 | Material mapping adoption | `lights/material.glsl` | Optional modules are available; retain legacy materials until sampling, derivatives and normal-map semantics are validated in full scenes. |
 | Globe position and normals | `scene/projection_shaders.ts` | Geographic projection and ENU rotation with explicit radii, units and handedness. |
-| Globe horizon occlusion | `styles/globe_visibility_wgsl.ts` | Sphere/eye segment test; add GLSL and CPU parity with explicit radius and altitude. |
+| Globe horizon adoption | `styles/globe_visibility_wgsl.ts`, point GLSL | Optional explicit-radius segment/anchor helpers are available; retain legacy labels until full scene/selection integration is validated. |
 | Native light falloff | `lights/native-falloff.ts` | Compare luma's existing lighting first; preserve Tangram's equal-cone limit and separate legacy falloff. |
 | TRON traffic patterns | Scene-specific shader blocks | Later styling module with explicit time, UV, speed and seed contracts. |
 

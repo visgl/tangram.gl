@@ -118,4 +118,65 @@ All mapping inputs and intermediate results must be finite and remain within f32
 normalization and UV precision limits. Floating-point world coordinates should be
 rebased before mapping when large magnitudes would lose fractional detail.
 
+## heightDecode
+
+```typescript
+import {heightDecode} from '@vis.gl/tangram-renderer/experimental/shader-modules';
+```
+
+GLSL and WGSL expose `heightDecode_getTerrarium(rgb)`,
+`heightDecode_getTerrainRGB(rgb)` and `heightDecode_getHeight(rgb, coefficients, offset)`.
+Pass **linear normalized RGB** (`[0, 1]`), not byte-valued channels or an sRGB-decoded
+texture sample. The built-in encodings return meters:
+
+- Terrarium: `R * 256 + G + B / 256 - 32768` for byte channels.
+- Terrain-RGB: `(R * 65536 + G * 256 + B) * 0.1 - 10000` for byte channels.
+- Custom decoding: `dot(rgb * 255, coefficients) + offset` in host-defined units.
+
+No rounding or clamping is applied, so already-interpolated samples may be decoded.
+The host owns the texture's linear format, filtering, no-data/alpha handling,
+vertical datum, height exaggeration and neighborhood sampling. Keep these choices
+consistent when passing heights to `hillshade_getNormal`. This is decoding only,
+not a terrain provider or displacement implementation. A provider using Terrarium,
+such as Mapterhorn, still needs its own source configuration and attribution.
+
+Finite inputs are required. f32 precision is limited: Terrarium's least blue-channel
+step is `1/256` meter, while high Terrain-RGB elevations cannot retain every `0.1`
+meter step. Normalized-channel rounding and cancellation can also introduce a small
+absolute error near sea level (up to about `0.004` meter for Terrarium in the tested
+GPU backends). Do not use this shader as a lossless archive decoder.
+
+## globeHorizon
+
+```typescript
+import {globeHorizon} from '@vis.gl/tangram-renderer/experimental/shader-modules';
+```
+
+```glsl
+vec3 anchor = globeHorizon_getAnchor(direction, altitude, radius, earthRadius);
+bool hidden = globeHorizon_isOccluded(anchor, eye, radius);
+```
+
+The occlusion helper tests the **finite segment** from the eye to a position against
+a sphere centered at the origin. Position, eye and positive radius use the same
+linear units and orthonormal frame; subtract any globe center first. It is independent
+of geographic axes, projection, deck.gl, WebXR and render-pass state.
+
+`getAnchor` restores a nonzero radial direction to
+`radius * (1 + altitude / earthRadius)`, avoiding trigonometric shortening of surface
+anchors. Altitude and positive earthRadius use the same units (usually meters);
+altitude must exceed `-earthRadius`. Tangram uses common-space radius `256` and
+geographic radius `6370972` meters. Direct positions retain their supplied radius,
+including elevated or buried anchors; they are not implicitly normalized.
+
+Missing/zero, surface or interior eyes return false because they cannot define an
+exterior horizon. Tangent/surface segments are visible within Tangram's `1e-6`
+squared-unit-radius tolerance. Finite f32-representable inputs are required; extreme
+camera distances or near-boundary differences below f32 precision are unsupported.
+Call separately for each stereo eye. This is sphere occlusion only, not frustum
+culling, terrain occlusion, collision resolution or screen clipping.
+
+Current terrain styles and globe label shaders remain unchanged. Opt-in modules
+do not register automatically or replace Tangram shader blocks.
+
 See the [shader reuse assessment](../developer-guide/shader-modules.md).

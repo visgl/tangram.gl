@@ -31,6 +31,8 @@ test('optional shader entry bundles without renderer or third-party runtime code
         bundle: true, write: false, metafile: true, format: 'esm', minify: true});
     if (!result.metafile) { throw new Error('Expected an esbuild dependency graph'); }
     expect(Object.keys(result.metafile.inputs).sort()).toEqual([
+        'modules/tangram-renderer/src/shader-modules/globe-horizon.ts',
+        'modules/tangram-renderer/src/shader-modules/height-decode.ts',
         'modules/tangram-renderer/src/shader-modules/hillshade.ts',
         'modules/tangram-renderer/src/shader-modules/index.ts',
         'modules/tangram-renderer/src/shader-modules/planar.ts',
