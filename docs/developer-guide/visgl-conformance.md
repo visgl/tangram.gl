@@ -27,6 +27,7 @@ This structure lets us measure compatibility before changing runtime behavior:
 | Archive loading | Optional worker provider | `@loaders.gl/pmtiles` alpha.11 | Hermetic 16 KB PMTiles v3 fixture checks range requests, raw bytes, metadata, credits and both MVT decoders |
 | Web Mercator | `@math.gl/web-mercator` plus Tangram meter adapter | Tangram projection formulas | Edge-domain round trips and tile selection match within numeric tolerance |
 | Matrix operations | `@math.gl/core` `Matrix3`/`Matrix4` in camera and tile paths | Golden outputs captured from `gl-mat3@1.0.0` and `gl-mat4@1.1.4` | Identity, transforms, projection, look-at, inversion, and singular-matrix behavior match in conformance tests |
+| WebXR surface rays | `@math.gl/culling` analytic plane/sphere shapes | Captured Tangram ground/sphere formulas | +Z/+Y axis adapter, forward/inside/tangent/miss cases, ground tolerance and physical tabletop edges match; existing per-eye picking/grabbing tests cover placement and clipping |
 
 The published YAML parser now supports anchors, aliases, block merge keys and
 unquoted `rgba(...)`. The complete classic corpus is compared directly, without
@@ -91,7 +92,7 @@ an implementation. Keep Tangram styling and packed vertex formats in renderer ad
 | 2 | loaders.gl/mvt | Return source-layer provenance separately from authored properties, so an internal grouping field cannot overwrite a user's property. Preserve the lightweight GeoJSON parser subpath and Tangram's normalization/`parse_json` adapter. |
 | 3 | math.gl/polygon | Extend triangle subdivision with asynchronous/batched transforms and pluggable attribute interpolation. Tangram currently batches edge/interior probes through a worker RPC; a synchronous per-position callback cannot replace that contract. Preserve indexed seams, height-aware wall topology, budgets and determinism. |
 | 4 | loaders.gl/tiles | Evaluate shared Tileset2D with Tangram's existing traversal adapter. Request/cache primitives already exist upstream; compare generation cancellation, worker-build completion, parent fallback pinning and CPU/GPU resource release before replacing Tangram's build queue/cache. Upstream only the missing lifecycle hooks. |
-| 5 | math.gl/culling | Evaluate the existing analytic sphere/plane shapes for WebXR picking instead of copying Tangram's intersection helpers. Adapt +Y plane versus Tangram's +Z plane, normalized/non-normalized rays, near-parallel tolerances, inside-sphere hits and bounded-tabletop behavior. Add a lightweight entry only if bundle probes justify it. |
+| 5 | math.gl/culling | WebXR surface rays now use existing analytic sphere/plane shapes with conformance coverage. No duplicate upstream intersection API is needed. A dedicated analytic-shape leaf could reduce optional-entry cost; measure it before proposing another public subpath. |
 
 PMTiles metadata/attribution propagation is another focused loaders.gl compatibility
 candidate; first verify whether the latest upstream source already fixes the published
@@ -102,6 +103,14 @@ Checked integer quantization could become a geometry utility if a second consume
 needs it. Tangram's 1/16-meter signed-short height slot is not itself a shared geospatial
 contract, so the small packing helper remains local. Collision priorities, linked
 point/text placement and atlas byte ranges also remain Tangram responsibilities.
+
+The WebXR surface migration uses the already pinned math.gl alpha.15. Its minified
+consumer probe (deck/luma, math.gl/core, Tangram renderer and mjolnir external;
+culling included) grows from 28.2 / 8.7 KB raw/gzip to 38.6 / 11.6 KB: about
++10.3 KB raw / +2.9 KB gzip. The normal layer artifact is byte-identical; the
+renderer code and dependency graph are unchanged (builds embed their commit SHA).
+The published WebXR ESM artifact keeps a resolvable culling import; both browser
+example import maps explicitly map it to the same math.gl release and core runtime.
 
 ## Historical matrix-migration baseline
 
