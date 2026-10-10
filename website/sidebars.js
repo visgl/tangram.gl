@@ -67,7 +67,9 @@ module.exports = {
                 'api-reference/map-logic/label-placement',
                 'api-reference/map-logic/label-identity',
                 'api-reference/map-logic/screen-bounds',
-                'api-reference/map-logic/tile-build-queue'
+                'api-reference/map-logic/tile-build-queue',
+                'api-reference/map-logic/tile-residency',
+                'api-reference/map-logic/tile-cache-policy'
               ]
             },
             {type: 'doc', id: 'api-reference/styling', label: 'Styling reference'}

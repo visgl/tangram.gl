@@ -24,6 +24,10 @@ package.
   clipped spatial-index cells.
 - [Tile build queue](./map-logic/tile-build-queue.md): stable-priority scheduling
   without owning workers or rendering resources.
+- [Tile residency](./map-logic/tile-residency.md): selected/visible key protection
+  shared across independent consumers.
+- [Tile cache policy](./map-logic/tile-cache-policy.md): stable LRU eviction and
+  resource accounting from neutral metadata snapshots.
 
 See the [reuse assessment](../developer-guide/map-logic.md) for extraction limits
 and other candidates.

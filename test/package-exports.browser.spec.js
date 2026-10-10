@@ -27,7 +27,7 @@ import Tangram, {
 import {TangramStyleSheetSchema} from '../modules/tangram-renderer/dist/style-schema.js';
 import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-style.schema.json';
 import {resolveLabelPlacement, TileBuildQueue, intersectsScreenBounds,
-  areGeographicLabelCopies} from '../modules/tangram-renderer/dist/map-logic.js';
+  areGeographicLabelCopies, TileResidency, TileCachePolicy} from '../modules/tangram-renderer/dist/map-logic.js';
 import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
   calculatePlanarGroundBounds as coreGroundBounds,
   PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure,
@@ -72,6 +72,14 @@ describe('published package entrypoints', () => {
     expect(new TileBuildQueue().getCounts()).toEqual({activeBuilds: 0, queuedBuilds: 0});
     expect(intersectsScreenBounds([0, 0, 20, 20], [20, 0, 40, 20])).toBe(false);
     expect(areGeographicLabelCopies).toBeTypeOf('function');
+    const residency = new TileResidency();
+    residency.updateConsumer('left', ['tile'], []);
+    expect(new TileCachePolicy().selectEvictions([{key: 'tile', bytes: 10,
+      protected: residency.isProtected('tile')}], {maxCachedTiles: 0})).toEqual([]);
+    residency.detachConsumer('left');
+    expect(new TileCachePolicy().selectEvictions([{key: 'tile', bytes: 10,
+      protected: residency.isProtected('tile')}], {maxCachedTiles: 0})).toEqual(['tile']);
+    expect(Tangram).not.toHaveProperty('TileCachePolicy');
     expect(Tangram).not.toHaveProperty('resolveLabelPlacement');
   });
   it('exposes a working host-only core while preserving the classic root', () => {

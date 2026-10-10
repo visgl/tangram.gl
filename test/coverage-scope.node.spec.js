@@ -46,7 +46,9 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(172);
+    expect(sourceFiles).toHaveLength(174);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/tile-residency.ts'))).toBe(true);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/tile-cache-policy.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/label-placement.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/label-identity.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/screen-bounds.ts'))).toBe(true);

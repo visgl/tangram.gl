@@ -25,6 +25,13 @@ Geographic copy matching takes explicit world width and wrapping policy; it does
 not import `HostFrame`, infer a projection or assume an Earth radius. Existing
 Globe/Mercator/CPU-projected decisions and classic worker layout are unchanged.
 
+Tile residency now tracks copied selected/visible key sets across consumers.
+The cache policy takes neutral `{key, bytes, protected}` records and returns
+eviction keys and detached statistics. Tangram's adapter still decides protection
+from loading, incomplete builds, proxies, pinned preload and queued work, counts
+mesh allocations, refreshes protected recency and disposes resources. Existing
+host option/statistic field names and unlimited defaults are unchanged.
+
 ## Reuse assessment
 
 | Area | Reuse potential | Boundary still needed |
@@ -32,7 +39,7 @@ Globe/Mercator/CPU-projected decisions and classic worker layout are unchanged.
 | Screen-space label placement, bounds and repeat filtering | Extracted, CPU-only | Host provides projected rectangles and priority order |
 | Cross-tile label identity | Extracted, CPU-only | Host provides world units, wrapping and source identity |
 | Tile build scheduling | Extracted, pure callback-based queue | Keep source/worker cancellation in the host |
-| Tile residency/cache policy | Useful independent policy | Replace scene option types and mesh accounting with neutral resource records |
+| Tile residency/cache policy | Extracted, metadata-only | Host computes protection/bytes, refreshes recency and disposes content |
 | Geographic projection and ground footprints | Strong conformance boundary | Separate renderer discriminators; prefer math.gl where equivalent |
 | Point anchors and line-label placement | Useful algorithms | Remove style parsing, font/shader conventions and mutable singleton state first |
 | Worker collision batching | Not yet a reusable public API | Instance-local batches instead of global collision/repeat registries |
