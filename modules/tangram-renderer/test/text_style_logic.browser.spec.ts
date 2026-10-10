@@ -8,6 +8,8 @@ import {TextStyle} from '../src/styles/text/text';
 import Collision from '../src/labels/collision';
 import LabelLine from '../src/labels/label_line';
 import LabelPoint from '../src/labels/label_point';
+import StyleParser from '../src/styles/style_parser';
+import {compileFunctionString} from '../src/utils/functions';
 
 function createTextStyle(): any {
     const style = Object.create(TextStyle);
@@ -93,8 +95,22 @@ describe('standalone text style', () => {
                 layout: expect.objectContaining({projected_height: Math.trunc(height * 16) / 16})
             }), tile);
         }
-        for (const height of [Infinity, 2048, -2048.1]) {
-            expect(() => style.addFeature(feature, style._preprocess({z: height}), {tile})).toThrow('height');
+        const invalidCompiledHeight = compileFunctionString('function() { return Number(feature.height); }',
+            StyleParser.wrapFunction);
+        // Legacy scene expressions still normalize NaN for other style properties.
+        expect(typeof invalidCompiledHeight === 'function' && invalidCompiledHeight({feature})).toBeNull();
+        for (const height of [NaN, Infinity, 2048, -2048.1, 'invalid', [[6, NaN]],
+            () => NaN, invalidCompiledHeight]) {
+            expect(() => style.addFeature(feature, style._preprocess({z: height}), {tile, feature})).toThrow('height');
+        }
+        for (const [height, expectedHeight] of [[undefined, 0], [null, 0], [() => null, 0],
+            ['12m', 12], [() => 12, 12],
+            [compileFunctionString('function() { return global.height; }', StyleParser.wrapFunction), 12],
+            [[[5, '10m'], [7, '14m']], 12]]) {
+            style.addFeature(feature, style._preprocess({z: height}), {tile, feature, zoom: 6, global: {height: 12}});
+            expect(style.queueFeature).toHaveBeenLastCalledWith(expect.objectContaining({
+                layout: expect.objectContaining({projected_height: expectedHeight})
+            }), tile);
         }
         style.cpu_projection.allowElevation = false;
         expect(() => style.addFeature(feature, style._preprocess({z: 1}), {tile})).toThrow('ground anchors');

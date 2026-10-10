@@ -212,7 +212,8 @@ Object.assign(Points, {
         style.angle = StyleParser.evalProperty(draw.angle, context) || 0;
 
         // points can be placed off the ground
-        const height = StyleParser.evalCachedDistanceProperty(draw.z, context);
+        const height = this.cpu_projection ? StyleParser.evalProjectedHeightProperty(draw.z, context) :
+            StyleParser.evalCachedDistanceProperty(draw.z, context);
         style.z = this.cpu_projection ? packProjectedAnnotationHeight(height, this.cpu_projection.allowElevation) :
             (height || StyleParser.defaults.z);
         if (this.cpu_projection) style.projected_height = style.z / PACKED_HEIGHT_SCALE;
@@ -426,7 +427,8 @@ Object.assign(Points, {
             draw.outline.width = StyleParser.createPropertyCache(draw.outline.width, StyleParser.parsePositiveNumber);
         }
 
-        draw.z = StyleParser.createPropertyCache(draw.z, StyleParser.parseUnits);
+        draw.z = this.cpu_projection ? StyleParser.createProjectedHeightPropertyCache(draw.z) :
+            StyleParser.createPropertyCache(draw.z, StyleParser.parseUnits);
 
         // Size (1d value or 2d array)
         try {

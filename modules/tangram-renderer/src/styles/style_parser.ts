@@ -33,7 +33,7 @@ Object.assign(StyleParser, {clampPositive, noNaN, parseNumber, parsePositiveNumb
 // - $zoom: the current map zoom level
 // - $geometry: the type of geometry, 'point', 'line', or 'polygon'
 // - $meters_per_pixel: conversion for meters/pixels at current map zoom
-StyleParser.wrapFunction = function (func) {
+StyleParser.wrapFunction = function (func, preserveNaN = false) {
     var f = `
         var feature = context.feature.properties;
         var global = context.global;
@@ -46,9 +46,9 @@ StyleParser.wrapFunction = function (func) {
 
         var val = (function(){ ${func} }());
 
-        if (typeof val === 'number' && isNaN(val)) {
+        ${preserveNaN ? '' : `if (typeof val === 'number' && isNaN(val)) {
             val = null; // convert NaNs to nulls
-        }
+        }`}
 
         return val;
     `;
@@ -373,6 +373,29 @@ StyleParser.parseUnits = function (value) {
         obj.units = 'px';
     }
     return obj;
+};
+
+/** Keep invalid projected heights visible to validation, including wrapped scene functions. */
+StyleParser.createProjectedHeightPropertyCache = function (value) {
+    if (typeof value === 'function' && 'source' in value && typeof value.source === 'string') {
+        // Recompile from the authored body, not the legacy NaN-to-null wrapper.
+        // Leave the shared compiled function untouched for other style properties.
+        value = compileFunctionString(`function(context) {${value.source}}`,
+            source => StyleParser.wrapFunction(source, true));
+    }
+    return StyleParser.createPropertyCache(value, height => {
+        const parsedHeight = typeof height === 'string' ? parseFloat(height) : height;
+        if (typeof parsedHeight !== 'number' || !Number.isFinite(parsedHeight)) {
+            throw new Error('Projected annotation height must be a finite number');
+        }
+        return StyleParser.parseUnits(height);
+    });
+};
+
+/** Dynamic projected heights must reach packing validation without legacy error fallback. */
+StyleParser.evalProjectedHeightProperty = function (value, context) {
+    return typeof value?.value === 'function' ? value.value(context) :
+        StyleParser.evalCachedDistanceProperty(value, context);
 };
 
 // Takes a distance cache object and returns a distance value for this zoom

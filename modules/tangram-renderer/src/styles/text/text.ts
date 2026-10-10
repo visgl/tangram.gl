@@ -150,7 +150,7 @@ Object.assign(TextStyle, {
             return;
         }
         if (this.cpu_projection) {
-            const height = packProjectedAnnotationHeight(StyleParser.evalCachedDistanceProperty(draw.z, context),
+            const height = packProjectedAnnotationHeight(StyleParser.evalProjectedHeightProperty(draw.z, context),
                 this.cpu_projection.allowElevation) / PACKED_HEIGHT_SCALE;
             for (const candidate of Array.isArray(q) ? q : [q]) candidate.layout.projected_height = height;
         }
@@ -247,7 +247,7 @@ Object.assign(TextStyle, {
     // Sets up caching for draw properties
     _preprocess (this: TextStyleRuntime, draw: TextLabelDraw) {
         draw.blend_order = this.getBlendOrderForDraw(draw); // from draw block, or fall back on default style blend order
-        if (this.cpu_projection) draw.z = StyleParser.createPropertyCache(draw.z, StyleParser.parseUnits);
+        if (this.cpu_projection) draw.z = StyleParser.createProjectedHeightPropertyCache(draw.z);
         return this.preprocessText(draw);
     },
 

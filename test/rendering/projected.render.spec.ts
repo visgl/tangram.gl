@@ -309,7 +309,9 @@ test(`${DEVICE_TYPE}: elevated markers and attached/standalone text retain indiv
   await harness.initialize(scene);
   const navigation = new ProjectedBasemapNavigation(createProjectedExampleProjectionEngine());
   const target = await navigation.projectPosition([-100, 40], 'equal-earth');
-  const frame = new HostFrame({viewport: {width: 512, height: 320}, tileZoom: 2,
+  // Keep tile-coordinate quantization much smaller than the narrow eye viewport;
+  // coarse z2 anchors can shift atlas text out of its scissor rect at this scale.
+  const frame = new HostFrame({viewport: {width: 512, height: 320}, tileZoom: 6,
     projection: {type: 'projected', visibleBounds: [-101, 39, -99, 41]},
     geographicAnchor: {longitude: -100, latitude: 40, zoom: 6}, renderViews: [-0.01, 0.01].map((offset, index) => ({
       id: index ? 'right' : 'left', viewport: {x: index * 256, y: 0, width: 256, height: 320},

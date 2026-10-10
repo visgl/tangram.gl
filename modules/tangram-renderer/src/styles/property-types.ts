@@ -92,7 +92,8 @@ export interface StyleParserRuntime {
     parsePositiveNumber(value: unknown[]): number[];
     parsePositiveNumber(value: string | number | boolean | null | undefined): number;
     parsePositiveNumber(value: unknown): number | number[];
-    wrapFunction(source: string | (() => number[])): string;
+    /** Preserve NaN only for properties that validate their own numeric contract. */
+    wrapFunction(source: string | (() => number[]), preserveNaN?: boolean): string;
     zeroPair: readonly [number, number];
     defaults: {
         color: number[]; width: number; size: number; extrude: boolean;
@@ -109,6 +110,10 @@ export interface StyleParserRuntime {
     evalCachedProperty(value: PropertyCache | null | undefined, context: PropertyContext): unknown;
     convertUnits(value: unknown, context: PropertyContext): unknown;
     parseUnits(value: unknown): UnitValue;
+    /** Cache projected annotation heights without legacy NaN-to-zero coercion. */
+    createProjectedHeightPropertyCache(value: unknown): PropertyCache | undefined;
+    /** Evaluate projected heights without swallowing dynamic expression errors. */
+    evalProjectedHeightProperty(value: PropertyCache | undefined, context: PropertyContext): unknown;
     evalCachedDistanceProperty(value: PropertyCache | null | undefined, context: PropertyContext): unknown;
     string_colors: Record<string, number[]>;
     colorForString(value: string): number[];
