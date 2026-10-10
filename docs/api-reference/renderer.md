@@ -467,6 +467,10 @@ view in `HostFrame.renderViews`, unless an explicit view is supplied. Out-of-bou
 queries return no hit; unknown view IDs reject. Results report `renderViewId` and
 retain the caller's original `pixel`. Routing does not change the active camera.
 
+Immersive WebXR uses top-origin framebuffer pixels matching the presentation's
+`HostFrame` dimensions. The WebXR adapter converts native bottom-origin rectangles
+for query routing while preserving the native rectangles used for GPU rendering.
+
 Each queried eye owns a lazy fixed 256×256 selection target/queue, released when
 the eye leaves the frame or the scene is destroyed/reloaded. The host must draw
 the requested eye while its query is pending. This is not deck.gl's synchronous

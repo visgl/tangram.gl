@@ -111,6 +111,11 @@ test('required point/text pairs are atomic; optional text may hide without suppr
     layoutProjectedAnnotations([blocker, point, text], frame());
     expect(mask(point)).toEqual([1, 1, 1, 1]);
     expect(mask(text)).toEqual([0, 0, 0, 0]);
+    const optionalPoint = tile(4);
+    const overlappingText = tile(5, 0, {linked: 4});
+    layoutProjectedAnnotations([optionalPoint, overlappingText], frame());
+    expect(mask(optionalPoint)).toEqual([1, 1, 1, 1]);
+    expect(mask(overlappingText)).toEqual([1, 1, 1, 1]);
 });
 
 test('pending atlases, multiple ranges and invalid/empty meshes are handled without changing topology', () => {

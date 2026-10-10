@@ -86,6 +86,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
                     const nearby = new Set<Candidate>();
                     for (const cell of cells(box, frame.getRenderView(eye).viewport)) for (const previous of grid.get(cell) ?? []) nearby.add(previous);
                     return [...nearby].every(previous => {
+                        if (previous === linked) return true; // Optional text may overlap its own marker.
                         const other = previous.boxes.get(eye)!;
                         return !intersects(box, other);
                     });
