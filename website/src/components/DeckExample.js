@@ -53,7 +53,7 @@ export default function DeckExample({
       imports: {
         '@deck.gl/core': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@deck.gl/layers': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
-        '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.0?bundle',
+        '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.2?bundle',
         '@math.gl/core': 'https://esm.sh/@math.gl/core@5.0.0-alpha.15?bundle',
         '@vis.gl/tangram-layers': `${tangramLayersUrl}?embedded=1`,
         '@vis.gl/tangram-renderer': `${tangramRendererUrl}?embedded=1`,
