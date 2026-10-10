@@ -109,62 +109,74 @@ function createHorizonSamples(legacy: boolean): Sample[] {
     return samples;
 }
 
-test.each([false, true])(`${DEVICE_TYPE}: height decoding and horizon match CPU (legacy horizon: %s)`, async legacy => {
+/** A disposable test resource, including the harness and its device/canvas. */
+type Disposable = {destroy(): void};
+
+/** Run GPU conformance with cleanup protected even when initialization/setup fails. */
+async function runConformance(legacy: boolean, failAfter?: number, onDisposed?: (resource: Disposable) => void): Promise<void> {
     const harness = new RenderingHarness();
-    await harness.initializeDevice();
-    const device = harness.device;
-    const platformInfo: PlatformInfo = {type: device.type,
-        shaderLanguage: DEVICE_TYPE === 'webgl' ? 'glsl' : 'wgsl', shaderLanguageVersion: 300,
-        gpu: device.info.gpu, features: new Set(device.features)};
-    const samples = [...createHeightSamples(), ...createHorizonSamples(legacy)];
-    const legacyGLSL = pointGLSL.match(/bool tangramGlobeOccluded\([^]*?\n\}/)?.[0];
-    if (!legacyGLSL) {throw new Error('Missing original globe GLSL');}
-    const fragment = `#version 300 es
-precision highp float;
-out vec4 color;
-${legacy ? legacyGLSL : ''}
-void main() {
-    float runtimeZero = gl_FragCoord.y - 0.5;
-    int index = min(${samples.length - 1}, int(gl_FragCoord.x / 512. * ${samples.length}.));
-    ${samples.map((sample, index) => `if (index == ${index}) {color = vec4(${sample.glsl} ? 1. : 0., 0., 0., 1.); return;}`).join('\n')}
-}`;
-    const vertex = `#version 300 es
-const vec2 corners[3] = vec2[3](vec2(-1., -1.), vec2(3., -1.), vec2(-1., 3.));
-void main() {gl_Position = vec4(corners[gl_VertexID], 0., 1.);}`;
-    const application = `
-${legacy ? GLOBE_VISIBILITY_WGSL : ''}
-@vertex fn vertexMain(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
-    let corners = array<vec2<f32>, 3>(vec2<f32>(-1., -1.), vec2<f32>(3., -1.), vec2<f32>(-1., 3.));
-    return vec4<f32>(corners[index], 0., 1.);
-}
-@fragment fn fragmentMain(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
-    let runtimeZero = position.y - 0.5;
-    let index = min(${samples.length - 1}u, u32(position.x / 512. * ${samples.length}.));
-    ${samples.map((sample, index) => `if (index == ${index}u) {return vec4<f32>(select(0., 1., ${sample.wgsl}), 0., 0., 1.);}`).join('\n')}
-    return vec4<f32>(0.);
-}`;
-    let vertexSource: string; let fragmentSource: string;
-    if (DEVICE_TYPE === 'webgl') {
-        const assembled = new GLSLShaderAssembler().assembleGLSLShaderPair({platformInfo,
-            modules: [heightDecode, globeHorizon], vs: vertex, fs: fragment});
-        vertexSource = assembled.vs; fragmentSource = assembled.fs;
-    } else {
-        const assembled = new WGSLShaderAssembler().assembleWGSLShader({platformInfo,
-            modules: [heightDecode, globeHorizon], source: application, vertexEntryPoint: 'vertexMain', fragmentEntryPoint: 'fragmentMain'});
-        vertexSource = fragmentSource = assembled.source;
+    const resources: Disposable[] = [];
+    /** Register each allocation before the next setup step can fail. */
+    function track<Resource extends Disposable>(resource: Resource): Resource {
+        resources.push(resource);
+        if (resources.length === failAfter) {throw new Error('Injected setup failure');}
+        return resource;
     }
-    const vertexShader = device.createShader({stage: 'vertex', source: vertexSource});
-    const fragmentShader = device.createShader({stage: 'fragment', source: fragmentSource});
-    const pipeline = device.createRenderPipeline({vs: vertexShader, fs: fragmentShader,
-        colorAttachmentFormats: ['rgba8unorm'],
-        vertexEntryPoint: DEVICE_TYPE === 'webgl' ? 'main' : 'vertexMain', fragmentEntryPoint: DEVICE_TYPE === 'webgl' ? 'main' : 'fragmentMain',
-        bufferLayout: [], shaderLayout: {attributes: [], bindings: []}, topology: 'triangle-list',
-        parameters: {cullMode: 'none', depthWriteEnabled: false, depthCompare: 'always'}});
-    const vertexArray = device.createVertexArray({shaderLayout: pipeline.shaderLayout, bufferLayout: []});
-    const texture = device.createTexture({width: 512, height: 1, format: 'rgba8unorm', usage: Texture.RENDER_ATTACHMENT | Texture.COPY_SRC});
-    const depthTexture = device.createTexture({width: 512, height: 1, format: 'depth24plus', usage: Texture.RENDER_ATTACHMENT});
-    const framebuffer = device.createFramebuffer({width: 512, height: 1, colorAttachments: [texture], depthStencilAttachment: depthTexture});
     try {
+        track(harness);
+        await harness.initializeDevice();
+        const device = harness.device;
+        const platformInfo: PlatformInfo = {type: device.type,
+            shaderLanguage: DEVICE_TYPE === 'webgl' ? 'glsl' : 'wgsl', shaderLanguageVersion: 300,
+            gpu: device.info.gpu, features: new Set(device.features)};
+        const samples = [...createHeightSamples(), ...createHorizonSamples(legacy)];
+        const legacyGLSL = pointGLSL.match(/bool tangramGlobeOccluded\([^]*?\n\}/)?.[0];
+        if (!legacyGLSL) {throw new Error('Missing original globe GLSL');}
+        const fragment = `#version 300 es
+    precision highp float;
+    out vec4 color;
+    ${legacy ? legacyGLSL : ''}
+    void main() {
+        float runtimeZero = gl_FragCoord.y - 0.5;
+        int index = min(${samples.length - 1}, int(gl_FragCoord.x / 512. * ${samples.length}.));
+        ${samples.map((sample, index) => `if (index == ${index}) {color = vec4(${sample.glsl} ? 1. : 0., 0., 0., 1.); return;}`).join('\n')}
+    }`;
+        const vertex = `#version 300 es
+    const vec2 corners[3] = vec2[3](vec2(-1., -1.), vec2(3., -1.), vec2(-1., 3.));
+    void main() {gl_Position = vec4(corners[gl_VertexID], 0., 1.);}`;
+        const application = `
+    ${legacy ? GLOBE_VISIBILITY_WGSL : ''}
+    @vertex fn vertexMain(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
+        let corners = array<vec2<f32>, 3>(vec2<f32>(-1., -1.), vec2<f32>(3., -1.), vec2<f32>(-1., 3.));
+        return vec4<f32>(corners[index], 0., 1.);
+    }
+    @fragment fn fragmentMain(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
+        let runtimeZero = position.y - 0.5;
+        let index = min(${samples.length - 1}u, u32(position.x / 512. * ${samples.length}.));
+        ${samples.map((sample, index) => `if (index == ${index}u) {return vec4<f32>(select(0., 1., ${sample.wgsl}), 0., 0., 1.);}`).join('\n')}
+        return vec4<f32>(0.);
+    }`;
+        let vertexSource: string; let fragmentSource: string;
+        if (DEVICE_TYPE === 'webgl') {
+            const assembled = new GLSLShaderAssembler().assembleGLSLShaderPair({platformInfo,
+                modules: [heightDecode, globeHorizon], vs: vertex, fs: fragment});
+            vertexSource = assembled.vs; fragmentSource = assembled.fs;
+        } else {
+            const assembled = new WGSLShaderAssembler().assembleWGSLShader({platformInfo,
+                modules: [heightDecode, globeHorizon], source: application, vertexEntryPoint: 'vertexMain', fragmentEntryPoint: 'fragmentMain'});
+            vertexSource = fragmentSource = assembled.source;
+        }
+        const vertexShader = track(device.createShader({stage: 'vertex', source: vertexSource}));
+        const fragmentShader = track(device.createShader({stage: 'fragment', source: fragmentSource}));
+        const pipeline = track(device.createRenderPipeline({vs: vertexShader, fs: fragmentShader,
+            colorAttachmentFormats: ['rgba8unorm'],
+            vertexEntryPoint: DEVICE_TYPE === 'webgl' ? 'main' : 'vertexMain', fragmentEntryPoint: DEVICE_TYPE === 'webgl' ? 'main' : 'fragmentMain',
+            bufferLayout: [], shaderLayout: {attributes: [], bindings: []}, topology: 'triangle-list',
+            parameters: {cullMode: 'none', depthWriteEnabled: false, depthCompare: 'always'}}));
+        const vertexArray = track(device.createVertexArray({shaderLayout: pipeline.shaderLayout, bufferLayout: []}));
+        const texture = track(device.createTexture({width: 512, height: 1, format: 'rgba8unorm', usage: Texture.RENDER_ATTACHMENT | Texture.COPY_SRC}));
+        const depthTexture = track(device.createTexture({width: 512, height: 1, format: 'depth24plus', usage: Texture.RENDER_ATTACHMENT}));
+        const framebuffer = track(device.createFramebuffer({width: 512, height: 1, colorAttachments: [texture], depthStencilAttachment: depthTexture}));
         const pass = device.beginRenderPass({framebuffer, clearColor: [0, 0, 0, 0]});
         pass.setPipeline(pipeline); pass.setVertexArray(vertexArray); pass.draw({vertexCount: 3});
         submitEyeRenderPass(device, pass);
@@ -175,6 +187,20 @@ ${legacy ? GLOBE_VISIBILITY_WGSL : ''}
         }
         expect(harness.errors).toEqual([]);
     } finally {
-        framebuffer.destroy(); depthTexture.destroy(); texture.destroy(); vertexArray.destroy(); pipeline.destroy(); fragmentShader.destroy(); vertexShader.destroy(); harness.destroy();
+        for (const resource of resources.reverse()) {resource.destroy(); onDisposed?.(resource);}
     }
+}
+
+test.each([false, true])(`${DEVICE_TYPE}: height decoding and horizon match CPU (legacy horizon: %s)`, async legacy => {
+    await runConformance(legacy);
+});
+
+test.each([1, 2, 4, 8])(`${DEVICE_TYPE}: setup failure after %s allocations releases all resources`, async failAfter => {
+    const disposed: Disposable[] = [];
+    await expect(runConformance(false, failAfter, resource => disposed.push(resource))).rejects.toThrow('Injected setup failure');
+    expect(disposed).toHaveLength(failAfter);
+    expect(new Set(disposed).size).toBe(failAfter);
+    const harness = disposed.at(-1);
+    if (!(harness instanceof RenderingHarness)) {throw new Error('Harness must be released last');}
+    expect(harness.canvas.isConnected).toBe(false);
 });
