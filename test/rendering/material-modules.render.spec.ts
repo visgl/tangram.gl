@@ -29,6 +29,12 @@ function normalize(values: number[]): number[] {
 /** Build compact boundary fixtures, shared by both GPU backends and original GLSL. */
 function createSamples(legacy: boolean): Sample[] {
     const samples: Sample[] = [];
+    const planeColors = [[0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8], [0.9, 0.4, 0.2, 0.6]];
+    const planeWeights = [0.2, 0.3, 0.5];
+    samples.push({name: 'blend distinct RGBA channels in every plane',
+        glsl: `triplanar_blend(${planeColors.map(color => vector(color, false)).join(',')}, ${vector(planeWeights, false)})`,
+        wgsl: `triplanar_blend(${planeColors.map(color => vector(color, true)).join(',')}, ${vector(planeWeights, true)})`,
+        expected: planeColors[0].map((_, channel) => planeColors.reduce((total, color, index) => total + color[channel] * planeWeights[index], 0))});
     const normals = [[1, 0, 0], [0, -1, 0], [0, 0, 1], [1, -2, 3], [0, 0, 0], [1e-7, 2e-7, 0], [-0.2, 0.4, -0.6]];
     const position = [-1.25, 2.375, -0.125];
     const scale = [2, -3, 0.5];
