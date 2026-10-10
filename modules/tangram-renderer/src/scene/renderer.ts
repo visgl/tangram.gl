@@ -17,6 +17,8 @@ import {normalizeProjectionExecutionOptions} from '../procedures/projection-batc
 import type {ProjectionExecutionStatistics} from '../procedures/projection-batch-executor';
 import type {FeatureSelectionResult, FeatureSelectionOptions} from '../types';
 import {Matrix4} from '@math.gl/core';
+import {pickTerrainAt} from '../selection/terrain_surface';
+import type {TerrainSurface, TerrainSurfaceHit} from '../selection/terrain_surface';
 
 
 interface FrameOptions {renderViewId?: string}
@@ -166,6 +168,13 @@ export default class Renderer {
         return resolved ? pending.then(result => result && {...result, pixel: {...pixel}, renderViewId: resolved.view.id}) : pending;
     }
 
+    /** Query a host-supplied terrain mesh without substituting a flat surface on a miss. */
+    getTerrainAt(pixel: {x: number; y: number}, surface: TerrainSurface, options: FeatureSelectionOptions = {}): TerrainSurfaceHit | null {
+        if (this.destroyed) throw new Error('Cannot query a destroyed renderer');
+        if (!this.host_frame) throw new Error('Terrain selection requires a HostFrame');
+        return pickTerrainAt(this.host_frame, pixel, surface, options, this.active_render_view_id ?? undefined);
+    }
+
     /** Resolve source capabilities without publishing archive handles or changing source policy. */
     getSourceMetadata(): Promise<Record<string, TangramTileSourceMetadata>> {
         return this.scene.getSourceMetadata();
@@ -258,7 +267,7 @@ export default class Renderer {
                 this.scene.host_animation_time = this.host_frame.animationTime ?? Math.max(0, (Date.now() - this.scene.start_time) / 1000);
             }
         }
-        if (this.host_frame?.projection.type === 'projected') {
+        if (this.host_frame) {
             this.scene.tile_manager.updateProjectedLabels(this.host_frame, this.gpuBackend?.device.type !== 'webgpu');
         }
         const rendered = this.scene.updateScene({ renderPass });

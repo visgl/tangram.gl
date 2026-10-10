@@ -543,7 +543,7 @@ Object.assign(Points, {
         }
         layout.priority = priority;
 
-        if (this.cpu_projection) {
+        if (this.screen_space_labels || this.cpu_projection) {
             // Keep all candidates until the main thread has the projected camera.
             layout.projected_collide = layout.collide;
             layout.collide = false;
@@ -905,7 +905,7 @@ Object.assign(Points, {
     trackLabel (label, linked, mesh, geom_count/*, context*/) {
         // track if collision is enabled, or if the label is near enough to the tile edge to
         // necessitate further repeat checking
-        if (this.cpu_projection || label.layout.collide || label.may_repeat_across_tiles) {
+        if (this.screen_space_labels || this.cpu_projection || label.layout.collide || label.may_repeat_across_tiles) {
             mesh.labels = mesh.labels || {};
             mesh.labels[label.id] = mesh.labels[label.id] || {
                 container: {

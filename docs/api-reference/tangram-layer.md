@@ -517,6 +517,15 @@ independent per-eye GPU targets are also available directly through
 [`Renderer.getFeatureAt`](./renderer.md#getfeatureatpixel-options).
 This does not perform spatial ray/terrain picking.
 
+For a synchronous terrain intersection use `layer.getTerrainAt({x, y}, surface, options)`
+with an explicit [`TerrainSurface`](./renderer.md#getterrainatpixel-surface-options).
+It returns the nearest triangle's geographic coordinate, normal and eye, or `null`
+for a miss or an uninitialized, loading, failed or disposed layer. Once loaded,
+the renderer requires a submitted frame. Canvas/eye routing is identical to the feature
+query; terrain queries do not need subsequent draws. Terrain must use the current
+Mercator or Globe coordinate convention and camera clipping. This does not load
+or render terrain, infer a surface from scene geometry, or provide deck.gl picking.
+
 ## Source
 
 - [Interactive MapView example](../../examples/deck)

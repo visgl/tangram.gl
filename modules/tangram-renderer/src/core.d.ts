@@ -4,6 +4,8 @@
 
 export {ClassicWebGLRenderer as Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from '@vis.gl/tangram-renderer';
 export type {FeatureSelectionResult, FeatureSelectionOptions} from '@vis.gl/tangram-renderer';
+export {TerrainMeshSurface, pickTerrainAt} from './selection/terrain_surface';
+export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions} from './selection/terrain_surface';
 export {calculatePlanarGroundBounds, calculatePlanarVolumeBounds} from './scene/ground_footprint';
 export {validateProjectedLights} from './procedures/mesh-projector';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';

@@ -6,6 +6,7 @@ import { assert } from 'chai';
 import {expect, test} from 'vitest';
 import Renderer from '../src/scene/renderer';
 import HostFrame from '../src/scene/host_frame';
+import {TerrainMeshSurface} from '../src/selection/terrain_surface';
 
 const IDENTITY_MATRIX = [
     1, 0, 0, 0,
@@ -13,6 +14,22 @@ const IDENTITY_MATRIX = [
     0, 0, 1, 0,
     0, 0, 0, 1
 ];
+
+test('renderer terrain selection requires a live frame and uses the active eye by default', () => {
+    const renderer = Renderer.create({});
+    const surface = new TerrainMeshSurface({projection: 'web-mercator',
+        positions: [-1, -1, 0, 1, -1, 0, 0, 1, 0], indices: [0, 1, 2]});
+    expect(() => renderer.getTerrainAt({x: 50, y: 50}, surface)).toThrow(/HostFrame/);
+    renderer.setFrame(new HostFrame({viewport: {width: 200, height: 100},
+        geographicAnchor: {longitude: 0, latitude: 0, zoom: 0}, renderViews: [
+            {id: 'left', viewport: {width: 100, height: 100}, camera: {view: IDENTITY_MATRIX, projection: IDENTITY_MATRIX, position: [0, 0, 0]}},
+            {id: 'right', viewport: {x: 100, width: 100, height: 100}, camera: {view: IDENTITY_MATRIX, projection: IDENTITY_MATRIX, position: [0, 0, 0]}}
+        ]}), {renderViewId: 'right'});
+    expect(renderer.getTerrainAt({x: 50, y: 50}, surface)).toMatchObject({coordinate: [0, 0, 0], renderViewId: 'right'});
+    expect(renderer.getTerrainAt({x: 50, y: 50}, surface, {coordinateSpace: 'canvas'})).toMatchObject({renderViewId: 'left'});
+    renderer.destroy();
+    expect(() => renderer.getTerrainAt({x: 50, y: 50}, surface)).toThrow(/destroyed/);
+});
 
 describe('Renderer', function () {
     it('constructs an externally driven scene and applies a host frame', function () {

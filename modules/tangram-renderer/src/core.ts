@@ -4,6 +4,8 @@
 
 export {default as Renderer} from './scene/renderer';
 export {default as HostFrame} from './scene/host_frame';
+export {TerrainMeshSurface, pickTerrainAt} from './selection/terrain_surface';
+export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions} from './selection/terrain_surface';
 export type {FeatureSelectionResult, FeatureSelectionOptions} from './types';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
 export {getProjectedRoadUnit} from './procedures/mesh-projector';

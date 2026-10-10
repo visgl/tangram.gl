@@ -8,6 +8,8 @@
 import Scene from './scene/classic_scene';
 import ClassicWebGLRenderer from './scene/renderer';
 import HostFrame from './scene/host_frame';
+export {TerrainMeshSurface, pickTerrainAt} from './selection/terrain_surface';
+export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions} from './selection/terrain_surface';
 import LumaDeviceRenderer from './gpu/luma_device_renderer';
 export type {HostTileResourceOptions, TileResourceStatistics, TileSourceStatistics} from './types';
 export type {MeshProjectionStatistics} from './procedures/mesh-projector';

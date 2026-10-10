@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {Points} from '../src/styles/points/points';
 import {TextLabels} from '../src/styles/text/text_labels';
 import {textLayoutToJSON} from '../src/labels/label';
+import Tile from '../src/tile/tile';
+import Collision from '../src/labels/collision';
+import RepeatGroup from '../src/labels/repeat_group';
+import type {CollisionObject} from '../src/labels/collision-types';
 
 /** Use the actual style procedure without workers, font rasterization or GPU resources. */
 function style(projected = true) {
@@ -43,4 +47,47 @@ test('projected text identity distinguishes strings even without feature IDs and
     expect(first.projected_identity).toBe(create('London').projected_identity);
     expect(first.projected_identity).not.toBe(create('Paris').projected_identity);
     expect(create('London', false).projected_identity).toBeUndefined();
+});
+
+test('external Globe/Mercator workers retain collision candidates while classic workers keep their layout', () => {
+    const external = Object.assign(style(false), {screen_space_labels: true});
+    const coordinates: [number, number] = [0, 0];
+    const feature = {id: 7, properties: {}, geometry: {type: 'Point' as const, coordinates}};
+    const draw = {key: 'markers/draw', collide: true};
+    const context = {source: 'cities', layer: 'places'};
+    expect(external.computeLayout({}, feature, draw, context, {})).toMatchObject({
+        collide: false, projected_collide: true, projected_identity: expect.any(String)});
+    expect(external.computeLayout({}, feature, {...draw, collide: false}, context, {})).toMatchObject({
+        collide: false, projected_collide: false});
+    expect(style(false).computeLayout({}, feature, draw, context, {})).toMatchObject({collide: true});
+    const tile = {id: 'tile', key: 'tile', generation: 1, overzoom2: 1};
+    const layout = TextLabels.computeTextLayout.call(external, {}, feature, draw,
+        {...context, geometry: 'point', tile}, tile, 'London', {style: 'normal', supersample: 1});
+    expect(layout).toMatchObject({collide: false, projected_collide: true, projected_identity: expect.any(String)});
+});
+
+test.each([
+    {name: 'external Mercator/Globe', screen_space_labels: true, cpu_projection: undefined, retained: 2},
+    {name: 'CPU projected', screen_space_labels: false, cpu_projection: {type: 'equal-earth'}, retained: 2},
+    {name: 'classic', screen_space_labels: false, cpu_projection: undefined, retained: 1}
+])('$name tile construction preserves the appropriate repeat candidates', async ({screen_space_labels, cpu_projection, retained}) => {
+    const tile = {id: 'repeat-candidates', source_data: {}, debug: {}};
+    // Keep the real tile/collision policy but avoid worker transport and geometry allocation.
+    const buildGroups = vi.spyOn(Tile, 'buildStyleGroups').mockImplementation(() => {});
+    try {
+        Tile.buildGeometry(tile, {scene_id: 'fixture', layers: {}, global: {}, styles: {
+            labels: {screen_space_labels, cpu_projection, hasDataForTile: () => false}
+        }});
+        Collision.addStyle('labels', tile.id);
+        const candidates: CollisionObject[] = [0, 1].map(priority => ({label: {
+            layout: {priority, collide: false, repeat_scale: 1, repeat_group: 'road-name', repeat_distance: 20},
+            position: [priority, 0], discard: () => false
+        }}));
+        expect(await Collision.collide(candidates, 'labels', tile.id)).toHaveLength(retained);
+    }
+    finally {
+        Collision.abortTile(tile.id);
+        RepeatGroup.clear(tile.id);
+        buildGroups.mockRestore();
+    }
 });

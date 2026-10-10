@@ -142,7 +142,8 @@ that need custom placement or spatial picking.
 
 `pickXRSurface` resolves screen pointers or XR room rays against the zero-altitude map plane,
 first-person ground plane, or globe sphere. It is CPU-based and works with either rendering
-backend. It does **not** select features, intersect terrain/buildings, or account for occlusion.
+backend. By default it does **not** intersect terrain/buildings, select features, or account for occlusion.
+Supply an explicit `terrain` surface to intersect a host-owned triangle mesh instead.
 
 Surface intersections use `@math.gl/culling` analytic plane/sphere shapes. Tangram's
 adapter converts its +Z ground normal to the shape's +Y normal, retains the existing
@@ -197,6 +198,26 @@ are modified. Keep the frame, view state, and placement matrix from the same ren
 
 The WebXR examples display geographic coordinates on canvas click or XR controller select.
 This readout is separate from renderer feature selection and does not intercept navigation.
+
+### Terrain surfaces
+
+Pass a [`TerrainSurface`](./renderer.md#getterrainatpixel-surface-options) as `terrain`
+to `pickXRSurface`. Mercator and first-person placements require absolute EPSG:3857
+XY meters with physical altitude Z; globe placements require radius-256 common
+coordinates. Room rays are transformed through the supplied placement snapshot
+before querying; screen rays use their actual eye and near/far clipping range.
+
+```ts
+const hit = pickXRSurface({pointer: intent.pointer, placement, frame, terrain});
+// hit.coordinate[2] is physical altitude; hit.terrain contains
+// triangleIndex, normal and barycentric coordinates in content space.
+```
+
+A terrain hole returns `null`, without falling back to the analytic plane/sphere.
+Bounded table dimensions also apply to terrain hits. No terrain is loaded, rendered
+or inferred automatically, and this does not implement terrain occlusion or worker
+feature selection. The reference `TerrainMeshSurface` is intended for small meshes;
+hosts may implement an indexed surface for larger datasets.
 
 ## Globe loading fallback
 

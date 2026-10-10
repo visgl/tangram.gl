@@ -19,6 +19,8 @@ import type {
   Viewport
 } from './types.js';
 export type {FeatureSelectionResult, FeatureSelectionOptions} from './types.js';
+export {TerrainMeshSurface, pickTerrainAt} from './selection/terrain_surface';
+export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions} from './selection/terrain_surface';
 export type {
   TangramGPUBackend,
   TangramGPUSceneOptions,
@@ -88,6 +90,9 @@ export declare class Scene {
 }
 
 export declare class ClassicWebGLRenderer {
+  /** Synchronous nearest hit on an explicit host-owned terrain mesh, in the selected eye. */
+  getTerrainAt(pixel: {x: number; y: number}, surface: import('./selection/terrain_surface').TerrainSurface,
+    options?: import('./types').FeatureSelectionOptions): import('./selection/terrain_surface').TerrainSurfaceHit | null;
   /** Async interactive-draw selection in active-view CSS pixels; host rendering must continue. */
   getFeatureAt(pixel: {x: number; y: number}, options?: import('./types').FeatureSelectionOptions): Promise<import('./types').FeatureSelectionResult | undefined>;
   /** Reproject loaded meshes without replacing workers; rejects failed builds and permits subsequent recovery. */

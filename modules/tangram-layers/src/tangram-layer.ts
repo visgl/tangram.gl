@@ -14,6 +14,7 @@ import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
 import type {ProjectionEngine, ProjectionExecutionOptions} from '@vis.gl/tangram-renderer/core';
 import type {LayerProps} from '@deck.gl/core';
 import type {SceneDefinition, FeatureSelectionOptions, FeatureSelectionResult} from '@vis.gl/tangram-renderer/core';
+import type {TerrainSurface, TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
 
 /** Tangram-specific properties in addition to ordinary deck.gl layer properties. */
 export type TangramLayerProps = LayerProps & {
@@ -187,6 +188,13 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       const pending = record.renderer.getFeatureAt(pixel, options);
       record.owner.setNeedsRedraw();
       return pending;
+    }
+
+    /** Intersect the actual rendered eye with a host-owned terrain mesh in content coordinates. */
+    getTerrainAt(pixel: {x: number; y: number}, surface: TerrainSurface, options: FeatureSelectionOptions = {}): TerrainSurfaceHit | null {
+      const record = this.state && this.state.tangramRecord;
+      if (!record || record.disposed || record.loadFailed || !record.loaded) return null;
+      return record.renderer.getTerrainAt(pixel, surface, options);
     }
 
     get isLoaded() {
