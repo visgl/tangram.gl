@@ -12,8 +12,9 @@ const viewports = new Map([['left', {width: 256, height: 128}], ['right', {width
 
 /** Immutable input independent of worker labels, tiles, fonts or graphics resources. */
 function candidate(id: string, boxes: [string, ScreenBounds][] = [['left', [0, 0, 20, 20]]],
-    options: Partial<ScreenLabelCandidate> = {}): ScreenLabelCandidate {
-    return Object.freeze({id, boxes: new Map(boxes), ...options});
+    options: Omit<Partial<ScreenLabelCandidate>, 'id' | 'boxes'> = {}): ScreenLabelCandidate {
+    return Object.freeze({id, ...options, boxes: new Map(boxes.map(([view, bounds]) =>
+        [view, Object.freeze([bounds[0], bounds[1], bounds[2], bounds[3]] as const)]))});
 }
 
 test('screen rectangles preserve strict edge contact and union without modifying inputs', () => {
@@ -41,6 +42,29 @@ test('caller priority order resolves touching, overlapping, empty and non-collid
     expect(first).not.toHaveProperty('shown');
     expect(resolveLabelPlacement([first], {viewports}).get(first)).toBe(true);
     expect(resolveLabelPlacement([], {viewports}).size).toBe(0);
+});
+
+test('accepted, rejected and linked candidates retain all input bounds and map entries', () => {
+    const accepted = candidate('accepted');
+    const rejected = candidate('rejected');
+    const parent = candidate('parent', [['left', [80, 0, 100, 20]], ['right', [80, 0, 100, 20]]]);
+    const child = candidate('child', [['left', [85, 0, 105, 20]], ['right', [85, 0, 105, 20]]], {linkedId: 'parent'});
+    const empty = candidate('empty', []);
+    const candidates = [accepted, rejected, child, parent, empty];
+    const originalMaps = candidates.map(candidate => candidate.boxes);
+    const originalEntries = candidates.map(candidate => [...candidate.boxes].map(([view, bounds]) => [view, [...bounds]]));
+    const originalBounds = candidates.map(candidate => [...candidate.boxes.values()]);
+    const result = resolveLabelPlacement(candidates, {viewports});
+    expect(candidates.map(candidate => result.get(candidate))).toEqual([true, false, true, true, false]);
+    candidates.forEach((candidate, index) => {
+        expect(candidate.boxes).toBe(originalMaps[index]);
+        expect([...candidate.boxes]).toEqual(originalEntries[index]);
+        expect(candidate).not.toHaveProperty('shown');
+        [...candidate.boxes.values()].forEach((bounds, boundIndex) => {
+            expect(bounds).toBe(originalBounds[index][boundIndex]);
+            expect(Object.isFrozen(bounds)).toBe(true);
+        });
+    });
 });
 
 test('one shared mask rejects overlap in either stereo view but not unrelated views', () => {
