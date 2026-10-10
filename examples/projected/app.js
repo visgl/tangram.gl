@@ -267,7 +267,7 @@ async function initialize(resetCoverage = true) {
     onClick: information => {
       const generation = ++featureGeneration;
       const layer = deck.props.layers.find(layer => layer.id === 'projected-basemap');
-      void queryProjectedFeature(async () => layer?.getFeatureAt({x: information.x, y: information.y}, {radius: 6}),
+      void queryProjectedFeature(async () => layer?.getFeatureAt({x: information.x, y: information.y}, {radius: 6, coordinateSpace: 'canvas'}),
         () => !disposed && generation === featureGeneration, text => {featureProbe.textContent = text;});
     },
     onResize: scheduleDetail,

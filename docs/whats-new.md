@@ -26,7 +26,7 @@ Copyright (c) vis.gl contributors
 - The opt-in `experimental/projected-basemaps` layer adds worker-side math.gl
   Equal Earth, regional Albers, equirectangular, ellipsoidal Mercator and Web
   Mercator projection for ground polygons, raster meshes, meter/pixel roads
-  and noncolliding point/text annotations in OrthographicView. See the
+  and screen-space-colliding point/text annotations in OrthographicView. See the
   [experimental projection contract](./developer-guide/projected-basemaps.md)
   for coverage, resource limits and deferred features.
 - The repository uses Yarn workspaces and `@vis.gl/dev-tools` for bootstrap,

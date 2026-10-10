@@ -26,6 +26,7 @@ function createGL(pixelWriter = () => {}) {
     createFramebuffer: vi.fn(() => ({type: 'framebuffer'})),
     createRenderbuffer: vi.fn(() => ({type: 'renderbuffer'})),
     deleteFramebuffer: vi.fn(),
+    deleteRenderbuffer: vi.fn(),
     framebufferRenderbuffer: vi.fn(),
     framebufferTexture2D: vi.fn(),
     readPixels: vi.fn((x, y, width, height, format, type, pixels) => pixelWriter(pixels)),
@@ -41,6 +42,7 @@ describe('feature selection lifecycle', () => {
     FeatureSelection.reset();
     textureCreate = vi.spyOn(Texture, 'create').mockReturnValue({
       setData: vi.fn(),
+      destroy: vi.fn(),
       texture: {type: 'texture'}
     });
   });
@@ -54,13 +56,14 @@ describe('feature selection lifecycle', () => {
   test('initializes, binds, locks, and destroys the selection framebuffer', () => {
     const gl = createGL();
     const selection = new FeatureSelection(gl, [], () => true);
-    expect(textureCreate).toHaveBeenCalledWith(gl, '__selection_fbo', {filtering: 'nearest'});
+    expect(textureCreate).toHaveBeenCalledWith(gl, expect.stringMatching(/^__selection_fbo_\d+$/), {filtering: 'nearest'});
     expect(selection.locked).toBe(true);
     selection.bind();
     expect(gl.viewport).toHaveBeenCalledWith(0, 0, 256, 256);
     expect(gl.clearColor).toHaveBeenCalledWith(0, 0, 0, 1);
     selection.destroy();
     expect(gl.deleteFramebuffer).toHaveBeenCalledTimes(1);
+    expect(gl.deleteRenderbuffer).toHaveBeenCalledTimes(1);
     expect(selection.fbo).toBeNull();
   });
 

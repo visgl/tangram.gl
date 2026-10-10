@@ -236,7 +236,6 @@ Object.assign(TextStyle, {
 
     // Sets up caching for draw properties
     _preprocess (this: TextStyleRuntime, draw: TextLabelDraw) {
-        if (this.cpu_projection && draw.collide !== false) throw new Error('Projected annotations require explicit collide: false');
         draw.blend_order = this.getBlendOrderForDraw(draw); // from draw block, or fall back on default style blend order
         return this.preprocessText(draw);
     },

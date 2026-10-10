@@ -4,7 +4,7 @@
 
 export {default as Renderer} from './scene/renderer';
 export {default as HostFrame} from './scene/host_frame';
-export type {FeatureSelectionResult} from './types';
+export type {FeatureSelectionResult, FeatureSelectionOptions} from './types';
 export {normalizeProjectedBasemapOptions} from './procedures/mesh-projector';
 export {getProjectedRoadUnit} from './procedures/mesh-projector';
 export {countProjectedTileCoordinates, getTileGeographicBounds} from './tile/tile_traversal_adapter';

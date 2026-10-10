@@ -32,6 +32,8 @@ export type TextGeometry =
 
 /** Feature passed to text-source callbacks and label placement. */
 export interface TextFeature {
+    /** Stable optional source identity, shared by buffered tile copies. */
+    id?: string | number;
     geometry: TextGeometry;
     properties: Record<string, TextValue>;
 }
@@ -54,7 +56,9 @@ export type TextSource = TextSourceValue | TextSourceValue[] | Record<string, Te
 
 /** Text draw properties before/after property-cache preprocessing. */
 export interface TextLabelDraw extends TextDraw {
-    /** Enable collision placement; projected ground annotations require explicit false. */
+    /** Internal scene draw-group identity, used to keep independent annotations separate. */
+    key?: string;
+    /** Enable collision placement; projected annotations resolve it in screen space. */
     collide?: boolean | ((context: TextContext) => boolean);
     text_source?: TextSource;
     offset?: unknown;
@@ -198,6 +202,8 @@ export interface TextRasterTask extends TaskRecord<string[]> {
 
 /** Shared style state required by the text-label mixin. */
 export interface TextLabelState {
+    /** Projected candidates must bypass worker-local Mercator repeat culling. */
+    cpu_projection?: import('../../procedures/mesh-projector').ProjectedBasemapOptions;
     name: string;
     main_thread_target: string;
     max_texture_size: number;

@@ -124,11 +124,14 @@ WGSL surface lighting. WebGL selection uses the curved geometry and matching
 occlusion test. See [lighting](../api-reference/renderer.md#light-definitions)
 for supported materials, light counts and unit conventions.
 
+Projected point/text annotations now use screen-space collision, geographic
+cross-tile deduplication and one shared visibility mask across stereo eyes.
+Asynchronous feature queries support explicit views or whole-canvas coordinates,
+with independent per-eye selection targets on WebGL 2 and WebGPU.
+
 Next: tangent-space normal maps, terrain normals, surface-oriented labels,
-projected collision and terrain-aware occlusion/picking. WebGPU now supports asynchronous
-feature selection with the same projected/curved geometry; deck.gl synchronous picking
-and whole-canvas stereo queries remain separate integration work.
-Screen-facing labels still use the existing planar collision layout.
+terrain-aware occlusion/picking and deck.gl synchronous picking. Globe and
+Mercator labels still use the existing planar collision layout.
 
 ### 7. Finish WebXR placement and interaction
 

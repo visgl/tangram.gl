@@ -56,6 +56,96 @@ function createRoadScene(maximumSourceZoom = 6, interactive = false) {
 
 beforeEach(() => commands.startRenderingDiagnostics());
 
+test(`${DEVICE_TYPE}: projected collision hides buffered duplicates and lower priority annotations from rendering and selection`, async () => {
+  harness = new RenderingHarness();
+  await harness.initializeDevice();
+  const engine = createProjectedExampleProjectionEngine();
+  const navigation = new ProjectedBasemapNavigation(engine);
+  const target = await navigation.projectPosition([-90, 40], 'equal-earth');
+  const source = {type: 'FeatureCollection', features: [
+    {type: 'Feature', id: 1, properties: {name: 'Priority city', rank: 1}, geometry: {type: 'Point', coordinates: [-90, 40]}},
+    {type: 'Feature', id: 2, properties: {name: 'Nearby city', rank: 2}, geometry: {type: 'Point', coordinates: [-89.99, 40]}}
+  ]};
+  const scene = createProjectedBasemapScene({scene: {background: {color: '#000'}},
+    sources: {cities: {type: 'GeoJSON', url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`, max_zoom: 6}},
+    layers: Object.fromEntries([1, 2].map(rank => [`city${rank}`, {data: {source: 'cities'}, filter: {rank}, draw: {
+      points: {order: 10, size: '20px', priority: rank, color: rank === 1 ? '#ff0000' : '#00ff00', interactive: true}
+    }}]))}, {type: 'equal-earth'}, new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  const errors = harness.errors;
+  const layer = new FixtureLayer({id: 'colliding-cities', scene, projectionEngine: engine,
+    projectedTileZoom: 4, projectedStyleZoom: 6, projectedVisibleBounds: [-91, 39, -89, 41],
+    onSceneError: error => errors.push(error.message)});
+  deck = new Deck({canvas: harness.canvas, device: harness.device, width: 512, height: 320,
+    useDevicePixels: false, views: new OrthographicView({id: 'projected', flipY: false}),
+    viewState: {target, zoom: 8}, _animate: true, layers: [layer], onError: error => errors.push(error.message)});
+  const count = async (channel: number) => {
+    const pixels = (await readCanvasPixels(harness!.canvas)).data;
+    let colored = 0;
+    for (let offset = 0; offset < pixels.length; offset += 4) if (pixels[offset + channel] > 100 && pixels[offset + 1 - channel] < 40) colored++;
+    return colored;
+  };
+  await expect.poll(() => count(0), {timeout: 20000}).toBeGreaterThan(150);
+  expect(await count(1)).toBe(0);
+  expect((await layer.getFeatureAt({x: 256, y: 160}))?.feature).toMatchObject({id: 1});
+  // A pixel beyond the retained red point is empty: the hidden green quad must not be pickable.
+  expect((await layer.getFeatureAt({x: 271, y: 160}))?.feature).toBeFalsy();
+  deck.setProps({viewState: {target, zoom: 11}});
+  await expect.poll(() => count(1), {timeout: 15000}).toBeGreaterThan(150);
+  // The source anchor is quantized in the worker; query an actually rendered green pixel.
+  const image = await readCanvasPixels(harness.canvas);
+  const greenPixel = Array.from({length: image.data.length / 4}, (_, index) => index).find(index =>
+    image.data[index * 4 + 1] > 150 && image.data[index * 4] < 40);
+  if (greenPixel === undefined) throw new Error('Missing reappeared annotation');
+  expect((await layer.getFeatureAt({x: greenPixel % image.width, y: Math.floor(greenPixel / image.width)},
+    {coordinateSpace: 'canvas', radius: 4}))?.feature).toMatchObject({id: 2});
+  expect(errors).toEqual([]);
+  navigation.dispose();
+});
+
+test(`${DEVICE_TYPE}: simultaneous stereo queries retain different eye cameras and independent readback targets`, async () => {
+  harness = new RenderingHarness();
+  const source = {type: 'FeatureCollection', features: [-100, -80].map((longitude, index) => ({
+    type: 'Feature', id: index + 1, properties: {name: `Eye ${index + 1}`}, geometry: {type: 'Point', coordinates: [longitude, 40]}
+  }))};
+  const scene = createProjectedBasemapScene({scene: {background: {color: '#000'}},
+    sources: {cities: {type: 'GeoJSON', url: `data:application/json,${encodeURIComponent(JSON.stringify(source))}`}},
+    layers: {cities: {data: {source: 'cities'}, draw: {points: {order: 1, size: '30px', color: '#00ff00', interactive: true}}}}},
+    {type: 'equal-earth'}, new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href);
+  await harness.initialize(scene);
+  const navigation = new ProjectedBasemapNavigation(createProjectedExampleProjectionEngine());
+  const targets = await Promise.all([-100, -80].map(longitude => navigation.projectPosition([longitude, 40], 'equal-earth')));
+  const frame = new HostFrame({viewport: {width: 512, height: 320},
+    projection: {type: 'projected', visibleBounds: [-110, 30, -70, 50]}, tileZoom: 2,
+    geographicAnchor: {longitude: -90, latitude: 40, zoom: 6}, renderViews: targets.map((target, index) => ({
+      id: index === 0 ? 'left' : 'right', viewport: {x: index * 256, y: 0, width: 256, height: 320},
+      camera: {view: new Matrix4().translate([-target[0], -target[1], 0]),
+        projection: new Matrix4().ortho({left: -2, right: 2, bottom: -2.5, top: 2.5, near: -1, far: 1}), position: [0, 0, 1]}
+    }))});
+  const draw = () => {
+    for (const [index, eye] of frame.renderViews.entries()) {
+      harness!.renderer.setFrame(frame, {renderViewId: eye.id});
+      const pass = harness!.device.beginRenderPass({clearColor: index === 0 ? [0, 0, 0, 1] : false,
+        clearDepth: index === 0 ? 1 : false, clearStencil: index === 0 ? 0 : false});
+      pass.setParameters({viewport: [eye.viewport.x, eye.viewport.y, eye.viewport.width, eye.viewport.height],
+        scissorRect: [eye.viewport.x, eye.viewport.y, eye.viewport.width, eye.viewport.height]});
+      harness!.renderer.render({frame, renderPass: pass, renderViewId: eye.id, force: true});
+      submitEyeRenderPass(harness!.device, pass);
+    }
+  };
+  await expect.poll(async () => {draw(); return coloredPixels(await readCanvasPixels(harness!.canvas));},
+    {timeout: 20000}).toBeGreaterThan(500);
+  await expect.poll(() => Reflect.get(harness!.renderer.scene, 'selection_feature_count')).toBeGreaterThan(0);
+  let completed = false;
+  const queried = Promise.all([128, 384].map(x => harness!.renderer.getFeatureAt({x, y: 160}, {coordinateSpace: 'canvas'})))
+    .then(results => {completed = true; return results;});
+  await expect.poll(() => {draw(); return completed;}, {timeout: 20000}).toBe(true);
+  const results = await queried;
+  expect(results[0]).toMatchObject({renderViewId: 'left', feature: {id: 1}});
+  expect(results[1]).toMatchObject({renderViewId: 'right', feature: {id: 2}});
+  expect(harness.errors).toEqual([]);
+  navigation.dispose();
+});
+
 test.each(['equal-earth', 'albers'] as const)(`${DEVICE_TYPE}: %s selects refined road ribbons with original properties`, async type => {
   harness = new RenderingHarness();
   await harness.initializeDevice();

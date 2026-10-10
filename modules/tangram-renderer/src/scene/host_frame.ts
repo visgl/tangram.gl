@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {GeographicAnchor, HostCamera, HostFrameOptions, HostProjection, HostTileLODOptions, HostTileResourceOptions, Viewport} from '../types';
+import type {GeographicAnchor, HostCamera, HostFrameOptions, HostProjection, HostTileLODOptions, HostTileResourceOptions, Viewport, FeatureSelectionOptions} from '../types';
 
 /** Validated per-eye state; optional visibility overrides never change scene/style state. */
 export interface NormalizedRenderView {
@@ -15,6 +15,22 @@ export interface NormalizedRenderView {
 
 /** Host-owned logical frame, shared tile visibility, and independently drawable eyes. */
 export default class HostFrame {
+    /** Resolve a full-target or view-local CSS pixel without changing the active camera. */
+    resolveSelectionPoint(pixel: {x: number; y: number}, options: FeatureSelectionOptions = {},
+        activeViewId = this.activeRenderViewId): {view: NormalizedRenderView; pixel: {x: number; y: number}} | null {
+        if (![pixel.x, pixel.y].every(Number.isFinite)) throw new Error('Selection coordinates must be finite');
+        if (options.coordinateSpace !== undefined && !['view', 'canvas'].includes(options.coordinateSpace)) {
+            throw new Error('Selection coordinateSpace must be view or canvas');
+        }
+        const contains = (view: NormalizedRenderView) => pixel.x >= view.viewport.x && pixel.y >= view.viewport.y &&
+            pixel.x < view.viewport.x + view.viewport.width && pixel.y < view.viewport.y + view.viewport.height;
+        const view = options.renderViewId !== undefined ? this.getRenderView(options.renderViewId) :
+            options.coordinateSpace === 'canvas' ? [...this.renderViews].reverse().find(contains) : this.getRenderView(activeViewId);
+        if (!view) return null;
+        const local = options.coordinateSpace === 'canvas' ? {x: pixel.x - view.viewport.x, y: pixel.y - view.viewport.y} : {...pixel};
+        if (local.x < 0 || local.y < 0 || local.x >= view.viewport.width || local.y >= view.viewport.height) return null;
+        return {view, pixel: local};
+    }
     /** Full target dimensions in CSS pixels; origins are top-left. */
     readonly viewport: Required<Viewport>;
     /** Shared geographic/style anchor in degrees, altitude meters, and Tangram zoom. */

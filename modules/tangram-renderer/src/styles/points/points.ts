@@ -408,9 +408,6 @@ Object.assign(Points, {
     },
 
     _preprocess (draw) {
-        if (this.cpu_projection && (draw.collide !== false || (draw.text && draw.text.collide !== false))) {
-            throw new Error('Projected annotations require explicit collide: false');
-        }
         draw.color = StyleParser.createColorPropertyCache(draw.color);
         draw.alpha = StyleParser.createPropertyCache(draw.alpha);
         draw.texture = (draw.texture !== undefined ? draw.texture : this.texture); // optional or default texture
@@ -536,6 +533,17 @@ Object.assign(Points, {
             priority = -1 >>> 0; // default to max priority value if none set
         }
         layout.priority = priority;
+
+        if (this.cpu_projection) {
+            // Keep all candidates until the main thread has the projected camera.
+            layout.projected_collide = layout.collide;
+            layout.collide = false;
+            const identity = feature.id ?? feature.properties?.id;
+            if (typeof identity === 'string' || typeof identity === 'number') {
+                layout.projected_identity = JSON.stringify([context.source, context.layer, this.name, draw.key,
+                    typeof identity, identity]);
+            }
+        }
 
         return layout;
     },
@@ -886,11 +894,9 @@ Object.assign(Points, {
 
     // track mesh data for label on main thread, for additional cross-tile collision/repeat passes
     trackLabel (label, linked, mesh, geom_count/*, context*/) {
-        // Projected annotations explicitly disable collision; retain atlas ranges/topology without planar repeat passes.
-        if (this.cpu_projection) return;
         // track if collision is enabled, or if the label is near enough to the tile edge to
         // necessitate further repeat checking
-        if (label.layout.collide || label.may_repeat_across_tiles) {
+        if (this.cpu_projection || label.layout.collide || label.may_repeat_across_tiles) {
             mesh.labels = mesh.labels || {};
             mesh.labels[label.id] = mesh.labels[label.id] || {
                 container: {

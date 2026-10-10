@@ -4,6 +4,7 @@
 
 import {Matrix4} from '@math.gl/core';
 import {describe, expect, it} from 'vitest';
+import HostFrame from '../../tangram-renderer/src/scene/host_frame';
 import {
   WebXRGlobeView,
   WebXRPresentation,
@@ -17,6 +18,25 @@ import {
 } from '../src/experimental/webxr/index.js';
 
 describe('experimental WebXR geospatial presentation', () => {
+  it('normalizes asymmetric immersive viewports for canvas selection without changing native render rectangles', () => {
+    const presentation = new WebXRPresentation({view: new WebXRGlobeView({id: 'globe'}),
+      viewState: {longitude: 0, latitude: 0, zoom: 3}, mode: 'immersive-vr'});
+    try {
+      const frame = presentation.createFrame({width: 600, height: 500, frameState: {views: [
+        {eye: 'left', index: 0, viewport: [10, 40, 250, 200], viewMatrix: new Matrix4(), projectionMatrix: new Matrix4()},
+        {eye: 'right', index: 1, viewport: [300, 180, 280, 260], viewMatrix: new Matrix4(), projectionMatrix: new Matrix4()}
+      ]}});
+      expect(frame.renderViews.map(eye => eye.viewport.y)).toEqual([40, 180]);
+      const host = HostFrame.from(frame.hostFrame);
+      expect(host.renderViews.map(eye => eye.viewport.y)).toEqual([260, 60]);
+      expect(host.resolveSelectionPoint({x: 320, y: 80}, {coordinateSpace: 'canvas'})).toMatchObject({
+        view: {id: 'right'}, pixel: {x: 20, y: 20}});
+      expect(host.resolveSelectionPoint({x: 20, y: 280}, {coordinateSpace: 'canvas'})).toMatchObject({
+        view: {id: 'left'}, pixel: {x: 10, y: 20}});
+      expect(host.resolveSelectionPoint({x: 20, y: 60}, {coordinateSpace: 'canvas'})).toBeNull();
+    } finally { presentation.finalize(); }
+  });
+
   it.each(['mono', 'stereo-preview'] as const)('forwards shared globe preload policy in %s', mode => {
     const presentation = new WebXRPresentation({view: new WebXRGlobeView({id: 'globe', globePreloadZoom: 2}),
       viewState: {longitude: 0, latitude: 0, zoom: 5}, placement: undefined, mode});

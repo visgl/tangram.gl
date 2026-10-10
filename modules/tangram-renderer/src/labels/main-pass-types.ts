@@ -32,6 +32,8 @@ export interface LabelTile {
     meshes: Record<string, LabelMesh[]>;
     pending_label_meshes: Record<string, LabelMesh[]> | null;
     isProxy(): boolean;
+    /** Whether a proxy style still draws while a child finishes its label meshes. */
+    shouldProxyForStyle?(style: string): boolean;
     swapPendingLabels(): void;
 }
 

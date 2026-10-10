@@ -7,7 +7,7 @@ Copyright (c) vis.gl contributors
 # Experimental projected basemaps
 
 The optional `@vis.gl/tangram-layers/experimental/projected-basemaps` entry renders
-Tangram polygons, raster meshes, meter/pixel roads and noncolliding ground annotations in deck.gl's `OrthographicView`. Workers
+Tangram polygons, raster meshes, meter/pixel roads and ground annotations in deck.gl's `OrthographicView`. Workers
 subdivide the packed tile geometry and project it with math.gl before transferring
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
 
@@ -262,9 +262,10 @@ as EPSG:3857 meters or use the Mercator/globe surface helpers. The scene's
 ## Supported scenes and resource limits
 
 Use self-contained inline scenes and unlit ground `polygons`, `raster` or `lines` styles,
-plus noncolliding `points`/`text` annotations on Point/MultiPoint sources.
-The scene helper rejects imports, mixins, shader injection, extrusion, elevation,
-interactive feature draws and collision-enabled or nonground annotations. Unsupported features fail
+plus screen-collided `points`/`text` annotations on Point/MultiPoint sources.
+The scene helper rejects imports, mixins, shader injection and nonground annotations.
+Surface elevation and diffuse lighting require explicit opt-ins, described below.
+Supported vector draws can be interactive; raster imagery is not feature-selectable. Unsupported features fail
 explicitly rather than rendering partly in the wrong coordinate system.
 
 The worker keeps original packed positions, UVs, ordering and feature IDs in
@@ -500,16 +501,25 @@ This is the portable traffic effect, not unrestricted execution of legacy TRON m
 ## Ground point and text annotations
 
 Point and MultiPoint features can use `points`, attached text, or standalone `text`
-draws. Set `collide: false` explicitly on each point/text draw, including attached
-text. Anchors are CPU-projected once per unique source position; screen-space quads,
+draws. Collision defaults to enabled; set `collide: false` to allow overlapping
+points or text. Anchors are CPU-projected once per unique source position; screen-space quads,
 atlas UVs, offsets and pixel sizes use Tangram's existing GLSL/WGSL paths. Quads are
 not subdivided or reordered. Anchors outside the projection domain hide their quads.
 The example adds a small curated city-marker dataset on both imagery and vectors.
 
-This is annotation support, **not projected label collision**.
-Labels may overlap. Line/polygon labels, curved-road labels, elevated anchors,
-custom shader blocks are rejected. Dense tile-based datasets
-can repeat labels across tile boundaries; prefer curated point sources for now.
+Layout uses conservative rotated-quad screen bounds, padding, and lower-is-higher
+priority. Required point/text pairs appear together; `text.optional: true` allows
+text to disappear while its marker remains visible. Authored repeat groups use
+CSS-pixel spacing. Stereo shares one mask that avoids collisions in either eye.
+Camera changes relayout retained candidates without reloading or rebuilding tiles.
+
+Buffered copies are deduplicated across tiles by source/style/draw/feature identity
+and geographic anchor, allowing two source quantization units of tolerance. Text
+without an ID also uses its string identity; anonymous points are not deduplicated.
+Distinct source IDs, draws, and distant MultiPoint anchors remain independent.
+`collide: false` does not disable cross-tile deduplication or authored repeat rules.
+Line/polygon labels, curved-road labels, elevated anchors, alternate-anchor retries
+on the host, and custom shader blocks remain unsupported.
 
 ## Elevated surfaces and lighting
 
@@ -539,7 +549,7 @@ Elevation does not change source tile coverage or navigation's ground footprint.
 
 ## Next steps
 
-Projected collision, mixed-LOD seam stitching, terrain,
+Mixed-LOD seam stitching, terrain,
 projection morphing and arbitrary projection domains are not implemented by this entry.
 Existing Mercator and GlobeView behavior remains unchanged; FirstPersonView has
 an independent opt-in elevation range for conservative tile selection.
@@ -563,8 +573,12 @@ else console.log(result?.feature);
 
 The layer requests a redraw, but the host must keep rendering while the query is
 pending. Direct renderer hosts use the same `Renderer.getFeatureAt` API. The query
-uses the active render view, so select and render the intended eye before querying
-multi-view scenes; this is not a whole-canvas stereo resolver. The example exposes
+defaults to the active render view. Use `renderViewId` for another eye's local
+pixels, or `coordinateSpace: 'canvas'` to route full-target pixels automatically.
+Each eye owns a lazy selection target and request queue, so simultaneous queries
+cannot sample the last rendered eye's buffer. Results include `renderViewId` and
+preserve the caller's pixel coordinates. The host must draw the requested eye.
+The example exposes
 selection through clickable city markers, separately from the geographic cursor probe.
 
 Selection draws reuse refined/clipped meshes, projected elevation, layer order and
@@ -573,4 +587,4 @@ atlas transparency and line dash masks are respected; the existing GLSL selectio
 silhouette behavior is retained. The fixed 256×256 selection target is an approximate
 screen-space query, not a full-resolution pixel-perfect hit test. Coarse globe fallback
 meshes do not supply feature hits. This API does not implement deck.gl's synchronous
-`pickObject`, terrain ray intersections, projected collision or spatial-controller picking.
+`pickObject`, terrain ray intersections or spatial-controller picking.

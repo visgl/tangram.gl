@@ -191,11 +191,14 @@ Label.nextLabelId = function () {
 Label.epsilon = 0.9999; // tolerance around collision boxes, prevent perfectly adjacent objects from colliding
 
 // Minimal representation of text layout, sent to main thread for label collisions
-export function textLayoutToJSON (layout: LabelLayout): Pick<LabelLayout, 'priority' | 'collide' | 'repeat_distance' | 'repeat_group' | 'buffer' | 'italic'> {
+export function textLayoutToJSON (layout: LabelLayout): SerializedLabel['layout'] {
     return {
         priority: layout.priority,
+        ...(layout.projected_collide === undefined ? {} : {projected_collide: layout.projected_collide}),
+        ...(layout.projected_identity === undefined ? {} : {projected_identity: layout.projected_identity}),
         collide: layout.collide,
-        repeat_distance: layout.repeat_distance,
+        repeat_distance: layout.projected_collide === undefined ? layout.repeat_distance :
+            (layout.repeat_distance ?? 0) / layout.units_per_pixel,
         repeat_group: layout.repeat_group,
         buffer: layout.buffer,
         italic: layout.italic // affects bounding box size

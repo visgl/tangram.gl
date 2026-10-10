@@ -35,7 +35,7 @@ export function createProjectedExampleScene(raster) {
     url: `data:application/json,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features}))}`};
   const annotationLayer = {data: {source: 'annotations'}, draw: {
     points: {order: 10, size: '8px', color: '#ffcd66', collide: false, interactive: true,
-      text: {text_source: 'name', collide: false, anchor: 'top', offset: [0, -6],
+      text: {text_source: 'name', collide: true, optional: true, anchor: 'top', offset: [0, -6],
         font: {family: 'sans-serif', size: '14px', fill: '#ffffff', stroke: {color: '#0b1729', width: 2}}}}
   }};
   return {...scene, sources: {...scene.sources, annotations}, layers: {...scene.layers, annotations: annotationLayer}};

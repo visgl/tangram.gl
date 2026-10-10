@@ -14,7 +14,7 @@ const PI = Math.PI;
  * The shader applies the buffered screen-space shape and samples the luma-owned
  * atlas texture without reading a backend texture handle.
  *
- * @param cpuProjection Use preprojected ground anchors for noncolliding point annotations.
+ * @param cpuProjection Use preprojected ground anchors for screen-laid-out annotations.
  * @param selection Emit the worker selection key for visible atlas pixels.
  * @returns {string} Complete WGSL source for Tangram's text style.
  */

@@ -60,7 +60,7 @@ test.each([
   const scene = {
     gl: {bindFramebuffer: vi.fn(), viewport: vi.fn(), clearColor: vi.fn()},
     device: {type, beginRenderPass: vi.fn(() => renderPass), createCommandEncoder: vi.fn(() => encoder), submit: vi.fn()},
-    selection: {framebuffer: {}, locked: false, read: vi.fn()},
+    selection: {framebuffer: {}, fbo_size: {width: 256, height: 256}, locked: false, read: vi.fn()},
     view: {panning: false, user_input_active: false},
     lights: {}, canvas: {width: 512, height: 320},
     background: {computed_color: [0, 0, 0, 1]},
@@ -74,7 +74,8 @@ test.each([
     expect(scene.selection.read).toHaveBeenCalledTimes(1);
   }
   expect(type === 'webgpu' ? encoder.beginRenderPass : scene.device.beginRenderPass).toHaveBeenCalledWith({
-    framebuffer: scene.selection.framebuffer, clearColor: [0, 0, 0, 1], clearDepth: 1
+    framebuffer: scene.selection.framebuffer, clearColor: [0, 0, 0, 1], clearDepth: 1,
+    parameters: {viewport: [0, 0, 256, 256], scissorRect: [0, 0, 256, 256]}
   });
   expect(renderSelection).toHaveBeenCalledWith('selection_program', {allow_blend: false, renderPass});
   expect(renderPass.end).toHaveBeenCalledTimes(1);
@@ -94,7 +95,7 @@ test.each(['begin', 'end', 'finish'])('selection encoder is released when %s fai
   const encoder = {beginRenderPass: vi.fn(() => {if (phase === 'begin') throw new Error('begin'); return pass;}),
     finish: vi.fn(() => {if (phase === 'finish') throw new Error('finish'); return {};}), destroy: vi.fn()};
   const scene = {device: {type: 'webgpu', createCommandEncoder: () => encoder, submit: vi.fn()},
-    selection: {framebuffer: {}, locked: false, read: vi.fn()}, lights: {},
+    selection: {framebuffer: {}, fbo_size: {width: 256, height: 256}, locked: false, read: vi.fn()}, lights: {},
     view: {panning: false, user_input_active: false}, frame: 2, last_selection_render: 0, last_main_render: 1,
     updateBackground: vi.fn(), renderPass: vi.fn()};
   expect(() => Scene.prototype.render.call(scene, {main: false, selection: true})).toThrow(phase);

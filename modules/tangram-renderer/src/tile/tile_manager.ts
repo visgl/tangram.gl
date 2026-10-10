@@ -10,6 +10,8 @@ import {TileID} from './tile_id';
 import TilePyramid from './tile_pyramid';
 import Geo from '../utils/geo';
 import mainThreadLabelCollisionPass from '../labels/main_pass';
+import {layoutProjectedAnnotations} from '../labels/projected-pass';
+import type HostFrame from '../scene/host_frame';
 import log from '../utils/log';
 import WorkerBroker from '../utils/worker_broker';
 import Task from '../utils/task';
@@ -204,7 +206,28 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         return this.tileset.getStatistics(key => this.isTilePreloaded(key));
     }
 
+    /** Layout annotations before drawing and refresh proxy/style ownership after label swaps. */
+    updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void {
+        const tiles = this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for);
+        const pending = tiles.some(tile => tile.pending_label_meshes !== null);
+        if (layoutProjectedAnnotations(tiles, frame, {clockwiseRotation})) {
+            if (pending) {
+                // Swapped child styles can retire proxies. Relayout before this same frame draws,
+                // otherwise an invisible older proxy keeps suppressing the child's annotations.
+                this.updateTileStates();
+                layoutProjectedAnnotations(this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for),
+                    frame, {clockwiseRotation});
+            }
+            this.style_manager.updateActiveStyles(this.renderable_tiles);
+            this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
+            this.scene.requestRedraw();
+        }
+    }
+
     updateLabels () {
+        // Projected candidates need actual screen cameras, not Mercator zoom/boxes.
+        // Renderer lays them out synchronously across the complete HostFrame before drawing.
+        if (this.view.projection.type === 'projected') return Promise.resolve({});
         if (this.scene.building && !this.scene.building.initial) {
             // log('debug', `Skip label layout due to on-going scene rebuild`);
             return Promise.resolve({});

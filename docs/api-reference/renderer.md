@@ -460,9 +460,21 @@ Invalid arguments and queries after renderer destruction reject the promise.
 `feature` is `unknown` because custom workers may return application-defined payloads;
 built-in workers return ID/properties, source, layer and tile metadata.
 
-The query applies to the active render view and the fixed 256×256 selection target.
-It does not implement deck.gl's synchronous picking, terrain intersection or automatic
-stereo-canvas coordinate routing. WGSL selection respects its point/text alpha and line
+By default the query uses the active render view. Supply `options.renderViewId`
+for another eye's local pixels, or `options.coordinateSpace: 'canvas'` for full-target
+CSS pixels. Canvas queries use half-open viewport rectangles and the last overlapping
+view in `HostFrame.renderViews`, unless an explicit view is supplied. Out-of-bounds
+queries return no hit; unknown view IDs reject. Results report `renderViewId` and
+retain the caller's original `pixel`. Routing does not change the active camera.
+
+Immersive WebXR uses top-origin framebuffer pixels matching the presentation's
+`HostFrame` dimensions. The WebXR adapter converts native bottom-origin rectangles
+for query routing while preserving the native rectangles used for GPU rendering.
+
+Each queried eye owns a lazy fixed 256×256 selection target/queue, released when
+the eye leaves the frame or the scene is destroyed/reloaded. The host must draw
+the requested eye while its query is pending. This is not deck.gl's synchronous
+picking or a terrain intersection. WGSL selection respects its point/text alpha and line
 dash masks; legacy GLSL retains its existing silhouette selection behavior.
 
 Legacy program/resource wrappers and classic non-device selection still contain

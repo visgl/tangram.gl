@@ -18,7 +18,7 @@ import type {
   SceneUpdateOptions,
   Viewport
 } from './types.js';
-export type {FeatureSelectionResult} from './types.js';
+export type {FeatureSelectionResult, FeatureSelectionOptions} from './types.js';
 export type {
   TangramGPUBackend,
   TangramGPUSceneOptions,
@@ -89,7 +89,7 @@ export declare class Scene {
 
 export declare class ClassicWebGLRenderer {
   /** Async interactive-draw selection in active-view CSS pixels; host rendering must continue. */
-  getFeatureAt(pixel: {x: number; y: number}, options?: {radius?: number}): Promise<import('./types').FeatureSelectionResult | undefined>;
+  getFeatureAt(pixel: {x: number; y: number}, options?: import('./types').FeatureSelectionOptions): Promise<import('./types').FeatureSelectionResult | undefined>;
   /** Reproject loaded meshes without replacing workers; rejects failed builds and permits subsequent recovery. */
   setProjectedBasemapProjection(projection: import('./procedures/mesh-projector').ProjectedBasemapOptions): Promise<void>;
   constructor(config: SceneDefinition, options?: RendererOptions);

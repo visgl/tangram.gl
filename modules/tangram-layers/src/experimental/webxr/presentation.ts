@@ -372,6 +372,10 @@ export class WebXRPresentation {
       projection,
       renderViews: renderViews.map(renderView => ({
         ...renderView,
+        // Keep native render-pass rectangles untouched, but HostFrame routes
+        // top-origin canvas pixels (desktop CSS, immersive framebuffer units).
+        viewport: renderView.xrView ? {...renderView.viewport,
+          y: height - (renderView.viewport.y ?? 0) - renderView.viewport.height} : renderView.viewport,
         geographicAnchor: renderView.hostFrame?.view,
         // Immersive globe bounds already describe the union in room space.
         projection: frameState?.views?.length && this.placement.type === 'globe'
