@@ -5,9 +5,9 @@
 import {expect, test} from 'vitest';
 import {build} from 'esbuild';
 import {GLSLShaderAssembler, WGSLShaderAssembler} from '@luma.gl/shadertools';
-import {triplanar, planar, sphereMap} from '../src/shader-modules/index';
+import {triplanar, planar, sphereMap, heightDecode, globeHorizon} from '../src/shader-modules/index';
 
-test.each([triplanar, planar, sphereMap])('$name assembles in both languages without bindings', shaderModule => {
+test.each([triplanar, planar, sphereMap, heightDecode, globeHorizon])('$name assembles in both languages without bindings', shaderModule => {
     const glsl = new GLSLShaderAssembler().assembleGLSLShaderPair({
         platformInfo: {type: 'webgl', shaderLanguage: 'glsl', shaderLanguageVersion: 300, gpu: 'unknown', features: new Set()},
         modules: [shaderModule],
@@ -26,14 +26,14 @@ test.each([triplanar, planar, sphereMap])('$name assembles in both languages wit
     expect(wgsl.getUniforms({})).toEqual({});
 });
 
-test.each(['triplanar', 'planar', 'sphereMap'])('tree shakes unused modules when importing %s', async name => {
+test.each(['triplanar', 'planar', 'sphereMap', 'heightDecode', 'globeHorizon'])('tree shakes unused modules when importing %s', async name => {
     const result = await build({stdin: {
         contents: `import {${name}} from './modules/tangram-renderer/src/shader-modules/index.ts'; console.log(${name});`,
         resolveDir: process.cwd(), loader: 'ts'
     }, bundle: true, write: false, metafile: true, format: 'esm', minify: true});
     const source = result.outputFiles[0].text;
     expect(source).toContain(`${name}_get`);
-    for (const unused of ['hillshade', 'triplanar', 'planar', 'sphereMap'].filter(candidate => candidate !== name)) {
+    for (const unused of ['hillshade', 'triplanar', 'planar', 'sphereMap', 'heightDecode', 'globeHorizon'].filter(candidate => candidate !== name)) {
         expect(source).not.toContain(`name:"${unused}"`);
     }
     if (!result.metafile) {throw new Error('Expected dependency graph');}

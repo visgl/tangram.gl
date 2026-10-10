@@ -6,3 +6,5 @@ export {hillshade} from './hillshade';
 export {triplanar} from './triplanar';
 export {planar} from './planar';
 export {sphereMap} from './sphere-map';
+export {heightDecode} from './height-decode';
+export {globeHorizon} from './globe-horizon';
