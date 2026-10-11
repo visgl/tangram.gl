@@ -16,10 +16,14 @@ export const terrainMarkup = `
         </label>
         <label class="control checkbox-control"><input type="checkbox" data-example="wireframe"> Wireframe</label>
         <label class="control checkbox-control"><input type="checkbox" data-example="skirts" checked> Seam skirts</label>
+        <label class="control checkbox-control"><input type="checkbox" data-example="follow-terrain"> Follow terrain target</label>
+        <label class="control"><span>Target clearance (physical meters)</span>
+          <select data-example="clearance"><option value="100">100 m</option><option value="250" selected>250 m</option><option value="500">500 m</option></select>
+        </label>
         <button type="button" data-example="retry">Retry failed tiles</button>
         <output data-example="terrain-hit" aria-live="polite">Click the terrain to query elevation</output>
         <p class="hint">Drag to pan; Shift-drag to rotate; scroll to zoom. Elevation is not exaggerated.</p>
-        <p class="hint">Projected tile footprint chooses source detail independently of camera zoom, with a deadband to reduce churn. This is a local plane estimate, not certified terrain-error LOD. Up to nine detail tiles use coarse parent fallback and a warm cache. Picking uses indexed physical top triangles, never visual skirts. Basemap draping and globe terrain are not implemented here.</p>
+        <p class="hint">Up to nine detail tiles share stitched 2:1 fallback edges and a hard source/decoded-array cache budget (128 MiB by default). Following adjusts the MapView target, not the eye or an avatar; unloaded terrain holds its previous elevation. Picking and following use physical top triangles, never skirts. Tile detail is a local plane estimate, not certified terrain-error LOD. Basemap draping and globe terrain are not implemented here.</p>
         <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a>
       </aside>
       <div class="canvas-toolbar">

@@ -12,7 +12,8 @@ The [Mercator terrain example](/tangram.gl/examples/deck-terrain) combines
 loaders.gl elevation decoding, deck.gl terrain rendering and Tangram's CPU
 terrain-query surface. It streams a bounded neighborhood of Mapterhorn Terrarium
 tiles at physical scale. It is **not** a terrain-enabled Tangram scene: vector
-basemap draping, globe terrain and ground-following are deferred.
+basemap draping and globe terrain are deferred. Opt-in target following is available
+in this bounded Mercator example; it is not first-person collision physics.
 
 ## Ownership and coordinates
 
@@ -44,22 +45,41 @@ elevation, including occlusion by nearer triangles.
 
 The source grid uses pixel-center registration. The display mesh resamples those
 physical samples at explicit boundary nodes instead of using the loader's
-replicated final row/column. Touching, same-resolution tiles average shared-edge
-heights and compute the same physical normals. Adaptive interior topology is
-retained; full-resolution boundary nodes prevent same-LOD T-junctions. This
+replicated final row/column. Touching tiles average shared-edge heights and compute
+physical normals with the finest spacing touching each node. Adaptive interior
+topology is retained. Same-LOD and 2:1 parent/detail boundaries use the union of
+both tiles' boundary nodes, including finer half-steps on the coarse side. Shared
+nodes have identical heights and normals, and participate in the physical top
+triangles, not just visual walls. This
 reconstruction is not a certified post-reconstruction simplification-error bound.
 
-Optional 250 m visual skirts cover incomplete and mixed-LOD boundaries. They are
-excluded from the physical query mesh. Skirts are a seam treatment, not complete
-mixed-LOD stitching or terrain-aware basemap draping.
+Optional 250 m visual skirts cover incomplete outer boundaries. They are excluded
+from physical queries and following. The stitcher accepts adjacent, non-overlapping
+footprints with equal sample dimensions and datum, at ratios 1:1 or 2:1. Larger
+ratios and overlapping parents reject explicitly. No-data remains a hole on both
+sides; skirts do not turn missing data into a physical surface. Antimeridian seams
+and arbitrary terrain hierarchies are not certified.
 
 ## Streaming and ownership
 
 The example uses Tangram's shared `TileBuildQueue`, `TileResidency` and
 `TileCachePolicy`, with an example-local fetch/decode adapter. Defaults are nine
 selected detail tiles, their immediate parents, two simultaneous jobs, and an
-off-screen cache of 24 records / 32 MiB. Selected/fallback resources are protected
-separately from that off-screen budget; the total is not a hard 32 MiB cap.
+off-screen cache of 24 records / 32 MiB. A separate **128 MiB hard resident cache
+cap** counts compressed bytes and unique backing buffers within each record's
+decoded grid, mesh attributes and indices, including selected/fallback records.
+Admission evicts cold LRU records before publishing new bytes or topology. If
+protected records would exceed the cap, admission fails explicitly; a previously
+completed mesh and coarse coverage are retained. Retry is manual, not a request loop.
+`mountTerrainExample(..., {maxResidentBytes})` can lower that cap. The status shows
+used and allowed decimal MB.
+
+This is a retained **cache-array** cap, not a browser-process or GPU-memory limit.
+Worker intermediates, concurrent decode results before admission, reconstructed
+draw/query geometry, query indexes and GPU allocations are separate. Their scope
+is bounded by image dimensions, job concurrency and the selected tile window;
+whole-pipeline memory admission remains future work. Shared backing buffers across
+different records are counted conservatively rather than discounted.
 Images are limited to 8 MiB compressed and 1024×1024 power-of-two pixels.
 
 Parents load first. A parent stays visible until every selected child in its
@@ -90,6 +110,20 @@ Changing mesh detail or neighbor reconstruction replaces the query geometry. The
 legacy pseudo-meter height convention rebuilds the one retained index when its
 scale changes. CPU `TerrainMeshSurface` queries also use the shared bounds index;
 ray segments, original triangle IDs, physical heights and holes are preserved.
+
+## Ground-following target
+
+Enable **Follow terrain target** to set MapView's geographic target elevation to
+the highest loaded top-triangle height plus the selected physical-meter clearance.
+Navigation, new decoded tiles and clearance changes recompute it from the same
+triangles used by physical queries. No-data or an unloaded target holds the last
+elevation and reports that it is waiting; it never substitutes zero. Disabling
+following restores the last freely navigated target height. Device changes retain
+the controlled view state and cached terrain.
+
+Following moves the **MapView target**, not the actual perspective eye. It does not
+guarantee eye clearance, prevent collisions, move a FirstPersonView avatar, or
+convert vertical datums. Those require a separate navigation/physics contract.
 
 ## Source boundary
 
@@ -130,8 +164,10 @@ Mapterhorn or a CDN.
 Decoding runs in a packaged same-origin module worker. Inside that owned worker,
 `core.worker: false` avoids nested/CDN workers. Tests compare worker and local
 outputs, cancellation, warm cache, parent fallback, shared edges and physical
-queries. Certified pixel-error LOD, exact mixed-detail stitching, basemap draping,
-globe terrain and ground-following remain follow-ups.
+queries. Tests also cover 2:1 edge topology/heights/normals without skirts, mixed-detail
+no-data, resident admission and atomic replacement, opt-in following and missing
+surface behavior. Both GPU backends draw a coarse/fine boundary without skirts and
+check physical anchor clearance. Required tests remain hermetic.
 Image decoding disables color-space conversion and alpha premultiplication:
 RGB bytes encode data, not display colors.
 
@@ -140,3 +176,13 @@ The normal renderer and layer entries are unchanged. For renderer-owned terrain,
 retain the shared data contract and put deck-specific mesh adapters in
 `tangram-layers`. TerrainExtension integration must account for Tangram's custom
 render pass; attaching an extension alone does not make the basemap drape.
+
+## Bounded phase acceptance and deferred work
+
+This phase completes the local Mercator reference's streamed source boundary,
+warm topology changes, indexed queries, 2:1 fallback stitching, hard resident cache
+admission and opt-in target following. It does **not** complete the whole terrain
+or WebXR roadmap. Next larger features remain certified pixel-error LOD, draping
+Tangram basemap geometry, globe elevation, whole-pipeline/GPU memory admission,
+first-person terrain collision/occlusion and native headset validation. None is
+implied by this example's successful rendering or CPU queries.

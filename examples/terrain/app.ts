@@ -11,7 +11,8 @@ import {terrainMarkup} from './view';
 import {decodeTerrainInWorker} from './worker-client';
 import {selectTerrainTiles, getTerrainTileKey, getTerrainTileBounds} from './tile-selection';
 import {TerrainTileset} from './terrain-tileset';
-import {buildTerrainRenderMesh, type TerrainRenderMesh} from './terrain-mesh';
+import {buildTerrainRenderMesh, terrainGridsTouch, type TerrainRenderMesh} from './terrain-mesh';
+import {sampleTerrainAnchor} from './ground-following';
 import {selectTerrainDetail} from './terrain-detail';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';
 
@@ -35,10 +36,13 @@ export function mountTerrainExample(host: HTMLElement, options: {
   maxVisibleTiles?: number;
   /** One immutable Terrarium source per mount; bytes and attribution never mix across sources. */
   source?: TerrainImageSource;
+  /** Hard source/decoded-array cache cap; draw/query/GPU allocations are separate. */
+  maxResidentBytes?: number;
 }): TerrainExample {
   const workerUrl = new URL(options.workerUrl, location.href).href;
   if (new URL(workerUrl).origin !== location.origin) throw new Error('Terrain worker must be same-origin');
   if (options.maxVisibleTiles !== undefined && (!Number.isSafeInteger(options.maxVisibleTiles) || options.maxVisibleTiles < 1 || options.maxVisibleTiles > 25)) throw new Error('Invalid terrain visible tile budget');
+  if (options.maxResidentBytes !== undefined && (!Number.isSafeInteger(options.maxResidentBytes) || options.maxResidentBytes < 0)) throw new Error('Invalid terrain resident byte budget');
   const source = options.source ?? createMapterhornTerrainSource();
   validateTerrainImageSource(source);
   const root = document.createElement('div');
@@ -57,6 +61,8 @@ export function mountTerrainExample(host: HTMLElement, options: {
   const wireframe = element<HTMLInputElement>('wireframe');
   const skirts = element<HTMLInputElement>('skirts');
   const detail = element<HTMLSelectElement>('tile-detail');
+  const follow = element<HTMLInputElement>('follow-terrain');
+  const clearance = element<HTMLSelectElement>('clearance');
   const container = element<HTMLDivElement>('map');
   const attribution = element<HTMLParagraphElement>('attribution');
   attribution.replaceChildren(document.createTextNode('Elevation: '));
@@ -66,6 +72,8 @@ export function mountTerrainExample(host: HTMLElement, options: {
   });
   const bounds = getTerrainTileBounds(11, 1068, 728);
   let camera: MapViewState = {longitude: (bounds[0] + bounds[2]) / 2, latitude: (bounds[1] + bounds[3]) / 2, position: [0, 0, 2500], zoom: 11.7, pitch: 60, bearing: -25};
+  let freeAnchorHeight = 2500;
+  let anchorAvailable = false;
   let deviceType = parameters.get('device') === 'webgl' ? 'webgl' : parameters.get('device') === 'webgpu' || navigator.gpu ? 'webgpu' : 'webgl';
   const abort = new AbortController();
   let disposed = false;
@@ -88,12 +96,21 @@ export function mountTerrainExample(host: HTMLElement, options: {
   function schedule(): void {
     if (!disposed && !animationFrame) animationFrame = requestAnimationFrame(() => {animationFrame = 0; updateSelection(); updateLayers();});
   }
+  /** Follow the MapView target, not an avatar; missing terrain retains the previous elevation. */
+  function updateAnchor(): boolean {
+    if (!follow.checked) {anchorAvailable = false; return false;}
+    const height = sampleTerrainAnchor([...geometry.values()].map(tile => tile.mesh.loaded), [camera.longitude, camera.latitude], Number(clearance.value));
+    anchorAvailable = height !== null;
+    if (height === null || Math.abs((camera.position?.[2] ?? 0) - height) < 1e-4) return false;
+    camera = {...camera, position: [camera.position?.[0] ?? 0, camera.position?.[1] ?? 0, height]};
+    return true;
+  }
   function createDeck(): Deck<MapView> {
     return new Deck({
       parent: container, width: '100%', height: '100%', useDevicePixels: true,
       views: new MapView({id: 'terrain', controller: {dragRotate: true, touchRotate: true}}),
       viewState: camera,
-      onViewStateChange: ({viewState}) => {camera = viewState; deck.setProps({viewState: camera}); schedule();},
+      onViewStateChange: ({viewState}) => {camera = {...viewState, position: viewState.position ?? camera.position}; if (!follow.checked) freeAnchorHeight = camera.position?.[2] ?? 0; updateAnchor(); deck.setProps({viewState: camera}); schedule();},
       deviceProps: deviceType === 'webgpu' ? {type: 'webgpu', adapters: [webgpuAdapter]} : {type: 'webgl'},
       effects: [new LightingEffect({ambient: new AmbientLight({intensity: 1}), sun: new DirectionalLight({direction: [-1, -2, -3], intensity: 2})})],
       onError: exception => {if (!disposed) status.textContent = `Rendering error: ${exception.message}`;},
@@ -130,7 +147,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     for (const tile of drawable) {
       if (!tile.data) continue;
       const data = tile.data;
-      const neighbors = drawable.filter(neighbor => neighbor.key !== tile.key && neighbor.coordinate.zoom === tile.coordinate.zoom && Math.abs(neighbor.coordinate.column - tile.coordinate.column) <= 1 && Math.abs(neighbor.coordinate.row - tile.coordinate.row) <= 1).sort((first, second) => first.coordinate.row - second.coordinate.row || first.coordinate.column - second.coordinate.column).flatMap(neighbor => neighbor.data ? [neighbor.data.grid] : []);
+      const neighbors = drawable.filter(neighbor => neighbor.key !== tile.key && neighbor.data && terrainGridsTouch(data.grid, neighbor.data.grid)).sort((first, second) => first.key.localeCompare(second.key)).flatMap(neighbor => neighbor.data ? [neighbor.data.grid] : []);
       const meshSignature = `${payloadId(data)}:${neighbors.map(payloadId).join(',')}:${skirts.checked}`;
       let cached = geometry.get(tile.key);
       if (!cached || cached.signature !== meshSignature) {
@@ -142,14 +159,15 @@ export function mountTerrainExample(host: HTMLElement, options: {
       triangles += (mesh.indices?.value.length ?? 0) / 3;
       layers.push(new TerrainLayer({id: `terrain-${tile.key}`, elevationData: `terrain://${tile.key}?revision=${cached.revision}`, bounds: cached.bounds, wireframe: wireframe.checked, color: [145, 178, 150], material: {ambient: 0.3, diffuse: 0.8, shininess: 16}, fetch: async () => mesh}));
     }
-    deck.setProps({layers});
+    if (updateAnchor()) schedule();
+    deck.setProps({layers, viewState: camera});
     const statistics = tileset.getStatistics();
-    status.textContent = `${deviceType === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · ${triangles} triangles · data z${detailZoom}${detailLimited ? ' (source/footprint limit)' : ''} · ${statistics.active} active / ${statistics.queued} queued · ${(statistics.bytes / 1000000).toFixed(1)} MB cached${statistics.failed ? ` · ${statistics.failed} failed — retry available` : ''}`;
+    status.textContent = `${deviceType === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · ${triangles} triangles · data z${detailZoom}${detailLimited ? ' (source/footprint limit)' : ''} · ${statistics.active} active / ${statistics.queued} queued · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(1)} MB cached${follow.checked ? ` · terrain anchor ${anchorAvailable ? `${camera.position?.[2].toFixed(1)} m` : 'waiting — height held'}` : ''}${statistics.failed ? ` · ${statistics.failed} failed — retry available` : ''}`;
   }
   tileset = new TerrainTileset({
     fetch: (tile, signal) => source.fetchTile(tile, signal), minZoom: source.minZoom, maxZoom: source.maxZoom,
     decode: (bytes, tile, meshMaxError, signal) => decodeTerrainInWorker(workerUrl, bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), meshMaxError, signal, source.noData),
-    onChange: schedule
+    onChange: schedule, maxResidentBytes: options.maxResidentBytes
   });
   const observer = new ResizeObserver(() => {if (!disposed) {deck.setProps({width: container.clientWidth, height: container.clientHeight}); schedule();}});
   observer.observe(container);
@@ -157,6 +175,11 @@ export function mountTerrainExample(host: HTMLElement, options: {
   wireframe.addEventListener('change', schedule, {signal: abort.signal});
   skirts.addEventListener('change', schedule, {signal: abort.signal});
   detail.addEventListener('change', () => {detailZoom = undefined; updateSelection(); schedule();}, {signal: abort.signal});
+  follow.addEventListener('change', () => {
+    if (!follow.checked) camera = {...camera, position: [camera.position?.[0] ?? 0, camera.position?.[1] ?? 0, freeAnchorHeight]};
+    updateAnchor(); deck.setProps({viewState: camera}); schedule();
+  }, {signal: abort.signal});
+  clearance.addEventListener('change', () => {updateAnchor(); deck.setProps({viewState: camera}); schedule();}, {signal: abort.signal});
   element('retry').addEventListener('click', () => tileset?.retry(), {signal: abort.signal});
   const destroyCard = createCollapsibleInfoCard(element('controls'));
   function updateDeviceTabs(): void {

@@ -36,6 +36,8 @@ export interface TerrainTilesetOptions {
     maxCachedTiles?: number;
     /** Off-screen byte budget, including source and decoded arrays. */
     maxCachedBytes?: number;
+    /** Hard retained source/decoded-array limit, including visible and fallback records. */
+    maxResidentBytes?: number;
     /** Supported source zoom interval; protects parent fallback from unsupported URLs. */
     minZoom?: number;
     maxZoom?: number;
@@ -65,7 +67,8 @@ export class TerrainTileset {
     constructor(private readonly options: TerrainTilesetOptions) {
         const limit = options.maxRequests ?? 2;
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 4 || (options.maxCachedTiles !== undefined && (!Number.isSafeInteger(options.maxCachedTiles) || options.maxCachedTiles < 0)) ||
-            (options.maxCachedBytes !== undefined && (!Number.isFinite(options.maxCachedBytes) || options.maxCachedBytes < 0))) throw new Error('Invalid terrain resource budget');
+            (options.maxCachedBytes !== undefined && (!Number.isSafeInteger(options.maxCachedBytes) || options.maxCachedBytes < 0)) ||
+            (options.maxResidentBytes !== undefined && (!Number.isSafeInteger(options.maxResidentBytes) || options.maxResidentBytes < 0))) throw new Error('Invalid terrain resource budget');
         const minimum = options.minZoom ?? 0, maximum = options.maxZoom ?? 12;
         if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum < 0 || maximum > 12 || minimum > maximum) throw new Error('Invalid terrain source domain');
         this.queue.setLimit(limit);
@@ -133,10 +136,10 @@ export class TerrainTileset {
     }
 
     /** Detached queue, error and byte counts for user-visible resource diagnostics. */
-    getStatistics(): {active: number; queued: number; resident: number; bytes: number; failed: number} {
+    getStatistics(): {active: number; queued: number; resident: number; bytes: number; byteLimit: number; failed: number} {
         const counts = this.queue.getCounts();
         return {active: counts.activeBuilds, queued: counts.queuedBuilds, resident: this.records.size,
-            bytes: [...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record), 0), failed: [...this.records.values()].filter(record => record.error).length};
+            bytes: [...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record), 0), byteLimit: this.options.maxResidentBytes ?? 128 * 1024 * 1024, failed: [...this.records.values()].filter(record => record.error).length};
     }
 
     /** Cancel actual work before releasing queue/cache metadata; safe to repeat. */
@@ -155,9 +158,11 @@ export class TerrainTileset {
         try {
             const bytes = record.bytes ?? await this.options.fetch(record.coordinate, controller.signal);
             if (controller.signal.aborted || this.disposed) return;
+            this.admit({...record, bytes});
             record.bytes = bytes;
             const data = await this.options.decode(bytes, record.coordinate, meshMaxError, controller.signal);
             if (this.disposed || controller.signal.aborted || this.active.get(record.key)?.token !== token) return;
+            this.admit({...record, data});
             record.data = data; record.meshMaxError = meshMaxError; record.error = undefined;
         } catch (error) {
             if (!this.disposed && !controller.signal.aborted && this.active.get(record.key)?.token === token) record.error = error instanceof Error ? error.message : String(error);
@@ -191,6 +196,20 @@ export class TerrainTileset {
             if (record.data.mesh.indices) buffers.add(record.data.mesh.indices.value.buffer);
         }
         return [...buffers].reduce((sum, buffer) => sum + buffer.byteLength, 0);
+    }
+
+    /** Admit atomically: evict cold arrays first, never exceed the cap or discard a warm fallback. */
+    private admit(candidate: TerrainTileRecord): void {
+        const records = [...this.records.values()].map(record => {
+            const retained = record.key === candidate.key ? candidate : record;
+            return {key: record.key, bytes: this.getRecordBytes(retained), protected: record.key === candidate.key || this.residency.isProtected(record.key) || this.queue.has(record.key)};
+        });
+        const protectedBytes = records.filter(record => record.protected).reduce((sum, record) => sum + record.bytes, 0);
+        const limit = this.options.maxResidentBytes ?? 128 * 1024 * 1024;
+        if (protectedBytes > limit) throw new Error(`Terrain retained-array budget exceeded (${protectedBytes} > ${limit} bytes); use coarser detail or mesh error`);
+        for (const key of this.cache.selectEvictions(records, {maxCachedTiles: this.options.maxCachedTiles ?? 24, maxCachedBytes: Math.min(this.options.maxCachedBytes ?? 32 * 1024 * 1024, limit - protectedBytes)})) {
+            this.records.delete(key); this.cache.forget(key);
+        }
     }
 
     /** Only release off-screen, inactive records; protected memory is bounded by selection. */

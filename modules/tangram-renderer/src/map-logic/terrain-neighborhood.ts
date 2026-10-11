@@ -4,7 +4,7 @@
 
 import {sampleTerrainHeight, type TerrainHeightGrid} from './terrain-data';
 
-/** Sample touching, same-resolution footprints with a deterministic shared-edge average. */
+/** Sample touching footprints with shared-edge averaging; callers validate datum and topology. */
 export function sampleTerrainNeighborhood(grids: readonly TerrainHeightGrid[], position: readonly [number, number]): number | null {
     let sum = 0, count = 0;
     for (const grid of grids) {

@@ -95,12 +95,71 @@ test('z0 needs no fallback and unchanged selection does not interrupt an active 
 
 test('invalid budgets and noncanonical or unbounded selections reject before scheduling', () => {
   const options = {fetch: async () => new ArrayBuffer(1), decode: async () => createTerrainStreamFixture(), onChange() {}};
-  for (const budget of [{maxRequests: 0}, {maxRequests: 5}, {maxCachedTiles: -1}, {maxCachedBytes: NaN}]) expect(() => new TerrainTileset({...options, ...budget})).toThrow();
+  for (const budget of [{maxRequests: 0}, {maxRequests: 5}, {maxCachedTiles: -1}, {maxCachedBytes: NaN}, {maxResidentBytes: -1}, {maxResidentBytes: Infinity}, {maxResidentBytes: 1.5}]) expect(() => new TerrainTileset({...options, ...budget})).toThrow();
   const tileset = new TerrainTileset(options);
   for (const coordinate of [{...child, column: -1}, {...child, row: 4}, {...child, zoom: NaN}, {...child, zoom: 13}]) expect(() => tileset.update([coordinate])).toThrow();
   expect(() => tileset.update([child, child])).toThrow();
   expect(() => tileset.update(Array(26).fill(child))).toThrow();
   expect(() => tileset.update([child], -1)).toThrow(); tileset.destroy();
+});
+
+test('hard resident budget includes protected children and preserves coarse coverage on admission failure', async () => {
+  const snapshots: number[] = [];
+  const tileset = new TerrainTileset({fetch: async () => new ArrayBuffer(8), decode: async () => createTerrainStreamFixture(), maxRequests: 1, maxResidentBytes: 200, onChange() {snapshots.push(tileset.getStatistics().bytes);}});
+  try {
+    tileset.update([child]); await tileset.waitForIdle();
+    expect(tileset.getStatistics()).toMatchObject({bytes: 140, byteLimit: 200, failed: 1});
+    expect(tileset.getDrawableTiles().map(record => record.key)).toEqual(['1/1/1']);
+    expect(tileset.records.get('2/2/2')?.error).toContain('retained-array budget');
+    expect(snapshots.every(bytes => bytes <= 200)).toBe(true);
+  } finally {tileset.destroy();}
+});
+
+test('oversized downloads do not enter the cache or start decoding', async () => {
+  const decode = vi.fn(async () => createTerrainStreamFixture());
+  const tileset = new TerrainTileset({fetch: async () => new ArrayBuffer(33), decode, maxResidentBytes: 32, onChange() {}});
+  try {
+    tileset.update([{zoom: 0, column: 0, row: 0}]); await tileset.waitForIdle();
+    expect(decode).not.toHaveBeenCalled();
+    expect(tileset.getStatistics()).toMatchObject({bytes: 0, failed: 1});
+    expect(tileset.records.get('0/0/0')?.bytes).toBeUndefined();
+  } finally {tileset.destroy();}
+});
+
+test('atomic topology replacement preserves warm bytes and previous mesh when the hard budget rejects it', async () => {
+  let oversized = false;
+  const fetch = vi.fn(async () => new ArrayBuffer(8));
+  const decode = vi.fn(async () => {
+    const data = createTerrainStreamFixture();
+    if (oversized) data.mesh.attributes.POSITION.value = new Float32Array(128);
+    return data;
+  });
+  const tileset = new TerrainTileset({fetch, decode, minZoom: 2, maxResidentBytes: 132, onChange() {}});
+  try {
+    tileset.update([child]); await tileset.waitForIdle();
+    const previous = tileset.records.get('2/2/2')?.data;
+    oversized = true; tileset.update([child], 5); await tileset.waitForIdle();
+    expect(tileset.getStatistics()).toMatchObject({bytes: 132, failed: 1});
+    expect(tileset.records.get('2/2/2')?.data).toBe(previous);
+    expect(tileset.records.get('2/2/2')?.meshMaxError).toBe(20);
+    oversized = false; tileset.retry(); await tileset.waitForIdle();
+    expect(fetch).toHaveBeenCalledOnce(); expect(decode).toHaveBeenCalledTimes(3);
+    expect(tileset.records.get('2/2/2')?.meshMaxError).toBe(5);
+    expect(tileset.getStatistics()).toMatchObject({bytes: 132, failed: 0});
+  } finally {tileset.destroy();}
+});
+
+test('resident admission evicts cold LRU buffers before rejecting protected resources', async () => {
+  const fetch = vi.fn(async () => new ArrayBuffer(8));
+  const tileset = new TerrainTileset({fetch, decode: async () => createTerrainStreamFixture(), minZoom: 2, maxResidentBytes: 132, onChange() {}});
+  try {
+    tileset.update([child]); await tileset.waitForIdle();
+    tileset.update([sibling]); await tileset.waitForIdle();
+    expect(tileset.records.has('2/2/2')).toBe(false);
+    expect(tileset.getStatistics()).toMatchObject({bytes: 132, resident: 1, failed: 0});
+    expect(tileset.getDrawableTiles().map(record => record.key)).toEqual(['2/3/2']);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {tileset.destroy();}
 });
 
 test.each([{zoom: 30, longitude: 181, latitude: 90}, {zoom: -1, longitude: -181, latitude: -90}, {zoom: 8, longitude: 179.9, latitude: 0}])('selection is bounded, canonical and provider-limited: %j', camera => {
