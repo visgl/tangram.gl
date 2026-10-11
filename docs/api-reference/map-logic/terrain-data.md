@@ -52,3 +52,16 @@ ignore zero-weight invalid neighbors.
 This is a data lookup, not a simplified mesh query. Use TerrainMeshSurface to
 intersect the actual rendered triangles. See [terrain integration](../../developer-guide/terrain.md)
 for the loaders.gl/deck.gl reference and remaining limitations.
+
+## Neighbor reconstruction
+
+`sampleTerrainNeighborhood(grids, [x, y])` averages all touching footprints at a
+shared boundary, independent of tile order. A contributing hole returns `null`;
+it is not filled from another tile. Supply same-resolution grids in EPSG:3857
+meters, with compatible vertical datums.
+
+`resampleTerrainNodes(grid, neighbors)` reconstructs a detached `grid-node` field.
+Pixel-center inputs produce `(width + 1) × (height + 1)` explicit nodes; node
+inputs retain their dimensions. Neighbor dimensions, extents and datums must
+match. Invalid nodes retain a zero validity byte and NaN height. These helpers
+define physical data continuity, not mesh simplification or mixed-LOD stitching.

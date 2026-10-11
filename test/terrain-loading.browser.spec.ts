@@ -7,6 +7,8 @@ import {parseTerrainTile, getTerrainTileBounds, createTerrainQuerySurface, type 
 import {createTerrainFixture} from './terrain-fixture';
 import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
 import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';
+import {decodeTerrainTile} from '../examples/terrain/decode-terrain';
+import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';
 
 let loaded: LoadedTerrain;
 beforeAll(async () => {loaded = await parseTerrainTile((await createTerrainFixture()).bytes, [0, 0, 0.01, 0.01], 0);});
@@ -82,4 +84,18 @@ test('high-latitude image rows follow Mercator Y rather than linear latitude', a
     expect(checkedInterior).toBe(true);
     expect(terrain.mesh.header?.boundingBox).toEqual([[0, 40, 800.25], [10, 80, 2400.25]]);
     expect(JSON.parse(terrain.mesh.schema.metadata.boundingBox)).toEqual(terrain.mesh.header?.boundingBox);
+});
+
+test('transparent samples are holes only under an explicitly selected validity policy', async () => {
+    const canvas = document.createElement('canvas'); canvas.width = canvas.height = 4;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Missing image context');
+    context.fillStyle = 'rgb(128, 1, 0)'; context.fillRect(0, 0, 4, 4); context.clearRect(1, 1, 1, 1);
+    const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG failed')), 'image/png'));
+    const bytes = await blob.arrayBuffer();
+    const opaque = await decodeTerrainTile(bytes, [0, 0, 0.01, 0.01]);
+    const masked = await decodeTerrainTile(bytes, [0, 0, 0.01, 0.01], 20, 'alpha-zero');
+    expect(opaque.grid.valid[5]).toBe(1); expect(masked.grid.valid[5]).toBe(0); expect(masked.grid.heights[5]).toBeNaN();
+    expect(buildTerrainRenderMesh(masked, [], 0).loaded.mesh.indices!.value.length).toBeGreaterThan(0);
+    await expect(decodeTerrainTile(new ArrayBuffer(8 * 1024 * 1024 + 1), [0, 0, 1, 1])).rejects.toThrow('byte limit');
 });

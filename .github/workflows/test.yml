@@ -55,6 +55,7 @@ jobs:
           test -f website/build/examples/deck-terrain.html
           test -n "$(find website/build/assets/js -name 'example-runtime-shared.*.js' -print -quit)"
           test -f website/build/examples/terrain/app.js
+          test -f website/build/examples/terrain/terrain-worker.js
           test -f website/build/modules/tangram-renderer/dist/map-logic.js
           test -f website/build/examples/deck.html
           test -f website/build/examples/classic.html

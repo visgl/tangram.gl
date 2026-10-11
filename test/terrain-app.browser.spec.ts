@@ -6,9 +6,10 @@ import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {mountTerrainExample} from '../examples/terrain/app';
 
 const mocks = vi.hoisted(() => ({construct: vi.fn(), finalize: vi.fn(), setProps: vi.fn(),
-    viewport: {id: 'terrain'}, pick: vi.fn(() => ({coordinate: [7, 46, 1234], triangleIndex: 1})),
-    parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}}}))}));
-vi.mock('@deck.gl/core', () => ({
+    viewport: {id: 'terrain'}, pick: vi.fn(() => ({coordinate: [7, 46, 1234], triangleIndex: 1, rayParameter: 0.5})),
+    parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}, attributes: {}}, grid: {width: 2, height: 2, bounds: [0, 0, 2, 2], heights: new Float32Array(4), valid: new Uint8Array(4)}}))}));
+vi.mock('@deck.gl/core', async importOriginal => ({
+    WebMercatorViewport: (await importOriginal<typeof import('@deck.gl/core')>()).WebMercatorViewport,
     Deck: class {
         constructor(properties: unknown) {mocks.construct(properties);}
         finalize = mocks.finalize; setProps = mocks.setProps;
@@ -18,7 +19,9 @@ vi.mock('@deck.gl/core', () => ({
 }));
 vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
-vi.mock('../examples/terrain/load-terrain', () => ({getTerrainTileBounds: () => [0, 0, 1, 1], parseTerrainTile: mocks.parse}));
+vi.mock('../examples/terrain/load-terrain', () => ({getTerrainTileBounds: () => [0, 0, 1, 1]}));
+vi.mock('../examples/terrain/worker-client', () => ({decodeTerrainInWorker: mocks.parse}));
+vi.mock('../examples/terrain/terrain-mesh', () => ({buildTerrainRenderMesh: (data: object) => ({loaded: data, renderMesh: 'mesh' in data ? data.mesh : null})}));
 vi.mock('../examples/terrain/picking', () => ({pickTerrainSurface: mocks.pick}));
 
 const hosts: HTMLElement[] = [];
@@ -28,7 +31,7 @@ function mount() {
     host.style.width = '512px'; host.style.height = '320px';
     document.body.append(host); hosts.push(host);
     const parametersChanged = vi.fn();
-    const instance = mountTerrainExample(host, {parameters: new URLSearchParams('device=webgl'), onParametersChange: parametersChanged});
+    const instance = mountTerrainExample(host, {workerUrl: `${location.origin}/terrain-worker.js`, maxVisibleTiles: 1, parameters: new URLSearchParams('device=webgl'), onParametersChange: parametersChanged});
     instances.push(instance);
     return {host, instance, parametersChanged};
 }
@@ -42,7 +45,7 @@ test('importing the runtime does not start a browser example', () => {
 test('early settings, click picking and device changes preserve cached bytes without navigation', async () => {
     let completeDownload: (response: Response) => void = () => {throw new Error('Download not initialized');};
     const download = new Promise<Response>(resolve => {completeDownload = resolve;});
-    const fetchMock = vi.fn(() => download);
+    const fetchMock = vi.fn(() => download.then(response => response.clone()));
     vi.stubGlobal('fetch', fetchMock);
     const {host, instance, parametersChanged} = mount();
     const selector = host.querySelector<HTMLSelectElement>('[data-example="mesh-error"]')!;
@@ -56,18 +59,20 @@ test('early settings, click picking and device changes preserve cached bytes wit
     properties.onClick({x: 100, y: 80});
     expect(mocks.pick).toHaveBeenCalledWith(mocks.viewport, expect.any(Object), [100, 80]);
     expect(host.querySelector('[data-example="terrain-hit"]')!.textContent).toContain('1234.0 m (triangle 1)');
-    expect(mocks.parse).toHaveBeenCalledWith(expect.any(ArrayBuffer), [0, 0, 1, 1], 5);
+    expect(mocks.parse).toHaveBeenCalledWith(expect.stringContaining('terrain-worker.js'), expect.any(ArrayBuffer), [0, 0, 1, 1], 5, expect.any(AbortSignal));
+    const downloads = fetchMock.mock.calls.length;
+    const decodes = mocks.parse.mock.calls.length;
     host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
     expect(mocks.construct).toHaveBeenCalledTimes(2);
     expect(host.querySelector('.is-active')?.getAttribute('data-device-type')).toBe('webgpu');
     expect(parametersChanged.mock.calls[0][0].get('device')).toBe('webgpu');
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(mocks.parse).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(downloads);
+    expect(mocks.parse).toHaveBeenCalledTimes(decodes);
     instance.destroy(); instance.destroy();
     expect(mocks.finalize).toHaveBeenCalledTimes(2);
     expect(host.children).toHaveLength(0);
     selector.dispatchEvent(new Event('change'));
-    expect(mocks.parse).toHaveBeenCalledOnce();
+    expect(mocks.parse).toHaveBeenCalledTimes(decodes);
 });
 
 test('navigation aborts pending downloads and prevents late replies reviving removed examples', async () => {

@@ -12,9 +12,11 @@ export const terrainMarkup = `
           <select data-example="mesh-error"><option value="5">5 m</option><option value="20" selected>20 m</option><option value="50">50 m</option></select>
         </label>
         <label class="control checkbox-control"><input type="checkbox" data-example="wireframe"> Wireframe</label>
+        <label class="control checkbox-control"><input type="checkbox" data-example="skirts" checked> Seam skirts</label>
+        <button type="button" data-example="retry">Retry failed tiles</button>
         <output data-example="terrain-hit" aria-live="polite">Click the terrain to query elevation</output>
         <p class="hint">Drag to pan; Shift-drag to rotate; scroll to zoom. Elevation is not exaggerated.</p>
-        <p class="hint">Experimental reference: loaders.gl decodes and triangulates one Mapterhorn tile; deck.gl renders it. Tangram supplies the shared height contract and terrain query surface. Basemap draping, tiled terrain and globe terrain are not implemented here.</p>
+        <p class="hint">Experimental streaming: up to nine visible Mapterhorn tiles, coarse parent fallback and warm cache. Local workers decode with loaders.gl; deck.gl renders physical heights. Shared edges and visual skirts reduce seams; skirts never affect elevation queries. Basemap draping and globe terrain are not implemented here.</p>
         <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a>
       </aside>
       <div class="canvas-toolbar">

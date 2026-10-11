@@ -11,6 +11,7 @@ import {parseTerrainTile} from '../../examples/terrain/load-terrain';
 import {pickTerrainSurface} from '../../examples/terrain/picking';
 import {createTerrainFixture} from '../terrain-fixture';
 import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
+import {buildTerrainRenderMesh} from '../../examples/terrain/terrain-mesh';
 
 let harness: RenderingHarness | undefined;
 let deck: Deck<MapView> | undefined;
@@ -32,14 +33,15 @@ test.each([{latitude: 0, zoom: 11.99}, {latitude: 46, zoom: 11.99},
     const bounds: [number, number, number, number] = [-0.01, latitude - 0.01, 0.01, latitude + 0.01];
     // Low relief keeps the known target visible rather than hidden by another
     // triangle; the separate loader corpus covers full mountain elevations.
-    const loaded = await parseTerrainTile((await createTerrainFixture(0.025)).bytes, bounds, 0);
+    const data = await parseTerrainTile((await createTerrainFixture(0.025)).bytes, bounds, 0);
+    const {loaded, renderMesh} = buildTerrainRenderMesh(data, [], 250);
     const viewState = {longitude: 0, latitude, zoom, pitch: 45, bearing: -20};
     deck = new Deck({canvas: harness.canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
         views: new MapView({id: 'terrain'}), initialViewState: viewState, _animate: true,
         onError: error => harness!.errors.push(error.message),
         layers: [new TerrainLayer({id: 'terrain', elevationData: 'fixture://terrain',
             bounds, color: [120, 180, 130], material: false,
-            fetch: async () => loaded.mesh})]});
+            fetch: async () => renderMesh})]});
     await expect.poll(async () => coloredPixels(await readCanvasPixels(harness!.canvas)), {timeout: 15000}).toBeGreaterThan(100);
     const viewport = new WebMercatorViewport({...viewState, width: 512, height: 320});
     const origin = projectGeographicPosition([0.001, latitude + 0.002, 10000], 'web-mercator');

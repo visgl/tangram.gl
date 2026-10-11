@@ -11,7 +11,7 @@ import '../../../examples/mounted-example.css';
 export default function MountedExample({kind}) {
   const host = useRef(null);
   const history = useHistory();
-  const workerPath = useBaseUrl('/modules/tangram-renderer/dist/projected-basemaps-worker.js');
+  const workerPath = useBaseUrl(kind === 'terrain' ? '/examples/terrain/terrain-worker.js' : '/modules/tangram-renderer/dist/projected-basemaps-worker.js');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 

@@ -8,6 +8,7 @@ const host = document.getElementById('example');
 if (!host) throw new Error('Missing example host');
 const example = mountTerrainExample(host, {
   parameters: new URLSearchParams(location.search),
+  workerUrl: new URL('./terrain-worker.js', import.meta.url).href,
   onParametersChange(parameters) {
     history.replaceState(history.state, '', `${location.pathname}?${parameters}`);
   }

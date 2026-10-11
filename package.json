@@ -51,7 +51,7 @@
     "typescript:scope": "node scripts/check-typescript-migration.mjs",
     "playwright:install": "playwright install chromium",
     "test-website": "yarn website:build",
-    "test-build-worker": "yarn workspace @vis.gl/tangram-renderer test-build-worker",
+    "test-build-worker": "yarn workspace @vis.gl/tangram-renderer test-build-worker && yarn workspace @vis.gl/tangram-terrain-example build",
     "publish:beta": "ocular-publish version-only-beta",
     "publish:prod": "ocular-publish version-only-prod"
   },
