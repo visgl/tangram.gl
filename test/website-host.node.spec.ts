@@ -17,13 +17,14 @@ describe('canonical documentation host', () => {
     expect(root.scripts['test-build-worker']).toContain('yarn workspace @vis.gl/tangram-terrain-example build');
   });
   test('terrain and projected routes mount lazy local runtimes instead of iframe documents', () => {
-    for (const example of ['deck-terrain', 'deck-projected']) {
+    for (const example of ['deck-terrain', 'deck-globe-terrain', 'deck-projected']) {
       const page = readSource(`website/src/examples/${example}.md`);
       expect(page).toContain('MountedExample');
       expect(page).not.toContain('<iframe');
     }
     const component = readSource('website/src/components/MountedExample.js');
     expect(component).toContain('@vis.gl/tangram-terrain-example/app');
+    expect(component).toContain('@vis.gl/tangram-terrain-example/globe-app');
     expect(component).toContain('@vis.gl/tangram-projected-example/app');
     expect(component).toContain('/examples/terrain/terrain-worker.js');
     expect(readSource('website/scripts/copy-assets.mjs')).toContain('dist/terrain-worker.js');

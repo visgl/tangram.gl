@@ -65,3 +65,22 @@ Pixel-center inputs produce `(width + 1) × (height + 1)` explicit nodes; node
 inputs retain their dimensions. Neighbor dimensions, extents and datums must
 match. Invalid nodes retain a zero validity byte and NaN height. These helpers
 define physical data continuity, not mesh simplification or mixed-LOD stitching.
+
+## Globe display meshes
+
+`buildGlobeTerrainMesh(grid, {exaggeration, resolution, neighbors})` resamples a
+Mercator height grid onto curved globe triangles. Effective exaggeration defaults
+to 1; resolution defaults to 64 cells per axis and is bounded to `[2, 256]`.
+Returned `geographicPositions` contain packed longitude/latitude/display-height
+attributes. `positions` contain matching radius-256 common-space XYZ for queries,
+`physicalHeights` preserve source meters, and `indices` omit no-data cells.
+`colors` contain baked relief shading. Source grids are unchanged; same-LOD
+neighbors reconcile shared edges and antimeridian copies. Source bounds must stay
+inside the EPSG:3857 world and share a datum.
+
+`getGlobeTerrainExaggeration(globeScreenRatio, maximum = 100)` supplies the display
+policy: the maximum while the globe fits, a smooth logarithmic fade, and 1× when
+the apparent diameter reaches four shorter viewport dimensions. It accepts maxima
+in `[1, 1000]`. This helper has no deck.gl, camera or GPU dependency.
+
+See [GlobeTerrainLayer](../globe-terrain-layer.md) for the optional deck.gl adapter.

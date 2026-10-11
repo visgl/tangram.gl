@@ -16,6 +16,10 @@ test.each([ts.ModuleKind.Node16, ts.ModuleKind.NodeNext])('public layer declarat
     const materialModules: ShaderModule[] = [triplanar, planar, sphereMap, heightDecode, globeHorizon];
     import {ProjectionBatchExecutor, Renderer} from '@vis.gl/tangram-renderer/core';
     import {ProjectedBasemapNavigation} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+    import {GlobeTerrainLayer} from '@vis.gl/tangram-layers/experimental/terrain';
+    import type {TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+    const heightGrids: TerrainHeightGrid[] = [];
+    const terrain = new GlobeTerrainLayer({data: heightGrids, globeTerrainExaggeration: 100});
     import type {RendererOptions, ProjectionEngine, ProjectionExecutionStatistics} from '@vis.gl/tangram-renderer/core';
     import {resolveLabelPlacement, TileBuildQueue, TileCachePolicy, TileResidency} from '@vis.gl/tangram-renderer/map-logic';
     import type {ScreenLabelCandidate, TileCacheRecord, TileCacheOptions, TileCacheStatistics} from '@vis.gl/tangram-renderer/map-logic';

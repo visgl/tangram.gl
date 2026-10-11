@@ -51,6 +51,11 @@ page, so the examples sidebar stays visible while you move between demos.
     <strong>Mercator terrain</strong>
     <span>Mapterhorn elevation decoded by loaders.gl, rendered by deck.gl, with matching Tangram triangle queries.</span>
   </a>
+  <a className="example-tile" href="/tangram.gl/examples/deck-globe-terrain">
+    <span className="example-tile__eyebrow">GlobeView · experimental</span>
+    <strong>Globe terrain</strong>
+    <span>Displaced global Mapterhorn elevation with zoom-aware 100× relief and physical-meter picking.</span>
+  </a>
 </div>
 
 ## @vis.gl/tangram-layers (WebXR)

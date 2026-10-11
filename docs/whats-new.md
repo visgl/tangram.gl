@@ -23,6 +23,10 @@ Copyright (c) vis.gl contributors
   rendering while advanced culling and tessellation remain under development.
 - The deck example is under `examples/deck/` and supports shared luma.gl
   WebGL and WebGPU devices, vector styles, and the animated TRON style.
+- The opt-in [GlobeTerrainLayer](./api-reference/globe-terrain-layer.md) displaces
+  spherical terrain from physical DEM grids. `globeTerrainExaggeration` defaults
+  to 100 while the globe fits and fades to 1 at close range. The Mapterhorn globe
+  preview retains global z2 data and queries physical source meters, not exaggerated heights.
 - The opt-in `experimental/projected-basemaps` layer adds worker-side math.gl
   Equal Earth, regional Albers, equirectangular, ellipsoidal Mercator and Web
   Mercator projection for ground polygons, raster meshes, meter/pixel roads

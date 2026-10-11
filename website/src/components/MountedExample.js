@@ -11,7 +11,7 @@ import '../../../examples/mounted-example.css';
 export default function MountedExample({kind}) {
   const host = useRef(null);
   const history = useHistory();
-  const workerPath = useBaseUrl(kind === 'terrain' ? '/examples/terrain/terrain-worker.js' : '/modules/tangram-renderer/dist/projected-basemaps-worker.js');
+  const workerPath = useBaseUrl(kind === 'terrain' || kind === 'globe-terrain' ? '/examples/terrain/terrain-worker.js' : '/modules/tangram-renderer/dist/projected-basemaps-worker.js');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -28,7 +28,9 @@ export default function MountedExample({kind}) {
       }
     };
     const runtime =
-      kind === 'terrain'
+      kind === 'globe-terrain'
+        ? import(/* webpackChunkName: "globe-terrain-example" */ '@vis.gl/tangram-terrain-example/globe-app')
+        : kind === 'terrain'
         ? import(/* webpackChunkName: "terrain-example" */ '@vis.gl/tangram-terrain-example/app')
         : import(
             /* webpackChunkName: "projected-example" */ '@vis.gl/tangram-projected-example/app'
@@ -37,7 +39,9 @@ export default function MountedExample({kind}) {
       .then((module) => {
         if (cancelled) return;
         instance =
-          kind === 'terrain'
+          kind === 'globe-terrain'
+            ? module.mountGlobeTerrainExample(host.current, options)
+            : kind === 'terrain'
             ? module.mountTerrainExample(host.current, options)
             : module.mountProjectedExample(host.current, options);
         setLoading(false);

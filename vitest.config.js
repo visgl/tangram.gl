@@ -19,6 +19,8 @@ export default getVitestConfig({
     resolve: {
       // Unit tests exercise authored source; artifact smoke tests separately verify dist.
       alias: [
+        {find: /^@vis\.gl\/tangram-layers\/experimental\/terrain$/,
+          replacement: fileURLToPath(new URL('./modules/tangram-layers/src/experimental/terrain.ts', import.meta.url))},
         {find: /^@vis\.gl\/tangram-layers\/experimental\/webxr$/,
           replacement: fileURLToPath(new URL('./modules/tangram-layers/src/experimental/webxr/index.ts', import.meta.url))},
         {find: /^@vis\.gl\/tangram-layers$/,
@@ -26,7 +28,7 @@ export default getVitestConfig({
       ]
     },
     optimizeDeps: {include: [
-      'sinon', '@luma.gl/experimental',
+      'sinon', '@luma.gl/experimental', '@deck.gl/mesh-layers',
       // Surface queries must not reload a browser test during lazy dependency discovery.
       '@math.gl/culling', '@math.gl/culling/queries', 'quickselect',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
