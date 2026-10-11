@@ -11,6 +11,19 @@ const repositoryDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..
 const configuration = await getOcularConfig({root: repositoryDirectory});
 const external = ['@deck.gl/core', '@deck.gl/geo-layers', '@luma.gl/core', '@luma.gl/webgpu', '@vis.gl/tangram-renderer'];
 
+// The dedicated decoder contains CPU helpers only and has no import-map/CDN dependency.
+const worker = await build({absWorkingDir: repositoryDirectory,
+  entryPoints: ['examples/terrain/terrain-worker.ts'], outfile: 'examples/terrain/dist/terrain-worker.js',
+  bundle: true, format: 'esm', platform: 'browser', minify: true, target: configuration.bundle.target,
+  alias: {'@vis.gl/tangram-renderer/map-logic': resolve(repositoryDirectory, 'modules/tangram-renderer/src/map-logic/index.ts')},
+  sourcemap: true, sourcesContent: false, metafile: true, logLevel: 'info'});
+for (const [path, output] of Object.entries(worker.metafile.outputs)) {
+  if (output.imports.some(dependency => dependency.external)) throw new Error(`Terrain worker has unresolved imports: ${path}`);
+}
+if (Object.keys(worker.metafile.inputs).some(path => /modules\/tangram-renderer\/src\/(scene|styles|gl|renderer)\//.test(path) || /node_modules\/@deck\.gl\//.test(path))) {
+  throw new Error('Terrain worker unexpectedly embeds drawing or scene infrastructure');
+}
+
 // ocular-bundle's package ESM preset externalizes all npm imports. This browser
 // application instead bundles its parsers and only externalizes the import map.
 const result = await build({

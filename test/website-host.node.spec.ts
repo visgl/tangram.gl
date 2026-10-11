@@ -11,6 +11,11 @@ function readSource(path: string): string {
 }
 
 describe('canonical documentation host', () => {
+  test('both browser commands build the packaged terrain worker on a clean checkout', () => {
+    const root = JSON.parse(readSource('package.json'));
+    for (const command of ['test-browser', 'test-headless']) expect(root.scripts[command]).toContain('yarn test-build-worker');
+    expect(root.scripts['test-build-worker']).toContain('yarn workspace @vis.gl/tangram-terrain-example build');
+  });
   test('terrain and projected routes mount lazy local runtimes instead of iframe documents', () => {
     for (const example of ['deck-terrain', 'deck-projected']) {
       const page = readSource(`website/src/examples/${example}.md`);
@@ -20,6 +25,8 @@ describe('canonical documentation host', () => {
     const component = readSource('website/src/components/MountedExample.js');
     expect(component).toContain('@vis.gl/tangram-terrain-example/app');
     expect(component).toContain('@vis.gl/tangram-projected-example/app');
+    expect(component).toContain('/examples/terrain/terrain-worker.js');
+    expect(readSource('website/scripts/copy-assets.mjs')).toContain('dist/terrain-worker.js');
     expect(component).toContain('instance?.destroy()');
     expect(component).not.toContain('importmap');
     expect(component).not.toContain('appendScript');

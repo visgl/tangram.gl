@@ -15,15 +15,21 @@ component. It shares the runtime and controls with the standalone entry, without
 an iframe, injected scripts, global selectors or a second router. Unmounting
 aborts requests, disconnects resize observation and releases GPU resources.
 
-The POC loads one Mapterhorn Terrarium tile near Zermatt, decodes and simplifies
-it with loaders.gl v5, renders it with deck.gl TerrainLayer, and queries the
-identical mesh with Tangram's terrain surface API. Controls include MapView
-navigation, mesh error, wireframe, devices, fullscreen and collapsible information.
+The example starts near Zermatt and streams up to nine visible Mapterhorn tiles
+plus immediate coarse parents. Same-origin workers decode with loaders.gl v5;
+deck.gl TerrainLayer renders reconstructed physical-height meshes. Controls
+include navigation, mesh error, wireframe, seam skirts, retry, devices, fullscreen
+and collapsible information.
 
 Elevation stays at physical scale. Changing mesh error reuses downloaded bytes.
-This is a reference adapter, not production terrain support: masks as mesh holes,
-terrain streaming, basemap draping and globe terrain are deferred. Parsing is
-main-thread. Required tests use a generated PNG, not live services.
+Each fetch/decode job owns its worker; cancellation terminates it. Shared Tangram
+queue, residency and cache policies bound work and retain warm source bytes.
+Neighbor heights/normals agree at full-resolution edges; visual skirts cover
+incomplete and mixed-detail boundaries without entering elevation queries.
+This is not production Tangram terrain support: basemap draping, globe terrain,
+pixel-error LOD and certified mixed-LOD stitching remain deferred. Required tests
+use generated fixtures, not live services. See the developer guide for budgets,
+registration, validity and remaining limitations.
 
 The example credits Mapterhorn and swissALTI3D / swisstopo for the Swiss reference
 area and links the full source attribution. Dataset licensing is separate from

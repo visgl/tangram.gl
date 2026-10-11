@@ -15,6 +15,8 @@ export interface TerrainScreenHit {
     triangleIndex: number;
     /** Weights in the original triangle's vertex order. */
     barycentric: [number, number, number];
+    /** Normalized near-to-far ray parameter, comparable across tiles in one view. */
+    rayParameter: number;
 }
 
 /** Intersect the loaded triangles projected by the active MapView, using CSS pixels. */
@@ -42,7 +44,7 @@ export function pickTerrainSurface(viewport: unknown, mesh: Mesh, pixel: readonl
         nearest = hit.t;
         const location = viewport.unprojectFlat([near[0] + direction[0] * hit.t, near[1] + direction[1] * hit.t]);
         const altitude = vertices.reduce((sum, vertex, offset) => sum + source.value[vertex * 3 + 2] * hit.barycentric[offset], 0);
-        result = {coordinate: [location[0], location[1], altitude], triangleIndex: index / 3, barycentric: hit.barycentric};
+        result = {coordinate: [location[0], location[1], altitude], triangleIndex: index / 3, barycentric: hit.barycentric, rayParameter: hit.t};
     }
     return result;
 }
