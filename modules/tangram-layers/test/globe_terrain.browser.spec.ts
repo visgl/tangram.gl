@@ -71,3 +71,14 @@ test('explicit physical scale, empty input, custom resolution and invalid maximu
     const neighbor = {...grid(), bounds: [1000000, -1000000, 3000000, 1000000] as const};
     const adjacent = new GlobeTerrainLayer({data: [grid(), neighbor], meshResolution: 2}); adjacent.updateState(prepare(adjacent)); expect(adjacent.renderLayers()).toHaveLength(2);
 });
+
+test('zero displacement stays flat when zooming while queries preserve physical meters', () => {
+    const layer = new GlobeTerrainLayer({data: [grid()], globeTerrainExaggeration: 0, meshResolution: 8});
+    layer.updateState(prepare(layer));
+    expect(layer.state.exaggeration).toBe(0);
+    expect(layer.pickTerrain(layer.context.viewport, [266, 180])?.coordinate[2]).toBeCloseTo(1000);
+    const surfaces = layer.state.surfaces;
+    layer.updateState(prepare(layer, 8, false));
+    expect(layer.state.exaggeration).toBe(0);
+    expect(layer.state.surfaces).toBe(surfaces);
+});

@@ -39,11 +39,14 @@ holes smaller than the display mesh remain holes, including touching neighbors.
 
 ### `globeTerrainExaggeration` (number, default `100`)
 
-Maximum display multiplier, range `[1, 1000]`. It applies while the globe's apparent
+Maximum display multiplier, range `[0, 1000]`. The example provides a live
+`0–200` slider, default `100`. Exaggeration above `1` applies while the globe's apparent
 diameter fits the shorter viewport dimension. A smooth logarithmic fade reaches
 `1` at four viewport diameters (two diameter doublings). The policy uses actual
 camera scale and viewport dimensions rather than assuming a particular zoom value.
-`1` always renders physical scale. Original source heights are never modified.
+`1` always renders physical scale. `0` removes displacement at every zoom;
+values between `0` and `1` stay at that reduced scale rather than fading upward.
+Original source heights and physical elevation queries are never modified.
 
 ### `meshResolution` (integer, default `64`)
 

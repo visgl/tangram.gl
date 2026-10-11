@@ -31,17 +31,17 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     if (source.minZoom > 0 || source.maxZoom < 2) throw new Error('Global terrain preview requires source zooms 0–2');
     const parameters = new URLSearchParams(options.parameters);
     const requested = Number(parameters.get('exaggeration') ?? 100);
-    const maximum = Number.isFinite(requested) && requested >= 1 && requested <= 1000 ? requested : 100;
+    const maximum = Number.isFinite(requested) && requested >= 0 && requested <= 200 ? Math.round(requested) : 100;
     let currentMaximum = maximum;
     const root = document.createElement('div');
     root.className = 'mounted-example terrain-example';
     root.innerHTML = `<div data-example="map"></div><aside data-example="controls">
       <h1>Globe terrain</h1><p data-example="status" role="status">Loading global elevation…</p>
-      <label class="control"><span>Maximum globe exaggeration</span><input data-example="exaggeration" type="number" min="1" max="1000" step="1"></label>
+      <label class="control"><span>Maximum globe exaggeration <output data-example="exaggeration-value"></output></span><input data-example="exaggeration" type="range" min="0" max="200" step="1"></label>
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
       <button data-example="retry" type="button">Retry failed tiles</button>
       <output data-example="terrain-hit" aria-live="polite">Click terrain for physical elevation</output>
-      <p class="hint">Drag to rotate; scroll/pinch to zoom. Relief fades from the maximum to 1× over two apparent-diameter doublings.</p>
+      <p class="hint">Drag to rotate; scroll/pinch to zoom. Exaggerated relief fades to 1× over two apparent-diameter doublings; 0× stays flat.</p>
       <p class="hint">Experimental global z2 DEM preview, not high-detail terrain or basemap draping. Source pixels stay warm while rotating and zooming. Polar regions outside ±85.05° and no-data areas have no terrain. Elevations retain the source datum; displayed mountains are exaggerated, returned meters are not.</p>
       <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a></aside>
       <div class="canvas-toolbar"><div class="canvas-device-tabs" role="tablist" aria-label="Rendering device">
@@ -57,6 +57,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const container = element<HTMLDivElement>('map'), status = element('status'), output = element('terrain-hit');
     const exaggeration = element<HTMLInputElement>('exaggeration'), wireframe = element<HTMLInputElement>('wireframe');
     exaggeration.value = String(maximum);
+    const exaggerationValue = element<HTMLOutputElement>('exaggeration-value');
+    exaggerationValue.value = `${maximum}×`;
     const attribution = element('attribution');
     attribution.textContent = 'Elevation: ';
     source.credits.forEach((credit, index) => {
@@ -110,10 +112,11 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         decode: (bytes, tile, error, signal) => decodeTerrainInWorker(workerUrl.href, bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), error, signal, source.noData), onChange: schedule});
     const observer = new ResizeObserver(() => {if (!disposed) {deck.setProps({width: container.clientWidth, height: container.clientHeight}); schedule();}});
     observer.observe(container);
-    exaggeration.addEventListener('change', () => {
+    exaggeration.addEventListener('input', () => {
         const value = Number(exaggeration.value);
-        if (!Number.isFinite(value) || value < 1 || value > 1000) {exaggeration.value = String(currentMaximum); return;}
+        if (!Number.isFinite(value) || value < 0 || value > 200) {exaggeration.value = String(currentMaximum); return;}
         currentMaximum = value;
+        exaggerationValue.value = `${value}×`;
         parameters.set('exaggeration', String(value)); options.onParametersChange?.(new URLSearchParams(parameters)); schedule();
     }, {signal: abort.signal});
     wireframe.addEventListener('change', schedule, {signal: abort.signal});

@@ -54,9 +54,10 @@ export interface GlobeTerrainMesh {
     colors: Float32Array;
 }
 
-/** Smoothly attenuate maximum relief from a fitted globe to physical scale at four screen diameters. */
+/** Attenuate exaggerated relief to physical scale; flat and subphysical settings stay fixed. */
 export function getGlobeTerrainExaggeration(globeScreenRatio: number, maximum = 100): number {
-    if (!Number.isFinite(maximum) || maximum < 1 || maximum > 1000 || !Number.isFinite(globeScreenRatio) || globeScreenRatio < 0) throw new Error('Invalid globe terrain exaggeration or screen ratio');
+    if (!Number.isFinite(maximum) || maximum < 0 || maximum > 1000 || !Number.isFinite(globeScreenRatio) || globeScreenRatio < 0) throw new Error('Invalid globe terrain exaggeration or screen ratio');
+    if (maximum <= 1) return maximum;
     const progress = Math.max(0, Math.min(1, Math.log2(Math.max(1, globeScreenRatio)) / 2));
     return maximum ** (1 - progress * progress * (3 - 2 * progress));
 }

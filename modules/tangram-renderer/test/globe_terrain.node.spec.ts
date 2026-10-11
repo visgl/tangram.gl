@@ -40,8 +40,17 @@ test('screen-relative fade is bounded, smooth, monotonic and physical after two 
 test.each([-1, NaN, Infinity])('invalid screen ratio %s rejects', value => {
     expect(() => getGlobeTerrainExaggeration(value)).toThrow('Invalid');
 });
-test.each([0, NaN, Infinity, 1001])('invalid maximum %s rejects', value => {
+test.each([-1, NaN, Infinity, 1001])('invalid maximum %s rejects', value => {
     expect(() => getGlobeTerrainExaggeration(1, value)).toThrow('Invalid');
+});
+
+test.each([0, 0.5, 1])('flat and subphysical multiplier %s stays fixed at every camera scale', maximum => {
+    for (const ratio of [0, 1, 2, 4, 100]) expect(getGlobeTerrainExaggeration(ratio, maximum)).toBe(maximum);
+    const source = grid();
+    const mesh = buildGlobeTerrainMesh(source, {resolution: 4, exaggeration: maximum});
+    expect(mesh.geographicPositions.filter((_, index) => index % 3 === 2).every(height => height === 1000 * maximum)).toBe(true);
+    expect(mesh.physicalHeights.every(height => height === 1000)).toBe(true);
+    expect(mesh.positions.every(Number.isFinite)).toBe(true);
 });
 test.each([1, 257, 4.5, NaN])('invalid resolution %s rejects before allocating', resolution => {
     expect(() => buildGlobeTerrainMesh(grid(), {resolution})).toThrow('resolution');
