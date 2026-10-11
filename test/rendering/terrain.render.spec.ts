@@ -59,3 +59,21 @@ test.each([{latitude: 0, zoom: 11.99}, {latitude: 46, zoom: 11.99},
     expect(image.data[offset + 1]).toBeGreaterThan(image.data[offset]);
     expect(pickTerrainSurface(viewport, loaded.mesh, [-1, 0])).toBeNull();
 });
+
+test('screen picking selects the front surface regardless of triangle order', async () => {
+    const loaded = await parseTerrainTile((await createTerrainFixture()).bytes, [-0.01, -0.01, 0.01, 0.01], 0);
+    const positions = new Float32Array([
+        -0.01, -0.01, 0, 0.01, -0.01, 0, 0, 0.01, 0,
+        -0.01, -0.01, 400, 0.01, -0.01, 400, 0, 0.01, 400
+    ]);
+    const viewport = new WebMercatorViewport({longitude: 0, latitude: 0, zoom: 12, pitch: 0, width: 512, height: 320});
+    for (const [indices, triangleIndex] of [[new Uint32Array([0, 1, 2, 3, 4, 5]), 1], [new Uint32Array([3, 4, 5, 0, 1, 2]), 0]] as const) {
+        const mesh = {...loaded.mesh, attributes: {POSITION: {size: 3, value: positions}}, indices: {size: 1, value: indices}};
+        const hit = pickTerrainSurface(viewport, mesh, [256, 160]);
+        expect(hit?.coordinate[2]).toBeCloseTo(400, 5);
+        expect(hit?.triangleIndex).toBe(triangleIndex);
+        expect(pickTerrainSurface(null, mesh, [256, 160])).toBeNull();
+        expect(pickTerrainSurface(viewport, mesh, [NaN, 160])).toBeNull();
+        expect(pickTerrainSurface(viewport, mesh, [256, 321])).toBeNull();
+    }
+});

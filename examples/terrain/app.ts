@@ -22,7 +22,7 @@ const abort = new AbortController();
 const url = `https://tiles.mapterhorn.com/${tile.zoom}/${tile.column}/${tile.row}.webp`;
 let revision = 0;
 let loaded: Awaited<ReturnType<typeof parseTerrainTile>> | undefined;
-let bytes: ArrayBuffer;
+let bytes: ArrayBuffer | undefined;
 let disposed = false;
 
 const deck = new Deck({parent: container, width: '100%', height: '100%', useDevicePixels: true,
@@ -39,6 +39,9 @@ const deck = new Deck({parent: container, width: '100%', height: '100%', useDevi
 
 /** Reuse the downloaded bytes when changing simplification; never draw stale parse results. */
 async function updateMesh(): Promise<void> {
+    // An early selector change is just a requested setting. The completed
+    // download will use it; there is not yet anything to parse or invalidate.
+    if (!bytes || disposed) return;
     const currentRevision = ++revision;
     status.textContent = 'Building terrain with loaders.gl…';
     try {
@@ -66,6 +69,7 @@ error.addEventListener('change', updateMesh);
 wireframe.addEventListener('change', updateLayer);
 const destroyCard = createCollapsibleInfoCard(document.querySelector('#controls'));
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-device-type]')) {
+    button.classList.toggle('is-active', button.dataset.deviceType === deviceType);
     button.setAttribute('aria-selected', String(button.dataset.deviceType === deviceType));
     button.addEventListener('click', () => {const target = new URL(location.href); target.searchParams.set('device', button.dataset.deviceType!); location.href = target.href;});
 }
@@ -73,7 +77,11 @@ document.querySelector('#example-fullscreen')?.addEventListener('click', () => {
     const request = document.fullscreenElement ? document.exitFullscreen() : document.querySelector('#deck-container')!.requestFullscreen();
     void request.catch(exception => {status.textContent = `Fullscreen unavailable: ${exception.message}`;});
 });
-window.addEventListener('pagehide', () => {disposed = true; revision++; abort.abort(); destroyCard(); deck.finalize();}, {once: true});
+window.addEventListener('pagehide', event => {
+    // A bfcache-restored page resumes this same module and Deck instance.
+    if (event.persisted || disposed) return;
+    disposed = true; revision++; abort.abort(); destroyCard(); deck.finalize();
+});
 try {
     status.textContent = 'Loading Mapterhorn elevation…';
     const response = await fetch(url, {signal: abort.signal});
