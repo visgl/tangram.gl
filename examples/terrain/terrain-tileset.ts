@@ -78,6 +78,7 @@ export class TerrainTileset {
     update(tiles: readonly TerrainTileCoordinate[], meshMaxError = this.meshMaxError): void {
         if (this.disposed) return;
         if (!Number.isFinite(meshMaxError) || meshMaxError < 0 || tiles.length > 25 || new Set(tiles.map(getTerrainTileKey)).size !== tiles.length || tiles.some(tile => !Number.isSafeInteger(tile.zoom) || tile.zoom < (this.options.minZoom ?? 0) || tile.zoom > (this.options.maxZoom ?? 12) || !Number.isSafeInteger(tile.column) || !Number.isSafeInteger(tile.row) || tile.column < 0 || tile.row < 0 || tile.column >= 2 ** tile.zoom || tile.row >= 2 ** tile.zoom)) throw new Error('Invalid terrain detail selection');
+        if (tiles.some(tile => tile.zoom !== tiles[0].zoom)) throw new Error('Terrain detail selection must use one source zoom; parents are managed internally');
         this.selected = tiles.map(tile => ({...tile}));
         this.meshMaxError = meshMaxError;
         const requested = new Map<string, TerrainTileCoordinate>();

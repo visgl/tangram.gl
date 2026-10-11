@@ -82,7 +82,9 @@ whole-pipeline memory admission remains future work. Shared backing buffers acro
 different records are counted conservatively rather than discounted.
 Images are limited to 8 MiB compressed and 1024×1024 power-of-two pixels.
 
-Parents load first. A parent stays visible until every selected child in its
+The selected detail window uses one source zoom; the tileset manages immediate
+parents internally and rejects overlapping mixed-zoom selections. Parents load
+first. A parent stays visible until every selected child in its
 group is ready; coarse and fine meshes never overlap. Navigation cancels obsolete
 fetches and terminates their owned decoder workers. Late generations cannot
 replace newer data. Mesh-error changes reuse retained bytes, and device changes

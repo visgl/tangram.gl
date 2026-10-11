@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
+import {projectGeographicPosition, PROJECTION_CONSTANTS} from '@vis.gl/tangram-renderer/core';
 import type {LoadedTerrain} from './load-terrain';
 
 /** Sample the highest loaded top triangle at a geographic anchor, excluding visual skirts. */
 export function sampleTerrainAnchor(tiles: Iterable<LoadedTerrain>, coordinate: readonly [number, number], clearance: number): number | null {
-    if (!coordinate.every(Number.isFinite) || Math.abs(coordinate[1]) > 85.0511287798 || !Number.isFinite(clearance) || clearance < 0) throw new Error('Invalid terrain anchor or physical clearance');
+    if (!coordinate.every(Number.isFinite) || Math.abs(coordinate[1]) > 90 || !Number.isFinite(clearance) || clearance < 0) throw new Error('Invalid terrain anchor or physical clearance');
+    if (Math.abs(coordinate[1]) > PROJECTION_CONSTANTS.maxMercatorLatitude) return null;
     const projected = projectGeographicPosition([coordinate[0], coordinate[1], 0], 'web-mercator');
     let elevation: number | null = null;
     for (const tile of tiles) {

@@ -99,6 +99,7 @@ test('invalid budgets and noncanonical or unbounded selections reject before sch
   const tileset = new TerrainTileset(options);
   for (const coordinate of [{...child, column: -1}, {...child, row: 4}, {...child, zoom: NaN}, {...child, zoom: 13}]) expect(() => tileset.update([coordinate])).toThrow();
   expect(() => tileset.update([child, child])).toThrow();
+  expect(() => tileset.update([child, {zoom: 3, column: 4, row: 4}])).toThrow('one source zoom');
   expect(() => tileset.update(Array(26).fill(child))).toThrow();
   expect(() => tileset.update([child], -1)).toThrow(); tileset.destroy();
 });

@@ -62,7 +62,9 @@ test('ground following samples rendered top triangles in physical meters, never 
   const missing = createTerrainStreamFixture(); missing.grid.valid.fill(0); missing.grid.heights.fill(NaN);
   expect(sampleTerrainAnchor([buildTerrainRenderMesh(missing).loaded], coordinate, 250)).toBeNull();
   expect(() => sampleTerrainAnchor([mesh], coordinate, -1)).toThrow();
-  expect(() => sampleTerrainAnchor([mesh], [0, 90], 1)).toThrow();
+  expect(sampleTerrainAnchor([mesh], [0, 90], 1)).toBeNull();
+  expect(sampleTerrainAnchor([mesh], [0, 85.051129], 1)).toBeNull();
+  expect(() => sampleTerrainAnchor([mesh], [0, 91], 1)).toThrow();
   expect(() => sampleTerrainAnchor([mesh], [NaN, 0], 1)).toThrow();
 });
 
