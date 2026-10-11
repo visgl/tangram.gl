@@ -6,6 +6,8 @@ import {afterEach, expect, test} from 'vitest';
 import Tangram, {type Scene, type SceneDefinition} from '@vis.gl/tangram-renderer';
 import {parseSceneYamlLegacy} from '../../modules/tangram-renderer/src/procedures/scene-yaml-legacy';
 import {changedPixels, DEVICE_TYPE, readCanvasPixels} from './harness';
+import {LEGACY_HEIGHT_GLSL} from './fixtures/legacy-height-horizon';
+import {getPropertyPath} from '../../modules/tangram-renderer/src/utils/props';
 
 /** Minimal classic lifecycle surface used to render the actual POC shader. */
 type TerrainScene = Scene & {
@@ -102,4 +104,13 @@ test.runIf(DEVICE_TYPE === 'webgl')('Mapterhorn POC compiles and shades decoded 
     const expectedGreen = 255 * 0.86 * (0.35 + 0.65 * diffuse);
     expect(Math.abs(image.data[offset + 1] - expectedGreen)).toBeLessThan(4);
   }
+  // Re-render the same real raster style with its frozen pre-adoption decoder.
+  // Sampling, source zoom, latitude, neighborhood, filtering and light stay identical.
+  const legacyDefinition = structuredClone(definition);
+  const blocks = getPropertyPath(legacyDefinition, ['styles', 'mapterhorn-hillshade', 'shaders', 'blocks']);
+  if (!blocks || typeof blocks !== 'object') throw new Error('Missing terrain shader blocks');
+  Object.assign(blocks, {global: `${LEGACY_HEIGHT_GLSL}
+float mapterhornHeight(vec4 sample_color) {return legacyMapterhornHeight(sample_color.rgb);}`});
+  const legacyNorth = await renderTerrain(legacyDefinition, 'north', 46.6);
+  expect(changedPixels(risingNorth, legacyNorth)).toBe(0);
 });

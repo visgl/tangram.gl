@@ -6,14 +6,16 @@ import {expect, test} from 'vitest';
 import {Texture} from '@luma.gl/core';
 import {GLSLShaderAssembler, WGSLShaderAssembler, type PlatformInfo} from '@luma.gl/shadertools';
 import {heightDecode, globeHorizon} from '../../modules/tangram-renderer/dist/shader-modules.js';
-import pointGLSL from '../../modules/tangram-renderer/src/styles/points/points_vertex.glsl?raw';
-import {GLOBE_VISIBILITY_WGSL} from '../../modules/tangram-renderer/src/styles/globe_visibility_wgsl';
+import {GLOBE_VISIBILITY_GLSL, GLOBE_VISIBILITY_WGSL} from '../../modules/tangram-renderer/src/styles/globe_visibility_wgsl';
+import {LEGACY_HEIGHT_GLSL, LEGACY_HORIZON_GLSL, LEGACY_HORIZON_WGSL} from './fixtures/legacy-height-horizon';
 import {RenderingHarness, DEVICE_TYPE} from './harness';
 import {readDevicePixels} from '../../modules/tangram-renderer/src/gpu/pixel_readback';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';
 
 /** Each shader expression returns a success bit against an independent CPU result. */
 type Sample = {name: string; glsl: string; wgsl: string};
+/** Exercise standalone helpers, frozen old shaders, and the actual renderer adapters independently. */
+type Implementation = 'module' | 'legacy' | 'renderer';
 /** Emit finite float literals without dropping small height or horizon differences. */
 function literal(value: number): string {return value.toExponential(10);}
 /** Emit the same vector in both languages. */
@@ -77,16 +79,16 @@ function createHorizonSamples(legacy: boolean): Sample[] {
         {position: [3, 0, -1], eye: [0, 0, 2]}, // elevated past surface horizon
         {position: [0, 0, 1], eye: [0, 0, 10000]}
     ];
-    if (!legacy) {
-        for (const radius of [0.5, 256, 6370972]) {
-            for (const fixture of fixtures) {
-                const position = fixture.position.map(value => value * radius);
-                const eye = fixture.eye.map(value => value * radius);
-                const expected = isOccluded(position, eye, radius);
-                const expressions = [false, true].map(wgsl =>
-                    `globeHorizon_isOccluded(${vector(position, wgsl)}, ${vector(eye, wgsl)}, ${literal(radius)}) == ${expected}`);
-                samples.push({name: `segment ${radius}: ${JSON.stringify(fixture)}`, glsl: expressions[0], wgsl: expressions[1]});
-            }
+    for (const radius of legacy ? [256] : [0.5, 256, 6370972]) {
+        for (const fixture of fixtures) {
+            const position = fixture.position.map(value => value * radius);
+            const eye = fixture.eye.map(value => value * radius);
+            const expected = isOccluded(position, eye, radius);
+            const altitude = (Math.hypot(...fixture.position) - 1) * 6370972;
+            const expressions = [false, true].map(wgsl => legacy ?
+                `tangramGlobeOccluded(${vector(position, wgsl)}, ${literal(altitude)}, ${vector(eye, wgsl)}) == ${expected}` :
+                `globeHorizon_isOccluded(${vector(position, wgsl)}, ${vector(eye, wgsl)}, ${literal(radius)}) == ${expected}`);
+            samples.push({name: `segment ${radius}: ${JSON.stringify(fixture)}`, glsl: expressions[0], wgsl: expressions[1]});
         }
     }
     for (const altitude of [-1000, 0, 1000, 6370972]) {
@@ -113,7 +115,7 @@ function createHorizonSamples(legacy: boolean): Sample[] {
 type Disposable = {destroy(): void};
 
 /** Run GPU conformance with cleanup protected even when initialization/setup fails. */
-async function runConformance(legacy: boolean, failAfter?: number, onDisposed?: (resource: Disposable) => void): Promise<void> {
+async function runConformance(implementation: Implementation, failAfter?: number, onDisposed?: (resource: Disposable) => void): Promise<void> {
     const harness = new RenderingHarness();
     const resources: Disposable[] = [];
     /** Register each allocation before the next setup step can fail. */
@@ -129,13 +131,21 @@ async function runConformance(legacy: boolean, failAfter?: number, onDisposed?: 
         const platformInfo: PlatformInfo = {type: device.type,
             shaderLanguage: DEVICE_TYPE === 'webgl' ? 'glsl' : 'wgsl', shaderLanguageVersion: 300,
             gpu: device.info.gpu, features: new Set(device.features)};
-        const samples = [...createHeightSamples(), ...createHorizonSamples(legacy)];
-        const legacyGLSL = pointGLSL.match(/bool tangramGlobeOccluded\([^]*?\n\}/)?.[0];
-        if (!legacyGLSL) {throw new Error('Missing original globe GLSL');}
+        const samples = [...createHeightSamples(), ...createHorizonSamples(implementation !== 'module')];
+        // Decode the same runtime samples with the original formula as well as
+        // the module. Fractional precision may improve by one f32 step (1/256 m).
+        if (DEVICE_TYPE === 'webgl') {
+            for (const bytes of [[0, 0, 0], [255, 255, 255], [127, 255, 255], [128, 0, 1], [128, 1, 0], [17.5, 22.25, 13.5]]) {
+                const rgb = vector(bytes.map(value => value / 255), false);
+                samples.push({name: `legacy Terrarium parity ${bytes}`, wgsl: 'true',
+                    glsl: `abs(heightDecode_getTerrarium(${rgb}) - legacyMapterhornHeight(${rgb})) <= 0.004`});
+            }
+        }
         const fragment = `#version 300 es
     precision highp float;
     out vec4 color;
-    ${legacy ? legacyGLSL : ''}
+    ${LEGACY_HEIGHT_GLSL}
+    ${implementation === 'legacy' ? LEGACY_HORIZON_GLSL : implementation === 'renderer' ? GLOBE_VISIBILITY_GLSL : ''}
     void main() {
         float runtimeZero = gl_FragCoord.y - 0.5;
         int index = min(${samples.length - 1}, int(gl_FragCoord.x / 512. * ${samples.length}.));
@@ -145,7 +155,7 @@ async function runConformance(legacy: boolean, failAfter?: number, onDisposed?: 
     const vec2 corners[3] = vec2[3](vec2(-1., -1.), vec2(3., -1.), vec2(-1., 3.));
     void main() {gl_Position = vec4(corners[gl_VertexID], 0., 1.);}`;
         const application = `
-    ${legacy ? GLOBE_VISIBILITY_WGSL : ''}
+    ${implementation === 'legacy' ? LEGACY_HORIZON_WGSL : implementation === 'renderer' ? GLOBE_VISIBILITY_WGSL : ''}
     @vertex fn vertexMain(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
         let corners = array<vec2<f32>, 3>(vec2<f32>(-1., -1.), vec2<f32>(3., -1.), vec2<f32>(-1., 3.));
         return vec4<f32>(corners[index], 0., 1.);
@@ -159,11 +169,11 @@ async function runConformance(legacy: boolean, failAfter?: number, onDisposed?: 
         let vertexSource: string; let fragmentSource: string;
         if (DEVICE_TYPE === 'webgl') {
             const assembled = new GLSLShaderAssembler().assembleGLSLShaderPair({platformInfo,
-                modules: [heightDecode, globeHorizon], vs: vertex, fs: fragment});
+                modules: implementation === 'renderer' ? [heightDecode] : [heightDecode, globeHorizon], vs: vertex, fs: fragment});
             vertexSource = assembled.vs; fragmentSource = assembled.fs;
         } else {
             const assembled = new WGSLShaderAssembler().assembleWGSLShader({platformInfo,
-                modules: [heightDecode, globeHorizon], source: application, vertexEntryPoint: 'vertexMain', fragmentEntryPoint: 'fragmentMain'});
+                modules: implementation === 'renderer' ? [heightDecode] : [heightDecode, globeHorizon], source: application, vertexEntryPoint: 'vertexMain', fragmentEntryPoint: 'fragmentMain'});
             vertexSource = fragmentSource = assembled.source;
         }
         const vertexShader = track(device.createShader({stage: 'vertex', source: vertexSource}));
@@ -191,13 +201,13 @@ async function runConformance(legacy: boolean, failAfter?: number, onDisposed?: 
     }
 }
 
-test.each([false, true])(`${DEVICE_TYPE}: height decoding and horizon match CPU (legacy horizon: %s)`, async legacy => {
-    await runConformance(legacy);
+test.each<Implementation>(['module', 'legacy', 'renderer'])(`${DEVICE_TYPE}: height decoding and horizon match CPU (%s)`, async implementation => {
+    await runConformance(implementation);
 });
 
 test.each([1, 2, 4, 8])(`${DEVICE_TYPE}: setup failure after %s allocations releases all resources`, async failAfter => {
     const disposed: Disposable[] = [];
-    await expect(runConformance(false, failAfter, resource => disposed.push(resource))).rejects.toThrow('Injected setup failure');
+    await expect(runConformance('module', failAfter, resource => disposed.push(resource))).rejects.toThrow('Injected setup failure');
     expect(disposed).toHaveLength(failAfter);
     expect(new Set(disposed).size).toBe(failAfter);
     const harness = disposed.at(-1);

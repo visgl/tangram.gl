@@ -37,7 +37,7 @@ styles:
       blocks:
         global: |
           float mapterhornHeight(vec4 sample_color) {
-              return dot(sample_color.rgb * 255., vec3(256., 1., 1. / 256.)) - 32768.;
+              return heightDecode_getTerrarium(sample_color.rgb);
           }
         color: |
           vec2 pixel = currentRasterPixel(0);
