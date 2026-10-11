@@ -169,6 +169,32 @@ test('navigation cancels decoded admission waiters without retaining stale paylo
   } finally {tileset.destroy();}
 });
 
+test.each([1, 2])('expanded selection starts queued parents ahead of old detail with %i request slots', async maxRequests => {
+  const jobs: {key: string; signal: AbortSignal; job: ReturnType<typeof deferred<TerrainTileData>>}[] = [];
+  const fetch = vi.fn(async () => new ArrayBuffer(8));
+  const tileset = new TerrainTileset({fetch, maxRequests, maxResidentBytes: 264, decode: (_bytes, tile, _error, signal) => {
+    const job = deferred<TerrainTileData>(); jobs.push({key: getTerrainTileKey(tile), signal, job}); return job.promise;
+  }, onChange() {}});
+  try {
+    tileset.update([child]);
+    await vi.waitFor(() => expect(jobs.some(job => job.key === '1/1/1')).toBe(true));
+    jobs.find(job => job.key === '1/1/1')!.job.resolve(createTerrainStreamFixture());
+    await vi.waitFor(() => expect(jobs.some(job => job.key === '2/2/2')).toBe(true));
+    const oldDetail = jobs.find(job => job.key === '2/2/2')!;
+    const adjacent = {...child, column: 0};
+    tileset.update([child, adjacent]);
+    expect(oldDetail.signal.aborted).toBe(true);
+    oldDetail.job.resolve(createTerrainStreamFixture());
+    await vi.waitFor(() => expect(jobs.some(job => job.key === '1/0/1')).toBe(true));
+    expect(tileset.records.get('2/2/2')?.data).toBeUndefined();
+    jobs.find(job => job.key === '1/0/1')!.job.resolve(createTerrainStreamFixture());
+    await tileset.waitForIdle();
+    expect(tileset.getDrawableTiles().map(record => record.key)).toEqual(['1/1/1', '1/0/1']);
+    expect(tileset.getStatistics()).toMatchObject({bytes: 264, active: 0, queued: 0});
+    expect(tileset.records.get('1/0/1')?.error).toBeUndefined();
+  } finally {tileset.destroy();}
+});
+
 test('a failed parent releases lower-priority completed data rather than stalling admission', async () => {
   let failParent = () => {};
   const parent = new Promise<ArrayBuffer>((_resolve, reject) => {failParent = () => reject(new Error('parent offline'));});

@@ -94,7 +94,13 @@ export class TerrainTileset {
         this.residency.updateConsumer('view', [...requested.keys()], this.getDrawableTiles().map(record => record.key));
         this.queue.suspend();
         try {
-            for (const [key, active] of this.active) if (!requested.has(key)) {this.active.delete(key); active.controller.abort(); this.queue.cancel(key);}
+            // A newly selected coarse request must acquire a slot before old detail can
+            // publish. Waiting for queued work inside a full active pool would deadlock.
+            const pendingPriority = Math.min(...[...requested.keys()].filter(key => {
+                const record = this.records.get(key);
+                return !record?.error && !(record?.data && record.meshMaxError === meshMaxError) && this.active.get(key)?.meshMaxError !== meshMaxError;
+            }).map(key => this.priorities.get(key) ?? Infinity));
+            for (const [key, active] of this.active) if (!requested.has(key) || (this.priorities.get(key) ?? Infinity) > pendingPriority) {this.active.delete(key); active.controller.abort(); this.queue.cancel(key);}
             // Remove queued work too; cancellation must not wait for an active slot.
             for (const key of this.records.keys()) if (!requested.has(key)) this.queue.cancel(key);
             for (const [key, coordinate] of requested) {
