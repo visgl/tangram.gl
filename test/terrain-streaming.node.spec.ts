@@ -127,6 +127,62 @@ test('oversized downloads do not enter the cache or start decoding', async () =>
   } finally {tileset.destroy();}
 });
 
+test.each([{first: 'parent', budget: 132}, {first: 'child', budget: 132}, {first: 'parent', budget: 200}, {first: 'child', budget: 200}])('concurrent $first-first decoding preserves parent admission at $budget bytes', async ({first, budget}) => {
+  const jobs = new Map<string, ReturnType<typeof deferred<TerrainTileData>>>();
+  const fetch = vi.fn(async () => new ArrayBuffer(8));
+  const tileset = new TerrainTileset({fetch, decode: (_bytes, tile) => {const job = deferred<TerrainTileData>(); jobs.set(getTerrainTileKey(tile), job); return job.promise;}, maxResidentBytes: budget, onChange() {}});
+  try {
+    tileset.update([child]); await vi.waitFor(() => expect(jobs.size).toBe(2));
+    if (first === 'child') {
+      jobs.get('2/2/2')!.resolve(createTerrainStreamFixture()); await Promise.resolve(); await Promise.resolve();
+      expect(tileset.records.get('2/2/2')?.data).toBeUndefined();
+    }
+    jobs.get('1/1/1')!.resolve(createTerrainStreamFixture());
+    if (first === 'parent') jobs.get('2/2/2')!.resolve(createTerrainStreamFixture());
+    await tileset.waitForIdle();
+    expect(tileset.getDrawableTiles().map(record => record.key)).toEqual(['1/1/1']);
+    expect(tileset.getStatistics().bytes).toBeLessThanOrEqual(budget);
+    expect(tileset.records.get('2/2/2')?.error).toContain('retained-array budget');
+    const previousChild = jobs.get('2/2/2');
+    tileset.retry();
+    if (budget === 200) {
+      await vi.waitFor(() => expect(jobs.get('2/2/2')).not.toBe(previousChild));
+      jobs.get('2/2/2')!.resolve(createTerrainStreamFixture());
+    }
+    await tileset.waitForIdle();
+    expect(tileset.getDrawableTiles().map(record => record.key)).toEqual(['1/1/1']);
+    expect(tileset.getStatistics().bytes).toBeLessThanOrEqual(budget);
+  } finally {tileset.destroy();}
+});
+
+test('navigation cancels decoded admission waiters without retaining stale payloads or idle ownership', async () => {
+  const parent = deferred<TerrainTileData>();
+  const decode = vi.fn(async (_bytes: ArrayBuffer, tile: TerrainTileCoordinate) => tile.zoom === 1 ? parent.promise : createTerrainStreamFixture());
+  const tileset = new TerrainTileset({fetch: async () => new ArrayBuffer(8), decode, onChange() {}});
+  try {
+    tileset.update([child]); await vi.waitFor(() => expect(decode).toHaveBeenCalledTimes(2));
+    await Promise.resolve(); expect(tileset.records.get('2/2/2')?.data).toBeUndefined();
+    tileset.update([]); await tileset.waitForIdle();
+    parent.resolve(createTerrainStreamFixture()); await Promise.resolve(); await Promise.resolve();
+    expect([...tileset.records.values()].every(record => !record.data)).toBe(true);
+    expect(tileset.getStatistics()).toMatchObject({active: 0, queued: 0});
+  } finally {tileset.destroy();}
+});
+
+test('a failed parent releases lower-priority completed data rather than stalling admission', async () => {
+  let failParent = () => {};
+  const parent = new Promise<ArrayBuffer>((_resolve, reject) => {failParent = () => reject(new Error('parent offline'));});
+  const decode = vi.fn(async () => createTerrainStreamFixture());
+  const tileset = new TerrainTileset({fetch: async tile => tile.zoom === 1 ? parent : new ArrayBuffer(8), decode, onChange() {}});
+  try {
+    tileset.update([child]); await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce());
+    expect(tileset.getDrawableTiles()).toEqual([]);
+    failParent(); await tileset.waitForIdle();
+    expect(tileset.getDrawableTiles().map(record => record.key)).toEqual(['2/2/2']);
+    expect(tileset.getStatistics()).toMatchObject({active: 0, queued: 0, failed: 1});
+  } finally {tileset.destroy();}
+});
+
 test('atomic topology replacement preserves warm bytes and previous mesh when the hard budget rejects it', async () => {
   let oversized = false;
   const fetch = vi.fn(async () => new ArrayBuffer(8));

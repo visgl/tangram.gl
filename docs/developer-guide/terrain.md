@@ -71,6 +71,10 @@ decoded grid, mesh attributes and indices, including selected/fallback records.
 Admission evicts cold LRU records before publishing new bytes or topology. If
 protected records would exceed the cap, admission fails explicitly; a previously
 completed mesh and coarse coverage are retained. Retry is manual, not a request loop.
+Decoding can run concurrently, but completed payloads enter the cache in active
+parent-first priority order. Under pressure, a pending lower-priority download can
+yield its retained bytes and owned worker so coarse coverage can complete; already
+completed geometry is not sacrificed. Yielded detail reports a manual-retry error.
 `mountTerrainExample(..., {maxResidentBytes})` can lower that cap. The status shows
 used and allowed decimal MB.
 

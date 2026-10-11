@@ -53,7 +53,8 @@ test(`${DEVICE_TYPE}: mixed-LOD top edges render without skirts and retain physi
         const offset = (Math.round(pixel[1]) * image.width + Math.round(pixel[0]) + horizontalOffset) * 4;
         expect(image.data[offset + 1]).toBeGreaterThan(image.data[offset]);
     }
-    expect(tiles.some(tile => pickTerrainSurface(viewport, tile.loaded.mesh, [pixel[0], pixel[1]])?.coordinate[2] === 100)).toBe(true);
+    const hit = tiles.map(tile => pickTerrainSurface(viewport, tile.loaded.mesh, [pixel[0], pixel[1]])).find(hit => hit !== null);
+    expect(hit?.coordinate[2]).toBeCloseTo(100, 5);
 });
 
 test.each([{latitude: 0, zoom: 11.99}, {latitude: 46, zoom: 11.99},
