@@ -76,6 +76,9 @@ the nearest `TerrainSurfaceHit` or `null`. Displayed triangles determine visibil
 remain radius-256 common-space geometry values. No-data holes return no hit.
 Backface culling is shared by drawing and querying, so missing front-side samples
 do not reveal or select the far hemisphere.
+Closed tile bounds prune unrelated rays before allocating each lazy triangle index.
+Camera-only updates reuse meshes; a device change creates new owned render resources
+without discarding decoded grids.
 
 The renderer's `TerrainMeshSurface` now also accepts optional `physicalHeights`
 per vertex. It snapshots those values so exaggerated geometry can be queried

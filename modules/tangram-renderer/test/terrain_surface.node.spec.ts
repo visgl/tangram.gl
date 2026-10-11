@@ -6,6 +6,18 @@ import {expect, test} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import {TerrainMeshSurface, pickTerrainAt} from '../src/selection/terrain_surface';
+
+test('bounds rejection keeps unrelated terrain query indexes unallocated', () => {
+    const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [-1, -1, 2, 1, -1, 2, 0, 1, 2], indices: [0, 1, 2]});
+    expect(Reflect.get(surface, 'queryIndex')).toBeUndefined();
+    expect(surface.intersectRay({origin: [100, 100, 10], direction: [0, 0, -1]})).toBeNull();
+    expect(surface.intersectRay({origin: [0, 0, 10], direction: [0, 0, -1]}, 7.9)).toBeNull();
+    expect(Reflect.get(surface, 'queryIndex')).toBeUndefined();
+    expect(surface.intersectRay({origin: [0, 0, 10], direction: [0, 0, -10]}, 8)?.distance).toBe(8);
+    const index = Reflect.get(surface, 'queryIndex'); expect(index).toBeDefined();
+    expect(surface.intersectRay({origin: [0, 0, 2], direction: [0, 0, 1]}, 0)?.distance).toBe(0);
+    expect(Reflect.get(surface, 'queryIndex')).toBe(index);
+});
 import type {TerrainRay} from '../src/selection/terrain_surface';
 
 /** Deterministic sloped patch: altitude is 2 + x/2 meters. */
