@@ -46,6 +46,11 @@ page, so the examples sidebar stays visible while you move between demos.
     <strong>Projected basemaps</strong>
     <span>Worker-projected Equal Earth, Albers, equirectangular, Mercator and Web Mercator polygons and raster meshes.</span>
   </a>
+  <a className="example-tile" href="/tangram.gl/examples/deck-terrain">
+    <span className="example-tile__eyebrow">Terrain reference · experimental</span>
+    <strong>Mercator terrain</strong>
+    <span>Mapterhorn elevation decoded by loaders.gl, rendered by deck.gl, with matching Tangram triangle queries.</span>
+  </a>
 </div>
 
 ## @vis.gl/tangram-layers (WebXR)

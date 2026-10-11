@@ -13,3 +13,5 @@ export type {TileBuildTask} from './tile-build-queue';
 export {TileResidency} from './tile-residency';
 export {TileCachePolicy} from './tile-cache-policy';
 export type {TileCacheRecord, TileCacheOptions, TileCacheStatistics} from './tile-cache-policy';
+export {TERRARIUM_DECODER, TERRAIN_RGB_DECODER, decodeTerrainHeightGrid, sampleTerrainHeight} from './terrain-data';
+export type {ElevationDecoder, TerrainGridOptions, TerrainHeightGrid} from './terrain-data';

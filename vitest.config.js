@@ -32,6 +32,7 @@ export default getVitestConfig({
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
       '@loaders.gl/pmtiles', '@loaders.gl/mvt/mvt-geojson-loader',
       '@loaders.gl/tiles',
+      '@loaders.gl/terrain', '@loaders.gl/images',
       '@deck.gl-community/panels',
       './examples/classic/app/community-playground.js',
       'monaco-editor',

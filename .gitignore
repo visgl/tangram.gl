@@ -27,6 +27,7 @@ website/static/robots.txt
 modules/tangram-layers/dist
 modules/tangram-renderer/dist
 examples/classic/dist
+examples/terrain/dist
 
 # OS misc
 .DS_Store

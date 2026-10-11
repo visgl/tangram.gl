@@ -17,7 +17,8 @@
   },
   "homepage": "https://vis.gl/tangram.gl/",
   "resolutions": {
-    "@loaders.gl/arrow@npm:4.5.1": "4.5.3"
+    "@loaders.gl/arrow@npm:4.5.1": "4.5.3",
+    "@loaders.gl/worker-utils@npm:4.5.4": "4.5.3"
   },
   "scripts": {
     "start": "yarn workspace @vis.gl/tangram-renderer watch",
@@ -25,7 +26,7 @@
     "clean": "ocular-clean",
     "website:start": "yarn workspace tangram-layers-website start",
     "website:build": "yarn workspace tangram-layers-website build",
-    "build": "yarn clean && yarn build:modules && yarn workspace @vis.gl/tangram-classic build",
+    "build": "yarn clean && yarn build:modules && yarn workspace @vis.gl/tangram-classic build && yarn workspace @vis.gl/tangram-terrain-example build",
     "build:modules": "yarn workspace @vis.gl/tangram-renderer build && yarn workspace @vis.gl/tangram-layers build && yarn build:artifacts",
     "build:artifacts": "node scripts/check-renderer-artifacts.mjs",
     "build:packages": "yarn build",

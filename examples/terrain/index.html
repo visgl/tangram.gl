@@ -1,0 +1,55 @@
+<!doctype html>
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Experimental Mercator terrain</title>
+    <link rel="stylesheet" href="../deck/main.css">
+    <style>
+      #terrain-map {position: absolute; inset: 0;}
+      #terrain-hit {display: block; font-size: 0.85rem; margin-top: 1rem;}
+      #controls {max-height: calc(100% - 2rem); overflow: auto;}
+    </style>
+    <script type="importmap">
+      {"imports": {
+        "@deck.gl/core": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
+        "@deck.gl/geo-layers": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
+        "@luma.gl/core": "https://esm.sh/@luma.gl/core@9.4.2?bundle",
+        "@luma.gl/webgpu": "https://esm.sh/@luma.gl/webgpu@9.4.2?bundle&external=@luma.gl/core",
+        "@vis.gl/tangram-renderer/map-logic": "../../modules/tangram-renderer/dist/map-logic.js",
+        "@vis.gl/tangram-renderer/core": "../../modules/tangram-renderer/dist/core.js"
+      }}
+    </script>
+  </head>
+  <body class="tangram-deck-standalone">
+    <div id="deck-container">
+      <div id="terrain-map"></div>
+      <aside id="controls">
+        <h1>Mercator terrain</h1>
+        <p id="status" role="status">Loading…</p>
+        <label class="control"><span>Mesh error (meters)</span>
+          <select id="mesh-error"><option value="5">5 m</option><option value="20" selected>20 m</option><option value="50">50 m</option></select>
+        </label>
+        <label class="control checkbox-control"><input type="checkbox" id="wireframe"> Wireframe</label>
+        <output id="terrain-hit" aria-live="polite">Click the terrain to query elevation</output>
+        <p class="hint">Drag to pan; Shift-drag to rotate; scroll to zoom. Elevation is not exaggerated.</p>
+        <p class="hint">Experimental reference: loaders.gl decodes and triangulates one Mapterhorn tile; deck.gl renders it. Tangram supplies the shared height contract and terrain query surface. Basemap draping, tiled terrain and globe terrain are not implemented here.</p>
+        <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a>
+      </aside>
+      <div class="canvas-toolbar">
+        <div class="canvas-device-tabs" role="tablist" aria-label="Rendering device">
+          <button type="button" data-device-type="webgpu" role="tab">WebGPU</button>
+          <button type="button" data-device-type="webgl" role="tab">WebGL</button>
+        </div>
+        <button id="example-fullscreen" class="canvas-fullscreen" type="button" aria-label="Fullscreen">⛶</button>
+      </div>
+      <p id="attribution">Elevation: <a href="https://mapterhorn.com/">Mapterhorn</a> · <a href="https://www.swisstopo.admin.ch/en/height-model-swissalti3d">swissALTI3D / swisstopo</a> · <a href="https://mapterhorn.com/attribution/">all data sources and attribution</a></p>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

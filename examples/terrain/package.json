@@ -1,0 +1,34 @@
+{
+  "name": "@vis.gl/tangram-terrain-example",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Experimental loaders.gl elevation and deck.gl terrain reference integration",
+  "scripts": {
+    "build": "yarn --cwd ../.. ocular-bundle examples/terrain/app.ts --format=esm --output=examples/terrain/dist/app.js --externals=@deck.gl/core,@deck.gl/geo-layers,@luma.gl/core,@luma.gl/webgpu,@vis.gl/tangram-renderer/map-logic,@vis.gl/tangram-renderer/core --sourcemap=true --sourcesContent=false"
+  },
+  "dependencies": {
+    "@deck.gl/core": "9.4.0",
+    "@deck.gl/extensions": "9.4.0",
+    "@deck.gl/geo-layers": "9.4.0",
+    "@deck.gl/layers": "9.4.0",
+    "@deck.gl/mesh-layers": "9.4.0",
+    "@loaders.gl/core": "5.0.0-alpha.11",
+    "@loaders.gl/images": "5.0.0-alpha.11",
+    "@loaders.gl/loader-utils": "5.0.0-alpha.11",
+    "@loaders.gl/schema": "5.0.0-alpha.11",
+    "@loaders.gl/terrain": "5.0.0-alpha.11",
+    "@luma.gl/core": "^9.4.2",
+    "@luma.gl/engine": "^9.4.2",
+    "@luma.gl/shadertools": "^9.4.2",
+    "@luma.gl/webgpu": "^9.4.2",
+    "@math.gl/culling": "5.0.0-alpha.15",
+    "@math.gl/web-mercator": "5.0.0-alpha.15",
+    "@vis.gl/tangram-renderer": "workspace:^"
+  },
+  "devDependencies": {
+    "@vis.gl/dev-tools": "2.0.0-alpha.8",
+    "playwright": "^1.58.0",
+    "vitest": "^4.0.18"
+  }
+}
