@@ -7,6 +7,7 @@ import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {sampleTerrainAnchor} from '../examples/terrain/ground-following';
 import {worldToLngLat} from '@math.gl/web-mercator';
+import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
 
 test.each([
   {side: 'east', axis: 0, coarseEdge: 1, fineEdge: 0, upper: [2, 1, 3, 2], lower: [2, 0, 3, 1]},
@@ -66,6 +67,12 @@ test('ground following samples rendered top triangles in physical meters, never 
   expect(sampleTerrainAnchor([mesh], [0, 85.051129], 1)).toBeNull();
   expect(() => sampleTerrainAnchor([mesh], [0, 91], 1)).toThrow();
   expect(() => sampleTerrainAnchor([mesh], [NaN, 0], 1)).toThrow();
+});
+
+test('terrain following queries the canonical world copy for wrapped longitudes', () => {
+  const [horizontal] = projectGeographicPosition([-179, 0, 0], 'web-mercator');
+  const terrain = buildTerrainRenderMesh(createTerrainStreamFixture([horizontal - 1000, -1000, horizontal + 1000, 1000], [100, 100, 100, 100]), [], 0).loaded;
+  for (const longitude of [-179, 181, -539, 541]) expect(sampleTerrainAnchor([terrain], [longitude, 0], 250)).toBeCloseTo(350);
 });
 
 test('adjacent adaptive meshes expose identical full-resolution edge heights and normals', () => {
