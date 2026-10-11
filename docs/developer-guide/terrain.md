@@ -75,6 +75,8 @@ Decoding can run concurrently, but completed payloads enter the cache in active
 parent-first priority order. Under pressure, a pending lower-priority download can
 yield its retained bytes and owned worker so coarse coverage can complete; already
 completed geometry is not sacrificed. Yielded detail reports a manual-retry error.
+Selection expansion preempts older lower-priority jobs so newly queued coarse
+coverage starts before detail can publish; cancelled detail retains warm bytes.
 `mountTerrainExample(..., {maxResidentBytes})` can lower that cap. The status shows
 used and allowed decimal MB.
 
