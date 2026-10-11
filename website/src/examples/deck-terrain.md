@@ -8,7 +8,7 @@ hide_table_of_contents: true
 tangram-layers
 SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
-*/}
+ */}
 
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
