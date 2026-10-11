@@ -4,10 +4,14 @@
 
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {mountTerrainExample} from '../examples/terrain/app';
+import type {TerrainTileCoordinate} from '../examples/terrain/tile-selection';
 
-const mocks = vi.hoisted(() => ({construct: vi.fn(), finalize: vi.fn(), setProps: vi.fn(),
+const mocks = vi.hoisted(() => {
+    const selected: {tiles: TerrainTileCoordinate[] | null} = {tiles: null};
+    return {selected, build: vi.fn((data: object) => ({loaded: data, renderMesh: 'mesh' in data ? data.mesh : null})), construct: vi.fn(), finalize: vi.fn(), setProps: vi.fn(),
     viewport: {id: 'terrain'}, pick: vi.fn(() => ({coordinate: [7, 46, 1234], triangleIndex: 1, rayParameter: 0.5})),
-    parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}, attributes: {}}, grid: {width: 2, height: 2, bounds: [0, 0, 2, 2], heights: new Float32Array(4), valid: new Uint8Array(4)}}))}));
+    parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}, attributes: {}}, grid: {width: 2, height: 2, bounds: [0, 0, 2, 2], heights: new Float32Array(4), valid: new Uint8Array(4)}}))};
+});
 vi.mock('@deck.gl/core', async importOriginal => ({
     WebMercatorViewport: (await importOriginal<typeof import('@deck.gl/core')>()).WebMercatorViewport,
     Deck: class {
@@ -21,7 +25,11 @@ vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
 vi.mock('../examples/terrain/load-terrain', () => ({getTerrainTileBounds: () => [0, 0, 1, 1]}));
 vi.mock('../examples/terrain/worker-client', () => ({decodeTerrainInWorker: mocks.parse}));
-vi.mock('../examples/terrain/terrain-mesh', () => ({buildTerrainRenderMesh: (data: object) => ({loaded: data, renderMesh: 'mesh' in data ? data.mesh : null})}));
+vi.mock('../examples/terrain/terrain-mesh', () => ({buildTerrainRenderMesh: mocks.build}));
+vi.mock('../examples/terrain/tile-selection', async importOriginal => {
+    const source = await importOriginal<typeof import('../examples/terrain/tile-selection')>();
+    return {...source, selectTerrainTiles: (...viewArguments: Parameters<typeof source.selectTerrainTiles>) => mocks.selected.tiles || source.selectTerrainTiles(...viewArguments)};
+});
 vi.mock('../examples/terrain/picking', () => ({pickTerrainSurface: mocks.pick}));
 
 const hosts: HTMLElement[] = [];
@@ -35,7 +43,7 @@ function mount() {
     instances.push(instance);
     return {host, instance, parametersChanged};
 }
-beforeEach(() => {vi.clearAllMocks();});
+beforeEach(() => {vi.clearAllMocks(); mocks.selected.tiles = null;});
 afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); hosts.splice(0).forEach(host => host.remove()); vi.unstubAllGlobals();});
 
 test('importing the runtime does not start a browser example', () => {
@@ -100,4 +108,19 @@ test('multiple mounts keep controls and cleanup independent', async () => {
     first.instance.destroy();
     expect(second.host.querySelector('[data-example="map"]')).not.toBeNull();
     expect(mocks.finalize).toHaveBeenCalledOnce();
+});
+
+test('reprioritizing the same tiles preserves reconstructed mesh identities and warm acquisitions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    mocks.selected.tiles = [{zoom: 2, column: 2, row: 2}, {zoom: 2, column: 3, row: 2}, {zoom: 2, column: 2, row: 3}];
+    const {instance} = mount(); await instance.ready;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const builds = mocks.build.mock.calls.length, decodes = mocks.parse.mock.calls.length;
+    mocks.selected.tiles.reverse();
+    const properties = mocks.construct.mock.calls[0][0];
+    if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function') throw new Error('Missing navigation handler');
+    properties.onViewStateChange({viewState: {longitude: 0.5, latitude: 0.5, zoom: 11.7, pitch: 60, bearing: -25}});
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(mocks.build).toHaveBeenCalledTimes(builds);
+    expect(mocks.parse).toHaveBeenCalledTimes(decodes);
 });

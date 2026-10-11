@@ -114,7 +114,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     for (const tile of drawable) {
       if (!tile.data) continue;
       const data = tile.data;
-      const neighbors = drawable.filter(neighbor => neighbor.key !== tile.key && neighbor.coordinate.zoom === tile.coordinate.zoom && Math.abs(neighbor.coordinate.column - tile.coordinate.column) <= 1 && Math.abs(neighbor.coordinate.row - tile.coordinate.row) <= 1).flatMap(neighbor => neighbor.data ? [neighbor.data.grid] : []);
+      const neighbors = drawable.filter(neighbor => neighbor.key !== tile.key && neighbor.coordinate.zoom === tile.coordinate.zoom && Math.abs(neighbor.coordinate.column - tile.coordinate.column) <= 1 && Math.abs(neighbor.coordinate.row - tile.coordinate.row) <= 1).sort((first, second) => first.coordinate.row - second.coordinate.row || first.coordinate.column - second.coordinate.column).flatMap(neighbor => neighbor.data ? [neighbor.data.grid] : []);
       const meshSignature = `${payloadId(data)}:${neighbors.map(payloadId).join(',')}:${skirts.checked}`;
       let cached = geometry.get(tile.key);
       if (!cached || cached.signature !== meshSignature) {

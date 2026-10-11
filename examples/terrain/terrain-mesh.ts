@@ -16,6 +16,14 @@ export interface TerrainRenderMesh {
     renderMesh: Mesh;
 }
 
+/** Estimate a physical slope without flattening a boundary that has one valid side. */
+function estimateTerrainSlope(negative: number | null, positive: number | null, center: number | null, distance: number): number {
+    if (negative !== null && positive !== null) return (positive - negative) / (2 * distance);
+    if (center === null) return 0;
+    if (positive !== null) return (positive - center) / distance;
+    return negative === null ? 0 : (center - negative) / distance;
+}
+
 /** Reconstruct pixel-center heights and shared full-resolution edges over adaptive topology. */
 export function buildTerrainRenderMesh(data: TerrainTileData, neighbors: readonly TerrainHeightGrid[] = [], skirtDepth = 250): TerrainRenderMesh {
     if (!Number.isFinite(skirtDepth) || skirtDepth < 0) throw new Error('Terrain skirt depth must be non-negative meters');
@@ -46,8 +54,8 @@ export function buildTerrainRenderMesh(data: TerrainTileData, neighbors: readonl
         const left = sampleTerrainNeighborhood(grids, [x - deltaX, y]), right = sampleTerrainNeighborhood(grids, [x + deltaX, y]);
         const bottom = sampleTerrainNeighborhood(grids, [x, y - deltaY]), top = sampleTerrainNeighborhood(grids, [x, y + deltaY]);
         const physicalScale = Math.cos(location[1] * Math.PI / 180);
-        const gradientX = left !== null && right !== null ? (right - left) / (2 * deltaX * physicalScale) : 0;
-        const gradientY = bottom !== null && top !== null ? (top - bottom) / (2 * deltaY * physicalScale) : 0;
+        const gradientX = estimateTerrainSlope(left, right, height, deltaX * physicalScale);
+        const gradientY = estimateTerrainSlope(bottom, top, height, deltaY * physicalScale);
         const length = Math.hypot(gradientX, gradientY, 1);
         normals.push(-gradientX / length, -gradientY / length, 1 / length);
         return index;

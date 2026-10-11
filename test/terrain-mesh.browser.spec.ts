@@ -52,3 +52,18 @@ test('bad skirt units, incompatible neighbors and missing adaptive UVs reject ex
   const missing = {...data, mesh: {...data.mesh, attributes: {POSITION: data.mesh.attributes.POSITION}}};
   expect(() => buildTerrainRenderMesh(missing)).toThrow('UV');
 });
+
+test.each([{heights: [10, 20, 10, 20], axis: 0}, {heights: [10, 10, 20, 20], axis: 1}])('outer boundaries retain one-sided slope normals along axis $axis', ({heights, axis}) => {
+  const result = buildTerrainRenderMesh(createTerrainStreamFixture([0, 0, 2, 2], heights), [], 0);
+  const {NORMAL, TEXCOORD_0} = result.loaded.mesh.attributes;
+  let checked = 0;
+  for (let index = 0; index < TEXCOORD_0.value.length / 2; index++) {
+    const edge = TEXCOORD_0.value[index * 2 + axis];
+    if (edge !== 0 && edge !== 1) continue;
+    expect(Math.abs(NORMAL.value[index * 3 + axis])).toBeGreaterThan(0.8);
+    expect(NORMAL.value[index * 3 + 2]).toBeGreaterThan(0);
+    expect(NORMAL.value[index * 3 + 1 - axis]).toBeCloseTo(0);
+    checked++;
+  }
+  expect(checked).toBeGreaterThanOrEqual(6);
+});
