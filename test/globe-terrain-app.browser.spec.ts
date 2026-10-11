@@ -37,6 +37,8 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     expect(host.querySelector('[data-example="attribution"]')?.textContent).toContain('Mapterhorn');
     const maximum = host.querySelector<HTMLInputElement>('[data-example="exaggeration"]')!;
     expect(maximum.type).toBe('range'); expect(maximum.min).toBe('0'); expect(maximum.max).toBe('200'); expect(maximum.step).toBe('1');
+    expect(maximum.labels).toHaveLength(1);
+    expect(maximum.labels?.[0].textContent).toContain('Maximum globe exaggeration');
     expect(host.querySelector<HTMLOutputElement>('[data-example="exaggeration-value"]')?.value).toBe('100×');
     maximum.value = '50'; maximum.dispatchEvent(new Event('input'));
     const wireframe = host.querySelector<HTMLInputElement>('[data-example="wireframe"]')!; wireframe.checked = true; wireframe.dispatchEvent(new Event('change'));

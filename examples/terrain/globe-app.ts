@@ -38,7 +38,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     root.className = 'mounted-example terrain-example';
     root.innerHTML = `<div data-example="map"></div><aside data-example="controls">
       <h1>Globe terrain</h1><p data-example="status" role="status">Loading global elevation…</p>
-      <label class="control"><span>Maximum globe exaggeration <output data-example="exaggeration-value"></output></span><input data-example="exaggeration" type="range" min="0" max="200" step="1"></label>
+      <label class="control"><span>Maximum globe exaggeration</span><input data-example="exaggeration" type="range" min="0" max="200" step="1"><output data-example="exaggeration-value"></output></label>
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
       <button data-example="retry" type="button">Retry failed tiles</button>
       <output data-example="terrain-hit" aria-live="polite">Click terrain for physical elevation</output>
