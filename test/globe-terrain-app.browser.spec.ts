@@ -53,6 +53,7 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
         expect(mocks.layers).toHaveBeenLastCalledWith(expect.objectContaining({globeTerrainExaggeration: value}));
     }
     const warmDownloads = fetch.mock.calls.length;
+    const buildsBeforeCamera = mocks.layers.mock.calls.length;
     const properties = mocks.construct.mock.calls[0][0];
     expect(properties).toMatchObject({viewState: {maxZoom: 12}});
     if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function' || !('onClick' in properties) || typeof properties.onClick !== 'function') throw new Error('Missing navigation/picking callback');
@@ -61,9 +62,12 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: {longitude: 100, latitude: 20, zoom: 12, maxZoom: 12}});
     properties.onClick({x: 256, y: 160});
     expect(host.querySelector('[data-example="terrain-hit"]')?.textContent).toContain('1234.0 physical m');
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(mocks.layers.mock.calls.length).toBe(buildsBeforeCamera);
     host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(mocks.finalize).toHaveBeenCalledTimes(1); expect(mocks.construct).toHaveBeenCalledTimes(2); expect(fetch).toHaveBeenCalledTimes(warmDownloads);
+    expect(mocks.layers.mock.calls.length).toBe(buildsBeforeCamera + 1);
     instance.destroy(); instance.destroy(); maximum.dispatchEvent(new Event('input'));
     expect(mocks.finalize).toHaveBeenCalledTimes(2); expect(host.children).toHaveLength(0);
 });

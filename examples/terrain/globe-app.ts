@@ -75,6 +75,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     let camera: GlobeViewState = {longitude: 80, latitude: 25, zoom: 1, maxZoom: 12};
     let device = parameters.get('device') === 'webgl' ? 'webgl' : navigator.gpu ? 'webgpu' : 'webgl';
     let disposed = false, animationFrame = 0, layer: GlobeTerrainLayer | undefined;
+    let displayedMaximum: number | undefined, displayedWireframe: boolean | undefined;
     let deckReady = false, deckGeneration = 0;
     let renderingError: string | undefined;
     let tileset: TerrainTileset | undefined;
@@ -114,8 +115,13 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         if (signature !== selectionSignature) {selectionSignature = signature; tileset.update(detail.tiles, 10000);}
         const drawable = tileset.getDrawableTiles();
         const nextGrids = drawable.flatMap(tile => tile.data ? [tile.data.grid] : []);
-        if (grids.length !== nextGrids.length || grids.some((grid, index) => grid !== nextGrids[index])) grids = nextGrids;
-        layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, globeTerrainExaggeration: Number(exaggeration.value), wireframe: wireframe.checked});
+        const dataChanged = grids.length !== nextGrids.length || grids.some((grid, index) => grid !== nextGrids[index]);
+        if (dataChanged) grids = nextGrids;
+        const currentExaggeration = Number(exaggeration.value);
+        if (!layer || dataChanged || displayedMaximum !== currentExaggeration || displayedWireframe !== wireframe.checked) {
+            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked});
+            displayedMaximum = currentExaggeration; displayedWireframe = wireframe.checked;
+        }
         deck.setProps({layers: [layer]});
         const statistics = tileset.getStatistics();
         const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
@@ -145,7 +151,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     }
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-device-type]')) button.addEventListener('click', () => {
         if (button.dataset.deviceType === device) return;
-        device = button.dataset.deviceType === 'webgpu' ? 'webgpu' : 'webgl'; renderingError = undefined; deck.finalize(); deck = createDeck(); updateTabs(); schedule();
+        device = button.dataset.deviceType === 'webgpu' ? 'webgpu' : 'webgl'; renderingError = undefined; deck.finalize(); layer = undefined; deck = createDeck(); updateTabs(); schedule();
         parameters.set('device', device); options.onParametersChange?.(new URLSearchParams(parameters));
     }, {signal: abort.signal});
     updateTabs();
