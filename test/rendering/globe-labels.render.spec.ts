@@ -7,8 +7,7 @@ import {commands} from 'vitest/browser';
 import {_GlobeViewport as GlobeViewport} from '@deck.gl/core';
 import {Buffer} from '@luma.gl/core';
 import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
-import pointsVertexGLSL from '../../modules/tangram-renderer/src/styles/points/points_vertex.glsl?raw';
-import {GLOBE_VISIBILITY_WGSL} from '../../modules/tangram-renderer/src/styles/globe_visibility_wgsl';
+import {GLOBE_VISIBILITY_GLSL, GLOBE_VISIBILITY_WGSL} from '../../modules/tangram-renderer/src/styles/globe_visibility_wgsl';
 import {GLOBE_PROJECTION_WGSL, GLOBE_PROJECTION_GLSL} from '../../modules/tangram-renderer/src/scene/projection_shaders';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';
 import {RenderingHarness, readCanvasPixels, DEVICE_TYPE} from './harness';
@@ -147,13 +146,11 @@ test(`${DEVICE_TYPE}: the production sphere-occlusion helper handles segment and
   await harness.initializeDevice();
   const device = harness.device;
   const length = occlusionSamples.length;
-  const helper = pointsVertexGLSL.match(/bool tangramGlobeOccluded\([^]*?\n\}/)?.[0];
-  expect(helper).toBeDefined();
   const positionHelper = GLOBE_PROJECTION_GLSL.match(/vec3 tangramGlobePosition\([^]*?\n\}/)?.[0];
   const positionHelperWGSL = GLOBE_PROJECTION_WGSL.match(/fn tangramGlobePosition\([^]*?\n\}/)?.[0];
   const source = DEVICE_TYPE === 'webgl' ? `#version 300 es
 precision highp float;
-${helper}
+${GLOBE_VISIBILITY_GLSL}
 ${positionHelper}
 layout(location = 0) in vec3 mercatorPosition;
 out float hidden;

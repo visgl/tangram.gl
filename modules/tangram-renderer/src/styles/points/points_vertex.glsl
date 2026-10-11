@@ -74,27 +74,7 @@ vec2 rotate2D(vec2 _st, float _angle) {
 
 #pragma tangram: projection
 
-// Segment/sphere occlusion for billboard anchors in radius-256 common space.
-bool tangramGlobeOccluded(vec3 position, float altitude, vec3 eye) {
-    vec3 sphere_eye = eye / 256.;
-    // Missing or interior eyes cannot define an exterior horizon.
-    if (dot(sphere_eye, sphere_eye) <= 1.) {
-        return false;
-    }
-    // Do not mistake runtime sin/cos rounding for a below-surface anchor.
-    vec3 sphere_position = normalize(position) * (1. + altitude / 6370972.);
-    vec3 segment = sphere_position - sphere_eye;
-    float segment_length_squared = dot(segment, segment);
-    if (segment_length_squared == 0.) {
-        return false;
-    }
-    float closest_amount = clamp(-dot(sphere_eye, segment) / segment_length_squared, 0., 1.);
-    // Interpolate endpoints rather than subtracting a large camera offset
-    // again: a front-side surface anchor must retain its unit radius.
-    vec3 closest = mix(sphere_eye, sphere_position, closest_amount);
-    // Preserve surface/tangent anchors within a small f32 tolerance.
-    return dot(closest, closest) < 1. - 0.000001;
-}
+#pragma tangram: globe_visibility
 
 #ifdef TANGRAM_CURVED_LABEL
     // Assumes stops are [0, 0.33, 0.66, 0.99];
