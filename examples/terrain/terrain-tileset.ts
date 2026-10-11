@@ -5,6 +5,7 @@
 import {TileBuildQueue, TileCachePolicy, TileResidency} from '@vis.gl/tangram-renderer/map-logic';
 import type {TerrainTileData} from './decode-terrain';
 import {getTerrainParent, getTerrainTileKey, type TerrainTileCoordinate} from './tile-selection';
+import {getTerrainChildren, terrainTileContains, terrainTilesTouch} from './globe-detail';
 
 /** One cached source tile; presentation changes never discard its image bytes. */
 export interface TerrainTileRecord {
@@ -41,6 +42,8 @@ export interface TerrainTilesetOptions {
     /** Supported source zoom interval; protects parent fallback from unsupported URLs. */
     minZoom?: number;
     maxZoom?: number;
+    /** Complete mixed-zoom world cover, all ancestors retained and 2:1 drawable fallback; opt-in. */
+    hierarchical?: boolean;
 }
 
 /** Bounded scheduling, warm acquisition, parent refinement and explicit resource ownership. */
@@ -81,14 +84,27 @@ export class TerrainTileset {
     /** Select bounded detail and its immediate parents; obsolete fetch/CPU work is cancelled. */
     update(tiles: readonly TerrainTileCoordinate[], meshMaxError = this.meshMaxError): void {
         if (this.disposed) return;
-        if (!Number.isFinite(meshMaxError) || meshMaxError < 0 || tiles.length > 25 || new Set(tiles.map(getTerrainTileKey)).size !== tiles.length || tiles.some(tile => !Number.isSafeInteger(tile.zoom) || tile.zoom < (this.options.minZoom ?? 0) || tile.zoom > (this.options.maxZoom ?? 12) || !Number.isSafeInteger(tile.column) || !Number.isSafeInteger(tile.row) || tile.column < 0 || tile.row < 0 || tile.column >= 2 ** tile.zoom || tile.row >= 2 ** tile.zoom)) throw new Error('Invalid terrain detail selection');
-        if (tiles.some(tile => tile.zoom !== tiles[0].zoom)) throw new Error('Terrain detail selection must use one source zoom; parents are managed internally');
+        if (!Number.isFinite(meshMaxError) || meshMaxError < 0 || tiles.length > (this.options.hierarchical ? 128 : 25) || new Set(tiles.map(getTerrainTileKey)).size !== tiles.length || tiles.some(tile => !Number.isSafeInteger(tile.zoom) || tile.zoom < (this.options.minZoom ?? 0) || tile.zoom > (this.options.maxZoom ?? 12) || !Number.isSafeInteger(tile.column) || !Number.isSafeInteger(tile.row) || tile.column < 0 || tile.row < 0 || tile.column >= 2 ** tile.zoom || tile.row >= 2 ** tile.zoom)) throw new Error('Invalid terrain detail selection');
+        if (this.options.hierarchical) {
+            if (tiles.length && (tiles.reduce((sum, tile) => sum + 4 ** -tile.zoom, 0) !== 1 || tiles.some((tile, index) => tiles.some((other, otherIndex) => index !== otherIndex && terrainTileContains(tile, other))))) throw new Error('Hierarchical terrain selection requires a complete non-overlapping world cover');
+            if (tiles.some(tile => tiles.some(neighbor => Math.abs(tile.zoom - neighbor.zoom) > 1 && terrainTilesTouch(tile, neighbor)))) throw new Error('Hierarchical terrain selection requires balanced 2:1 edges');
+        } else if (tiles.some(tile => tile.zoom !== tiles[0].zoom)) throw new Error('Terrain detail selection must use one source zoom; parents are managed internally');
         this.selected = tiles.map(tile => ({...tile}));
         this.meshMaxError = meshMaxError;
         const requested = new Map<string, TerrainTileCoordinate>();
         // Coarse coverage loads first; siblings only replace their parent together.
-        for (const tile of tiles) {const parent = this.getParent(tile); if (parent) requested.set(getTerrainTileKey(parent), parent);}
+        for (const tile of tiles) {
+            let parent = this.getParent(tile);
+            while (parent) {
+                requested.set(getTerrainTileKey(parent), parent);
+                parent = this.options.hierarchical ? this.getParent(parent) : null;
+            }
+        }
         for (const tile of tiles) requested.set(getTerrainTileKey(tile), tile);
+        if (this.options.hierarchical) {
+            const ordered = [...requested.values()].sort((first, second) => first.zoom - second.zoom || first.row - second.row || first.column - second.column);
+            requested.clear(); for (const tile of ordered) requested.set(getTerrainTileKey(tile), tile);
+        }
         this.priorities.clear();
         [...requested.keys()].forEach((key, priority) => this.priorities.set(key, priority));
         this.residency.updateConsumer('view', [...requested.keys()], this.getDrawableTiles().map(record => record.key));
@@ -135,6 +151,7 @@ export class TerrainTileset {
 
     /** Non-overlapping parent fallback; never overlay a coarse tile with its ready siblings. */
     getDrawableTiles(): TerrainTileRecord[] {
+        if (this.options.hierarchical) return this.getDrawableHierarchy();
         const groups = new Map<string, TerrainTileCoordinate[]>();
         for (const tile of this.selected) {const parent = this.getParent(tile); const key = parent ? getTerrainTileKey(parent) : getTerrainTileKey(tile); const group = groups.get(key) ?? []; group.push(tile); groups.set(key, group);}
         const drawable: TerrainTileRecord[] = [];
@@ -145,6 +162,41 @@ export class TerrainTileset {
             else drawable.push(...ready);
         }
         return drawable;
+    }
+
+    /** Complete sibling substitution and rollback keep loaded fallback edges at most 2:1. */
+    private getDrawableHierarchy(): TerrainTileRecord[] {
+        const selected = new Set(this.selected.map(getTerrainTileKey)), roots = new Map<string, TerrainTileCoordinate>();
+        for (const tile of this.selected) {
+            let root = tile, parent = this.getParent(root);
+            while (parent) {root = parent; parent = this.getParent(root);}
+            roots.set(getTerrainTileKey(root), root);
+        }
+        /** A branch either has full child coverage or retains its loaded ancestor. */
+        const visit = (tile: TerrainTileCoordinate): TerrainTileRecord[] | null => {
+            const key = getTerrainTileKey(tile), record = this.records.get(key);
+            if (selected.has(key)) return record?.data ? [record] : null;
+            const children = getTerrainChildren(tile).map(visit);
+            return children.every(child => child !== null) ? children.flatMap(child => child ?? []) : record?.data ? [record] : null;
+        };
+        let drawable = [...roots.values()].flatMap(root => visit(root) ?? []);
+        for (;;) {
+            const fine = drawable.find(tile => drawable.some(neighbor => tile.coordinate.zoom > neighbor.coordinate.zoom + 1 && terrainTilesTouch(tile.coordinate, neighbor.coordinate)));
+            if (!fine) return drawable;
+            const coarse = drawable.find(neighbor => fine.coordinate.zoom > neighbor.coordinate.zoom + 1 && terrainTilesTouch(fine.coordinate, neighbor.coordinate))!;
+            let ancestor = fine.coordinate;
+            while (ancestor.zoom > coarse.coordinate.zoom + 1) ancestor = this.getParent(ancestor)!;
+            let fallback = this.records.get(getTerrainTileKey(ancestor));
+            // A provider may fail an intermediate ancestor. Prefer an older loaded ancestor;
+            // if even the root is missing, omit the branch rather than draw an unsupported seam.
+            while (!fallback?.data) {
+                const parent = this.getParent(ancestor);
+                if (!parent) break;
+                ancestor = parent; fallback = this.records.get(getTerrainTileKey(ancestor));
+            }
+            drawable = drawable.filter(tile => !terrainTileContains(ancestor, tile.coordinate));
+            if (fallback?.data) drawable.push(fallback);
+        }
     }
 
     /** Detached queue, error and byte counts for user-visible resource diagnostics. */

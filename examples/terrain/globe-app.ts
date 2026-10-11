@@ -8,7 +8,8 @@ import {GlobeTerrainLayer, getGlobeScreenRatio} from '@vis.gl/tangram-layers/exp
 import {getGlobeTerrainExaggeration, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainTileset} from './terrain-tileset';
-import {getTerrainTileBounds} from './tile-selection';
+import {getTerrainTileBounds, getTerrainTileKey} from './tile-selection';
+import {selectGlobeTerrainDetail, type GlobeTerrainDetail} from './globe-detail';
 import {decodeTerrainInWorker} from './worker-client';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';
 import type {TerrainExample} from './app';
@@ -33,17 +34,20 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const rawExaggeration = parameters.get('exaggeration');
     const requested = rawExaggeration?.trim() ? Number(rawExaggeration) : 100;
     const maximum = Number.isFinite(requested) && requested >= 0 && requested <= 200 ? Math.round(requested) : 100;
+    const requestedDetail = Number(parameters.get('detail'));
+    const targetPixels = [128, 256, 512].includes(requestedDetail) ? requestedDetail : 256;
     let currentMaximum = maximum;
     const root = document.createElement('div');
     root.className = 'mounted-example terrain-example';
     root.innerHTML = `<div data-example="map"></div><aside data-example="controls">
       <h1>Globe terrain</h1><p data-example="status" role="status">Loading global elevation…</p>
       <label class="control"><span>Maximum globe exaggeration</span><input data-example="exaggeration" type="range" min="0" max="200" step="1"><output data-example="exaggeration-value"></output></label>
+      <label class="control"><span>Terrain detail</span><select data-example="detail"><option value="128">High</option><option value="256">Balanced</option><option value="512">Fast</option></select></label>
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
       <button data-example="retry" type="button">Retry failed tiles</button>
       <output data-example="terrain-hit" aria-live="polite">Click terrain for physical elevation</output>
       <p class="hint">Drag to rotate; scroll/pinch to zoom. Exaggerated relief fades to 1× over two apparent-diameter doublings; 0× stays flat.</p>
-      <p class="hint">Experimental global z2 DEM preview, not high-detail terrain or basemap draping. Source pixels stay warm while rotating and zooming. Polar regions outside ±85.05° and no-data areas have no terrain. Elevations retain the source datum; displayed mountains are exaggerated, returned meters are not.</p>
+      <p class="hint">Adaptive globe terrain: global fallback stays warm while visible regions refine, bounded to 96 leaf tiles and 256 MiB of retained source/decoded arrays. Coarse/fine edges are stitched. This is not basemap draping or a certified pixel-error guarantee. Polar regions outside ±85.05° and no-data areas have no terrain. Elevations retain the source datum; displayed mountains are exaggerated, returned meters are not.</p>
       <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a></aside>
       <div class="canvas-toolbar"><div class="canvas-device-tabs" role="tablist" aria-label="Rendering device">
       <button data-device-type="webgpu" type="button" role="tab">WebGPU</button><button data-device-type="webgl" type="button" role="tab">WebGL</button></div>
@@ -57,6 +61,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     };
     const container = element<HTMLDivElement>('map'), status = element('status'), output = element('terrain-hit');
     const exaggeration = element<HTMLInputElement>('exaggeration'), wireframe = element<HTMLInputElement>('wireframe');
+    const detailControl = element<HTMLSelectElement>('detail'); detailControl.value = String(targetPixels);
     exaggeration.value = String(maximum);
     const exaggerationValue = element<HTMLOutputElement>('exaggeration-value');
     exaggerationValue.value = `${maximum}×`;
@@ -74,6 +79,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     let renderingError: string | undefined;
     let tileset: TerrainTileset | undefined;
     let grids: TerrainHeightGrid[] = [];
+    let detail: GlobeTerrainDetail | undefined, selectionSignature = '', detailCameraSignature = '';
     const abort = new AbortController();
     /** Coalesce worker completions and camera updates without rebuilding source data. */
     function schedule(): void {
@@ -94,22 +100,29 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
             }, onLoad: () => {if (!disposed && generation === deckGeneration) {deckReady = true; schedule();}}});
     }
     let deck = createDeck();
-    /** Change display geometry only; fixed global source coverage survives zoom/rotation/device changes. */
+    /** Refine visible data with hysteresis, retaining complete stitched parent fallback and warm sources. */
     function updateLayers(): void {
         if (!tileset || disposed || !deckReady) return;
-        // Swap the entire world together; never join unstitched coarse/fine boundaries.
-        const records = [...tileset.records.values()];
-        const fine = records.filter(tile => tile.coordinate.zoom === 2 && tile.data);
-        const drawable = fine.length === 16 ? fine : records.filter(tile => tile.coordinate.zoom === 1 && tile.data);
+        const viewport = deck.getViewports()[0];
+        if (!viewport || viewport.projectionMode !== 2 || viewport.width <= 0 || viewport.height <= 0) return;
+        const cameraSignature = [camera.longitude, camera.latitude, camera.zoom, viewport.x, viewport.y, viewport.width, viewport.height, ...viewport.viewProjectionMatrix].join(',');
+        if (!detail || detailCameraSignature !== cameraSignature) {
+            detail = selectGlobeTerrainDetail({...camera, x: viewport.x, y: viewport.y, width: viewport.width, height: viewport.height, cameraPosition: viewport.cameraPosition, project: position => viewport.project(position)}, {targetPixels: Number(detailControl.value), maxZoom: source.maxZoom, previous: detail?.tiles});
+            detailCameraSignature = cameraSignature;
+        }
+        const signature = detail.tiles.map(getTerrainTileKey).join(',');
+        if (signature !== selectionSignature) {selectionSignature = signature; tileset.update(detail.tiles, 10000);}
+        const drawable = tileset.getDrawableTiles();
         const nextGrids = drawable.flatMap(tile => tile.data ? [tile.data.grid] : []);
         if (grids.length !== nextGrids.length || grids.some((grid, index) => grid !== nextGrids[index])) grids = nextGrids;
         layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, globeTerrainExaggeration: Number(exaggeration.value), wireframe: wireframe.checked});
         deck.setProps({layers: [layer]});
-        const viewport = deck.getViewports()[0], statistics = tileset.getStatistics();
-        const effective = viewport ? getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value)) : maximum;
-        status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · ${effective.toFixed(1)}× displayed · ${(statistics.bytes / 1000000).toFixed(1)} MB cached${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
+        const statistics = tileset.getStatistics();
+        const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
+        const highest = Math.max(0, ...drawable.map(tile => tile.coordinate.zoom));
+        status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · z${highest} detail · ${effective.toFixed(1)}× displayed · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(0)} MB cached${statistics.active || statistics.queued ? ` · ${statistics.active} active / ${statistics.queued} queued` : ''}${detail.limited ? ' · detail budget/source limit' : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
     }
-    tileset = new TerrainTileset({minZoom: 0, maxZoom: 2, fetch: (tile, signal) => source.fetchTile(tile, signal),
+    tileset = new TerrainTileset({minZoom: 1, maxZoom: source.maxZoom, hierarchical: true, maxResidentBytes: 256 * 1024 * 1024, maxCachedTiles: 48, maxCachedBytes: 64 * 1024 * 1024, fetch: (tile, signal) => source.fetchTile(tile, signal),
         decode: (bytes, tile, error, signal) => decodeTerrainInWorker(workerUrl.href, bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), error, signal, source.noData), onChange: schedule});
     const observer = new ResizeObserver(() => {if (!disposed) {deck.setProps({width: container.clientWidth, height: container.clientHeight}); schedule();}});
     observer.observe(container);
@@ -121,6 +134,9 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         parameters.set('exaggeration', String(value)); options.onParametersChange?.(new URLSearchParams(parameters)); schedule();
     }, {signal: abort.signal});
     wireframe.addEventListener('change', schedule, {signal: abort.signal});
+    detailControl.addEventListener('change', () => {
+        parameters.set('detail', detailControl.value); options.onParametersChange?.(new URLSearchParams(parameters)); detailCameraSignature = ''; schedule();
+    }, {signal: abort.signal});
     element('retry').addEventListener('click', () => tileset?.retry(), {signal: abort.signal});
     element('fullscreen').addEventListener('click', () => {if (document.fullscreenElement === root) void document.exitFullscreen(); else void root.requestFullscreen().catch(error => {status.textContent = `Fullscreen unavailable: ${error.message}`;});}, {signal: abort.signal});
     /** Preserve source/cache ownership when switching GPU devices. */
@@ -135,6 +151,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     updateTabs();
     const destroyCard = createCollapsibleInfoCard(element('controls'));
     const coordinates = Array.from({length: 16}, (_, index) => ({zoom: 2, column: index % 4, row: Math.floor(index / 4)}));
+    selectionSignature = coordinates.map(getTerrainTileKey).join(',');
     tileset.update(coordinates, 10000);
     return {ready: tileset.waitForIdle().then(() => {updateLayers();}), destroy() {
         if (disposed) return; disposed = true; abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); destroyCard(); deck.finalize(); root.remove();

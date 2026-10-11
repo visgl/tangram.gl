@@ -30,12 +30,17 @@ Install `@deck.gl/mesh-layers` alongside the package's normal peer dependencies.
 ### `data` (required)
 
 Immutable `TerrainHeightGrid[]` in absolute EPSG:3857 meters with physical heights,
-explicit validity, registration and one shared vertical datum. Use same-LOD,
-non-overlapping tiles; matching edges average neighbor heights, including the
+explicit validity, registration and one shared vertical datum. Use non-overlapping
+tiles with balanced 2:1 edge neighbors; matching edges average heights, including the
 antimeridian. Cells touching missing samples are omitted, not bridged. Do not
 mutate grids in place: replace the data array after changing source samples.
 Validity is checked over each cell's complete interpolation footprint, so source
 holes smaller than the display mesh remain holes, including touching neighbors.
+All tiles use the same `meshResolution`. Coarse boundary triangles include the
+fine tile's extra edge nodes, preventing T-junctions. Relief colors use common
+sample-neighborhood slopes in spherical coordinates rather than independent
+triangle normals, so shared vertices have matching lighting. This does not morph
+heights through time: newly loaded sibling groups replace their parent together.
 
 ### `globeTerrainExaggeration` (number, default `100`)
 
@@ -84,6 +89,9 @@ so displayed positions cannot silently diverge from CPU queries.
 Constrain the host's view state to `zoom <= 12`: deck.gl 9.4 changes GlobeView
 to WebMercatorViewport above that threshold. The example sets `maxZoom: 12`
 and also clamps its controlled state to stay spherical.
-No basemap/annotation draping, mixed-LOD stitching, automatic tile
-fetching or datum conversion. The example's Mercator DEM stops at ±85.05°; polar
+No basemap/annotation draping, automatic tile fetching in the layer, or datum
+conversion. The example selects balanced mixed detail from sampled projected
+footprints, preserves global coarse coverage, and bounds selected leaves and
+retained source arrays. This is not a certified terrain-error LOD algorithm or a
+total GPU/transient-memory budget. The Mercator DEM stops at ±85.05°; polar
 terrain is not invented. Immersive WebXR/stereo validation remains future work.

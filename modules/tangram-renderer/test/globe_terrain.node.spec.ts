@@ -103,6 +103,35 @@ test('packed coordinates that collapse narrow high-longitude tiles reject zero-a
     expect(() => buildGlobeTerrainMesh(grid(1000, [west, 20000000, west + 0.01, 20000000.01]), {resolution: 2})).toThrow('packed coordinate precision');
 });
 
+test('coarse and fine globe edges share every packed vertex, physical height and relief color', () => {
+    const coarse = grid(1000, [-200000, -100000, 0, 100000]);
+    const north = grid(3000, [0, 0, 100000, 100000]), south = grid(2000, [0, -100000, 100000, 0]);
+    const grids = [coarse, north, south];
+    const meshes = grids.map(source => buildGlobeTerrainMesh(source, {resolution: 4, exaggeration: 100, neighbors: grids.filter(candidate => candidate !== source)}));
+    /** Canonical shared-edge attributes, independent of each mesh's regular/fan ordering. */
+    const edges = (mesh: ReturnType<typeof buildGlobeTerrainMesh>) => {
+        const values = new Map<number, {position: number[]; height: number; color: number[]}>();
+        for (let index = 0; index < mesh.physicalHeights.length; index++) if (mesh.geographicPositions[index * 3] === 0) {
+            values.set(mesh.geographicPositions[index * 3 + 1], {position: [...mesh.positions.slice(index * 3, index * 3 + 3)], height: mesh.physicalHeights[index], color: [...mesh.colors.slice(index * 3, index * 3 + 3)]});
+        }
+        return values;
+    };
+    const boundary = edges(meshes[0]), fine = new Map([...edges(meshes[1]), ...edges(meshes[2])]);
+    expect(boundary.size).toBe(9); expect(fine.size).toBe(9);
+    for (const [latitude, value] of boundary) expect(fine.get(latitude)).toEqual(value);
+    expect(meshes[0].indices.length).toBeGreaterThan(4 * 4 * 6);
+    for (const mesh of meshes) expect(mesh.indices.every(index => index < mesh.physicalHeights.length)).toBe(true);
+    const surface = new TerrainMeshSurface({projection: 'globe', positions: meshes[0].positions, indices: meshes[0].indices, physicalHeights: meshes[0].physicalHeights});
+    const hit = surface.intersectRay({origin: [0, -400, 0], direction: [0, 1, 0]});
+    expect(hit?.coordinate[2]).toBeCloseTo((1000 + 3000 + 2000) / 3);
+});
+
+test('unsupported mixed-LOD boundaries and overlapping footprints reject rather than crack', () => {
+    const source = grid(1000, [-200000, -100000, 0, 100000]);
+    expect(() => buildGlobeTerrainMesh(source, {neighbors: [grid(2000, [0, 0, 50000, 50000])]})).toThrow('2:1');
+    expect(() => buildGlobeTerrainMesh(source, {neighbors: [grid(2000, [-100000, -100000, 100000, 100000])]})).toThrow('overlap');
+});
+
 test('malformed grids, incompatible datums and unrenderable elevations reject', () => {
     for (const source of [{...grid(), width: 1}, {...grid(), height: NaN}, {...grid(), heights: new Float32Array(1)}, {...grid(), valid: new Uint8Array(1)}, {...grid(), bounds: [0, 0, 0, 1] as const}, {...grid(), bounds: [0, 0, NaN, 1] as const}, {...grid(), bounds: [-1e9, 0, 1e9, 1] as const}]) expect(() => buildGlobeTerrainMesh(source)).toThrow('Invalid');
     expect(() => buildGlobeTerrainMesh(grid(), {neighbors: [{...grid(), verticalDatum: 'orthometric'}]})).toThrow('datum');

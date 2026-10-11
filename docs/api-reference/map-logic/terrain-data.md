@@ -75,7 +75,10 @@ Returned `geographicPositions` contain packed longitude/latitude/display-height
 attributes. `positions` contain matching radius-256 common-space XYZ for queries,
 `physicalHeights` preserve source meters, and `indices` omit no-data cells.
 `colors` contain baked relief shading. Source grids are unchanged; same-LOD
-neighbors reconcile shared edges and antimeridian copies. Source bounds must stay
+neighbors reconcile shared edges and antimeridian copies, including balanced 2:1
+footprints. Boundary rings include finer edge nodes; relief lighting uses shared
+finite-difference slopes in spherical coordinates. Overlaps and unbalanced edge
+footprints reject. Source bounds must stay
 inside the EPSG:3857 world and share a datum.
 
 `getGlobeTerrainExaggeration(globeScreenRatio, maximum = 100)` supplies the display

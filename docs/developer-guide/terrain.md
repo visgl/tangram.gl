@@ -23,10 +23,24 @@ from one to four viewport diameters, relief smoothly attenuates to physical scal
 Queries intersect the displayed surface but interpolate source meters, rather than
 reporting exaggerated radial altitude or triangle-chord depression.
 
-This global preview holds z2 source grids warm across rotation, zoom and device
-changes. It switches the whole world from z1 fallback to z2 together, avoiding
-mixed-LOD seams. It does not implement high-detail globe refinement, polar terrain,
-terrain-aware vector/label draping, or immersive/stereo terrain validation. Missing
+The globe keeps global z1/z2 ancestors warm while refining visible regions up to
+the source limit (Mapterhorn z12). **Terrain detail** selects High, Balanced or Fast
+projected-footprint targets with hysteresis; a 96-leaf cap may keep some regions
+coarse. The status shows actual loaded detail, pending jobs and resource limits.
+The scheduler retains all required ancestors, publishes complete sibling groups,
+and rolls back fine groups when loading fallback would violate balanced 2:1 edges.
+Fine edge nodes are also inserted into coarse spherical meshes; shared-edge relief
+lighting and physical queries use the same sample neighborhood.
+
+Rotation, exaggeration and GPU switches do not reset the source cache. Cold detail
+can be evicted: retained compressed bytes and decoded arrays have a hard 256 MiB
+cap, with at most two fetch/decode jobs, 48 cold records and a 64 MiB cold budget.
+The cap excludes in-flight worker temporaries, render/query meshes and GPU resources;
+the separate leaf and mesh-resolution limits bound their counts, not total bytes.
+The footprint estimate is not a certified curvature/height-error bound, and height
+changes at sibling replacement are not temporally morphed. The example still does
+not implement polar terrain, terrain-aware basemap draping or immersive/stereo
+terrain validation. Missing
 samples remain holes. Source datum is preserved, not converted to ellipsoidal height.
 
 ## Ownership and coordinates
@@ -206,7 +220,9 @@ render pass; attaching an extension alone does not make the basemap drape.
 This phase completes the local Mercator reference's streamed source boundary,
 warm topology changes, indexed queries, 2:1 fallback stitching, hard resident cache
 admission and opt-in target following. It does **not** complete the whole terrain
-or WebXR roadmap. Next larger features remain certified pixel-error LOD, draping
-Tangram basemap geometry, globe elevation, whole-pipeline/GPU memory admission,
+or WebXR roadmap. The subsequent globe preview adds balanced mixed-detail
+displacement and adaptive source selection. Next larger features remain certified
+pixel-error LOD, draping Tangram basemap geometry, temporal terrain morphing,
+whole-pipeline/GPU memory admission,
 first-person terrain collision/occlusion and native headset validation. None is
 implied by this example's successful rendering or CPU queries.

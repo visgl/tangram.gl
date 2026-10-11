@@ -26,7 +26,10 @@ Copyright (c) vis.gl contributors
 - The opt-in [GlobeTerrainLayer](./api-reference/globe-terrain-layer.md) displaces
   spherical terrain from physical DEM grids. `globeTerrainExaggeration` defaults
   to 100 while the globe fits and fades to 1 at close range. The Mapterhorn globe
-  preview retains global z2 data and queries physical source meters, not exaggerated heights.
+  example retains global coarse coverage while refining visible DEM tiles, stitches
+  balanced 2:1 spherical edges and shares relief lighting and physical picking.
+  High/Balanced/Fast detail controls expose a bounded footprint policy; source
+  arrays, requests and leaf counts are limited separately. This is not basemap draping.
 - The opt-in `experimental/projected-basemaps` layer adds worker-side math.gl
   Equal Earth, regional Albers, equirectangular, ellipsoidal Mercator and Web
   Mercator projection for ground polygons, raster meshes, meter/pixel roads
