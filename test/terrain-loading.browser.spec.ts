@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {beforeAll, expect, test} from 'vitest';
-import {parseTerrainTile, getTerrainTileBounds, createTerrainQuerySurface, type LoadedTerrain} from '../examples/terrain/load-terrain';
+import {parseTerrainTile, createTerrainQuerySurface, type LoadedTerrain} from '../examples/terrain/load-terrain';
+import {getTerrainTileBounds} from '../examples/terrain/tile-selection';
 import {createTerrainFixture} from './terrain-fixture';
 import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
 import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';

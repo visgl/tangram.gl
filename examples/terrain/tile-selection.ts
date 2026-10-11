@@ -20,11 +20,20 @@ export function getTerrainParent(tile: TerrainTileCoordinate): TerrainTileCoordi
     return tile.zoom ? {zoom: tile.zoom - 1, column: Math.floor(tile.column / 2), row: Math.floor(tile.row / 2)} : null;
 }
 
+/** Geographic bounds for a canonical XYZ address, independent of parsers and rendering. */
+export function getTerrainTileBounds(zoom: number, column: number, row: number): [number, number, number, number] {
+    const count = 2 ** zoom;
+    if (!Number.isSafeInteger(zoom) || zoom < 0 || zoom > 22 || !Number.isInteger(column) || !Number.isInteger(row) || column < 0 || row < 0 || column >= count || row >= count) throw new Error('Invalid terrain XYZ tile');
+    const latitude = (tileRow: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * tileRow / count))) * 180 / Math.PI;
+    return [column / count * 360 - 180, latitude(row + 1), (column + 1) / count * 360 - 180, latitude(row)];
+}
+
 /** Bounded screen-footprint selection, without enumerating a horizon-sized rectangle. */
-export function selectTerrainTiles(view: {zoom: number; longitude: number; latitude: number; getBounds(options?: {z?: number}): [number, number, number, number]}, maxTiles = 9): TerrainTileCoordinate[] {
+export function selectTerrainTiles(view: {zoom: number; longitude: number; latitude: number; getBounds(options?: {z?: number}): [number, number, number, number]}, maxTiles = 9, sourceZoom?: number): TerrainTileCoordinate[] {
     if (![view.zoom, view.longitude, view.latitude].every(Number.isFinite) || !Number.isSafeInteger(maxTiles) || maxTiles < 1 || maxTiles > 25) throw new Error('Invalid terrain selection');
     // Global Mapterhorn coverage is z0-z12; finer regional archives are not assumed.
-    const zoom = Math.max(0, Math.min(12, Math.floor(view.zoom)));
+    if (sourceZoom !== undefined && (!Number.isSafeInteger(sourceZoom) || sourceZoom < 0 || sourceZoom > 12)) throw new Error('Invalid terrain source zoom');
+    const zoom = sourceZoom ?? Math.max(0, Math.min(12, Math.floor(view.zoom)));
     const count = 2 ** zoom;
     const longitude = ((view.longitude + 180) % 360 + 360) % 360 - 180;
     const centerColumn = (longitude + 180) / 360 * count;

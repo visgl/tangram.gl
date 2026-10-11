@@ -46,7 +46,8 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(183);
+    expect(sourceFiles).toHaveLength(184);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/triangle-query-index.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/terrain-neighborhood.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/terrain-data.ts'))).toBe(true);
     for (const name of ['triplanar', 'planar', 'sphere-map', 'height-decode', 'globe-horizon']) {

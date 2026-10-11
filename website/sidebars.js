@@ -72,7 +72,8 @@ module.exports = {
                 'api-reference/map-logic/tile-build-queue',
                 'api-reference/map-logic/tile-residency',
                 'api-reference/map-logic/tile-cache-policy',
-                'api-reference/map-logic/terrain-data'
+                'api-reference/map-logic/terrain-data',
+                'api-reference/map-logic/triangle-query-index'
               ]
             },
             {type: 'doc', id: 'api-reference/styling', label: 'Styling reference'}

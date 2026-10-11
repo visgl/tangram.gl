@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4, Vector3} from '@math.gl/core';
-import {intersectRayBounds, intersectRayTriangle} from '@math.gl/culling/queries';
+import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import type HostFrame from '../scene/host_frame';
 import {getGeographicProjectionProcedure} from '../scene/projection_math';
 import type {FeatureSelectionOptions} from '../types';
@@ -52,7 +52,7 @@ export interface TerrainMeshOptions {
     indices: ArrayLike<number>;
 }
 
-/** Small immutable reference implementation; large tilesets may inject an indexed surface. */
+/** Immutable physical terrain surface backed by the reusable CPU triangle hierarchy. */
 export class TerrainMeshSurface implements TerrainSurface {
     /** Mercator XY/physical Z meters, or already projected globe common coordinates. */
     readonly projection: TerrainSurface['projection'];
@@ -60,10 +60,8 @@ export class TerrainMeshSurface implements TerrainSurface {
     private readonly positions: Float64Array;
     /** Detached triangle topology. */
     private readonly indices: Uint32Array;
-    /** Overall lower bounds for rejecting rays before triangle traversal. */
-    private readonly minimum: [number, number, number] = [Infinity, Infinity, Infinity];
-    /** Overall upper bounds; an empty mesh never reaches traversal. */
-    private readonly maximum: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    /** Projection-independent immutable triangle query index. */
+    private queryIndex?: TriangleQueryIndex;
 
     /** Copy a finite indexed triangle mesh; mutation of caller buffers cannot change queries. */
     constructor(options: TerrainMeshOptions) {
@@ -77,38 +75,30 @@ export class TerrainMeshSurface implements TerrainSurface {
         this.projection = options.projection;
         this.positions = new Float64Array(positions);
         this.indices = new Uint32Array(indices);
-        for (let index = 0; index < positions.length; index++) {
-            const axis = index % 3;
-            this.minimum[axis] = Math.min(this.minimum[axis], positions[index]);
-            this.maximum[axis] = Math.max(this.maximum[axis], positions[index]);
-        }
     }
 
-    /** Two-sided math.gl triangle queries; O(triangles), with an overall bounds rejection. */
+    /** Two-sided indexed math.gl queries; distance is normalized to physical coordinate units. */
     intersectRay(ray: TerrainRay, maxDistance = Infinity): TerrainSurfaceHit | null {
         if (maxDistance < 0 || Number.isNaN(maxDistance)) throw new Error('Terrain ray distance must be non-negative');
         const length = Math.hypot(...ray.direction);
         if (ray.origin.length !== 3 || ray.direction.length !== 3 || !ray.origin.every(Number.isFinite) ||
             !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0 || !this.indices.length) return null;
         const direction: [number, number, number] = [ray.direction[0] / length, ray.direction[1] / length, ray.direction[2] / length];
-        if (intersectRayBounds(ray.origin, direction, this.minimum, this.maximum, maxDistance) === null) return null;
-        let result: TerrainSurfaceHit | null = null;
-        for (let index = 0; index < this.indices.length; index += 3) {
-            const vertices = [0, 1, 2].map((offset): [number, number, number] => {
-                const start = this.indices[index + offset] * 3;
-                return [this.positions[start], this.positions[start + 1], this.positions[start + 2]];
-            });
-            const hit = intersectRayTriangle(ray.origin, direction, vertices[0], vertices[1], vertices[2],
-                {maxT: result?.distance ?? maxDistance});
-            if (!hit || result && hit.t >= result.distance) continue;
-            const position: [number, number, number] = [ray.origin[0] + direction[0] * hit.t,
-                ray.origin[1] + direction[1] * hit.t, ray.origin[2] + direction[2] * hit.t];
-            if (this.projection === 'globe' && Math.hypot(...position) === 0) continue;
-            const normal = new Vector3(vertices[1]).subtract(vertices[0]).cross(new Vector3(vertices[2]).subtract(vertices[0])).normalize();
-            result = {position, coordinate: getGeographicProjectionProcedure(this.projection).unproject(position),
-                distance: hit.t, normal: [normal[0], normal[1], normal[2]], triangleIndex: index / 3, barycentric: hit.barycentric};
-        }
-        return result;
+        this.queryIndex ??= new TriangleQueryIndex(this.positions, this.indices);
+        const hit = this.queryIndex.queryRay(ray.origin, direction, maxDistance, this.projection === 'globe' ? candidate => Math.hypot(
+            ray.origin[0] + direction[0] * candidate.parameter, ray.origin[1] + direction[1] * candidate.parameter,
+            ray.origin[2] + direction[2] * candidate.parameter) !== 0 : undefined).hit;
+        if (!hit) return null;
+        const index = hit.triangleIndex * 3;
+        const vertices = [0, 1, 2].map((offset): [number, number, number] => {
+            const start = this.indices[index + offset] * 3;
+            return [this.positions[start], this.positions[start + 1], this.positions[start + 2]];
+        });
+        const position: [number, number, number] = [ray.origin[0] + direction[0] * hit.parameter,
+            ray.origin[1] + direction[1] * hit.parameter, ray.origin[2] + direction[2] * hit.parameter];
+        const normal = new Vector3(vertices[1]).subtract(vertices[0]).cross(new Vector3(vertices[2]).subtract(vertices[0])).normalize();
+        return {position, coordinate: getGeographicProjectionProcedure(this.projection).unproject(position),
+            distance: hit.parameter, normal: [normal[0], normal[1], normal[2]], triangleIndex: index / 3, barycentric: hit.barycentric};
     }
 }
 

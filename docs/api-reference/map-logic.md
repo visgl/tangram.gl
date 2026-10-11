@@ -9,8 +9,11 @@ Copyright (c) vis.gl contributors
 <span className="badge badge--warning">Status: Experimental</span>
 
 The optional `@vis.gl/tangram-renderer/map-logic` entry provides CPU-only map
-algorithms and types. It has no renderer, deck.gl, luma.gl, DOM, worker or
-third-party runtime imports. The normal renderer entry does not re-export it.
+algorithms and types. It has no renderer, deck.gl, luma.gl, DOM or worker imports.
+Triangle queries use the lightweight `@math.gl/culling/queries` kernels and the
+renderer's existing `quickselect` dependency for bounds partitioning; other
+helpers remain dependency-free. The normal renderer entry does not re-export this
+utility entry.
 
 This API is experimental: names and contracts may change. These helpers form an
 initial reusable boundary, not a complete cartographic layout engine or a new
@@ -30,6 +33,8 @@ package.
   resource accounting from neutral metadata snapshots.
 - [Terrain data](./map-logic/terrain-data.md): elevation decoding, georeferencing,
   no-data and physical-meter sampling.
+- [Triangle queries](./map-logic/triangle-query-index.md): immutable bounds indexing,
+  nearest ray intersections and deterministic work diagnostics.
 
 See the [reuse assessment](../developer-guide/map-logic.md) for extraction limits
 and other candidates.
