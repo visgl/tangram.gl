@@ -503,7 +503,13 @@ const hit = renderer.getTerrainAt({x, y}, surface, {coordinateSpace: 'canvas'});
 ```
 
 For GlobeView supply `projection: 'globe'` and vertices already projected to
-radius-256 globe common coordinates, including elevation. `TerrainMeshSurface`
+radius-256 globe common coordinates, including elevation. Optional per-vertex
+`physicalHeights` preserve source-meter queries on exaggerated display meshes:
+the hit position follows displayed triangles, while `coordinate[2]` interpolates
+the detached physical samples. Only indexed vertex heights must be finite.
+Optional `cullBackfaces: true` matches an outward backface-culled draw pass;
+the default remains two-sided.
+`TerrainMeshSurface`
 copies its buffers, uses two-sided math.gl triangle intersections, and returns
 the nearest triangle. Normals follow mesh winding; distances use the mesh's units.
 Queries lazily build the reusable [triangle bounds index](./map-logic/triangle-query-index.md)

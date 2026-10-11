@@ -46,7 +46,8 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(184);
+    expect(sourceFiles).toHaveLength(185);
+    expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/globe-terrain.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/triangle-query-index.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/terrain-neighborhood.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/terrain-data.ts'))).toBe(true);
@@ -94,7 +95,8 @@ describe('coverage scope guard', () => {
     expect(sourceFiles.some(filePath => filePath.endsWith('selection/selection-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('index.d.ts'))).toBe(false);
     const layerFiles = collectAuthoredSourceFiles('modules/tangram-layers/src');
-    expect(layerFiles).toHaveLength(17);
+    expect(layerFiles).toHaveLength(18);
+    expect(layerFiles.some(filePath => filePath.endsWith('experimental/terrain.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-navigation.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-detail.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-basemaps.ts'))).toBe(true);

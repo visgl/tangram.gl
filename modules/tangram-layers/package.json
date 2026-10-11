@@ -24,6 +24,11 @@
       "import": "./dist/experimental/projected-basemaps.js",
       "default": "./dist/experimental/projected-basemaps.js"
     },
+    "./experimental/terrain": {
+      "types": "./dist/types/experimental/terrain.d.ts",
+      "import": "./dist/experimental/terrain.js",
+      "default": "./dist/experimental/terrain.js"
+    },
     "./dist/*": "./dist/*"
   },
   "files": [
@@ -42,8 +47,9 @@
   },
   "scripts": {
     "build": "yarn build:types && yarn build:bundle",
-    "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-layers index.ts experimental/projected-basemaps.ts",
-    "build:bundle": "yarn build:bundle:main && yarn build:bundle:webxr && yarn build:bundle:projected",
+    "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-layers index.ts experimental/projected-basemaps.ts experimental/terrain.ts",
+    "build:bundle": "yarn build:bundle:main && yarn build:bundle:webxr && yarn build:bundle:projected && yarn build:bundle:terrain",
+    "build:bundle:terrain": "ocular-bundle ./experimental-terrain.js --env=dev --output=dist/experimental/terrain.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "build:bundle:projected": "ocular-bundle ./experimental-projected-basemaps.js --env=dev --output=dist/experimental/projected-basemaps.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "build:bundle:main": "ocular-bundle ./bundle.js --env=dev --output=dist/index.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "build:bundle:webxr": "ocular-bundle ./experimental-webxr.js --env=dev --output=dist/experimental/webxr.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
@@ -60,6 +66,7 @@
   },
   "peerDependencies": {
     "@deck.gl/core": "^9.4.0",
+    "@deck.gl/mesh-layers": "^9.4.0",
     "@luma.gl/core": "^9.4.2",
     "@luma.gl/experimental": "^9.4.2",
     "@math.gl/core": "5.0.0-alpha.15",
@@ -67,6 +74,9 @@
     "mjolnir.js": "^3.1.0"
   },
   "peerDependenciesMeta": {
+    "@deck.gl/mesh-layers": {
+      "optional": true
+    },
     "@math.gl/projection": {
       "optional": true
     }

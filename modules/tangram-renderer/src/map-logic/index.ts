@@ -18,3 +18,5 @@ export {sampleTerrainNeighborhood, resampleTerrainNodes} from './terrain-neighbo
 export type {ElevationDecoder, TerrainGridOptions, TerrainHeightGrid} from './terrain-data';
 export {TriangleQueryIndex} from './triangle-query-index';
 export type {IndexedTriangleHit, TriangleQueryResult} from './triangle-query-index';
+export {buildGlobeTerrainMesh, getGlobeTerrainExaggeration} from './globe-terrain';
+export type {GlobeTerrainMesh} from './globe-terrain';

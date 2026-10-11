@@ -11,6 +11,7 @@ const files = [
   ['Deck example source', 'examples/deck/app.js'],
   ['TangramLayer package entry', 'modules/tangram-layers/dist/index.js'],
   ['Experimental WebXR package entry', 'modules/tangram-layers/dist/experimental/webxr.js'],
+  ['Experimental globe terrain entry', 'modules/tangram-layers/dist/experimental/terrain.js'],
   ['WebXR example source', 'examples/webxr/app.js'],
   ['@vis.gl/tangram-renderer package entry', 'modules/tangram-renderer/dist/index.js'],
   ['Tangram renderer minified ESM', 'modules/tangram-renderer/dist/tangram.min.mjs'],

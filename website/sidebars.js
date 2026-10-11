@@ -89,6 +89,7 @@ module.exports = {
               label: 'Package overview'
             },
             {type: 'doc', id: 'api-reference/tangram-layer', label: 'TangramLayer API'},
+            {type: 'doc', id: 'api-reference/globe-terrain-layer', label: 'Experimental globe terrain'},
             {
               type: 'doc',
               id: 'api-reference/webxr-presentation',

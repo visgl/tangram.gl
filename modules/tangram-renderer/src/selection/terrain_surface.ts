@@ -50,6 +50,10 @@ export interface TerrainMeshOptions {
     positions: ArrayLike<number>;
     /** Three zero-based vertex indices per triangle. */
     indices: ArrayLike<number>;
+    /** Optional source meters per vertex, preserving physical queries on exaggerated display meshes. */
+    physicalHeights?: ArrayLike<number>;
+    /** Match an outward backface-culled draw pass; default false preserves two-sided queries. */
+    cullBackfaces?: boolean;
 }
 
 /** Immutable physical terrain surface backed by the reusable CPU triangle hierarchy. */
@@ -60,6 +64,10 @@ export class TerrainMeshSurface implements TerrainSurface {
     private readonly positions: Float64Array;
     /** Detached triangle topology. */
     private readonly indices: Uint32Array;
+    /** Optional detached physical elevations; only indexed vertices must be finite. */
+    private readonly physicalHeights?: Float64Array;
+    /** Optional render-pass face convention; unrelated to geographic height units. */
+    private readonly cullBackfaces: boolean;
     /** Projection-independent immutable triangle query index. */
     private queryIndex?: TriangleQueryIndex;
 
@@ -75,9 +83,15 @@ export class TerrainMeshSurface implements TerrainSurface {
         this.projection = options.projection;
         this.positions = new Float64Array(positions);
         this.indices = new Uint32Array(indices);
+        this.cullBackfaces = options.cullBackfaces ?? false;
+        const physicalHeights = options.physicalHeights;
+        if (physicalHeights) {
+            if (physicalHeights.length !== positions.length / 3 || indices.some(index => !Number.isFinite(physicalHeights[index]))) throw new Error('Terrain physical heights must match indexed vertices');
+            this.physicalHeights = Float64Array.from(physicalHeights);
+        }
     }
 
-    /** Two-sided indexed math.gl queries; distance is normalized to physical coordinate units. */
+    /** Two-sided indexed math.gl queries; distance is normalized to the surface's coordinate units. */
     intersectRay(ray: TerrainRay, maxDistance = Infinity): TerrainSurfaceHit | null {
         if (maxDistance < 0 || Number.isNaN(maxDistance)) throw new Error('Terrain ray distance must be non-negative');
         const length = Math.hypot(...ray.direction);
@@ -85,9 +99,16 @@ export class TerrainMeshSurface implements TerrainSurface {
             !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0 || !this.indices.length) return null;
         const direction: [number, number, number] = [ray.direction[0] / length, ray.direction[1] / length, ray.direction[2] / length];
         this.queryIndex ??= new TriangleQueryIndex(this.positions, this.indices);
-        const hit = this.queryIndex.queryRay(ray.origin, direction, maxDistance, this.projection === 'globe' ? candidate => Math.hypot(
-            ray.origin[0] + direction[0] * candidate.parameter, ray.origin[1] + direction[1] * candidate.parameter,
-            ray.origin[2] + direction[2] * candidate.parameter) !== 0 : undefined).hit;
+        const hit = this.queryIndex.queryRay(ray.origin, direction, maxDistance, candidate => {
+            if (this.projection === 'globe' && Math.hypot(ray.origin[0] + direction[0] * candidate.parameter,
+                ray.origin[1] + direction[1] * candidate.parameter, ray.origin[2] + direction[2] * candidate.parameter) === 0) return false;
+            if (!this.cullBackfaces) return true;
+            const offsets = [0, 1, 2].map(vertex => this.indices[candidate.triangleIndex * 3 + vertex] * 3);
+            const first = new Vector3(this.positions.slice(offsets[0], offsets[0] + 3));
+            const normal = new Vector3(this.positions.slice(offsets[1], offsets[1] + 3)).subtract(first)
+                .cross(new Vector3(this.positions.slice(offsets[2], offsets[2] + 3)).subtract(first));
+            return normal.dot(direction) < 0;
+        }).hit;
         if (!hit) return null;
         const index = hit.triangleIndex * 3;
         const vertices = [0, 1, 2].map((offset): [number, number, number] => {
@@ -97,7 +118,10 @@ export class TerrainMeshSurface implements TerrainSurface {
         const position: [number, number, number] = [ray.origin[0] + direction[0] * hit.parameter,
             ray.origin[1] + direction[1] * hit.parameter, ray.origin[2] + direction[2] * hit.parameter];
         const normal = new Vector3(vertices[1]).subtract(vertices[0]).cross(new Vector3(vertices[2]).subtract(vertices[0])).normalize();
-        return {position, coordinate: getGeographicProjectionProcedure(this.projection).unproject(position),
+        const coordinate = getGeographicProjectionProcedure(this.projection).unproject(position);
+        const physicalHeights = this.physicalHeights;
+        if (physicalHeights) coordinate[2] = hit.barycentric.reduce((height, weight, vertex) => height + weight * physicalHeights[this.indices[index + vertex]], 0);
+        return {position, coordinate,
             distance: hit.parameter, normal: [normal[0], normal[1], normal[2]], triangleIndex: index / 3, barycentric: hit.barycentric};
     }
 }

@@ -12,8 +12,22 @@ The [Mercator terrain example](/tangram.gl/examples/deck-terrain) combines
 loaders.gl elevation decoding, deck.gl terrain rendering and Tangram's CPU
 terrain-query surface. It streams a bounded neighborhood of Mapterhorn Terrarium
 tiles at physical scale. It is **not** a terrain-enabled Tangram scene: vector
-basemap draping and globe terrain are deferred. Opt-in target following is available
+basemap draping is deferred. Opt-in target following is available
 in this bounded Mercator example; it is not first-person collision physics.
+
+The [Globe terrain example](/tangram.gl/examples/deck-globe-terrain) uses the separate
+[experimental GlobeTerrainLayer](../api-reference/globe-terrain-layer.md). It resamples
+physical height grids into curved spherical triangles, with a configurable maximum
+`globeTerrainExaggeration` of 100 by default. As the apparent globe diameter grows
+from one to four viewport diameters, relief smoothly attenuates to physical scale.
+Queries intersect the displayed surface but interpolate source meters, rather than
+reporting exaggerated radial altitude or triangle-chord depression.
+
+This global preview holds z2 source grids warm across rotation, zoom and device
+changes. It switches the whole world from z1 fallback to z2 together, avoiding
+mixed-LOD seams. It does not implement high-detail globe refinement, polar terrain,
+terrain-aware vector/label draping, or immersive/stereo terrain validation. Missing
+samples remain holes. Source datum is preserved, not converted to ellipsoidal height.
 
 ## Ownership and coordinates
 
