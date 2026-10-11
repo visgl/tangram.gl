@@ -29,7 +29,9 @@ test('early settings, selected-device styling and bfcache restoration retain a l
     vi.stubGlobal('fetch', fetchMock);
     try {
         const initialization = import('../examples/terrain/app');
-        await expect.poll(() => fetchMock.mock.calls.length).toBe(1);
+        // Wait for Vite to load/initialize the module, not a one-second UI
+        // response budget. The fetch itself remains held by our local promise.
+        await expect.poll(() => fetchMock.mock.calls.length, {timeout: 5000}).toBe(1);
         const selector = content.querySelector<HTMLSelectElement>('#mesh-error')!;
         selector.value = '5'; selector.dispatchEvent(new Event('change'));
         expect(mocks.parse).not.toHaveBeenCalled();
