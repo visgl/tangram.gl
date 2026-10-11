@@ -39,6 +39,9 @@ test.each([0, 46, -46, 85, -85])('pitched selection remains bounded near latitud
 test('invalid horizon projections have a bounded fallback and policy errors reject', () => {
     const view = {zoom: 5, longitude: 0, latitude: 0, project: () => [NaN, NaN, NaN]};
     expect(selectTerrainDetail(view)).toEqual({zoom: 5, projectedTilePixels: null, limited: true});
+    expect(selectTerrainDetail(view, {previousZoom: 0}).zoom).toBe(5);
+    expect(selectTerrainDetail({...view, zoom: 10}, {previousZoom: 0}).zoom).toBe(10);
+    expect(selectTerrainDetail({...view, zoom: 10}, {previousZoom: 3, minZoom: 3, maxZoom: 8}).zoom).toBe(8);
     for (const options of [{targetTilePixels: 0}, {targetTilePixels: Infinity}, {hysteresis: -1}, {maxZoom: 13}, {minZoom: 5, maxZoom: 4}, {previousZoom: 0.5}, {elevation: NaN}]) expect(() => selectTerrainDetail(view, options)).toThrow();
     expect(() => selectTerrainDetail({...view, longitude: Infinity})).toThrow();
     expect(selectTerrainDetail({...view, project: () => [0, 0, 2]}).limited).toBe(true);

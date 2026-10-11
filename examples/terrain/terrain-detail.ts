@@ -48,8 +48,10 @@ export function selectTerrainDetail(view: TerrainDetailView, options: TerrainDet
         if (points.some(point => point.length < 3 || !point.every(Number.isFinite) || point[2] < -1 || point[2] > 1)) return null;
         return Math.max(...points.map((point, index) => Math.hypot(point[0] - points[(index + 1) % 4][0], point[1] - points[(index + 1) % 4][1])));
     };
-    let zoom = options.previousZoom ?? Math.max(minZoom, Math.min(maxZoom, Math.ceil(view.zoom + Math.log2(512 / target))));
+    const cameraZoom = Math.max(minZoom, Math.min(maxZoom, Math.ceil(view.zoom + Math.log2(512 / target))));
+    let zoom = options.previousZoom ?? cameraZoom;
     let pixels = measure(zoom);
+    if (pixels === null) {zoom = cameraZoom; pixels = measure(zoom);}
     const refineThreshold = target * (options.previousZoom === undefined ? 1 : 1 + hysteresis);
     // Behind-camera/horizon samples retain the bounded camera-zoom fallback.
     // Missing measurements must not force maximum detail and needless downloads.

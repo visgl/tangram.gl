@@ -110,7 +110,9 @@ export function createTerrainImageSource(options: {
             return target.buffer.slice(0, length);
         } finally {
             clearTimeout(timeout); signal.removeEventListener('abort', abort); controller.signal.removeEventListener('abort', cancelBody);
-            await reader?.cancel().catch(() => {}); reader?.releaseLock();
+            // Closing a stream is synchronous; its underlying cancel promise may
+            // never settle. Cleanup must not keep a queue slot past the deadline.
+            void reader?.cancel().catch(() => {}); reader?.releaseLock();
         }
     }});
 }

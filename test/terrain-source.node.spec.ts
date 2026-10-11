@@ -57,6 +57,19 @@ test('abort and deadline cancel the real body read; cancelled calls never begin 
     expect(fetch).toHaveBeenCalledTimes(previousCalls);
 });
 
+test('nonsettling underlying cancellation cannot hold a failed acquisition or timeout open', async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const oversized = createTerrainImageSource({...options, maxBytes: 1, fetch: async () => new Response(new ReadableStream({start(controller) {controller.enqueue(new Uint8Array([1, 2]));}, cancel}))});
+    await expect(oversized.fetchTile(tile, new AbortController().signal)).rejects.toThrow(/byte limit/);
+    expect(cancel).toHaveBeenCalledOnce();
+    const stalled = createTerrainImageSource({...options, timeoutMilliseconds: 100, fetch: async () => new Response(new ReadableStream<Uint8Array>({cancel}))});
+    const result = stalled.fetchTile(tile, new AbortController().signal);
+    const assertion = expect(result).rejects.toThrow(/timed out/);
+    await vi.advanceTimersByTimeAsync(100); await assertion;
+    expect(vi.getTimerCount()).toBe(0);
+});
+
 test.each([
     {id: ''}, {urlTemplate: 'file:///{z}/{x}/{y}'}, {urlTemplate: 'https://fixture.test/{z}/{x}/{x}'},
     {urlTemplate: 'https://user:password@fixture.test/{z}/{x}/{y}'}, {minZoom: -1}, {maxZoom: 13},
