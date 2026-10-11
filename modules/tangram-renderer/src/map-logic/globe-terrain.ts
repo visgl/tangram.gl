@@ -9,6 +9,37 @@ import type {TerrainHeightGrid} from './terrain-data';
 /** Spherical deck.gl common-space radius and physical reference radius, in meters. */
 const GLOBE_RADIUS = 256, EARTH_RADIUS = 6370972, MERCATOR_RADIUS = 6378137;
 
+/** Build an inclusive summed-area mask only when a source actually contains holes. */
+function buildMissingTerrainPrefix(grid: TerrainHeightGrid): Uint32Array | null {
+    if (grid.valid.every(value => value !== 0)) return null;
+    const stride = grid.width + 1, prefix = new Uint32Array(stride * (grid.height + 1));
+    for (let row = 0; row < grid.height; row++) {
+        let missing = 0;
+        for (let column = 0; column < grid.width; column++) {
+            missing += Number(grid.valid[row * grid.width + column] === 0);
+            prefix[(row + 1) * stride + column + 1] = prefix[row * stride + column + 1] + missing;
+        }
+    }
+    return prefix;
+}
+
+/** Conservatively include every sample supporting bilinear interpolation over a cell footprint. */
+function hasMissingTerrain(grid: TerrainHeightGrid, prefix: Uint32Array, bounds: readonly [number, number, number, number]): boolean {
+    const west = Math.max(grid.bounds[0], bounds[0]), south = Math.max(grid.bounds[1], bounds[1]);
+    const east = Math.min(grid.bounds[2], bounds[2]), north = Math.min(grid.bounds[3], bounds[3]);
+    if (west > east || south > north) return false;
+    const pixelCenter = grid.registration === 'pixel-center';
+    const columnScale = (pixelCenter ? grid.width : grid.width - 1) / (grid.bounds[2] - grid.bounds[0]);
+    const rowScale = (pixelCenter ? grid.height : grid.height - 1) / (grid.bounds[3] - grid.bounds[1]);
+    const offset = pixelCenter ? 0.5 : 0;
+    const left = Math.floor(Math.max(0, (west - grid.bounds[0]) * columnScale - offset));
+    const right = Math.ceil(Math.min(grid.width - 1, (east - grid.bounds[0]) * columnScale - offset));
+    const top = Math.floor(Math.max(0, (grid.bounds[3] - north) * rowScale - offset));
+    const bottom = Math.ceil(Math.min(grid.height - 1, (grid.bounds[3] - south) * rowScale - offset));
+    const stride = grid.width + 1;
+    return prefix[(bottom + 1) * stride + right + 1] - prefix[top * stride + right + 1] - prefix[(bottom + 1) * stride + left] + prefix[top * stride + left] > 0;
+}
+
 /** Detached render/query buffers; original height grids are never exaggerated or modified. */
 export interface GlobeTerrainMesh {
     /** Longitude/latitude degrees and displayed elevation meters for deck.gl projection. */
@@ -53,6 +84,10 @@ export function buildGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
     const circumference = 2 * Math.PI * MERCATOR_RADIUS;
     const samplingGrids = grids.flatMap(candidate => [-1, 0, 1].map((world): TerrainHeightGrid => ({...candidate, bounds: [candidate.bounds[0] + world * circumference, candidate.bounds[1], candidate.bounds[2] + world * circumference, candidate.bounds[3]]})))
         .filter(candidate => candidate.bounds[0] <= grid.bounds[2] && candidate.bounds[2] >= grid.bounds[0] && candidate.bounds[1] <= grid.bounds[3] && candidate.bounds[3] >= grid.bounds[1]);
+    const missingRegions = samplingGrids.flatMap(candidate => {
+        const prefix = buildMissingTerrainPrefix(candidate);
+        return prefix ? [{grid: candidate, prefix}] : [];
+    });
     const size = resolution + 1, vertexCount = size * size;
     const geographicPositions = new Float32Array(vertexCount * 3), positions = new Float64Array(vertexCount * 3), physicalHeights = new Float32Array(vertexCount), colors = new Float32Array(vertexCount * 3), valid = new Uint8Array(vertexCount);
     const [west, south, east, north] = grid.bounds;
@@ -77,10 +112,14 @@ export function buildGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
     for (let row = 0; row < resolution; row++) for (let column = 0; column < resolution; column++) {
         const first = row * size + column, second = first + 1, third = first + size, fourth = third + 1;
         if (![first, second, third, fourth].every(vertex => valid[vertex])) continue;
+        const cellBounds: [number, number, number, number] = [west + (east - west) * column / resolution, north - (north - south) * (row + 1) / resolution,
+            west + (east - west) * (column + 1) / resolution, north - (north - south) * row / resolution];
+        if (missingRegions.some(region => hasMissingTerrain(region.grid, region.prefix, cellBounds))) continue;
         for (const vertices of [[first, third, second], [second, third, fourth]]) {
             const [a, b, c] = vertices.map(vertex => vertex * 3);
             const ab = [positions[b] - positions[a], positions[b + 1] - positions[a + 1], positions[b + 2] - positions[a + 2]], ac = [positions[c] - positions[a], positions[c + 1] - positions[a + 1], positions[c + 2] - positions[a + 2]];
             const normal = [ab[1] * ac[2] - ab[2] * ac[1], ab[2] * ac[0] - ab[0] * ac[2], ab[0] * ac[1] - ab[1] * ac[0]];
+            if (Math.hypot(...normal) === 0) throw new Error('Globe terrain triangle collapses at packed coordinate precision');
             const sign = normal[0] * positions[a] + normal[1] * positions[a + 1] + normal[2] * positions[a + 2] < 0 ? -1 : 1;
             triangles.push(vertices[0], vertices[sign === 1 ? 1 : 2], vertices[sign === 1 ? 2 : 1]);
             for (const vertex of vertices) for (let axis = 0; axis < 3; axis++) normals[vertex * 3 + axis] += normal[axis] * sign;

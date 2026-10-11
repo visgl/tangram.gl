@@ -34,6 +34,8 @@ explicit validity, registration and one shared vertical datum. Use same-LOD,
 non-overlapping tiles; matching edges average neighbor heights, including the
 antimeridian. Cells touching missing samples are omitted, not bridged. Do not
 mutate grids in place: replace the data array after changing source samples.
+Validity is checked over each cell's complete interpolation footprint, so source
+holes smaller than the display mesh remain holes, including touching neighbors.
 
 ### `globeTerrainExaggeration` (number, default `100`)
 
@@ -49,6 +51,8 @@ Uniform curved cells per tile axis, range `[2, 256]`. Allocation and work are bo
 per tile, not per supplied dataset. The host must bound tile count and cache use.
 This is a preview sampling policy, not a certified geometric-error LOD algorithm.
 Cells spanning 180° or more longitude reject instead of producing degenerate triangles.
+Zero-area triangles caused by packed-coordinate precision also reject; increase
+the source footprint or use a local-coordinate terrain adapter for such tiny tiles.
 
 ### `wireframe` (boolean, default `false`)
 

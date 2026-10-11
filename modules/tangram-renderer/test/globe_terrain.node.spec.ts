@@ -69,6 +69,31 @@ test('shared edges and antimeridian copies have identical physical and displayed
     const world = lngLatToWorld([0, 0]); expect(world).toEqual([256, 256]);
 });
 
+test.each(['grid-node', 'pixel-center'] as const)('downsampling %s preserves an isolated missing pixel between display vertices', registration => {
+    const size = registration === 'grid-node' ? 513 : 512;
+    const source: TerrainHeightGrid = {...grid(), width: size, height: size, heights: new Float32Array(size * size).fill(1000), valid: new Uint8Array(size * size).fill(1), registration};
+    source.valid[5 * size + 5] = 0; source.heights[5 * size + 5] = NaN;
+    const mesh = buildGlobeTerrainMesh(source, {exaggeration: 100});
+    expect(mesh.physicalHeights.every(Number.isFinite)).toBe(true); // None of the display vertices touches the missing pixel.
+    expect(mesh.indices.length).toBe((64 * 64 - 1) * 6);
+    const point = [0, 1, 65, 66].map(vertex => [...mesh.positions.slice(vertex * 3, vertex * 3 + 3)]);
+    const average = (axis: number): number => point.reduce((sum, vertex) => sum + vertex[axis] / 4, 0);
+    const center: [number, number, number] = [average(0), average(1), average(2)];
+    const surface = new TerrainMeshSurface({projection: 'globe', positions: mesh.positions, indices: mesh.indices, physicalHeights: mesh.physicalHeights, cullBackfaces: true});
+    expect(surface.intersectRay({origin: [center[0] * 2, center[1] * 2, center[2] * 2], direction: [-center[0], -center[1], -center[2]]})).toBeNull();
+});
+
+test('missing neighbor pixels between edge vertices also leave a hole in the touching cell', () => {
+    const neighbor: TerrainHeightGrid = {...grid(1000, [100000, -100000, 300000, 100000]), width: 512, height: 512, heights: new Float32Array(512 * 512).fill(1000), valid: new Uint8Array(512 * 512).fill(1), registration: 'pixel-center'};
+    neighbor.valid[5 * 512] = 0; neighbor.heights[5 * 512] = NaN;
+    expect(buildGlobeTerrainMesh(grid(), {neighbors: [neighbor]}).indices.length).toBe((64 * 64 - 1) * 6);
+});
+
+test('packed coordinates that collapse narrow high-longitude tiles reject zero-area triangles', () => {
+    const west = Math.PI * 6378137 * 0.99999;
+    expect(() => buildGlobeTerrainMesh(grid(1000, [west, 20000000, west + 0.01, 20000000.01]), {resolution: 2})).toThrow('packed coordinate precision');
+});
+
 test('malformed grids, incompatible datums and unrenderable elevations reject', () => {
     for (const source of [{...grid(), width: 1}, {...grid(), height: NaN}, {...grid(), heights: new Float32Array(1)}, {...grid(), valid: new Uint8Array(1)}, {...grid(), bounds: [0, 0, 0, 1] as const}, {...grid(), bounds: [0, 0, NaN, 1] as const}, {...grid(), bounds: [-1e9, 0, 1e9, 1] as const}]) expect(() => buildGlobeTerrainMesh(source)).toThrow('Invalid');
     expect(() => buildGlobeTerrainMesh(grid(), {neighbors: [{...grid(), verticalDatum: 'orthometric'}]})).toThrow('datum');
