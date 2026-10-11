@@ -36,12 +36,22 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('100.0×');
     expect(host.querySelector('[data-example="attribution"]')?.textContent).toContain('Mapterhorn');
     const maximum = host.querySelector<HTMLInputElement>('[data-example="exaggeration"]')!;
-    maximum.value = '50'; maximum.dispatchEvent(new Event('change'));
+    expect(maximum.type).toBe('range'); expect(maximum.min).toBe('0'); expect(maximum.max).toBe('200'); expect(maximum.step).toBe('1');
+    expect(maximum.labels).toHaveLength(1);
+    expect(maximum.labels?.[0].textContent).toContain('Maximum globe exaggeration');
+    expect(host.querySelector<HTMLOutputElement>('[data-example="exaggeration-value"]')?.value).toBe('100×');
+    maximum.value = '50'; maximum.dispatchEvent(new Event('input'));
     const wireframe = host.querySelector<HTMLInputElement>('[data-example="wireframe"]')!; wireframe.checked = true; wireframe.dispatchEvent(new Event('change'));
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(mocks.layers).toHaveBeenLastCalledWith(expect.objectContaining({globeTerrainExaggeration: 50, wireframe: true}));
     expect(changed).toHaveBeenCalled();
-    maximum.value = '0'; maximum.dispatchEvent(new Event('change')); expect(maximum.value).toBe('50');
+    for (const value of [0, 200, 25]) {
+        maximum.value = String(value); maximum.dispatchEvent(new Event('input'));
+        expect(host.querySelector<HTMLOutputElement>('[data-example="exaggeration-value"]')?.value).toBe(`${value}×`);
+        expect(changed.mock.lastCall?.[0].get('exaggeration')).toBe(String(value));
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        expect(mocks.layers).toHaveBeenLastCalledWith(expect.objectContaining({globeTerrainExaggeration: value}));
+    }
     const properties = mocks.construct.mock.calls[0][0];
     expect(properties).toMatchObject({viewState: {maxZoom: 12}});
     if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function' || !('onClick' in properties) || typeof properties.onClick !== 'function') throw new Error('Missing navigation/picking callback');
@@ -53,7 +63,7 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(mocks.finalize).toHaveBeenCalledTimes(1); expect(mocks.construct).toHaveBeenCalledTimes(2); expect(fetch).toHaveBeenCalledTimes(20);
-    instance.destroy(); instance.destroy(); maximum.dispatchEvent(new Event('change'));
+    instance.destroy(); instance.destroy(); maximum.dispatchEvent(new Event('input'));
     expect(mocks.finalize).toHaveBeenCalledTimes(2); expect(host.children).toHaveLength(0);
 });
 
@@ -86,4 +96,14 @@ test('cached tiles wait for asynchronous GPU initialization and ignore replaced 
         else expect(mocks.layers).toHaveBeenCalled();
     }
     expect(fetch).toHaveBeenCalledTimes(20);
+});
+
+test.each([['0', '0'], ['200', '200'], ['25.5', '26'], ['-1', '100'], ['201', '100'], ['', '100'], ['%20%20', '100']])('URL exaggeration %s initializes a matching slider and readout', async (requested, expected) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    const host = document.createElement('div'); hosts.push(host);
+    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams(`exaggeration=${requested}`)}); instances.push(instance);
+    await instance.ready;
+    expect(host.querySelector<HTMLInputElement>('[data-example="exaggeration"]')?.value).toBe(expected);
+    expect(host.querySelector<HTMLOutputElement>('[data-example="exaggeration-value"]')?.value).toBe(`${expected}×`);
+    expect(mocks.layers).toHaveBeenLastCalledWith(expect.objectContaining({globeTerrainExaggeration: Number(expected)}));
 });

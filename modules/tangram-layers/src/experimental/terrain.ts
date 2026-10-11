@@ -12,7 +12,7 @@ import {buildGlobeTerrainMesh, getGlobeTerrainExaggeration, type TerrainHeightGr
 export type GlobeTerrainLayerProps = LayerProps & {
     /** Immutable same-LOD grids in absolute EPSG:3857 meters; no-data cells remain holes. */
     data: readonly TerrainHeightGrid[];
-    /** Maximum display multiplier while the globe fits the viewport; defaults to 100, range [1, 1000]. */
+    /** Maximum display multiplier; defaults to 100, range [0, 1000]. Zero keeps the globe flat. */
     globeTerrainExaggeration?: number;
     /** Uniform curved cells per tile axis, range [2, 256]; defaults to 64. */
     meshResolution?: number;
@@ -34,7 +34,7 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
     static layerName = 'GlobeTerrainLayer';
     /** Validated display controls; terrain data never changes unit convention. */
     static defaultProps = {
-        globeTerrainExaggeration: {type: 'number', value: 100, min: 1, max: 1000},
+        globeTerrainExaggeration: {type: 'number', value: 100, min: 0, max: 1000},
         meshResolution: {type: 'number', value: 64, min: 2, max: 256},
         wireframe: false
     };
