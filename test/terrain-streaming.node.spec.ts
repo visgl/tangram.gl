@@ -209,6 +209,28 @@ test('a failed parent releases lower-priority completed data rather than stallin
   } finally {tileset.destroy();}
 });
 
+test.each([{maxRequests: 1, failure: 'decode'}, {maxRequests: 2, failure: 'decode'}, {maxRequests: 1, failure: 'admission'}, {maxRequests: 2, failure: 'admission'}])('failed-parent bytes yield to completed detail after $failure with $maxRequests request slots', async ({maxRequests, failure}) => {
+  const tileset = new TerrainTileset({maxRequests, maxResidentBytes: 132, fetch: async () => new ArrayBuffer(8), decode: async (_bytes, tile) => {
+    if (tile.zoom === 1 && failure === 'decode') throw new Error('parent decode failed');
+    const data = createTerrainStreamFixture();
+    if (tile.zoom === 1) data.mesh.attributes.POSITION.value = new Float32Array(128);
+    return data;
+  }, onChange() {}});
+  try {
+    tileset.update([child]); await tileset.waitForIdle();
+    expect(tileset.getDrawableTiles().map(record => record.key)).toEqual(['2/2/2']);
+    expect(tileset.getStatistics()).toMatchObject({bytes: 132, active: 0, queued: 0, failed: 1});
+    const parent = tileset.records.get('1/1/1')!;
+    expect(parent.bytes).toBeUndefined();
+    expect(parent.error).toContain(failure === 'decode' ? 'parent decode failed' : 'retained-array budget');
+    const previous = tileset.records.get('2/2/2')?.data;
+    tileset.retry(); await tileset.waitForIdle();
+    expect(tileset.records.get('2/2/2')?.data).toBe(previous);
+    expect(tileset.getDrawableTiles().map(record => record.key)).toEqual(['2/2/2']);
+    expect(tileset.getStatistics().bytes).toBe(132);
+  } finally {tileset.destroy();}
+});
+
 test('atomic topology replacement preserves warm bytes and previous mesh when the hard budget rejects it', async () => {
   let oversized = false;
   const fetch = vi.fn(async () => new ArrayBuffer(8));

@@ -240,14 +240,15 @@ export class TerrainTileset {
         // Plan all releases before mutating ownership; completed fallback geometry is never sacrificed.
         for (const record of [...this.records.values()].sort((first, second) => (this.priorities.get(second.key) ?? Infinity) - (this.priorities.get(first.key) ?? Infinity))) {
             if (protectedBytes <= limit) break;
-            if (record.key === candidate.key || record.data || !record.bytes || !this.residency.isProtected(record.key) || (this.priorities.get(record.key) ?? Infinity) <= (this.priorities.get(candidate.key) ?? Infinity)) continue;
+            const failedInactive = record.error && !this.queue.has(record.key) && !this.active.has(record.key);
+            if (record.key === candidate.key || record.data || !record.bytes || !this.residency.isProtected(record.key) || !failedInactive && (this.priorities.get(record.key) ?? Infinity) <= (this.priorities.get(candidate.key) ?? Infinity)) continue;
             yielded.push(record); protectedBytes -= this.getRecordBytes(record);
         }
         if (protectedBytes > limit) throw new Error(`Terrain retained-array budget exceeded (${protectedBytes} > ${limit} bytes); use coarser detail or mesh error`);
         for (const record of yielded) {
             const active = this.active.get(record.key);
             this.active.delete(record.key); active?.controller.abort(); this.queue.cancel(record.key);
-            record.bytes = undefined; record.error = 'Terrain retained-array budget yielded to higher-priority coverage; use coarser detail or mesh error';
+            record.bytes = undefined; record.error ??= 'Terrain retained-array budget yielded to higher-priority coverage; use coarser detail or mesh error';
             const snapshot = records.find(snapshot => snapshot.key === record.key);
             if (snapshot) snapshot.bytes = 0;
         }

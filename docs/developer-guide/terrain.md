@@ -77,6 +77,8 @@ yield its retained bytes and owned worker so coarse coverage can complete; alrea
 completed geometry is not sacrificed. Yielded detail reports a manual-retry error.
 Selection expansion preempts older lower-priority jobs so newly queued coarse
 coverage starts before detail can publish; cancelled detail retains warm bytes.
+Failed, inactive bytes-only records can also yield space to completed detail;
+their diagnostic is preserved and no completed mesh is discarded.
 `mountTerrainExample(..., {maxResidentBytes})` can lower that cap. The status shows
 used and allowed decimal MB.
 
