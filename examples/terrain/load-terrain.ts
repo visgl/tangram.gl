@@ -12,14 +12,6 @@ export interface LoadedTerrain extends TerrainTileData {
     surface: TerrainMeshSurface;
 }
 
-/** Compute longitude/latitude bounds for a finite XYZ elevation tile. */
-export function getTerrainTileBounds(zoom: number, column: number, row: number): [number, number, number, number] {
-    const count = 2 ** zoom;
-    if (!Number.isSafeInteger(zoom) || zoom < 0 || zoom > 22 || !Number.isInteger(column) || !Number.isInteger(row) || column < 0 || row < 0 || column >= count || row >= count) throw new Error('Invalid terrain XYZ tile');
-    const latitude = (tileRow: number) => Math.atan(Math.sinh(Math.PI * (1 - 2 * tileRow / count))) * 180 / Math.PI;
-    return [column / count * 360 - 180, latitude(row + 1), (column + 1) / count * 360 - 180, latitude(row)];
-}
-
 /** Build a query surface from the exact triangles, not a separate bilinear grid. */
 export function createTerrainQuerySurface(mesh: Mesh): TerrainMeshSurface {
     const source = mesh.attributes.POSITION;

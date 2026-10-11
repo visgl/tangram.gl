@@ -5,6 +5,7 @@
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {mountTerrainExample} from '../examples/terrain/app';
 import type {TerrainTileCoordinate} from '../examples/terrain/tile-selection';
+import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 
 const mocks = vi.hoisted(() => {
     const selected: {tiles: TerrainTileCoordinate[] | null} = {tiles: null};
@@ -23,14 +24,13 @@ vi.mock('@deck.gl/core', async importOriginal => ({
 }));
 vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
-vi.mock('../examples/terrain/load-terrain', () => ({getTerrainTileBounds: () => [0, 0, 1, 1]}));
 vi.mock('../examples/terrain/worker-client', () => ({decodeTerrainInWorker: mocks.parse}));
 vi.mock('../examples/terrain/terrain-mesh', () => ({buildTerrainRenderMesh: mocks.build}));
 vi.mock('../examples/terrain/tile-selection', async importOriginal => {
     const source = await importOriginal<typeof import('../examples/terrain/tile-selection')>();
-    return {...source, selectTerrainTiles: (...viewArguments: Parameters<typeof source.selectTerrainTiles>) => mocks.selected.tiles || source.selectTerrainTiles(...viewArguments)};
+    return {...source, getTerrainTileBounds: () => [0, 0, 1, 1], selectTerrainTiles: (...viewArguments: Parameters<typeof source.selectTerrainTiles>) => mocks.selected.tiles || source.selectTerrainTiles(...viewArguments)};
 });
-vi.mock('../examples/terrain/picking', () => ({pickTerrainSurface: mocks.pick}));
+vi.mock('../examples/terrain/picking', () => ({TerrainScreenQuery: class {pick = mocks.pick;}}));
 
 const hosts: HTMLElement[] = [];
 const instances: ReturnType<typeof mountTerrainExample>[] = [];
@@ -65,9 +65,9 @@ test('early settings, click picking and device changes preserve cached bytes wit
     const properties = mocks.construct.mock.calls[0][0];
     if (!properties || typeof properties !== 'object' || !('onClick' in properties) || typeof properties.onClick !== 'function') throw new Error('Missing click handler');
     properties.onClick({x: 100, y: 80});
-    expect(mocks.pick).toHaveBeenCalledWith(mocks.viewport, expect.any(Object), [100, 80]);
+    expect(mocks.pick).toHaveBeenCalledWith(mocks.viewport, [100, 80]);
     expect(host.querySelector('[data-example="terrain-hit"]')!.textContent).toContain('1234.0 m (triangle 1)');
-    expect(mocks.parse).toHaveBeenCalledWith(expect.stringContaining('terrain-worker.js'), expect.any(ArrayBuffer), [0, 0, 1, 1], 5, expect.any(AbortSignal));
+    expect(mocks.parse).toHaveBeenCalledWith(expect.stringContaining('terrain-worker.js'), expect.any(ArrayBuffer), [0, 0, 1, 1], 5, expect.any(AbortSignal), 'opaque');
     const downloads = fetchMock.mock.calls.length;
     const decodes = mocks.parse.mock.calls.length;
     host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
@@ -123,4 +123,23 @@ test('reprioritizing the same tiles preserves reconstructed mesh identities and 
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(mocks.build).toHaveBeenCalledTimes(builds);
     expect(mocks.parse).toHaveBeenCalledTimes(decodes);
+});
+
+test('injected source owns attribution, no-data and acquisition independently of device/detail controls', async () => {
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const fetch = vi.fn(async () => new Response(new Uint8Array([1])));
+    const source = createTerrainImageSource({id: 'custom', minZoom: 3, maxZoom: 3, noData: 'alpha-zero', urlTemplate: 'https://fixture.test/{z}/{x}/{y}', credits: [{label: '<script>literal</script>', url: 'https://fixture.test/license'}], fetch});
+    const instance = mountTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, source, maxVisibleTiles: 1}); instances.push(instance);
+    await instance.ready;
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(mocks.parse).toHaveBeenCalledWith(expect.any(String), expect.any(ArrayBuffer), expect.any(Array), expect.any(Number), expect.any(AbortSignal), 'alpha-zero');
+    const attribution = host.querySelector('[data-example="attribution"]')!;
+    expect(attribution.textContent).toContain('<script>literal</script>'); expect(attribution.querySelector('script')).toBeNull();
+    expect(attribution.querySelector('a')?.href).toBe('https://fixture.test/license');
+    expect(host.querySelector('[data-example="status"]')?.textContent).toContain('data z3');
+    const before = mocks.parse.mock.calls.length;
+    const selector = host.querySelector<HTMLSelectElement>('[data-example="tile-detail"]')!;
+    selector.value = '256'; selector.dispatchEvent(new Event('change'));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(mocks.parse).toHaveBeenCalledTimes(before);
 });

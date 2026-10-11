@@ -16,3 +16,5 @@ export type {TileCacheRecord, TileCacheOptions, TileCacheStatistics} from './til
 export {TERRARIUM_DECODER, TERRAIN_RGB_DECODER, decodeTerrainHeightGrid, sampleTerrainHeight} from './terrain-data';
 export {sampleTerrainNeighborhood, resampleTerrainNodes} from './terrain-neighborhood';
 export type {ElevationDecoder, TerrainGridOptions, TerrainHeightGrid} from './terrain-data';
+export {TriangleQueryIndex} from './triangle-query-index';
+export type {IndexedTriangleHit, TriangleQueryResult} from './triangle-query-index';

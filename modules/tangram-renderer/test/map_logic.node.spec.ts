@@ -137,10 +137,10 @@ test('geographic copies require identity, tile separation, source-resolution pro
     expect(areGeographicLabelCopies(first, {...other, anchor: [4096, 0]}, {...options, wrapHorizontal: true})).toBe(true);
 });
 
-test('optional map-logic entry bundles without renderer, DOM, GPU or third-party imports', async () => {
+test('optional map-logic entry bundles only CPU helpers and lightweight math.gl query kernels', async () => {
     const result = await build({entryPoints: ['modules/tangram-renderer/src/map-logic/index.ts'],
         bundle: true, format: 'esm', platform: 'neutral', write: false, metafile: true});
-    expect(Object.keys(result.metafile.inputs)).toHaveLength(9);
-    expect(Object.keys(result.metafile.inputs).every(path => path.includes('/src/map-logic/'))).toBe(true);
+    expect(Object.keys(result.metafile.inputs).filter(path => path.includes('/src/map-logic/'))).toHaveLength(10);
+    expect(Object.keys(result.metafile.inputs).every(path => path.includes('/src/map-logic/') || /@math.gl\/culling\/.*queries/.test(path) || /node_modules\/quickselect\/index.js$/.test(path))).toBe(true);
     expect(Object.values(result.metafile.outputs).flatMap(output => output.imports)).toEqual([]);
 });

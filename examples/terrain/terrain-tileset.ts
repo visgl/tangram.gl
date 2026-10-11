@@ -36,6 +36,9 @@ export interface TerrainTilesetOptions {
     maxCachedTiles?: number;
     /** Off-screen byte budget, including source and decoded arrays. */
     maxCachedBytes?: number;
+    /** Supported source zoom interval; protects parent fallback from unsupported URLs. */
+    minZoom?: number;
+    maxZoom?: number;
 }
 
 /** Bounded scheduling, warm acquisition, parent refinement and explicit resource ownership. */
@@ -63,18 +66,20 @@ export class TerrainTileset {
         const limit = options.maxRequests ?? 2;
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 4 || (options.maxCachedTiles !== undefined && (!Number.isSafeInteger(options.maxCachedTiles) || options.maxCachedTiles < 0)) ||
             (options.maxCachedBytes !== undefined && (!Number.isFinite(options.maxCachedBytes) || options.maxCachedBytes < 0))) throw new Error('Invalid terrain resource budget');
+        const minimum = options.minZoom ?? 0, maximum = options.maxZoom ?? 12;
+        if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum < 0 || maximum > 12 || minimum > maximum) throw new Error('Invalid terrain source domain');
         this.queue.setLimit(limit);
     }
 
     /** Select bounded detail and its immediate parents; obsolete fetch/CPU work is cancelled. */
     update(tiles: readonly TerrainTileCoordinate[], meshMaxError = this.meshMaxError): void {
         if (this.disposed) return;
-        if (!Number.isFinite(meshMaxError) || meshMaxError < 0 || tiles.length > 25 || new Set(tiles.map(getTerrainTileKey)).size !== tiles.length || tiles.some(tile => !Number.isSafeInteger(tile.zoom) || tile.zoom < 0 || tile.zoom > 12 || !Number.isSafeInteger(tile.column) || !Number.isSafeInteger(tile.row) || tile.column < 0 || tile.row < 0 || tile.column >= 2 ** tile.zoom || tile.row >= 2 ** tile.zoom)) throw new Error('Invalid terrain detail selection');
+        if (!Number.isFinite(meshMaxError) || meshMaxError < 0 || tiles.length > 25 || new Set(tiles.map(getTerrainTileKey)).size !== tiles.length || tiles.some(tile => !Number.isSafeInteger(tile.zoom) || tile.zoom < (this.options.minZoom ?? 0) || tile.zoom > (this.options.maxZoom ?? 12) || !Number.isSafeInteger(tile.column) || !Number.isSafeInteger(tile.row) || tile.column < 0 || tile.row < 0 || tile.column >= 2 ** tile.zoom || tile.row >= 2 ** tile.zoom)) throw new Error('Invalid terrain detail selection');
         this.selected = tiles.map(tile => ({...tile}));
         this.meshMaxError = meshMaxError;
         const requested = new Map<string, TerrainTileCoordinate>();
         // Coarse coverage loads first; siblings only replace their parent together.
-        for (const tile of tiles) {const parent = getTerrainParent(tile); if (parent) requested.set(getTerrainTileKey(parent), parent);}
+        for (const tile of tiles) {const parent = this.getParent(tile); if (parent) requested.set(getTerrainTileKey(parent), parent);}
         for (const tile of tiles) requested.set(getTerrainTileKey(tile), tile);
         this.residency.updateConsumer('view', [...requested.keys()], this.getDrawableTiles().map(record => record.key));
         this.queue.suspend();
@@ -116,7 +121,7 @@ export class TerrainTileset {
     /** Non-overlapping parent fallback; never overlay a coarse tile with its ready siblings. */
     getDrawableTiles(): TerrainTileRecord[] {
         const groups = new Map<string, TerrainTileCoordinate[]>();
-        for (const tile of this.selected) {const parent = getTerrainParent(tile); const key = parent ? getTerrainTileKey(parent) : getTerrainTileKey(tile); const group = groups.get(key) ?? []; group.push(tile); groups.set(key, group);}
+        for (const tile of this.selected) {const parent = this.getParent(tile); const key = parent ? getTerrainTileKey(parent) : getTerrainTileKey(tile); const group = groups.get(key) ?? []; group.push(tile); groups.set(key, group);}
         const drawable: TerrainTileRecord[] = [];
         for (const [parentKey, children] of groups) {
             const ready = children.flatMap(tile => {const record = this.records.get(getTerrainTileKey(tile)); return record?.data ? [record] : [];});
@@ -169,6 +174,11 @@ export class TerrainTileset {
     private resolveIdle(): void {
         const counts = this.queue.getCounts();
         if (!counts.activeBuilds && !counts.queuedBuilds) this.waiters.splice(0).forEach(resolve => resolve());
+    }
+
+    /** Never acquire a parent outside the selected source's supported interval. */
+    private getParent(tile: TerrainTileCoordinate): TerrainTileCoordinate | null {
+        return tile.zoom > (this.options.minZoom ?? 0) ? getTerrainParent(tile) : null;
     }
 
     /** Count unique typed-array buffers as well as retained compressed bytes. */

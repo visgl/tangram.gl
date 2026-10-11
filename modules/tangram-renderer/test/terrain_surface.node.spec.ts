@@ -86,6 +86,8 @@ test('unsupported projections and the undefined globe center cannot publish a te
     expect(() => Reflect.construct(TerrainMeshSurface, [{projection: 'projected', positions: [], indices: []}])).toThrow(/projection/);
     const surface = new TerrainMeshSurface({projection: 'globe', positions: [-1, -1, 0, 1, -1, 0, 0, 1, 0], indices: [0, 1, 2]});
     expect(surface.intersectRay({origin: [0, 0, 1], direction: [0, 0, -1]})).toBeNull();
+    const behindCenter = new TerrainMeshSurface({projection: 'globe', positions: [-1, -1, 0, 1, -1, 0, 0, 1, 0, -1, -1, -1, 1, -1, -1, 0, 1, -1], indices: [0, 1, 2, 3, 4, 5]});
+    expect(behindCenter.intersectRay({origin: [0, 0, 1], direction: [0, 0, -1]})?.triangleIndex).toBe(1);
 });
 
 test('either stereo half routes to its own terrain ray, while named views use local pixels', () => {

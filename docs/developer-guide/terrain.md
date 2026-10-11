@@ -73,6 +73,53 @@ Mapterhorn z0–12 coverage. It is not a horizon-wide terrain traversal or
 projected-pixel-error LOD algorithm. The initial demonstration is near Zermatt;
 global wrap seams and arbitrarily wide world views are not certified.
 
+## Projected detail and picking
+
+The tile-footprint control selects data zoom independently of camera zoom and
+mesh simplification. It projects the local tile's four edges at a 2500 m reference
+plane and targets a maximum CSS-pixel edge length. A 20% deadband reduces
+threshold churn. Source limits and the nine-tile window remain enforced. Missing
+or behind-camera measurements retain a bounded camera-zoom fallback rather than
+requesting maximum detail. The status reports the resolved data zoom and limits.
+This is a local footprint heuristic, **not** a certified terrain/pixel-error bound
+or a guarantee that the entire visible horizon is covered.
+
+Screen picking uses a retained common-space `TriangleQueryIndex` for each immutable
+top mesh. Camera pan, zoom, bearing and resize only change the ray, not the index.
+Changing mesh detail or neighbor reconstruction replaces the query geometry. The
+legacy pseudo-meter height convention rebuilds the one retained index when its
+scale changes. CPU `TerrainMeshSurface` queries also use the shared bounds index;
+ray segments, original triangle IDs, physical heights and holes are preserved.
+
+## Source boundary
+
+`mountTerrainExample(host, {workerUrl, source})` accepts an example-local
+`TerrainImageSource`. Omit it to use Mapterhorn. A mount owns one immutable source
+and one isolated cache; changing a source requires a new mount. This is a Terrarium
+image boundary, not a generic PMTiles/MLT/terrain source API in the renderer.
+
+```ts
+import {createTerrainImageSource} from '../../examples/terrain/terrain-source';
+
+const source = createTerrainImageSource({
+  id: 'my-terrarium-v1',
+  urlTemplate: 'https://example.com/elevation/{z}/{x}/{y}.png',
+  minZoom: 2,
+  maxZoom: 12,
+  noData: 'alpha-zero',
+  credits: [{label: 'Dataset credits', url: 'https://example.com/license'}]
+});
+```
+
+Provider bounds apply to both detail and coarse fallback: a source starting at z2
+never requests z1 parents. Credits render as text and HTTP(S) links, never HTML.
+The explicit no-data policy is forwarded to the owned worker. Built-in acquisition
+reads incrementally, enforces the compressed-byte limit during reading, cancels
+the response body on abort/error and imposes a 30-second total fetch/read deadline.
+Sources must use physical-meter Terrarium encoding; dataset licensing and datum
+remain the host's responsibility. Custom `fetchTile` implementations must honor
+the same ownership and cancellation contract.
+
 ## Validation and limits
 
 Hermetic tests encode a tiny asymmetric Terrarium PNG, parse it with the published
@@ -83,8 +130,8 @@ Mapterhorn or a CDN.
 Decoding runs in a packaged same-origin module worker. Inside that owned worker,
 `core.worker: false` avoids nested/CDN workers. Tests compare worker and local
 outputs, cancellation, warm cache, parent fallback, shared edges and physical
-queries. Pixel-error LOD, exact mixed-detail stitching, basemap draping and
-accelerated queries remain follow-ups.
+queries. Certified pixel-error LOD, exact mixed-detail stitching, basemap draping,
+globe terrain and ground-following remain follow-ups.
 Image decoding disables color-space conversion and alpha premultiplication:
 RGB bytes encode data, not display colors.
 

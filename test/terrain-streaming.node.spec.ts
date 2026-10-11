@@ -116,3 +116,16 @@ test('nonfinite horizon bounds have a local fallback; invalid camera and budgets
   expect(() => selectTerrainTiles(view, 26)).toThrow();
   expect(getTerrainParent({zoom: 0, column: 0, row: 0})).toBeNull();
 });
+
+test('source minimum zoom excludes unsupported parents while preserving cache/retry policy', async () => {
+  const fetch = vi.fn(async () => new ArrayBuffer(1));
+  const tileset = new TerrainTileset({minZoom: 2, maxZoom: 3, fetch, decode: async () => createTerrainStreamFixture(), onChange() {}});
+  tileset.update([child, sibling]); await tileset.waitForIdle();
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(tileset.getDrawableTiles().map(tile => tile.key)).toEqual(['2/2/2', '2/3/2']);
+  expect(() => tileset.update([{zoom: 1, column: 0, row: 0}])).toThrow();
+  expect(() => tileset.update([{zoom: 4, column: 0, row: 0}])).toThrow();
+  tileset.destroy();
+  const options = {fetch, decode: async () => createTerrainStreamFixture(), onChange() {}};
+  for (const bounds of [{minZoom: -1}, {maxZoom: 13}, {minZoom: 3, maxZoom: 2}]) expect(() => new TerrainTileset({...options, ...bounds})).toThrow();
+});

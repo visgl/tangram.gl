@@ -18,7 +18,7 @@ aborts requests, disconnects resize observation and releases GPU resources.
 The example starts near Zermatt and streams up to nine visible Mapterhorn tiles
 plus immediate coarse parents. Same-origin workers decode with loaders.gl v5;
 deck.gl TerrainLayer renders reconstructed physical-height meshes. Controls
-include navigation, mesh error, wireframe, seam skirts, retry, devices, fullscreen
+include navigation, projected tile footprint, mesh error, wireframe, seam skirts, retry, devices, fullscreen
 and collapsible information.
 
 Elevation stays at physical scale. Changing mesh error reuses downloaded bytes.
@@ -27,7 +27,7 @@ queue, residency and cache policies bound work and retain warm source bytes.
 Neighbor heights/normals agree at full-resolution edges; visual skirts cover
 incomplete and mixed-detail boundaries without entering elevation queries.
 This is not production Tangram terrain support: basemap draping, globe terrain,
-pixel-error LOD and certified mixed-LOD stitching remain deferred. Required tests
+certified pixel-error LOD and mixed-LOD stitching remain deferred. Required tests
 use generated fixtures, not live services. See the developer guide for budgets,
 registration, validity and remaining limitations.
 
@@ -35,3 +35,11 @@ The example credits Mapterhorn and swissALTI3D / swisstopo for the Swiss referen
 area and links the full source attribution. Dataset licensing is separate from
 this example's MIT code license. See the terrain
 developer guide for the shared height contract and coordinate conversions.
+
+Hosts may inject a Terrarium `TerrainImageSource` into `mountTerrainExample`.
+Its zoom domain also limits parent fallback; its credits and explicit no-data
+policy follow the source. Incremental HTTP acquisition enforces byte/deadline
+limits and cancels actual response reads. Every mount retains an isolated cache.
+Projected-footprint LOD uses CSS pixels and hysteresis, not a certified terrain
+error metric. Owned query indexes prune physical top triangles and survive camera
+changes; visual skirts never enter picking.

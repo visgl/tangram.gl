@@ -506,8 +506,10 @@ For GlobeView supply `projection: 'globe'` and vertices already projected to
 radius-256 globe common coordinates, including elevation. `TerrainMeshSurface`
 copies its buffers, uses two-sided math.gl triangle intersections, and returns
 the nearest triangle. Normals follow mesh winding; distances use the mesh's units.
-Traversal is linear after an overall bounds rejection. Large terrain datasets
-should implement the `TerrainSurface` boundary with a spatial index.
+Queries lazily build the reusable [triangle bounds index](./map-logic/triangle-query-index.md)
+and prune bounds before math.gl triangle tests. Equal-distance ties retain the
+lower original triangle ID. The index is owned by the immutable surface; large
+datasets may still supply their own streamed `TerrainSurface` implementation.
 
 The package also exports `pickTerrainAt(hostFrame, pixel, surface, options?)` for
 hosts without a renderer. This API neither loads/renders DEMs nor associates
