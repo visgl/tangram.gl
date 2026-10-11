@@ -33,6 +33,8 @@ remove entire reconstructed cells instead of bridging holes with adaptive triang
 
 The loader meshes normalized tile coordinates; the adapter converts Mercator XY
 to longitude/latitude for TerrainLayer, leaving physical-meter Z unchanged. This
+uses math.gl's north-positive common-world Y (`(worldY - 256) × circumference / 512`
+for EPSG:3857), not the south-positive XYZ tile-row convention. It
 uses deck's geographic projection path, avoiding the preprojected height-scale
 bug tracked in [deck.gl #10790](https://github.com/visgl/deck.gl/pull/10790).
 The CPU reference surface converts the **same vertices and indices** to

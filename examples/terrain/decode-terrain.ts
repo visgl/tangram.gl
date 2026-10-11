@@ -42,6 +42,7 @@ export async function decodeTerrainTile(bytes: ArrayBuffer, bounds: readonly [nu
     if (noData !== 'opaque' && noData !== 'alpha-zero') throw new Error('Unknown terrain no-data policy');
     if (bytes.byteLength > 8 * 1024 * 1024) throw new Error('Terrain image exceeds compressed byte limit');
     const imageOptions = {imagebitmap: {colorSpaceConversion: 'none' as const, premultiplyAlpha: 'none' as const}};
+    // math.gl common world Y is north-positive; only XYZ tile row indexing is south-positive.
     const southwest = lngLatToWorld([bounds[0], bounds[1]]), northeast = lngLatToWorld([bounds[2], bounds[3]]);
     const bitmap = await parse(bytes, ImageBitmapLoader, imageOptions);
     let grid: TerrainHeightGrid;

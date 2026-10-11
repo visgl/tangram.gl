@@ -25,6 +25,14 @@ test('published loaders.gl mesh heights match the shared CPU grid including edge
     expect(loaded.grid.verticalDatum).toBe('unknown');
 });
 
+test('math.gl world Y and decoded EPSG:3857 bounds remain north-positive', () => {
+    expect(lngLatToWorld([0, -10])[1]).toBeLessThan(256);
+    expect(lngLatToWorld([0, 10])[1]).toBeGreaterThan(256);
+    expect(loaded.grid.bounds[1]).toBeCloseTo(0, 6);
+    expect(loaded.grid.bounds[3]).toBeGreaterThan(1000);
+    expect(loaded.grid.bounds[1]).toBeLessThan(loaded.grid.bounds[3]);
+});
+
 test('queries the same loaded indexed triangles without substituting bilinear heights', () => {
     const positions = loaded.mesh.attributes.POSITION.value, indices = loaded.mesh.indices!.value;
     const vertex = (offset: number) => indices[offset] * 3;
