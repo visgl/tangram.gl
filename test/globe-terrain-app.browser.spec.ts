@@ -7,11 +7,11 @@ import {mountGlobeTerrainExample} from '../examples/terrain/globe-app';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 
-const mocks = vi.hoisted(() => ({construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]}))}));
+const mocks = vi.hoisted(() => ({autoLoad: true, construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]}))}));
 vi.mock('@deck.gl/core', async original => {
     const module = await original<typeof import('@deck.gl/core')>();
     return {...module, Deck: class {
-        constructor(props: unknown) {mocks.construct(props);}
+        constructor(props: unknown) {mocks.construct(props); queueMicrotask(() => {if (mocks.autoLoad && props && typeof props === 'object' && 'onLoad' in props && typeof props.onLoad === 'function') props.onLoad();});}
         setProps = mocks.setProps; finalize = mocks.finalize;
         getViewports = () => [new module._GlobeViewport({width: 512, height: 320, longitude: 80, latitude: 25, zoom: 1})];
     }};
@@ -22,7 +22,7 @@ vi.mock('@vis.gl/tangram-layers/experimental/terrain', () => ({getGlobeScreenRat
 }}));
 vi.mock('../examples/terrain/worker-client', () => ({decodeTerrainInWorker: vi.fn(async () => createTerrainStreamFixture())}));
 const hosts: HTMLElement[] = [], instances: ReturnType<typeof mountGlobeTerrainExample>[] = [];
-afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); hosts.splice(0).forEach(host => host.remove()); vi.unstubAllGlobals(); vi.clearAllMocks();});
+afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); hosts.splice(0).forEach(host => host.remove()); vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.autoLoad = true;});
 
 test('mount keeps global bytes warm across camera/settings/device changes and owns teardown', async () => {
     const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
@@ -43,8 +43,11 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     expect(changed).toHaveBeenCalled();
     maximum.value = '0'; maximum.dispatchEvent(new Event('change')); expect(maximum.value).toBe('50');
     const properties = mocks.construct.mock.calls[0][0];
+    expect(properties).toMatchObject({viewState: {maxZoom: 12}});
     if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function' || !('onClick' in properties) || typeof properties.onClick !== 'function') throw new Error('Missing navigation/picking callback');
     properties.onViewStateChange({viewState: {longitude: 100, latitude: 20, zoom: 4}});
+    properties.onViewStateChange({viewState: {longitude: 100, latitude: 20, zoom: 20}});
+    expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: {longitude: 100, latitude: 20, zoom: 12, maxZoom: 12}});
     properties.onClick({x: 256, y: 160});
     expect(host.querySelector('[data-example="terrain-hit"]')?.textContent).toContain('1234.0 physical m');
     host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
@@ -64,4 +67,23 @@ test('invalid hosts reject before allocation; failed tile requests report retry 
     await instance.ready;
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('failed');
     expect(host.querySelector<HTMLInputElement>('[data-example="exaggeration"]')?.value).toBe('100');
+});
+
+test('cached tiles wait for asynchronous GPU initialization and ignore replaced device callbacks', async () => {
+    mocks.autoLoad = false;
+    const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('device=webgl')}); instances.push(instance);
+    await instance.ready;
+    expect(mocks.layers).not.toHaveBeenCalled();
+    host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
+    for (const [index, call] of mocks.construct.mock.calls.entries()) {
+        const properties = call[0];
+        if (!properties || typeof properties !== 'object' || !('onLoad' in properties) || typeof properties.onLoad !== 'function') throw new Error('Missing device readiness callback');
+        properties.onLoad();
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        if (index === 0) expect(mocks.layers).not.toHaveBeenCalled();
+        else expect(mocks.layers).toHaveBeenCalled();
+    }
+    expect(fetch).toHaveBeenCalledTimes(20);
 });

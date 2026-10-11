@@ -63,9 +63,11 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         if (index) attribution.append(document.createTextNode(' · '));
         const link = document.createElement('a'); link.textContent = credit.label; link.href = credit.url; link.rel = 'noopener noreferrer'; attribution.append(link);
     });
-    let camera: GlobeViewState = {longitude: 80, latitude: 25, zoom: 1};
+    // deck.gl changes GlobeView to Mercator above zoom 12; this layer stays spherical.
+    let camera: GlobeViewState = {longitude: 80, latitude: 25, zoom: 1, maxZoom: 12};
     let device = parameters.get('device') === 'webgl' ? 'webgl' : navigator.gpu ? 'webgpu' : 'webgl';
     let disposed = false, animationFrame = 0, layer: GlobeTerrainLayer | undefined;
+    let deckReady = false, deckGeneration = 0;
     let renderingError: string | undefined;
     let tileset: TerrainTileset | undefined;
     let grids: TerrainHeightGrid[] = [];
@@ -76,20 +78,22 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     }
     /** Create one owned device, with a controlled GlobeView. */
     function createDeck(): Deck<GlobeView> {
+        const generation = ++deckGeneration;
+        deckReady = false;
         return new Deck({parent: container, width: '100%', height: '100%', views: new GlobeView({id: 'globe-terrain', controller: true}), viewState: camera,
             deviceProps: device === 'webgpu' ? {type: 'webgpu', adapters: [webgpuAdapter]} : {type: 'webgl'},
-            onViewStateChange: ({viewState}) => {camera = viewState; deck.setProps({viewState: camera}); schedule();},
-            onError: error => {if (!disposed) {renderingError = error.message; status.textContent = `Rendering error: ${error.message}`;}},
+            onViewStateChange: ({viewState}) => {camera = {...viewState, zoom: Math.min(12, viewState.zoom), maxZoom: 12}; deck.setProps({viewState: camera}); schedule();},
+            onError: error => {if (!disposed && generation === deckGeneration) {renderingError = error.message; status.textContent = `Rendering error: ${error.message}`;}},
             onClick: information => {
                 const viewport = information.viewport ?? deck.getViewports()[0];
                 const hit = viewport && layer?.pickTerrain(viewport, [information.x, information.y]);
                 output.textContent = hit ? `${hit.coordinate[0].toFixed(4)}, ${hit.coordinate[1].toFixed(4)} — ${hit.coordinate[2].toFixed(1)} physical m` : 'Outside loaded terrain';
-            }, onLoad: schedule});
+            }, onLoad: () => {if (!disposed && generation === deckGeneration) {deckReady = true; schedule();}}});
     }
     let deck = createDeck();
     /** Change display geometry only; fixed global source coverage survives zoom/rotation/device changes. */
     function updateLayers(): void {
-        if (!tileset || disposed) return;
+        if (!tileset || disposed || !deckReady) return;
         // Swap the entire world together; never join unstitched coarse/fine boundaries.
         const records = [...tileset.records.values()];
         const fine = records.filter(tile => tile.coordinate.zoom === 2 && tile.data);

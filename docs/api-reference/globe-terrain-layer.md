@@ -74,6 +74,9 @@ the renderer's deck-independent camera contract.
 
 GlobeView only. Vertex-transforming `modelMatrix` and layer extensions reject,
 so displayed positions cannot silently diverge from CPU queries.
+Constrain the host's view state to `zoom <= 12`: deck.gl 9.4 changes GlobeView
+to WebMercatorViewport above that threshold. The example sets `maxZoom: 12`
+and also clamps its controlled state to stay spherical.
 No basemap/annotation draping, mixed-LOD stitching, automatic tile
 fetching or datum conversion. The example's Mercator DEM stops at ±85.05°; polar
 terrain is not invented. Immersive WebXR/stereo validation remains future work.
