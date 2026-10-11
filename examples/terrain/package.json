@@ -3,6 +3,9 @@
   "version": "1.0.0-alpha.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./app": "./app.ts"
+  },
   "description": "Experimental loaders.gl elevation and deck.gl terrain reference integration",
   "scripts": {
     "build": "node scripts/build.mjs"

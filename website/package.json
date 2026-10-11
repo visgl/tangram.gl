@@ -17,6 +17,8 @@
     "@docusaurus/preset-classic": "^3.10.2",
     "@mdx-js/react": "^3.1.1",
     "@signalwire/docusaurus-plugin-llms-txt": "1.2.2",
+    "@vis.gl/tangram-projected-example": "workspace:^",
+    "@vis.gl/tangram-terrain-example": "workspace:^",
     "prism-react-renderer": "^2.4.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

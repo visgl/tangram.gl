@@ -34,12 +34,12 @@ await copyExampleAssets(
 );
 await copyExampleAssets(resolve(repositoryDirectory, 'examples/projected'), resolve(staticDirectory, 'examples/projected'));
 await mkdir(resolve(staticDirectory, 'examples/terrain'), {recursive: true});
-await cp(resolve(repositoryDirectory, 'examples/terrain/index.html'), resolve(staticDirectory, 'examples/terrain/embed.htm'));
+await cp(resolve(repositoryDirectory, 'examples/terrain/index.html'), resolve(staticDirectory, 'examples/terrain/standalone.htm'));
 await cp(resolve(repositoryDirectory, 'examples/terrain/dist/app.js'), resolve(staticDirectory, 'examples/terrain/app.js'));
 await cp(resolve(repositoryDirectory, 'modules/tangram-renderer/dist/map-logic.js'), resolve(staticDirectory, 'modules/tangram-renderer/dist/map-logic.js'));
-// .htm avoids the preview server's .html-to-clean-route redirect, which drops the base URL.
-// No directory index can shadow a Docusaurus route.
-await cp(resolve(repositoryDirectory, 'examples/projected/index.html'), resolve(staticDirectory, 'examples/projected/embed.htm'));
+await cp(resolve(repositoryDirectory, 'examples/mounted-example.css'), resolve(staticDirectory, 'examples/mounted-example.css'));
+// Standalone demos remain optional; the website routes mount their source runtimes directly.
+await cp(resolve(repositoryDirectory, 'examples/projected/index.html'), resolve(staticDirectory, 'examples/projected/standalone.htm'));
 await cp(resolve(repositoryDirectory, 'modules/tangram-renderer/dist/projected-basemaps-worker.js'),
   resolve(staticDirectory, 'modules/tangram-renderer/dist/projected-basemaps-worker.js'));
 await cp(resolve(repositoryDirectory, 'modules/tangram-layers/dist/experimental/projected-basemaps.js'),

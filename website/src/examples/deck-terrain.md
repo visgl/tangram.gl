@@ -1,6 +1,7 @@
 ---
 title: Mercator terrain (experimental)
 description: Mapterhorn elevation decoded with loaders.gl and rendered by deck.gl.
+hide_title: true
 hide_table_of_contents: true
 ---
 
@@ -10,6 +11,6 @@ SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
  */}
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
+import MountedExample from '@site/src/components/MountedExample';
 
-<iframe className="projected-example-frame" title="Experimental Mercator terrain" src={useBaseUrl('/examples/terrain/embed.htm')} allow="fullscreen" />
+<MountedExample kind="terrain" />

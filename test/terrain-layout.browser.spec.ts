@@ -3,31 +3,28 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
+import {terrainMarkup} from '../examples/terrain/view';
+import {projectedMarkup} from '../examples/projected/view.js';
 
-test('terrain document fills its iframe and responds to viewport resizing without GPU or network tiles', async () => {
-    const sourceUrl = new URL('/examples/terrain/index.html', location.href);
-    const response = await fetch(sourceUrl);
-    expect(response.ok).toBe(true);
-    const source = new DOMParser().parseFromString(await response.text(), 'text/html');
-    // Exercise real layout/styles without executing the app, Vite or CDN scripts.
-    for (const script of source.querySelectorAll('script')) script.remove();
-    const base = source.createElement('base');
-    base.href = new URL('.', sourceUrl).href;
-    source.head.prepend(base);
-    const frame = document.createElement('iframe');
-    frame.style.width = '512px'; frame.style.height = '320px';
-    const loaded = new Promise<void>(resolve => {frame.onload = () => resolve();});
-    frame.srcdoc = source.documentElement.outerHTML;
-    document.body.append(frame);
+test.each([['terrain', terrainMarkup], ['projected', projectedMarkup]])('%s mounts fill their host and resize without an iframe', async (name, markup) => {
+    const stylesheet = document.createElement('link');
+    stylesheet.rel = 'stylesheet'; stylesheet.href = '/examples/mounted-example.css';
+    const loaded = new Promise<void>((resolve, reject) => {stylesheet.onload = () => resolve(); stylesheet.onerror = () => reject(new Error('Example stylesheet failed'));});
+    document.head.append(stylesheet);
+    const host = document.createElement('div');
+    host.style.width = '512px'; host.style.height = '320px';
+    const root = document.createElement('div');
+    root.className = `mounted-example ${name}-example`; root.innerHTML = markup;
+    host.append(root); document.body.append(host);
     try {
         await loaded;
-        const map = frame.contentDocument!.getElementById('terrain-map')!;
+        const map = root.querySelector<HTMLElement>('[data-example="map"]')!;
         expect(map.getBoundingClientRect().width).toBe(512);
         expect(map.getBoundingClientRect().height).toBe(320);
-        frame.style.width = '320px'; frame.style.height = '240px';
+        host.style.width = '320px'; host.style.height = '240px';
         await expect.poll(() => map.getBoundingClientRect().width).toBe(320);
         expect(map.getBoundingClientRect().height).toBe(240);
-    } finally {
-        frame.remove();
-    }
+        expect(root.querySelector('iframe')).toBeNull();
+        expect(root.querySelector('[id]')).toBeNull();
+    } finally {host.remove(); stylesheet.remove();}
 });

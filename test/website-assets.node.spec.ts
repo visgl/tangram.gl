@@ -14,7 +14,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {recursive: true, force: true})));
 });
 
-test.each(['classic', 'deck', 'webxr'])('%s assets do not shadow the integrated example route', async example => {
+test.each(['classic', 'deck', 'webxr', 'projected', 'terrain'])('%s assets do not shadow the integrated example route', async example => {
   const directory = await mkdtemp(join(tmpdir(), 'tangram-website-assets-'));
   temporaryDirectories.push(directory);
   const source = join(directory, example);

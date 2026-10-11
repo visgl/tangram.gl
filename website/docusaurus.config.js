@@ -56,6 +56,22 @@ const config = {
   ],
 
   plugins: [
+    function nativeExamples() {
+      return {
+        name: 'native-example-chunks',
+        configureWebpack(_configuration, isServer) {
+          if (isServer) return {};
+          return {optimization: {splitChunks: {cacheGroups: {
+            nativeExampleShared: {
+              name: 'example-runtime-shared', chunks: 'async', minChunks: 2,
+              // Share the renderer and installed vis.gl dependencies between native demos.
+              test: /[\\/]node_modules[\\/]|[\\/]modules[\\/]tangram-renderer[\\/]/,
+              priority: 40, reuseExistingChunk: true
+            }
+          }}}};
+        }
+      };
+    },
     [
       '@signalwire/docusaurus-plugin-llms-txt',
       {

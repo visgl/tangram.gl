@@ -11,6 +11,19 @@ function readSource(path: string): string {
 }
 
 describe('canonical documentation host', () => {
+  test('terrain and projected routes mount lazy local runtimes instead of iframe documents', () => {
+    for (const example of ['deck-terrain', 'deck-projected']) {
+      const page = readSource(`website/src/examples/${example}.md`);
+      expect(page).toContain('MountedExample');
+      expect(page).not.toContain('<iframe');
+    }
+    const component = readSource('website/src/components/MountedExample.js');
+    expect(component).toContain('@vis.gl/tangram-terrain-example/app');
+    expect(component).toContain('@vis.gl/tangram-projected-example/app');
+    expect(component).toContain('instance?.destroy()');
+    expect(component).not.toContain('importmap');
+    expect(component).not.toContain('appendScript');
+  });
   test('uses vis.gl metadata and keeps local website build commands without publishing scripts', () => {
     for (const path of [
       'package.json',

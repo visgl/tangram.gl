@@ -11,6 +11,6 @@ SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
  */}
 
-import useBaseUrl from '@docusaurus/useBaseUrl';
+import MountedExample from '@site/src/components/MountedExample';
 
-<iframe className="projected-example-frame" title="Experimental projected basemaps" src={useBaseUrl('/examples/projected/embed.htm')} allow="fullscreen" />
+<MountedExample kind="projected" />

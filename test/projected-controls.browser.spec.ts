@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
+import {mountProjectedExample} from '../examples/projected/app.js';
 
 const fixtures = vi.hoisted(() => ({
   properties: {} as Record<string, unknown>,
@@ -44,14 +45,14 @@ vi.mock('../examples/classic/app/attribution.js', async importOriginal => ({
 
 test('example controls coalesce navigation, discard stale results and release resources on teardown', async () => {
   // Real markup/event handlers; GPU/projection correctness is covered separately, without public-network access here.
-  const markup = await (await fetch('/examples/projected/index.html')).text();
-  const body = new DOMParser().parseFromString(markup, 'text/html').body;
   const root = document.createElement('div');
-  root.innerHTML = body.innerHTML;
   document.body.append(root);
   vi.useFakeTimers();
+  const instance = mountProjectedExample(root, {parameters: new URLSearchParams('device=webgl'),
+    workerUrl: new URL('/modules/tangram-renderer/dist/projected-basemaps-worker.js', location.href).href});
   const getElement = (selector: string) => {
-    const element = root.querySelector(selector);
+    const name = selector.slice(1) === 'projected-map' ? 'map' : selector.slice(1);
+    const element = root.querySelector(`[data-example="${name}"]`);
     if (!(element instanceof HTMLElement)) throw new Error(`Missing control ${selector}`);
     return element;
   };
@@ -67,7 +68,7 @@ test('example controls coalesce navigation, discard stale results and release re
     Reflect.apply(callback, null, parameters);
   };
   try {
-    await import('../examples/projected/app.js');
+    await instance.ready;
     change('#detail-mode', 'manual');
     expect(fixtures.detail).not.toHaveBeenCalled();
     expect(fixtures.coverage).not.toHaveBeenCalled();
@@ -154,12 +155,13 @@ test('example controls coalesce navigation, discard stale results and release re
     expect(layerScene().projectedVisibleBounds).toEqual([-120, 20, -80, 50]);
     expect(layerScene().scene).toBe(preparedScene);
     const detailCalls = fixtures.detail.mock.calls.length;
-    window.dispatchEvent(new PageTransitionEvent('pagehide'));
+    instance.destroy();
     await vi.advanceTimersByTimeAsync(1000);
     expect(fixtures.detail).toHaveBeenCalledTimes(detailCalls);
     expect(fixtures.dispose).toHaveBeenCalledOnce();
     expect(fixtures.finalize).toHaveBeenCalledOnce();
   } finally {
+    instance.destroy();
     vi.useRealTimers();
     root.remove();
   }

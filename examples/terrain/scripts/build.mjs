@@ -15,7 +15,7 @@ const external = ['@deck.gl/core', '@deck.gl/geo-layers', '@luma.gl/core', '@lum
 // application instead bundles its parsers and only externalizes the import map.
 const result = await build({
   absWorkingDir: repositoryDirectory,
-  entryPoints: ['examples/terrain/app.ts'],
+  entryPoints: ['examples/terrain/standalone.ts'],
   outfile: 'examples/terrain/dist/app.js',
   bundle: true, format: 'esm', platform: 'browser', minify: true,
   target: configuration.bundle.target, external,

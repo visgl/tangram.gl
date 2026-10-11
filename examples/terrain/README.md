@@ -10,6 +10,11 @@ Run `yarn website:start` from the root, then open
 `/tangram.gl/examples/deck-terrain`. Ocular builds this private example during
 `yarn build` and website assembly. Do not use `file://`.
 
+The website mounts `mountTerrainExample` directly in a lazy-loaded Docusaurus
+component. It shares the runtime and controls with the standalone entry, without
+an iframe, injected scripts, global selectors or a second router. Unmounting
+aborts requests, disconnects resize observation and releases GPU resources.
+
 The POC loads one Mapterhorn Terrarium tile near Zermatt, decodes and simplifies
 it with loaders.gl v5, renders it with deck.gl TerrainLayer, and queries the
 identical mesh with Tangram's terrain surface API. Controls include MapView
