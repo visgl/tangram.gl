@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Experimental loaders.gl elevation and deck.gl terrain reference integration",
   "scripts": {
-    "build": "yarn --cwd ../.. ocular-bundle examples/terrain/app.ts --format=esm --output=examples/terrain/dist/app.js --externals=@deck.gl/core,@deck.gl/geo-layers,@luma.gl/core,@luma.gl/webgpu,@vis.gl/tangram-renderer/map-logic,@vis.gl/tangram-renderer/core --sourcemap=true --sourcesContent=false"
+    "build": "node scripts/build.mjs"
   },
   "dependencies": {
     "@deck.gl/core": "9.4.0",
@@ -28,6 +28,7 @@
   },
   "devDependencies": {
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
+    "esbuild": "^0.28.1",
     "playwright": "^1.58.0",
     "vitest": "^4.0.18"
   }
