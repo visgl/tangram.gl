@@ -27,8 +27,8 @@ test('visual skirts do not change physical queries, topology or top-surface boun
   const plain = buildTerrainRenderMesh(data, [], 0), skirted = buildTerrainRenderMesh(data, [], 250);
   expect(skirted.loaded.mesh).toEqual(plain.loaded.mesh);
   expect(skirted.renderMesh.indices!.value.length).toBeGreaterThan(plain.renderMesh.indices!.value.length);
-  expect(skirted.renderMesh.header?.boundingBox[0][2]).toBe(-150);
-  expect(skirted.loaded.mesh.header?.boundingBox[0][2]).toBe(100);
+  expect(skirted.renderMesh.header?.boundingBox?.[0][2]).toBe(-150);
+  expect(skirted.loaded.mesh.header?.boundingBox?.[0][2]).toBe(100);
   expect(skirted.loaded.surface.intersectRay({origin: [1, 1, 1000], direction: [0, 0, -1]})?.position[2]).toBeCloseTo(100);
   expect(skirted.loaded.surface.intersectRay({origin: [-1, 1, 0], direction: [1, 0, 0]})).toBeNull();
   expect(data.mesh.attributes.POSITION.value).toEqual(new Float32Array(12));
