@@ -51,7 +51,11 @@ jobs:
           test -f website/build/modules/tangram-renderer/dist/loaders-gl-worker.js
           test -f website/build/modules/tangram-renderer/dist/projected-basemaps-worker.js
           test -f website/build/modules/tangram-layers/dist/experimental/projected-basemaps.js
-          test -f website/build/examples/projected/embed.htm
+          test -f website/build/examples/deck-projected.html
+          test -f website/build/examples/deck-terrain.html
+          test -n "$(find website/build/assets/js -name 'example-runtime-shared.*.js' -print -quit)"
+          test -f website/build/examples/terrain/app.js
+          test -f website/build/modules/tangram-renderer/dist/map-logic.js
           test -f website/build/examples/deck.html
           test -f website/build/examples/classic.html
           test -f website/build/examples/classic/monaco-editor.worker.js

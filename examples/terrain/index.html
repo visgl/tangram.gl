@@ -1,0 +1,29 @@
+<!doctype html>
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Experimental Mercator terrain</title>
+    <link rel="stylesheet" href="../mounted-example.css">
+    <style>html, body, #example {width: 100%; height: 100%; margin: 0;}</style>
+    <script type="importmap">
+      {"imports": {
+        "@deck.gl/core": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
+        "@deck.gl/geo-layers": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
+        "@luma.gl/core": "https://esm.sh/@luma.gl/core@9.4.2?bundle",
+        "@luma.gl/webgpu": "https://esm.sh/@luma.gl/webgpu@9.4.2?bundle&external=@luma.gl/core",
+        "@vis.gl/tangram-renderer/map-logic": "../../modules/tangram-renderer/dist/map-logic.js",
+        "@vis.gl/tangram-renderer/core": "../../modules/tangram-renderer/dist/core.js"
+      }}
+    </script>
+  </head>
+  <body class="tangram-deck-standalone">
+    <div id="example"></div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

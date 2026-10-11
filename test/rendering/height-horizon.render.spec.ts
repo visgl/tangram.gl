@@ -11,6 +11,7 @@ import {LEGACY_HEIGHT_GLSL, LEGACY_HORIZON_GLSL, LEGACY_HORIZON_WGSL} from './fi
 import {RenderingHarness, DEVICE_TYPE} from './harness';
 import {readDevicePixels} from '../../modules/tangram-renderer/src/gpu/pixel_readback';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';
+import {decodeTerrainHeightGrid, TERRARIUM_DECODER, TERRAIN_RGB_DECODER} from '../../modules/tangram-renderer/src/map-logic/terrain-data';
 
 /** Each shader expression returns a success bit against an independent CPU result. */
 type Sample = {name: string; glsl: string; wgsl: string};
@@ -44,6 +45,13 @@ function createHeightSamples(): Sample[] {
             ['TerrainRGB', packed / 10 - 10000, 0.25],
             ['Height', bytes[0] * 0.5 + bytes[1] * -2 + bytes[2] * 0.25 + 7, 0.0001]
         ] as const) {
+            if (name !== 'Height' && bytes.every(Number.isInteger)) {
+                const grid = decodeTerrainHeightGrid({width: 2, height: 2,
+                    pixels: new Uint8Array([...bytes, 255, ...bytes, 255, ...bytes, 255, ...bytes, 255]),
+                    decoder: name === 'Terrarium' ? TERRARIUM_DECODER : TERRAIN_RGB_DECODER,
+                    bounds: [0, 0, 1, 1], registration: 'pixel-center', verticalDatum: 'unknown'});
+                expect(Math.abs(grid.heights[0] - expected)).toBeLessThanOrEqual(tolerance);
+            }
             const expressions = [false, true].map(wgsl => {
                 const argumentsExpression = vector(bytes.map(value => value / 255), wgsl) +
                     (name === 'Height' ? `, ${vector([0.5, -2, 0.25], wgsl)}, 7.` : '');

@@ -18,7 +18,8 @@ const sidebars = {
         {type: 'doc', id: 'deck-map-flat', label: 'MapView flat'},
         {type: 'doc', id: 'deck-globe', label: 'GlobeView'},
         {type: 'doc', id: 'deck-first-person', label: 'FirstPersonView'},
-        {type: 'doc', id: 'deck-projected', label: 'Projected basemaps (experimental)'}
+        {type: 'doc', id: 'deck-projected', label: 'Projected basemaps (experimental)'},
+        {type: 'doc', id: 'deck-terrain', label: 'Mercator terrain (experimental)'}
       ]
     },
     {

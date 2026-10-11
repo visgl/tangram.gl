@@ -1,0 +1,259 @@
+/*
+ * tangram-layers
+ * SPDX-License-Identifier: MIT
+ * Copyright (c) vis.gl contributors
+ */
+
+@import './deck/info-card.css';
+
+.mounted-example { position: relative; width: 100%; height: 100%; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #08111f; }
+.mounted-example:fullscreen {width: 100vw; height: 100dvh;}
+.mounted-example [data-example="map"] {position: absolute; inset: 0;}
+.mounted-example [data-example="controls"] {box-sizing: border-box; max-width: min(342px, calc(100% - 32px)); max-height: calc(100% - 80px); overflow: auto;}
+.mounted-example [data-example="controls"].info-card-collapsed {width: fit-content;}
+.mounted-example [data-example="terrain-hit"] {display: block; font-size: 0.85rem; margin-top: 1rem;}
+.mounted-example [data-example="coordinates"] {display: block; margin-top: 12px; font-variant-numeric: tabular-nums;}
+.mounted-example .projected-fit {width: 100%; margin: 12px 0; padding: 8px; cursor: pointer;}
+
+.mounted-example [data-example="controls"] {
+    position: absolute;
+    z-index: 10;
+    top: 16px;
+    left: 16px;
+    max-width: min(342px, calc(100% - 32px));
+    padding: 14px 16px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.94);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.24);
+    color: #202124;
+}
+
+.mounted-example [data-example="controls"] h1 {
+    margin: 0 0 8px;
+    font-size: 18px;
+}
+
+.mounted-example .info-tabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 -4px 8px;
+    border-bottom: 1px solid #d5d9df;
+}
+
+.mounted-example .info-tabs button {
+    padding: 6px 8px;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: #5f6368;
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.mounted-example .info-tabs button.is-active {
+    border-bottom-color: #1967d2;
+    color: #1967d2;
+}
+
+.mounted-example .example-description {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.mounted-example [data-example="status"] {
+    min-height: 20px;
+    margin: 0 0 8px;
+}
+
+.mounted-example [data-example="status"][data-type="success"] {
+    color: #137333;
+}
+
+.mounted-example [data-example="status"][data-type="warning"] {
+    color: #b06000;
+}
+
+.mounted-example [data-example="status"][data-type="error"] {
+    color: #b3261e;
+}
+
+.mounted-example .control {
+    display: block;
+    margin-top: 8px;
+}
+
+.mounted-example .control span {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.mounted-example .control select {
+    width: 100%;
+    padding: 4px 6px;
+}
+
+.mounted-example .key-input-row {
+    display: flex;
+    gap: 6px;
+}
+
+.mounted-example .key-input-row input {
+    min-width: 0;
+    flex: 1;
+    padding: 4px 6px;
+}
+
+.mounted-example .key-input-row button {
+    padding: 4px 10px;
+}
+
+.mounted-example .checkbox-control {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.mounted-example .hint {
+    margin: 8px 0 0;
+    color: #5f6368;
+    font-size: 12px;
+}
+
+.mounted-example .source-link {
+    margin: 8px 0 0;
+    font-size: 12px;
+}
+
+.mounted-example .source-link a {
+    color: #1967d2;
+}
+
+.mounted-example .canvas-toolbar {
+    position: absolute;
+    z-index: 11;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+}
+
+.mounted-example .canvas-device-tabs {
+    display: flex;
+    padding: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 7px;
+    background: rgba(8, 17, 31, 0.82);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(8px);
+}
+
+.mounted-example .canvas-device-tabs button,
+.mounted-example .canvas-fullscreen {
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.78);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.mounted-example .canvas-device-tabs button {
+    padding: 6px 10px;
+}
+
+.mounted-example .canvas-device-tabs button.is-active,
+.mounted-example .canvas-device-tabs button:hover,
+.mounted-example .canvas-fullscreen:hover,
+.mounted-example .canvas-fullscreen.is-active {
+    background: rgba(59, 130, 246, 0.95);
+    color: #fff;
+}
+
+.mounted-example .canvas-fullscreen {
+    width: 36px;
+    min-height: 36px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    background: rgba(8, 17, 31, 0.82);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+    font-size: 20px;
+    line-height: 1;
+    backdrop-filter: blur(8px);
+}
+
+.mounted-example [data-example="attribution"] {
+    position: absolute;
+    z-index: 10;
+    right: 4px;
+    bottom: 4px;
+    margin: 0;
+    padding: 2px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.82);
+    color: #3c4043;
+    font-size: 10px;
+}
+
+.mounted-example [data-example="attribution"] a {
+    color: inherit;
+}
+
+@media (max-width: 600px) {
+    .mounted-example [data-example="controls"] {
+        top: 8px;
+        right: 8px;
+        left: 8px;
+        margin-top: 44px;
+        max-width: none;
+        padding: 8px 10px;
+    }
+
+    .mounted-example .canvas-toolbar {
+        top: 8px;
+        right: 8px;
+    }
+
+    .mounted-example [data-example="controls"] h1 {
+        margin-bottom: 4px;
+        font-size: 15px;
+    }
+
+    .mounted-example [data-example="status"] {
+        min-height: 0;
+        margin-bottom: 4px;
+        font-size: 12px;
+        line-height: 1.2;
+    }
+
+    .mounted-example .control {
+        margin-top: 4px;
+    }
+
+    .mounted-example .control span {
+        margin-bottom: 2px;
+        font-size: 11px;
+    }
+
+    .mounted-example .control select,
+    .mounted-example .key-input-row input,
+    .mounted-example .key-input-row button {
+        padding: 2px 4px;
+        font-size: 12px;
+    }
+
+    .mounted-example .checkbox-control {
+        font-size: 12px;
+    }
+
+    .mounted-example .hint,
+    .mounted-example .source-link {
+        display: none;
+    }
+}

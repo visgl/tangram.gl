@@ -27,6 +27,7 @@ module.exports = {
         'developer-guide/visgl-conformance',
         'developer-guide/tile-providers',
         'developer-guide/tile-loading',
+        'developer-guide/terrain',
         'developer-guide/bundling',
         {type: 'doc', id: 'developer-guide/legacy-concepts', label: 'Tangram concepts'}
       ]
@@ -70,7 +71,8 @@ module.exports = {
                 'api-reference/map-logic/screen-bounds',
                 'api-reference/map-logic/tile-build-queue',
                 'api-reference/map-logic/tile-residency',
-                'api-reference/map-logic/tile-cache-policy'
+                'api-reference/map-logic/tile-cache-policy',
+                'api-reference/map-logic/terrain-data'
               ]
             },
             {type: 'doc', id: 'api-reference/styling', label: 'Styling reference'}

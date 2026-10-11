@@ -28,6 +28,8 @@ package.
   shared across independent consumers.
 - [Tile cache policy](./map-logic/tile-cache-policy.md): stable LRU eviction and
   resource accounting from neutral metadata snapshots.
+- [Terrain data](./map-logic/terrain-data.md): elevation decoding, georeferencing,
+  no-data and physical-meter sampling.
 
 See the [reuse assessment](../developer-guide/map-logic.md) for extraction limits
 and other candidates.

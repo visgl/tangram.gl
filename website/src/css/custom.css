@@ -134,6 +134,7 @@
 }
 
 .deck-example-embed,
+.native-example-embed,
 .webxr-example-embed,
 .classic-playground-embed {
   position: relative;
@@ -175,20 +176,24 @@
   height: 100dvh;
 }
 
-.projected-example-frame {
-  display: block;
+.native-example-host {
   width: 100%;
-  height: calc(100dvh - var(--ifm-navbar-height) - 4rem);
-  min-height: 280px;
-  border: 0;
+  height: 100%;
+}
+
+.native-example-message {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  color: white;
 }
 
 /* Live examples use the space beside the sidebar, not a prose/TOC column. */
-.plugin-id-examples main > .container:has(.deck-example-embed, .webxr-example-embed, .classic-playground-embed, .projected-example-frame) {
+.plugin-id-examples main > .container:has(.deck-example-embed, .webxr-example-embed, .classic-playground-embed, .native-example-embed) {
   max-width: none;
 }
 
-.plugin-id-examples .col:has(.deck-example-embed, .webxr-example-embed, .classic-playground-embed, .projected-example-frame) {
+.plugin-id-examples .col:has(.deck-example-embed, .webxr-example-embed, .classic-playground-embed, .native-example-embed) {
   max-width: 100% !important;
 }
 
