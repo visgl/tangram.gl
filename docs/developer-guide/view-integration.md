@@ -144,10 +144,15 @@ evaluated by the CPU layout; keep such effects consistent with authored geometry
 
 Host-supplied Mercator/Globe terrain meshes now support nearest-triangle screen
 and room-ray queries, including physical altitude, near/far clipping and explicit
-eye routing. No terrain is loaded or rendered implicitly.
+eye routing and retained triangle bounds indexes. No terrain is loaded or rendered implicitly.
+
+The separate [Mercator terrain reference](./terrain.md) now has a bounded source
+window, warm decode cache with hard resident-array admission, stitched 2:1 parent
+fallback, indexed physical picking and opt-in MapView target following. This closes
+the local reference phase, not globe terrain or basemap draping.
 
 Next: tangent-space normal maps, rendered terrain normals, surface-oriented labels,
-terrain-aware occlusion, indexed large-terrain queries and deck.gl synchronous picking.
+terrain-aware occlusion and deck.gl synchronous picking.
 
 ### 7. Finish WebXR placement and interaction
 

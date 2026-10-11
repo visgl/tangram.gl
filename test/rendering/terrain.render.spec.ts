@@ -12,6 +12,9 @@ import {pickTerrainSurface} from '../../examples/terrain/picking';
 import {createTerrainFixture} from '../terrain-fixture';
 import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
 import {buildTerrainRenderMesh} from '../../examples/terrain/terrain-mesh';
+import {createTerrainStreamFixture} from '../terrain-stream-fixture';
+import {sampleTerrainAnchor} from '../../examples/terrain/ground-following';
+import {worldToLngLat} from '@math.gl/web-mercator';
 
 let harness: RenderingHarness | undefined;
 let deck: Deck<MapView> | undefined;
@@ -24,6 +27,34 @@ afterEach(async () => {
         deck?.finalize(); deck = undefined;
         harness?.destroy(); harness = undefined;
     }
+});
+
+test(`${DEVICE_TYPE}: mixed-LOD top edges render without skirts and retain physical anchor clearance`, async () => {
+    harness = new RenderingHarness(); await harness.initializeDevice();
+    const coarse = createTerrainStreamFixture([-2000, -2000, 2000, 2000], [100, 100, 100, 100]);
+    const upper = createTerrainStreamFixture([2000, 0, 4000, 2000], [100, 100, 100, 100]);
+    const lower = createTerrainStreamFixture([2000, -2000, 4000, 0], [100, 100, 100, 100]);
+    const tiles = [coarse, upper, lower].map(data => buildTerrainRenderMesh(data, [coarse, upper, lower].filter(candidate => candidate !== data).map(candidate => candidate.grid), 0));
+    const location = worldToLngLat([256 + 2000 * 512 / (2 * Math.PI * 6378137), 256 + 1000 * 512 / (2 * Math.PI * 6378137)]);
+    const elevation = sampleTerrainAnchor(tiles.map(tile => tile.loaded), [location[0], location[1]], 250);
+    expect(elevation).toBeCloseTo(350);
+    const viewState = {longitude: location[0], latitude: location[1], position: [0, 0, elevation ?? 0] as [number, number, number], zoom: 13, pitch: 0, bearing: 0};
+    deck = new Deck({canvas: harness.canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
+        views: new MapView({id: 'terrain'}), initialViewState: viewState, _animate: true, onError: error => harness!.errors.push(error.message),
+        layers: tiles.map((tile, index) => {
+            const bounds = tile.loaded.mesh.header!.boundingBox!;
+            return new TerrainLayer({id: `mixed-${index}`, elevationData: `fixture://mixed-${index}`, bounds: [bounds[0][0], bounds[0][1], bounds[1][0], bounds[1][1]], material: false, color: [120, 180, 130], fetch: async () => tile.renderMesh});
+        })});
+    await expect.poll(async () => coloredPixels(await readCanvasPixels(harness!.canvas)), {timeout: 15000}).toBeGreaterThan(100);
+    const viewport = new WebMercatorViewport({...viewState, width: 512, height: 320});
+    const pixel = viewport.project([location[0], location[1], 100]);
+    const image = await readCanvasPixels(harness.canvas);
+    for (const horizontalOffset of [-2, -1, 0, 1, 2]) {
+        const offset = (Math.round(pixel[1]) * image.width + Math.round(pixel[0]) + horizontalOffset) * 4;
+        expect(image.data[offset + 1]).toBeGreaterThan(image.data[offset]);
+    }
+    const hit = tiles.map(tile => pickTerrainSurface(viewport, tile.loaded.mesh, [pixel[0], pixel[1]])).find(hit => hit !== null);
+    expect(hit?.coordinate[2]).toBeCloseTo(100, 5);
 });
 
 test.each([{latitude: 0, zoom: 11.99}, {latitude: 46, zoom: 11.99},

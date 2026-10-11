@@ -1,0 +1,23 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
+import {projectGeographicPosition, PROJECTION_CONSTANTS} from '@vis.gl/tangram-renderer/core';
+import type {LoadedTerrain} from './load-terrain';
+
+/** Sample the highest loaded top triangle at a geographic anchor, excluding visual skirts. */
+export function sampleTerrainAnchor(tiles: Iterable<LoadedTerrain>, coordinate: readonly [number, number], clearance: number): number | null {
+    if (!coordinate.every(Number.isFinite) || Math.abs(coordinate[1]) > 90 || !Number.isFinite(clearance) || clearance < 0) throw new Error('Invalid terrain anchor or physical clearance');
+    if (Math.abs(coordinate[1]) > PROJECTION_CONSTANTS.maxMercatorLatitude) return null;
+    const longitude = ((coordinate[0] + 180) % 360 + 360) % 360 - 180;
+    const projected = projectGeographicPosition([longitude, coordinate[1], 0], 'web-mercator');
+    let elevation: number | null = null;
+    for (const tile of tiles) {
+        const bounds = tile.mesh.header?.boundingBox;
+        // Avoid constructing query indexes for every visible tile on each camera move.
+        if (!bounds || !Number.isFinite(bounds[1][2]) || longitude < bounds[0][0] || longitude > bounds[1][0] || coordinate[1] < bounds[0][1] || coordinate[1] > bounds[1][1]) continue;
+        const hit = tile.surface.intersectRay({origin: [projected[0], projected[1], bounds[1][2] + 1], direction: [0, 0, -1]});
+        if (hit && (elevation === null || hit.position[2] > elevation)) elevation = hit.position[2];
+    }
+    return elevation === null ? null : elevation + clearance;
+}

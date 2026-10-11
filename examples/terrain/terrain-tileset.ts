@@ -36,6 +36,8 @@ export interface TerrainTilesetOptions {
     maxCachedTiles?: number;
     /** Off-screen byte budget, including source and decoded arrays. */
     maxCachedBytes?: number;
+    /** Hard retained source/decoded-array limit, including visible and fallback records. */
+    maxResidentBytes?: number;
     /** Supported source zoom interval; protects parent fallback from unsupported URLs. */
     minZoom?: number;
     maxZoom?: number;
@@ -52,6 +54,10 @@ export class TerrainTileset {
     private readonly cache = new TileCachePolicy();
     /** Active generation identity prevents late completions replacing new content. */
     private readonly active = new Map<string, {token: string; controller: AbortController; meshMaxError: number}>();
+    /** Parent-first order shared by scheduling and completed-payload admission. */
+    private readonly priorities = new Map<string, number>();
+    /** Completion/cancellation wakes lower-priority decoded results without polling. */
+    private readonly admissionWaiters = new Set<() => void>();
     /** Requested visible detail, in stable priority order. */
     private selected: TerrainTileCoordinate[] = [];
     /** Monotonic build generation and currently requested physical error. */
@@ -65,7 +71,8 @@ export class TerrainTileset {
     constructor(private readonly options: TerrainTilesetOptions) {
         const limit = options.maxRequests ?? 2;
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 4 || (options.maxCachedTiles !== undefined && (!Number.isSafeInteger(options.maxCachedTiles) || options.maxCachedTiles < 0)) ||
-            (options.maxCachedBytes !== undefined && (!Number.isFinite(options.maxCachedBytes) || options.maxCachedBytes < 0))) throw new Error('Invalid terrain resource budget');
+            (options.maxCachedBytes !== undefined && (!Number.isSafeInteger(options.maxCachedBytes) || options.maxCachedBytes < 0)) ||
+            (options.maxResidentBytes !== undefined && (!Number.isSafeInteger(options.maxResidentBytes) || options.maxResidentBytes < 0))) throw new Error('Invalid terrain resource budget');
         const minimum = options.minZoom ?? 0, maximum = options.maxZoom ?? 12;
         if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum < 0 || maximum > 12 || minimum > maximum) throw new Error('Invalid terrain source domain');
         this.queue.setLimit(limit);
@@ -75,19 +82,27 @@ export class TerrainTileset {
     update(tiles: readonly TerrainTileCoordinate[], meshMaxError = this.meshMaxError): void {
         if (this.disposed) return;
         if (!Number.isFinite(meshMaxError) || meshMaxError < 0 || tiles.length > 25 || new Set(tiles.map(getTerrainTileKey)).size !== tiles.length || tiles.some(tile => !Number.isSafeInteger(tile.zoom) || tile.zoom < (this.options.minZoom ?? 0) || tile.zoom > (this.options.maxZoom ?? 12) || !Number.isSafeInteger(tile.column) || !Number.isSafeInteger(tile.row) || tile.column < 0 || tile.row < 0 || tile.column >= 2 ** tile.zoom || tile.row >= 2 ** tile.zoom)) throw new Error('Invalid terrain detail selection');
+        if (tiles.some(tile => tile.zoom !== tiles[0].zoom)) throw new Error('Terrain detail selection must use one source zoom; parents are managed internally');
         this.selected = tiles.map(tile => ({...tile}));
         this.meshMaxError = meshMaxError;
         const requested = new Map<string, TerrainTileCoordinate>();
         // Coarse coverage loads first; siblings only replace their parent together.
         for (const tile of tiles) {const parent = this.getParent(tile); if (parent) requested.set(getTerrainTileKey(parent), parent);}
         for (const tile of tiles) requested.set(getTerrainTileKey(tile), tile);
+        this.priorities.clear();
+        [...requested.keys()].forEach((key, priority) => this.priorities.set(key, priority));
         this.residency.updateConsumer('view', [...requested.keys()], this.getDrawableTiles().map(record => record.key));
         this.queue.suspend();
         try {
-            for (const [key, active] of this.active) if (!requested.has(key)) {this.active.delete(key); active.controller.abort(); this.queue.cancel(key);}
+            // A newly selected coarse request must acquire a slot before old detail can
+            // publish. Waiting for queued work inside a full active pool would deadlock.
+            const pendingPriority = Math.min(...[...requested.keys()].filter(key => {
+                const record = this.records.get(key);
+                return !record?.error && !(record?.data && record.meshMaxError === meshMaxError) && this.active.get(key)?.meshMaxError !== meshMaxError;
+            }).map(key => this.priorities.get(key) ?? Infinity));
+            for (const [key, active] of this.active) if (!requested.has(key) || (this.priorities.get(key) ?? Infinity) > pendingPriority) {this.active.delete(key); active.controller.abort(); this.queue.cancel(key);}
             // Remove queued work too; cancellation must not wait for an active slot.
             for (const key of this.records.keys()) if (!requested.has(key)) this.queue.cancel(key);
-            let priority = 0;
             for (const [key, coordinate] of requested) {
                 let record = this.records.get(key);
                 if (!record) {record = {key, coordinate}; this.records.set(key, record);}
@@ -98,10 +113,10 @@ export class TerrainTileset {
                 if (record.error || running?.meshMaxError === meshMaxError) continue;
                 const token = String(++this.sequence);
                 const selectedRecord = record;
-                this.queue.enqueue({key, token, priority: priority++, start: () => {void this.load(selectedRecord, token, meshMaxError);}, fail: error => {selectedRecord.error = String(error);}});
+                this.queue.enqueue({key, token, priority: this.priorities.get(key) ?? Infinity, start: () => {void this.load(selectedRecord, token, meshMaxError);}, fail: error => {selectedRecord.error = String(error);}});
             }
             this.evict();
-        } finally {this.queue.resume();}
+        } finally {this.queue.resume(); this.wakeAdmission();}
         this.options.onChange();
         this.resolveIdle();
     }
@@ -133,10 +148,11 @@ export class TerrainTileset {
     }
 
     /** Detached queue, error and byte counts for user-visible resource diagnostics. */
-    getStatistics(): {active: number; queued: number; resident: number; bytes: number; failed: number} {
+    getStatistics(): {active: number; queued: number; resident: number; bytes: number; byteLimit: number; failed: number; failure?: string} {
         const counts = this.queue.getCounts();
         return {active: counts.activeBuilds, queued: counts.queuedBuilds, resident: this.records.size,
-            bytes: [...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record), 0), failed: [...this.records.values()].filter(record => record.error).length};
+            bytes: [...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record), 0), byteLimit: this.options.maxResidentBytes ?? 128 * 1024 * 1024, failed: [...this.records.values()].filter(record => record.error).length,
+            failure: [...this.records.values()].find(record => record.error)?.error};
     }
 
     /** Cancel actual work before releasing queue/cache metadata; safe to repeat. */
@@ -144,7 +160,7 @@ export class TerrainTileset {
         if (this.disposed) return;
         this.disposed = true;
         for (const request of this.active.values()) request.controller.abort();
-        this.active.clear(); this.queue.clear(); this.cache.clear(); this.residency.clear(); this.records.clear();
+        this.active.clear(); this.queue.clear(); this.cache.clear(); this.residency.clear(); this.records.clear(); this.priorities.clear(); this.wakeAdmission();
         this.resolveIdle();
     }
 
@@ -155,9 +171,12 @@ export class TerrainTileset {
         try {
             const bytes = record.bytes ?? await this.options.fetch(record.coordinate, controller.signal);
             if (controller.signal.aborted || this.disposed) return;
+            this.admit({...record, bytes});
             record.bytes = bytes;
             const data = await this.options.decode(bytes, record.coordinate, meshMaxError, controller.signal);
+            await this.waitForAdmission(record.key, controller.signal);
             if (this.disposed || controller.signal.aborted || this.active.get(record.key)?.token !== token) return;
+            this.admit({...record, data});
             record.data = data; record.meshMaxError = meshMaxError; record.error = undefined;
         } catch (error) {
             if (!this.disposed && !controller.signal.aborted && this.active.get(record.key)?.token === token) record.error = error instanceof Error ? error.message : String(error);
@@ -165,9 +184,24 @@ export class TerrainTileset {
             if (this.active.get(record.key)?.token === token) {
                 this.active.delete(record.key); this.queue.finish(record.key, token);
                 this.residency.updateConsumer('view', this.residency.getSelectedTileKeys(), this.getDrawableTiles().map(tile => tile.key));
-                this.evict(); this.queue.pump(); this.options.onChange(); this.resolveIdle();
+                this.evict(); this.queue.pump(); this.wakeAdmission(); this.options.onChange(); this.resolveIdle();
             }
         }
+    }
+
+    /** Concurrent decoding is allowed, but lower-priority results cannot starve pending parents. */
+    private async waitForAdmission(key: string, signal: AbortSignal): Promise<void> {
+        while (!this.disposed && !signal.aborted && [...this.active.keys()].some(other => (this.priorities.get(other) ?? Infinity) < (this.priorities.get(key) ?? Infinity))) {
+            await new Promise<void>(resolve => {
+                const wake = () => {this.admissionWaiters.delete(wake); signal.removeEventListener('abort', wake); resolve();};
+                this.admissionWaiters.add(wake); signal.addEventListener('abort', wake, {once: true});
+            });
+        }
+    }
+
+    /** Notify admission waiters after any active ownership transition. */
+    private wakeAdmission(): void {
+        for (const wake of [...this.admissionWaiters]) wake();
     }
 
     /** Settle host readiness once no active or queued ownership remains. */
@@ -191,6 +225,36 @@ export class TerrainTileset {
             if (record.data.mesh.indices) buffers.add(record.data.mesh.indices.value.buffer);
         }
         return [...buffers].reduce((sum, buffer) => sum + buffer.byteLength, 0);
+    }
+
+    /** Admit atomically: evict cold arrays first, never exceed the cap or discard a warm fallback. */
+    private admit(candidate: TerrainTileRecord): void {
+        const records = [...this.records.values()].map(record => {
+            const retained = record.key === candidate.key ? candidate : record;
+            return {key: record.key, bytes: this.getRecordBytes(retained), protected: record.key === candidate.key || this.residency.isProtected(record.key) || this.queue.has(record.key)};
+        });
+        let protectedBytes = records.filter(record => record.protected).reduce((sum, record) => sum + record.bytes, 0);
+        const limit = this.options.maxResidentBytes ?? 128 * 1024 * 1024;
+        const yielded: TerrainTileRecord[] = [];
+        // A lower-priority warm download must not prevent the first complete coarse tile.
+        // Plan all releases before mutating ownership; completed fallback geometry is never sacrificed.
+        for (const record of [...this.records.values()].sort((first, second) => (this.priorities.get(second.key) ?? Infinity) - (this.priorities.get(first.key) ?? Infinity))) {
+            if (protectedBytes <= limit) break;
+            const failedInactive = record.error && !this.queue.has(record.key) && !this.active.has(record.key);
+            if (record.key === candidate.key || record.data || !record.bytes || !this.residency.isProtected(record.key) || !failedInactive && (this.priorities.get(record.key) ?? Infinity) <= (this.priorities.get(candidate.key) ?? Infinity)) continue;
+            yielded.push(record); protectedBytes -= this.getRecordBytes(record);
+        }
+        if (protectedBytes > limit) throw new Error(`Terrain retained-array budget exceeded (${protectedBytes} > ${limit} bytes); use coarser detail or mesh error`);
+        for (const record of yielded) {
+            const active = this.active.get(record.key);
+            this.active.delete(record.key); active?.controller.abort(); this.queue.cancel(record.key);
+            record.bytes = undefined; record.error ??= 'Terrain retained-array budget yielded to higher-priority coverage; use coarser detail or mesh error';
+            const snapshot = records.find(snapshot => snapshot.key === record.key);
+            if (snapshot) snapshot.bytes = 0;
+        }
+        for (const key of this.cache.selectEvictions(records, {maxCachedTiles: this.options.maxCachedTiles ?? 24, maxCachedBytes: Math.min(this.options.maxCachedBytes ?? 32 * 1024 * 1024, limit - protectedBytes)})) {
+            this.records.delete(key); this.cache.forget(key);
+        }
     }
 
     /** Only release off-screen, inactive records; protected memory is bounded by selection. */
