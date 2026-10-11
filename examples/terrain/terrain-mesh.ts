@@ -138,15 +138,16 @@ export function buildTerrainRenderMesh(data: TerrainTileData, neighbors: readonl
     }
     /** Materialize a detached mesh, with a truthful bounding box for its actual vertices. */
     function mesh(): Mesh {
-        const heights = positions.filter((_, index) => index % 3 === 2);
+        const packedPositions = Float32Array.from(positions);
+        const heights = packedPositions.filter((_, index) => index % 3 === 2);
         let minimum = Infinity, maximum = -Infinity;
         for (const height of heights) {minimum = Math.min(minimum, height); maximum = Math.max(maximum, height);}
-        const boundingBox: [number[], number[]] = [[positions[0] ?? 0, positions[1] ?? 0, minimum], [positions[0] ?? 0, positions[1] ?? 0, maximum]];
-        for (let index = 0; index < positions.length; index += 3) {
-            boundingBox[0][0] = Math.min(boundingBox[0][0], positions[index]); boundingBox[0][1] = Math.min(boundingBox[0][1], positions[index + 1]);
-            boundingBox[1][0] = Math.max(boundingBox[1][0], positions[index]); boundingBox[1][1] = Math.max(boundingBox[1][1], positions[index + 1]);
+        const boundingBox: [number[], number[]] = [[packedPositions[0] ?? 0, packedPositions[1] ?? 0, minimum], [packedPositions[0] ?? 0, packedPositions[1] ?? 0, maximum]];
+        for (let index = 0; index < packedPositions.length; index += 3) {
+            boundingBox[0][0] = Math.min(boundingBox[0][0], packedPositions[index]); boundingBox[0][1] = Math.min(boundingBox[0][1], packedPositions[index + 1]);
+            boundingBox[1][0] = Math.max(boundingBox[1][0], packedPositions[index]); boundingBox[1][1] = Math.max(boundingBox[1][1], packedPositions[index + 1]);
         }
-        return {...data.mesh, attributes: {POSITION: {value: Float32Array.from(positions), size: 3}, NORMAL: {value: Float32Array.from(normals), size: 3}, TEXCOORD_0: {value: Float32Array.from(textureCoordinates), size: 2}},
+        return {...data.mesh, attributes: {POSITION: {value: packedPositions, size: 3}, NORMAL: {value: Float32Array.from(normals), size: 3}, TEXCOORD_0: {value: Float32Array.from(textureCoordinates), size: 2}},
             indices: {value: Uint32Array.from(indices), size: 1}, header: {vertexCount: positions.length / 3, boundingBox},
             schema: {fields: ['POSITION', 'NORMAL', 'TEXCOORD_0'].map(name => ({name, nullable: false, metadata: {}, type: {type: 'fixed-size-list', listSize: name === 'TEXCOORD_0' ? 2 : 3, children: [{name: 'value', type: 'float32'}]}})), metadata: {...data.mesh.schema.metadata, boundingBox: JSON.stringify(boundingBox)}}};
     }

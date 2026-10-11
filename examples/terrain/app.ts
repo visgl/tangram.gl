@@ -162,7 +162,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     if (updateAnchor()) schedule();
     deck.setProps({layers, viewState: camera});
     const statistics = tileset.getStatistics();
-    status.textContent = `${deviceType === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · ${triangles} triangles · data z${detailZoom}${detailLimited ? ' (source/footprint limit)' : ''} · ${statistics.active} active / ${statistics.queued} queued · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(1)} MB cached${follow.checked ? ` · terrain anchor ${anchorAvailable ? `${camera.position?.[2].toFixed(1)} m` : 'waiting — height held'}` : ''}${statistics.failed ? ` · ${statistics.failed} failed — retry available` : ''}`;
+    status.textContent = `${deviceType === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · ${triangles} triangles · data z${detailZoom}${detailLimited ? ' (source/footprint limit)' : ''} · ${statistics.active} active / ${statistics.queued} queued · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(1)} MB cached${follow.checked ? ` · terrain anchor ${anchorAvailable ? `${camera.position?.[2].toFixed(1)} m` : 'waiting — height held'}` : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure?.slice(0, 200)} — retry available` : ''}`;
   }
   tileset = new TerrainTileset({
     fetch: (tile, signal) => source.fetchTile(tile, signal), minZoom: source.minZoom, maxZoom: source.maxZoom,

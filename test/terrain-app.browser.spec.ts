@@ -51,6 +51,17 @@ test('importing the runtime does not start a browser example', () => {
     expect(mocks.construct).not.toHaveBeenCalled();
 });
 
+test('hard cache failures explain rejected admission and invalid host limits allocate nothing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    expect(() => mountTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxResidentBytes: -1})).toThrow('byte budget');
+    expect(host.children).toHaveLength(0); expect(mocks.construct).not.toHaveBeenCalled();
+    const instance = mountTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxResidentBytes: 1, maxVisibleTiles: 1}); instances.push(instance);
+    await instance.ready;
+    expect(host.querySelector('[data-example="status"]')?.textContent).toContain('retained-array budget exceeded');
+    expect(host.querySelector('[data-example="status"]')?.textContent).toContain('retry available');
+});
+
 test('terrain following updates one controlled target, holds missing elevations and restores free navigation', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
     const {host, instance} = mount(); await instance.ready;

@@ -136,10 +136,11 @@ export class TerrainTileset {
     }
 
     /** Detached queue, error and byte counts for user-visible resource diagnostics. */
-    getStatistics(): {active: number; queued: number; resident: number; bytes: number; byteLimit: number; failed: number} {
+    getStatistics(): {active: number; queued: number; resident: number; bytes: number; byteLimit: number; failed: number; failure?: string} {
         const counts = this.queue.getCounts();
         return {active: counts.activeBuilds, queued: counts.queuedBuilds, resident: this.records.size,
-            bytes: [...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record), 0), byteLimit: this.options.maxResidentBytes ?? 128 * 1024 * 1024, failed: [...this.records.values()].filter(record => record.error).length};
+            bytes: [...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record), 0), byteLimit: this.options.maxResidentBytes ?? 128 * 1024 * 1024, failed: [...this.records.values()].filter(record => record.error).length,
+            failure: [...this.records.values()].find(record => record.error)?.error};
     }
 
     /** Cancel actual work before releasing queue/cache metadata; safe to repeat. */

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {sampleTerrainAnchor} from '../examples/terrain/ground-following';
@@ -52,7 +52,13 @@ test('ground following samples rendered top triangles in physical meters, never 
   const hit = mesh.surface.intersectRay({origin: [0.8, 1.2, 1000], direction: [0, 0, -1]});
   expect(sampleTerrainAnchor([mesh], coordinate, 250)).toBeCloseTo(hit!.position[2] + 250, 4);
   expect(sampleTerrainAnchor([], coordinate, 250)).toBeNull();
+  const query = vi.spyOn(mesh.surface, 'intersectRay');
   expect(sampleTerrainAnchor([mesh], [180, 0], 250)).toBeNull();
+  expect(query).not.toHaveBeenCalled();
+  const negative = buildTerrainRenderMesh(createTerrainStreamFixture([0, 0, 2, 2], [-100, -100, -100, -100]), [], 0).loaded;
+  expect(sampleTerrainAnchor([negative], coordinate, 250)).toBeCloseTo(150);
+  const highest = buildTerrainRenderMesh(createTerrainStreamFixture([0, 0, 2, 2], [1000, 1000, 1000, 1000]), [], 0).loaded;
+  expect(sampleTerrainAnchor([negative, mesh, highest], coordinate, 250)).toBeCloseTo(1250);
   const missing = createTerrainStreamFixture(); missing.grid.valid.fill(0); missing.grid.heights.fill(NaN);
   expect(sampleTerrainAnchor([buildTerrainRenderMesh(missing).loaded], coordinate, 250)).toBeNull();
   expect(() => sampleTerrainAnchor([mesh], coordinate, -1)).toThrow();
