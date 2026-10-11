@@ -30,7 +30,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     validateTerrainImageSource(source);
     if (source.minZoom > 0 || source.maxZoom < 2) throw new Error('Global terrain preview requires source zooms 0–2');
     const parameters = new URLSearchParams(options.parameters);
-    const requested = Number(parameters.get('exaggeration') ?? 100);
+    const rawExaggeration = parameters.get('exaggeration');
+    const requested = rawExaggeration?.trim() ? Number(rawExaggeration) : 100;
     const maximum = Number.isFinite(requested) && requested >= 0 && requested <= 200 ? Math.round(requested) : 100;
     let currentMaximum = maximum;
     const root = document.createElement('div');

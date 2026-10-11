@@ -79,8 +79,10 @@ neighbors reconcile shared edges and antimeridian copies. Source bounds must sta
 inside the EPSG:3857 world and share a datum.
 
 `getGlobeTerrainExaggeration(globeScreenRatio, maximum = 100)` supplies the display
-policy: the maximum while the globe fits, a smooth logarithmic fade, and 1× when
-the apparent diameter reaches four shorter viewport dimensions. It accepts maxima
-in `[1, 1000]`. This helper has no deck.gl, camera or GPU dependency.
+policy: maxima above 1 apply while the globe fits, with a smooth logarithmic fade
+to 1× when the apparent diameter reaches four shorter viewport dimensions. It
+accepts maxima in `[0, 1000]`; zero keeps displacement flat at every zoom, and
+subphysical values remain fixed rather than fading upward. Physical source heights
+are unchanged. This helper has no deck.gl, camera or GPU dependency.
 
 See [GlobeTerrainLayer](../globe-terrain-layer.md) for the optional deck.gl adapter.

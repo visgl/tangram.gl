@@ -96,7 +96,7 @@ test('cached tiles wait for asynchronous GPU initialization and ignore replaced 
     expect(fetch).toHaveBeenCalledTimes(20);
 });
 
-test.each([['0', '0'], ['200', '200'], ['25.5', '26'], ['-1', '100'], ['201', '100']])('URL exaggeration %s initializes a matching slider and readout', async (requested, expected) => {
+test.each([['0', '0'], ['200', '200'], ['25.5', '26'], ['-1', '100'], ['201', '100'], ['', '100'], ['%20%20', '100']])('URL exaggeration %s initializes a matching slider and readout', async (requested, expected) => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
     const host = document.createElement('div'); hosts.push(host);
     const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams(`exaggeration=${requested}`)}); instances.push(instance);
