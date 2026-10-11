@@ -4,10 +4,13 @@
 
 import {expect, test, vi} from 'vitest';
 
-const mocks = vi.hoisted(() => ({finalize: vi.fn(), destroyCard: vi.fn(), setProps: vi.fn(),
+const mocks = vi.hoisted(() => ({construct: vi.fn(), finalize: vi.fn(), destroyCard: vi.fn(), setProps: vi.fn(),
     parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}}}))}));
 vi.mock('@deck.gl/core', () => ({
-    Deck: class {finalize = mocks.finalize; setProps = mocks.setProps;},
+    Deck: class {
+        constructor(properties: unknown) {mocks.construct(properties);}
+        finalize = mocks.finalize; setProps = mocks.setProps;
+    },
     MapView: class {}, LightingEffect: class {}, AmbientLight: class {}, DirectionalLight: class {}
 }));
 vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
@@ -23,6 +26,10 @@ test('early settings, selected-device styling and bfcache restoration retain a l
         <input id="wireframe" type="checkbox"><div id="terrain-map"></div><aside id="controls"></aside>
         <button data-device-type="webgl"></button><button data-device-type="webgpu"></button>`;
     document.body.append(content);
+    const previousUrl = location.href;
+    const url = new URL(previousUrl);
+    url.searchParams.set('device', 'webgl');
+    history.replaceState(null, '', url);
     let completeDownload: (response: Response) => void = () => {throw new Error('Download not initialized');};
     const download = new Promise<Response>(resolve => {completeDownload = resolve;});
     const fetchMock = vi.fn(() => download);
@@ -38,6 +45,7 @@ test('early settings, selected-device styling and bfcache restoration retain a l
         expect(content.querySelector('#status')!.textContent).toBe('Loading Mapterhorn elevation…');
         completeDownload(new Response(new Uint8Array([1, 2, 3])));
         await initialization;
+        expect(mocks.construct).toHaveBeenCalledWith(expect.objectContaining({deviceProps: {type: 'webgl'}}));
         expect(mocks.parse).toHaveBeenCalledWith(expect.any(ArrayBuffer), [0, 0, 1, 1], 5);
         expect(content.querySelectorAll('.is-active')).toHaveLength(1);
         expect(content.querySelector('.is-active')?.getAttribute('aria-selected')).toBe('true');
@@ -53,6 +61,6 @@ test('early settings, selected-device styling and bfcache restoration retain a l
         expect(mocks.finalize).toHaveBeenCalledOnce();
     } finally {
         window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted: false}));
-        vi.unstubAllGlobals(); content.remove();
+        vi.unstubAllGlobals(); history.replaceState(null, '', previousUrl); content.remove();
     }
 });

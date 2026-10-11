@@ -28,7 +28,7 @@ let disposed = false;
 const deck = new Deck({parent: container, width: '100%', height: '100%', useDevicePixels: true,
     views: new MapView({id: 'terrain', controller: {dragRotate: true, touchRotate: true}}),
     initialViewState: {longitude: (bounds[0] + bounds[2]) / 2, latitude: (bounds[1] + bounds[3]) / 2, position: [0, 0, 2500], zoom: 11.7, pitch: 60, bearing: -25},
-    deviceProps: {type: deviceType === 'webgpu' ? 'webgpu' : 'webgl', adapters: deviceType === 'webgpu' ? [webgpuAdapter] : undefined},
+    deviceProps: deviceType === 'webgpu' ? {type: 'webgpu', adapters: [webgpuAdapter]} : {type: 'webgl'},
     effects: [new LightingEffect({ambient: new AmbientLight({intensity: 1}), sun: new DirectionalLight({direction: [-1, -2, -3], intensity: 2})})],
     onError: exception => {status.textContent = `Rendering error: ${exception.message}`;},
     onClick: information => {
