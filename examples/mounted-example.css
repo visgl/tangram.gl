@@ -10,6 +10,7 @@
 .mounted-example:fullscreen {width: 100vw; height: 100dvh;}
 .mounted-example [data-example="map"] {position: absolute; inset: 0;}
 .mounted-example [data-example="controls"] {box-sizing: border-box; max-width: min(342px, calc(100% - 32px)); max-height: calc(100% - 80px); overflow: auto;}
+.mounted-example [data-example="controls"].info-card-collapsed {width: fit-content;}
 .mounted-example [data-example="terrain-hit"] {display: block; font-size: 0.85rem; margin-top: 1rem;}
 .mounted-example [data-example="coordinates"] {display: block; margin-top: 12px; font-variant-numeric: tabular-nums;}
 .mounted-example .projected-fit {width: 100%; margin: 12px 0; padding: 8px; cursor: pointer;}
