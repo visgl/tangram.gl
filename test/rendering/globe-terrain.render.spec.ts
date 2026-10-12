@@ -4,7 +4,7 @@
 
 import {afterEach, expect, test} from 'vitest';
 import {Deck, _GlobeView as GlobeView} from '@deck.gl/core';
-import {GlobeTerrainLayer} from '@vis.gl/tangram-layers/experimental/terrain';
+import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation} from '@vis.gl/tangram-layers/experimental/terrain';
 import {GlobeTerrainPreparation, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 import {RenderingHarness, readCanvasPixels, DEVICE_TYPE} from './harness';
 
@@ -60,6 +60,20 @@ test(`${DEVICE_TYPE}: spherical terrain grows at 100×, remains interactive and 
     await expect.poll(() => linear.state.exaggeration).toBe(1);
     expect(linear.pickTerrain(deck.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
     expect(linear.getStatistics().queryIndexBytes).toBe(0);
+    // Prepared display handles must draw/query the same generation without camera-driven rescaling.
+    const preparation = new GlobeTerrainPreparation(); preparation.request([grid], 64); while (preparation.isPending()) preparation.advance(1000);
+    const display = new GlobeTerrainDisplayPreparation(); display.request(preparation.getSnapshot()!, 100);
+    expect(display.getSnapshot()).toBeUndefined();
+    while (display.isPending()) {display.advance(1); await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));}
+    const prepared = new GlobeTerrainLayer({id: 'terrain', data: [grid], meshResolution: 64, preparedDisplay: display.getSnapshot()});
+    deck.setProps({layers: [prepared], viewState: {longitude: 0, latitude: 0, zoom: 1}});
+    await expect.poll(() => prepared.state.exaggeration).toBe(100);
+    await expect.poll(async () => countTerrainPixels(await readCanvasPixels(harness!.canvas))).toBeGreaterThan(physicalPixels * 1.1);
+    expect(prepared.pickTerrain(deck.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
+    const preparedSurface = prepared.state.surfaces[0]; deck.setProps({viewState: {longitude: 20, latitude: 10, zoom: 2}});
+    await expect.poll(() => deck!.getViewports()[0].zoom).toBe(2);
+    expect(prepared.state.surfaces[0]).toBe(preparedSurface); expect(prepared.state.exaggeration).toBe(100);
+    display.destroy(); preparation.destroy();
 });
 
 test(`${DEVICE_TYPE}: stitched 2:1 spherical terrain has no background gap at the shared edge`, async () => {

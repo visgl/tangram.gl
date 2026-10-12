@@ -80,6 +80,58 @@ scaling and physical-query setup. Without this prop, preparation remains
 synchronous. The experimental globe example advances preparation in idle
 animation-frame slices and atomically publishes completed generations.
 
+### `preparedDisplay` (optional)
+
+A completed `GlobeTerrainDisplaySnapshot` from the opt-in
+`GlobeTerrainDisplayPreparation` export. It contains a complete matching draw/query
+generation, not partially scaled buffers. Use `snapshot.terrain.grids` as `data`
+and `snapshot.terrain.resolution` as `meshResolution`. If supplied, `preparedTerrain`
+must be that same `snapshot.terrain`. Both budget props must match the controller.
+Forged display handles reject, including empty handles.
+
+In this mode, the snapshot's **effective** `exaggeration` controls display geometry.
+The layer does not automatically rescale it on camera changes: the host requests
+the desired effective multiplier from the controller. `globeTerrainExaggeration`
+remains the host's maximum control, not an additional multiplier on cached geometry.
+Rotation, wireframe changes and device replacement reuse the admitted CPU buffers
+and query surface. The ordinary synchronous path remains unchanged without this prop.
+
+```ts
+import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation}
+  from '@vis.gl/tangram-layers/experimental/terrain';
+
+const display = new GlobeTerrainDisplayPreparation(); // owns no animation loop
+display.request(terrainSnapshot, effectiveExaggeration);
+display.advance(4); // repeat in later frames until complete; retarget when needed
+const snapshot = display.getSnapshot(); // previous complete generation while pending
+if (snapshot) {
+  const layer = new GlobeTerrainLayer({
+    data: snapshot.terrain.grids,
+    meshResolution: snapshot.terrain.resolution,
+    preparedDisplay: snapshot
+  });
+}
+```
+
+`request(terrainSnapshot, effectiveExaggeration)` is latest-request-wins; unchanged
+requests, including failures, do not restart. `advance(budgetMs = 4, now?)` runs at
+least one chunk and returns true only when a whole generation commits. Rescaling
+yields every 128 vertices without re-reading DEM samples or changing topology.
+Query-snapshot construction remains an indivisible per-tile step. Rendering and
+picking switch together; cancellation or admission/scaling failure retains the
+previous complete generation. `retry()` retries explicitly, `isPending()` reports
+work, and idempotent `destroy()` releases owned references.
+
+Constructor options are `maxDisplayBytes` (128 MiB) and `maxQueryIndexBytes` (64 MiB).
+Whole-generation preflight precedes replacement display allocations, counting reused
+tile handles once. `getStatistics()` reports complete retained geometry and allocated
+acceleration arrays, the preflight `requiredPeakBytes`, pending/new/reused tiles,
+commits/cancellations, slice times and errors. In-progress scaling arrays and query-copy
+scratch are excluded from **retained completed** storage, not from CPU elapsed time.
+These are cooperative targets and owned-array budgets, not hard frame-time,
+whole-process or GPU-memory guarantees. External handles remain caller-owned after
+the controller is destroyed; do not retain old snapshots indefinitely.
+
 ## `pickTerrain(viewport, [x, y])`
 
 Call on the current initialized layer and the viewport that rendered it. Pixels

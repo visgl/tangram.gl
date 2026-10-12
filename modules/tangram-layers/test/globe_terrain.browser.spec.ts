@@ -4,7 +4,7 @@
 
 import {expect, test, vi} from 'vitest';
 import {_GlobeViewport as GlobeViewport, WebMercatorViewport, LayerExtension, type UpdateParameters} from '@deck.gl/core';
-import {GlobeTerrainLayer, getGlobeScreenRatio} from '../src/experimental/terrain';
+import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation, getGlobeScreenRatio} from '../src/experimental/terrain';
 import {GlobeTerrainPreparation, getPreparedGlobeTerrainTemplate, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 
 /** Marker extension exercising the deliberately unsupported vertex-extension boundary. */
@@ -159,6 +159,35 @@ test('completed cooperative snapshots render and pick identically without synchr
     const forged = new GlobeTerrainLayer({data: [source], preparedTerrain: {grids: [source], resolution: 8, byteLength: 0}, meshResolution: 8});
     expect(() => forged.updateState(prepare(forged))).toThrow('completed snapshot');
     preparation.destroy();
+});
+
+test('complete cooperative displays adopt identical meshes/queries and never rescale implicitly with the camera', () => {
+    const source = grid(), preparation = new GlobeTerrainPreparation(); preparation.request([source], 8);
+    while (preparation.isPending()) preparation.advance(1000);
+    const terrain = preparation.getSnapshot()!, display = new GlobeTerrainDisplayPreparation(); display.request(terrain, 100);
+    while (display.isPending()) display.advance(1000);
+    const snapshot = display.getSnapshot()!;
+    const synchronous = new GlobeTerrainLayer({data: [source], meshResolution: 8}); synchronous.updateState(prepare(synchronous));
+    const layer = new GlobeTerrainLayer({data: terrain.grids, meshResolution: 8, preparedTerrain: terrain, preparedDisplay: snapshot}); layer.updateState(prepare(layer));
+    expect(layer.renderLayers()[0].props.mesh).toEqual(synchronous.renderLayers()[0].props.mesh);
+    expect(layer.pickTerrain(layer.context.viewport, [266, 180])).toEqual(synchronous.pickTerrain(synchronous.context.viewport, [266, 180]));
+    const surface = layer.state.surfaces[0], mesh = layer.renderLayers()[0].props.mesh;
+    layer.updateState(prepare(layer, 4, false)); expect(layer.state.exaggeration).toBe(100); expect(layer.state.surfaces[0]).toBe(surface);
+    const wireframe = new GlobeTerrainLayer({data: terrain.grids, meshResolution: 8, preparedDisplay: snapshot, wireframe: true}); wireframe.state = layer.state; wireframe.updateState(prepare(wireframe));
+    expect(wireframe.renderLayers()[0].props.mesh).toBe(mesh); expect(wireframe.state.surfaces[0]).toBe(surface);
+    for (const invalid of [new GlobeTerrainLayer({data: [grid()], meshResolution: 8, preparedDisplay: snapshot}), new GlobeTerrainLayer({data: [source], meshResolution: 4, preparedDisplay: snapshot}), new GlobeTerrainLayer({data: [source], meshResolution: 8, preparedDisplay: snapshot, preparedTerrain: {...terrain}})]) expect(() => invalid.updateState(prepare(invalid))).toThrow('must match');
+    for (const field of ['maxDisplayBytes', 'maxQueryIndexBytes']) {const invalid = new GlobeTerrainLayer({data: [source], meshResolution: 8, preparedDisplay: snapshot, [field]: 0}); expect(() => invalid.updateState(prepare(invalid))).toThrow('budgets');}
+    const forged = new GlobeTerrainLayer({data: [source], meshResolution: 8, preparedDisplay: {...snapshot}}); expect(() => forged.updateState(prepare(forged))).toThrow('library snapshot');
+});
+
+test('prepared-display adoption enforces layer retention even if an external controller did not own its old mesh', () => {
+    const source = grid(), layer = new GlobeTerrainLayer({data: [source], meshResolution: 4}); layer.updateState(prepare(layer));
+    const bytes = layer.getStatistics().displayBytes, surface = layer.state.surfaces[0];
+    const replacement = grid(2000), preparation = new GlobeTerrainPreparation(); preparation.request([replacement], 4); while (preparation.isPending()) preparation.advance(1000);
+    const display = new GlobeTerrainDisplayPreparation({maxDisplayBytes: bytes}); display.request(preparation.getSnapshot()!, 100); while (display.isPending()) display.advance(1000);
+    const next = new GlobeTerrainLayer({data: [replacement], meshResolution: 4, preparedDisplay: display.getSnapshot(), maxDisplayBytes: bytes}); next.state = layer.state; next.updateState(prepare(next));
+    expect(next.getStatistics().error).toContain('previous terrain retained'); expect(next.state.surfaces[0]).toBe(surface);
+    expect(next.pickTerrain(next.context.viewport, [266, 180])?.coordinate[2]).toBeCloseTo(1000);
 });
 
 test('display preflight rejects replacements atomically while zero query budget preserves exact picking', () => {

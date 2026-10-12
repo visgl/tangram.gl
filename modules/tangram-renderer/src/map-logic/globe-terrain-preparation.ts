@@ -25,8 +25,14 @@ interface PreparedTile {
 /** Snapshot internals cannot be forged or modified through an exported handle. */
 const snapshots = new WeakMap<GlobeTerrainPreparationSnapshot, readonly PreparedTile[]>();
 
+/** Validate library ownership, including empty snapshots whose templates cannot be looked up. */
+export function assertGlobeTerrainPreparationSnapshot(snapshot: GlobeTerrainPreparationSnapshot): void {
+    if (!snapshots.has(snapshot)) throw new Error('Prepared globe terrain requires a completed snapshot');
+}
+
 /** Resolve only a source identity belonging to a completed preparation generation. */
 export function getPreparedGlobeTerrainTemplate(snapshot: GlobeTerrainPreparationSnapshot, grid: TerrainHeightGrid): GlobeTerrainMeshTemplate {
+    assertGlobeTerrainPreparationSnapshot(snapshot);
     const tile = snapshots.get(snapshot)?.find(candidate => candidate.grid === grid);
     if (!tile) throw new Error('Prepared globe terrain requires a completed snapshot and matching source identity');
     return tile.template;

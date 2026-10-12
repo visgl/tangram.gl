@@ -6,12 +6,11 @@ import {CompositeLayer, COORDINATE_SYSTEM, type LayerProps, type UpdateParameter
 import {SimpleMeshLayer} from '@deck.gl/mesh-layers';
 import {Matrix4} from '@math.gl/core';
 import {TerrainMeshSurface, type TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
-import {prepareGlobeTerrainMesh, getPreparedGlobeTerrainTemplate, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration, type GlobeTerrainMesh, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {prepareGlobeTerrainMesh, getPreparedGlobeTerrainTemplate, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {getTerrainRenderMesh, resolveGlobeTerrainDisplay, type GlobeTerrainDisplaySnapshot} from './terrain-display';
 
-/** Stable mesh object lets deck.gl retain unchanged attribute buffers. */
-function getTerrainRenderMesh(mesh: GlobeTerrainMesh) {
-    return {attributes: {POSITION: {size: 3, value: mesh.geographicPositions}, COLOR_0: {size: 3, value: mesh.colors}}, indices: {size: 1, value: mesh.indices}};
-}
+export {GlobeTerrainDisplayPreparation} from './terrain-display';
+export type {GlobeTerrainDisplaySnapshot, GlobeTerrainDisplayStatistics} from './terrain-display';
 
 /** One current immutable neighborhood and its most recent displayed/query geometry. */
 interface PreparedGlobeTerrainTile {
@@ -55,6 +54,8 @@ export type GlobeTerrainLayerProps = LayerProps & {
     meshResolution?: number;
     /** Optional cooperatively prepared complete generation, matching data identities/order and meshResolution. */
     preparedTerrain?: GlobeTerrainPreparationSnapshot;
+    /** Optional complete draw/query generation; its effective multiplier overrides automatic camera rescaling. */
+    preparedDisplay?: GlobeTerrainDisplaySnapshot;
     /** Current plus replacement display/query geometry typed-array cap; defaults to 128 MiB. */
     maxDisplayBytes?: number;
     /** Total current lazy query hierarchy typed-array cap; defaults to 64 MiB. */
@@ -110,7 +111,22 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
         if (new Set(this.props.data.map(grid => grid.bounds.join(','))).size !== this.props.data.length) throw new Error('Globe terrain grids must have distinct footprints');
         const snapshot = this.props.preparedTerrain;
         if (snapshot && (snapshot.resolution !== this.props.meshResolution || snapshot.grids.length !== this.props.data.length || snapshot.grids.some((grid, index) => grid !== this.props.data[index]))) throw new Error('Prepared globe terrain must match data and meshResolution');
-        const exaggeration = getGlobeTerrainExaggeration(getGlobeScreenRatio(this.context.viewport), this.props.globeTerrainExaggeration);
+        const requestedExaggeration = getGlobeTerrainExaggeration(getGlobeScreenRatio(this.context.viewport), this.props.globeTerrainExaggeration);
+        const display = this.props.preparedDisplay;
+        if (display) {
+            const tiles = resolveGlobeTerrainDisplay(display), terrain = display.terrain;
+            if (terrain.resolution !== this.props.meshResolution || terrain.grids.length !== this.props.data.length || terrain.grids.some((grid, index) => grid !== this.props.data[index]) || snapshot && snapshot !== terrain) throw new Error('Prepared globe display must match data, terrain and meshResolution');
+            if (display.maxDisplayBytes !== maxDisplayBytes || display.maxQueryIndexBytes !== maxQueryIndexBytes) throw new Error('Prepared globe display budgets must match the layer');
+            if (!changeFlags.propsOrDataChanged && this.state.exaggeration === display.exaggeration) return;
+            const existingSurfaces = new Set(this.state.surfaces ?? []);
+            const newBytes = tiles.reduce((sum, tile) => sum + (existingSurfaces.has(tile.surface) ? 0 : this.getDisplayBytes(tile.template)), 0);
+            if (newBytes > 0 && this.getStatistics().displayBytes + newBytes > maxDisplayBytes) {this.setState({memoryError: 'Globe terrain display-byte limit exceeded; previous terrain retained', updateMs: performance.now() - started}); return;}
+            const circumference = 2 * Math.PI * 6378137;
+            const prepared = tiles.map(tile => ({...tile, neighbors: this.props.data.filter(candidate => candidate !== tile.grid && [-circumference, 0, circumference].some(shift => candidate.bounds[0] + shift <= tile.grid.bounds[2] && candidate.bounds[2] + shift >= tile.grid.bounds[0] && candidate.bounds[1] <= tile.grid.bounds[3] && candidate.bounds[3] >= tile.grid.bounds[1]))}));
+            this.publishTiles(prepared, display.exaggeration, started);
+            return;
+        }
+        const exaggeration = requestedExaggeration;
         if (!changeFlags.propsOrDataChanged && this.state.exaggeration === exaggeration) return;
         const circumference = 2 * Math.PI * 6378137;
         const previous = new Map(this.state.prepared?.map(tile => [tile.grid, tile]));
@@ -142,7 +158,12 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
             return {grid, neighbors, template, exaggeration, queryLimit, mesh: getTerrainRenderMesh(mesh),
                 surface: new TerrainMeshSurface({projection: 'globe', positions: mesh.positions, indices: mesh.indices, physicalHeights: mesh.physicalHeights, cullBackfaces: true, maxQueryIndexBytes: queryLimit})};
         });
-        this.setState({exaggeration, memoryError: undefined, updateMs: performance.now() - started,
+        this.publishTiles(prepared, exaggeration, started);
+    }
+
+    /** Publish one complete draw/query generation and measure layer assembly as well as geometry work. */
+    private publishTiles(prepared: PreparedGlobeTerrainTile[], exaggeration: number, started: number): void {
+        this.setState({exaggeration, memoryError: undefined,
             prepared, resolution: this.props.meshResolution,
             surfaces: prepared.map(tile => tile.surface),
             layers: prepared.map(tile => new SimpleMeshLayer(this.getSubLayerProps({id: `mesh-${tile.grid.bounds.join(',')}`}), {
@@ -150,7 +171,7 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
                 coordinateSystem: COORDINATE_SYSTEM.LNGLAT, _instanced: false, getPosition: [0, 0, 0], getColor: [255, 255, 255],
                 // Colors already contain spherical relief lighting; do not transform them as planar ENU normals.
                 material: false, wireframe: this.props.wireframe, pickable: false, parameters: {...this.props.parameters, cullMode: 'back'}
-            }))});
+            })), updateMs: performance.now() - started});
     }
 
     /** Draw curved physical terrain, independently of the basemap's styling/tile lifecycle. */

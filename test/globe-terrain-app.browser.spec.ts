@@ -21,7 +21,7 @@ vi.mock('@deck.gl/core', async original => {
         getViewports = () => [new module._GlobeViewport({width: 512, height: 320, longitude: 80, latitude: 25, zoom: mocks.viewportZoom})];
     }};
 });
-vi.mock('@vis.gl/tangram-layers/experimental/terrain', () => ({getGlobeScreenRatio: () => 1, GlobeTerrainLayer: class {
+vi.mock('@vis.gl/tangram-layers/experimental/terrain', async original => ({...await original<typeof import('@vis.gl/tangram-layers/experimental/terrain')>(), getGlobeScreenRatio: () => 1, GlobeTerrainLayer: class {
     constructor(props: unknown) {mocks.layers(props);}
     pickTerrain = mocks.pick;
     getStatistics = () => ({tileCount: 16, exaggeration: 100, displayBytes: 4096, queryIndexBytes: 0, updateMs: 1, queryMs: 2});
@@ -36,7 +36,7 @@ vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
 }}));
 /** Small topology tests host lifecycle, not exhaustive tessellation; high-resolution geometry is covered in the owning module/GPU tests. */
 function mountTestGlobeTerrainExample(host: HTMLElement, options: Parameters<typeof mountGlobeTerrainExample>[1]): ReturnType<typeof mountGlobeTerrainExample> {
-    return mountGlobeTerrainExample(host, {preparationBudgetMs: 1000, meshResolution: 4, ...options});
+    return mountGlobeTerrainExample(host, {preparationBudgetMs: 1000, displayBudgetMs: 1000, meshResolution: 4, ...options});
 }
 
 const hosts: HTMLElement[] = [], instances: ReturnType<typeof mountGlobeTerrainExample>[] = [];
@@ -127,6 +127,7 @@ test('invalid hosts reject before allocation; failed tile requests report retry 
     const host = document.createElement('div'); hosts.push(host);
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: 'https://example.invalid/worker.js'})).toThrow('same-origin');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, preparationBudgetMs: 0})).toThrow('slice target');
+    expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, displayBudgetMs: 0})).toThrow('Display slice target');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxPreparedBytes: -1})).toThrow('byte limit');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxDisplayBytes: -1})).toThrow('byte limits');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxQueryIndexBytes: 0.5})).toThrow('byte limits');
@@ -176,6 +177,50 @@ test('template admission failure reports explicit retry without restarting tile 
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(host.querySelector('[data-example="preparation-status"]')?.textContent).toContain('retained-byte limit');
     expect(fetch).toHaveBeenCalledTimes(20);
+});
+
+test('display work yields, keeps the old admitted generation through slider replacement, and teardown prevents publication', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, displayBudgetMs: 0.00001}); instances.push(instance);
+    await instance.ready;
+    await expect.poll(() => mocks.layers.mock.lastCall?.[0]).toMatchObject({data: expect.arrayContaining([expect.any(Object)]), preparedDisplay: expect.any(Object)});
+    const previous = mocks.layers.mock.lastCall?.[0];
+    if (!previous || typeof previous !== 'object' || !('preparedDisplay' in previous)) throw new Error('Missing display snapshot');
+    const slider = host.querySelector<HTMLInputElement>('[data-example="exaggeration"]')!; slider.value = '50'; slider.dispatchEvent(new Event('input'));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(mocks.layers.mock.lastCall?.[0]).toMatchObject({preparedDisplay: previous.preparedDisplay, globeTerrainExaggeration: 50});
+    expect(host.querySelector('[data-example="display-status"]')?.textContent).toContain('display preparation');
+    slider.value = '0'; slider.dispatchEvent(new Event('input'));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    instance.destroy(); const count = mocks.layers.mock.calls.length;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); expect(mocks.layers).toHaveBeenCalledTimes(count);
+});
+
+test('display admission errors stop repeated preparation and preserve source cache for explicit retry', async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxDisplayBytes: 0}); instances.push(instance);
+    await instance.ready;
+    await expect.poll(() => host.querySelector('[data-example="display-status"]')?.textContent).toContain('display-byte limit');
+    const status = host.querySelector('[data-example="display-status"]')?.textContent;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); expect(host.querySelector('[data-example="display-status"]')?.textContent).toBe(status);
+    expect(mocks.layers.mock.lastCall?.[0]).toMatchObject({data: []});
+    host.querySelector<HTMLButtonElement>('[data-example="retry"]')!.click();
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve())); expect(host.querySelector('[data-example="display-status"]')?.textContent).toContain('display-byte limit');
+    expect(fetch).toHaveBeenCalledTimes(20);
+});
+
+test('stable render diagnostics do not mutate the DOM on every deck frame', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`}); instances.push(instance);
+    await instance.ready; await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const properties = mocks.construct.mock.calls[0][0];
+    if (!properties || typeof properties !== 'object' || !('onAfterRender' in properties) || typeof properties.onAfterRender !== 'function') throw new Error('Missing rendering callback');
+    const target = host.querySelector('[data-example="display-status"]')!;
+    const observer = new MutationObserver(() => {}); observer.observe(target, {subtree: true, childList: true, characterData: true});
+    properties.onAfterRender(); properties.onAfterRender(); expect(observer.takeRecords()).toEqual([]); observer.disconnect();
 });
 
 test('cached tiles wait for asynchronous GPU initialization and ignore replaced device callbacks', async () => {
