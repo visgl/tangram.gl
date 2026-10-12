@@ -315,6 +315,12 @@ test('either stereo half routes to its own terrain ray, while named views use lo
     expect(pickTerrainAt(current, {x: 50, y: 50}, terrain(), {}, 'right')).toEqual(right);
     expect(pickTerrainAt(current, {x: 200, y: 50}, terrain(), {coordinateSpace: 'canvas'})).toBeNull();
     expect(pickTerrainAt(current, {x: 100, y: 50}, terrain(), {renderViewId: 'left'})).toBeNull();
+    const collection = new TerrainSurfaceCollection('web-mercator', [
+        {id: 'west-tile', surface: new TerrainMeshSurface({projection: 'web-mercator', positions: [-2, -2, 2, 0, -2, 2, -1, 2, 2], indices: [0, 1, 2]})},
+        {id: 'east-tile', surface: new TerrainMeshSurface({projection: 'web-mercator', positions: [0, -2, 2, 2, -2, 2, 1, 2, 2], indices: [0, 1, 2]})}
+    ]);
+    expect(pickTerrainAt(current, {x: 50, y: 50}, collection, {coordinateSpace: 'canvas'})).toMatchObject({surfaceId: 'west-tile', renderViewId: 'left', position: [-1, 0, 2]});
+    expect(pickTerrainAt(current, {x: 150, y: 50}, collection, {coordinateSpace: 'canvas'})).toMatchObject({surfaceId: 'east-tile', renderViewId: 'right', position: [1, 0, 2]});
 });
 
 test('terrain routing rejects invalid query policies and never intersects outside near/far', () => {
