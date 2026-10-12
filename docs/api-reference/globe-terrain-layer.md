@@ -122,11 +122,22 @@ picking switch together; cancellation or admission/scaling failure retains the
 previous complete generation. `retry()` retries explicitly, `isPending()` reports
 work, and idempotent `destroy()` releases owned references.
 
+Picking hierarchies are warmed cooperatively before publication when their
+current-plus-staged storage fits `maxQueryIndexBytes`. Bounds scans and in-place
+median partitioning yield between chunks; partial indexes are never traversed.
+Cancellation releases their arrays. The budget reserves even cold current indexes,
+since an input event can allocate them between host slices. If peak space is
+insufficient, warming is deferred without rejecting geometry: the admitted tile
+retains its ordinary lazy policy. A tile exceeding its per-tile quota instead uses
+exact linear queries. Warming is not a guarantee that every first pick is allocation-free.
+
 Constructor options are `maxDisplayBytes` (128 MiB) and `maxQueryIndexBytes` (64 MiB).
 Whole-generation preflight precedes replacement display allocations, counting reused
 tile handles once. `getStatistics()` reports complete retained geometry and allocated
 acceleration arrays, the preflight `requiredPeakBytes`, pending/new/reused tiles,
-commits/cancellations, slice times and errors. In-progress scaling arrays and query-copy
+commits/cancellations, `warmedIndexes`/`deferredIndexes`, slice times and errors.
+Allocated in-progress hierarchy arrays are included in acceleration accounting.
+In-progress scaling arrays and query-copy
 scratch are excluded from **retained completed** storage, not from CPU elapsed time.
 These are cooperative targets and owned-array budgets, not hard frame-time,
 whole-process or GPU-memory guarantees. External handles remain caller-owned after
@@ -142,6 +153,9 @@ remain radius-256 common-space geometry values. No-data holes return no hit.
 Backface culling is shared by drawing and querying, so missing front-side samples
 do not reveal or select the far hemisphere.
 Closed tile bounds prune unrelated rays before allocating each lazy triangle index.
+Prepared indexes visit nearer child bounds first and skip farther leaves after
+accepting a closer hit. Equal-distance hits still use the original triangle order,
+and rejected backfaces do not hide farther accepted triangles.
 Camera rotation at a fixed display scale reuses meshes and query surfaces. Zoom
 or exaggeration changes rescale prepared physical samples and relief slopes without
 resampling source grids or rebuilding stitched topology. Once exaggerated mode

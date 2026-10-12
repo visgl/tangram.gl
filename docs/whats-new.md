@@ -8,10 +8,16 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- Terrain picking indexes can be warmed in cancellable cooperative chunks. The
+  globe display stage warms them before publication when current-plus-staged
+  acceleration fits, reports deferred warming, and keeps exact lazy/linear fallback.
+  Near-first traversal prunes farther leaves while preserving physical height,
+  accepted-face and equal-distance query results.
+
 - Opt-in globe terrain display preparation cooperatively rescales vertices and
   builds matching query snapshots. The example publishes complete generations,
   cancels obsolete multiplier work and reuses CPU buffers through device changes;
-  per-tile copies and lazy picking acceleration remain indivisible.
+  per-tile geometry copies remain indivisible.
 
 - Globe terrain adds atomic display-memory admission and bounded lazy picking
   acceleration. Query geometry is retained once; a zero hierarchy budget keeps

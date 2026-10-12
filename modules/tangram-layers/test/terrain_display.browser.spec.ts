@@ -104,3 +104,38 @@ test('query-policy changes rebuild only when acceleration no longer fits; errors
     display.request(preparation.getSnapshot()!, 50); let clock = 0; display.advance(1, () => clock++);
     expect(display.isPending()).toBe(true); display.destroy(); expect(display.getStatistics()).toMatchObject({retainedBytes: 0, queryIndexBytes: 0, pending: 0});
 });
+
+test('display warms picking before publication and cancellation releases partial query indexes', () => {
+    const source = terrain([grid()], 16), display = new GlobeTerrainDisplayPreparation(); display.request(source, 1);
+    let clock = 0;
+    while (display.isPending() && display.getStatistics().queryIndexBytes === 0) display.advance(1, () => clock++);
+    expect(display.isPending()).toBe(true); expect(display.getSnapshot()).toBeUndefined();
+    expect(display.getStatistics().queryIndexBytes).toBeGreaterThan(0);
+    display.request(source, 50); expect(display.getStatistics().queryIndexBytes).toBe(0); finish(display);
+    const tile = resolveGlobeTerrainDisplay(display.getSnapshot()!)[0], before = tile.surface.getStatistics();
+    expect(display.getStatistics()).toMatchObject({warmedIndexes: 1, deferredIndexes: 0, cancelled: 1});
+    expect(before.queryIndexBytes).toBe(before.requiredQueryIndexBytes);
+    expect(tile.surface.intersectRay({origin: [0, -400, 0], direction: [0, 1, 0]})?.coordinate[2]).toBeCloseTo(1000);
+    expect(tile.surface.getStatistics()).toEqual(before);
+    display.request(source, 100);
+    while (display.isPending() && display.getStatistics().prepared === 0) display.advance(1, () => clock++);
+    display.destroy(); expect(display.getStatistics().queryIndexBytes).toBe(0);
+});
+
+test('warming respects current-plus-staged acceleration budget without rejecting replacement geometry', () => {
+    const source = terrain([grid()]), probe = new GlobeTerrainDisplayPreparation(); probe.request(source, 1); finish(probe);
+    const required = resolveGlobeTerrainDisplay(probe.getSnapshot()!)[0].surface.getStatistics().requiredQueryIndexBytes;
+    const display = new GlobeTerrainDisplayPreparation({maxQueryIndexBytes: required}); display.request(source, 1); finish(display);
+    expect(display.getStatistics()).toMatchObject({queryIndexBytes: required, warmedIndexes: 1});
+    const previous = display.getSnapshot(); display.request(source, 100);
+    let clock = 0;
+    while (display.isPending()) {display.advance(1, () => clock++); expect(display.getStatistics().queryIndexBytes).toBeLessThanOrEqual(required);}
+    expect(display.getSnapshot()).not.toBe(previous); expect(display.getStatistics()).toMatchObject({deferredIndexes: 1, warmedIndexes: 0, queryIndexBytes: 0});
+    const tile = resolveGlobeTerrainDisplay(display.getSnapshot()!)[0];
+    // A cold displayed index can allocate between slices, so reserve it even before its first pick.
+    display.request(source, 50);
+    while (display.isPending() && display.getStatistics().prepared === 0) display.advance(1, () => clock++);
+    expect(tile.surface.intersectRay({origin: [0, -400, 0], direction: [0, 1, 0]})?.coordinate[2]).toBeCloseTo(1000);
+    expect(display.getStatistics().queryIndexBytes).toBe(required);
+    finish(display); expect(display.getStatistics()).toMatchObject({deferredIndexes: 1, warmedIndexes: 0, queryIndexBytes: 0});
+});

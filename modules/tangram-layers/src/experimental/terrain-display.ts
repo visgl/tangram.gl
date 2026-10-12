@@ -47,6 +47,10 @@ export interface GlobeTerrainDisplayStatistics {
     requiredPeakBytes: number;
     /** Allocated current/staged acceleration arrays, counting shared surfaces once. */
     queryIndexBytes: number;
+    /** New tile indexes warmed before publication; insufficient peak space defers lazy acceleration. */
+    warmedIndexes: number;
+    /** New tile indexes left lazy because current-plus-staged acceleration would exceed the cap. */
+    deferredIndexes: number;
     /** New tiles in the current request. */
     prepared: number;
     /** Reused display/query tiles in the current request. */
@@ -100,7 +104,7 @@ export class GlobeTerrainDisplayPreparation {
         this.maxDisplayBytes = options.maxDisplayBytes ?? 128 * 1024 * 1024;
         this.maxQueryIndexBytes = options.maxQueryIndexBytes ?? 64 * 1024 * 1024;
         for (const limit of [this.maxDisplayBytes, this.maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
-        this.statistics = {pending: 0, byteLimit: this.maxDisplayBytes, requiredPeakBytes: 0, prepared: 0, reused: 0, committed: 0, cancelled: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0};
+        this.statistics = {pending: 0, byteLimit: this.maxDisplayBytes, requiredPeakBytes: 0, warmedIndexes: 0, deferredIndexes: 0, prepared: 0, reused: 0, committed: 0, cancelled: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0};
     }
 
     /** Latest complete source generation and multiplier win; unchanged or failed requests do not restart. */
@@ -110,7 +114,7 @@ export class GlobeTerrainDisplayPreparation {
         if (this.target?.terrain === terrain && this.target.exaggeration === exaggeration) return false;
         if (this.iterator) this.statistics.cancelled++;
         this.iterator?.return(); this.staged = []; this.target = {terrain, exaggeration};
-        Object.assign(this.statistics, {pending: terrain.grids.length, requiredPeakBytes: 0, prepared: 0, reused: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0, error: undefined});
+        Object.assign(this.statistics, {pending: terrain.grids.length, requiredPeakBytes: 0, warmedIndexes: 0, deferredIndexes: 0, prepared: 0, reused: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0, error: undefined});
         this.iterator = this.prepare(terrain, exaggeration);
         return true;
     }
@@ -181,6 +185,18 @@ export class GlobeTerrainDisplayPreparation {
                 const surface = new TerrainMeshSurface({projection: 'globe', positions: scaled.positions, indices: scaled.indices, physicalHeights: scaled.physicalHeights, cullBackfaces: true, maxQueryIndexBytes: queryLimit});
                 this.staged.push({grid: candidate.grid, template: candidate.template, exaggeration, mesh: getTerrainRenderMesh(scaled), surface, queryLimit});
                 scaled = undefined; this.statistics.prepared++;
+                const required = surface.getStatistics().requiredQueryIndexBytes;
+                if (required > 0 && required <= queryLimit) {
+                    // Reserve even cold current indexes: an input event may build them between host slices.
+                    const currentTiles = new Set(this.current ? resolveGlobeTerrainDisplay(this.current) : []);
+                    const reserved = this.getOwnedTiles().reduce((sum, tile) => {
+                        const statistics = tile.surface.getStatistics();
+                        return sum + (currentTiles.has(tile) && statistics.requiredQueryIndexBytes <= tile.queryLimit ? statistics.requiredQueryIndexBytes : statistics.queryIndexBytes);
+                    }, 0);
+                    if (reserved + required <= this.maxQueryIndexBytes) {
+                        yield* surface.prepareQueryIndexSteps(); this.statistics.warmedIndexes++;
+                    } else this.statistics.deferredIndexes++;
+                }
             }
             this.statistics.pending--; yield;
         }

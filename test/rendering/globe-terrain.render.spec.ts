@@ -69,7 +69,10 @@ test(`${DEVICE_TYPE}: spherical terrain grows at 100×, remains interactive and 
     deck.setProps({layers: [prepared], viewState: {longitude: 0, latitude: 0, zoom: 1}});
     await expect.poll(() => prepared.state.exaggeration).toBe(100);
     await expect.poll(async () => countTerrainPixels(await readCanvasPixels(harness!.canvas))).toBeGreaterThan(physicalPixels * 1.1);
+    const warmBytes = prepared.getStatistics().queryIndexBytes;
+    expect(warmBytes).toBeGreaterThan(0); expect(display.getStatistics().warmedIndexes).toBe(1);
     expect(prepared.pickTerrain(deck.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
+    expect(prepared.getStatistics().queryIndexBytes).toBe(warmBytes);
     const preparedSurface = prepared.state.surfaces[0]; deck.setProps({viewState: {longitude: 20, latitude: 10, zoom: 2}});
     await expect.poll(() => deck!.getViewports()[0].zoom).toBe(2);
     expect(prepared.state.surfaces[0]).toBe(preparedSurface); expect(prepared.state.exaggeration).toBe(100);

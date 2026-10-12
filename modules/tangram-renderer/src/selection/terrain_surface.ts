@@ -101,6 +101,9 @@ export class TerrainMeshSurface implements TerrainSurface {
         return {geometryBytes: this.queryIndex.geometryBytes + (this.physicalHeights?.byteLength ?? 0), queryIndexBytes: this.queryIndex.hierarchyBytes, requiredQueryIndexBytes: this.queryIndex.requiredHierarchyBytes};
     }
 
+    /** Cooperatively warm picking acceleration; queries during preparation remain exact linear queries. */
+    *prepareQueryIndexSteps(): Generator<void, void, void> {yield* this.queryIndex.prepareHierarchySteps();}
+
     /** Two-sided indexed math.gl queries; distance is normalized to the surface's coordinate units. */
     intersectRay(ray: TerrainRay, maxDistance = Infinity): TerrainSurfaceHit | null {
         if (maxDistance < 0 || Number.isNaN(maxDistance)) throw new Error('Terrain ray distance must be non-negative');
