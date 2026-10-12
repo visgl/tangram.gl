@@ -33,6 +33,9 @@ Copyright (c) vis.gl contributors
   balanced 2:1 spherical edges and shares relief lighting and physical picking.
   High/Balanced/Fast detail controls expose a bounded footprint policy; source
   arrays, requests and leaf counts are limited separately. This is not basemap draping.
+  Terrain mounts reuse bounded same-origin decoder workers, and the globe requests
+  physical height grids without constructing unused Mercator topology. Diagnostics
+  expose retained grid/mesh memory and decode/round-trip elapsed time.
 - The opt-in `experimental/projected-basemaps` layer adds worker-side math.gl
   Equal Earth, regional Albers, equirectangular, ellipsoidal Mercator and Web
   Mercator projection for ground polygons, raster meshes, meter/pixel roads

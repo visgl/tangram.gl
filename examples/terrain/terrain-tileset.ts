@@ -3,12 +3,12 @@
 // Copyright (c) vis.gl contributors
 
 import {TileBuildQueue, TileCachePolicy, TileResidency} from '@vis.gl/tangram-renderer/map-logic';
-import type {TerrainTileData} from './decode-terrain';
+import type {TerrainTileData, TerrainPayload} from './terrain-payload';
 import {getTerrainParent, getTerrainTileKey, type TerrainTileCoordinate} from './tile-selection';
 import {getTerrainChildren, terrainTileContains, terrainTilesTouch} from './globe-detail';
 
 /** One cached source tile; presentation changes never discard its image bytes. */
-export interface TerrainTileRecord {
+export interface TerrainTileRecord<Data extends TerrainPayload = TerrainTileData> {
     /** Source-normalized identity. */
     readonly key: string;
     /** Canonical XYZ address. */
@@ -16,7 +16,7 @@ export interface TerrainTileRecord {
     /** Warm downloaded bytes, retained across topology changes. */
     bytes?: ArrayBuffer;
     /** Last completed adaptive topology and physical grid. */
-    data?: TerrainTileData;
+    data?: Data;
     /** Topology setting that produced data. */
     meshMaxError?: number;
     /** Current request failure; retry is explicit, not an infinite network loop. */
@@ -24,11 +24,11 @@ export interface TerrainTileRecord {
 }
 
 /** Example-local loading adapter; policy is supplied by reusable renderer utilities. */
-export interface TerrainTilesetOptions {
+export interface TerrainTilesetOptions<Data extends TerrainPayload = TerrainTileData> {
     /** Fetch owned bytes with cancellation. */
     fetch(tile: TerrainTileCoordinate, signal: AbortSignal): Promise<ArrayBuffer>;
     /** Decode a cached copy in an owned worker. */
-    decode(bytes: ArrayBuffer, tile: TerrainTileCoordinate, error: number, signal: AbortSignal): Promise<TerrainTileData>;
+    decode(bytes: ArrayBuffer, tile: TerrainTileCoordinate, error: number, signal: AbortSignal): Promise<Data>;
     /** Notify the host after data, visibility, scheduling or error state changes. */
     onChange(): void;
     /** Simultaneous fetch+decode jobs, at most four. */
@@ -47,9 +47,9 @@ export interface TerrainTilesetOptions {
 }
 
 /** Bounded scheduling, warm acquisition, parent refinement and explicit resource ownership. */
-export class TerrainTileset {
+export class TerrainTileset<Data extends TerrainPayload = TerrainTileData> {
     /** Retained immutable payloads keyed by source identity. */
-    readonly records = new Map<string, TerrainTileRecord>();
+    readonly records = new Map<string, TerrainTileRecord<Data>>();
     /** Shared scheduling policy, without a parallel scheduler implementation. */
     private readonly queue = new TileBuildQueue();
     /** Shared protection and eviction policies, separate from payload ownership. */
@@ -71,7 +71,7 @@ export class TerrainTileset {
     private readonly waiters: (() => void)[] = [];
 
     /** Construct validated resource limits; no network or worker starts at import time. */
-    constructor(private readonly options: TerrainTilesetOptions) {
+    constructor(private readonly options: TerrainTilesetOptions<Data>) {
         const limit = options.maxRequests ?? 2;
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 4 || (options.maxCachedTiles !== undefined && (!Number.isSafeInteger(options.maxCachedTiles) || options.maxCachedTiles < 0)) ||
             (options.maxCachedBytes !== undefined && (!Number.isSafeInteger(options.maxCachedBytes) || options.maxCachedBytes < 0)) ||
@@ -150,11 +150,11 @@ export class TerrainTileset {
     }
 
     /** Non-overlapping parent fallback; never overlay a coarse tile with its ready siblings. */
-    getDrawableTiles(): TerrainTileRecord[] {
+    getDrawableTiles(): TerrainTileRecord<Data>[] {
         if (this.options.hierarchical) return this.getDrawableHierarchy();
         const groups = new Map<string, TerrainTileCoordinate[]>();
         for (const tile of this.selected) {const parent = this.getParent(tile); const key = parent ? getTerrainTileKey(parent) : getTerrainTileKey(tile); const group = groups.get(key) ?? []; group.push(tile); groups.set(key, group);}
-        const drawable: TerrainTileRecord[] = [];
+        const drawable: TerrainTileRecord<Data>[] = [];
         for (const [parentKey, children] of groups) {
             const ready = children.flatMap(tile => {const record = this.records.get(getTerrainTileKey(tile)); return record?.data ? [record] : [];});
             const parent = this.records.get(parentKey);
@@ -165,7 +165,7 @@ export class TerrainTileset {
     }
 
     /** Complete sibling substitution and rollback keep loaded fallback edges at most 2:1. */
-    private getDrawableHierarchy(): TerrainTileRecord[] {
+    private getDrawableHierarchy(): TerrainTileRecord<Data>[] {
         const selected = new Set(this.selected.map(getTerrainTileKey)), roots = new Map<string, TerrainTileCoordinate>();
         for (const tile of this.selected) {
             let root = tile, parent = this.getParent(root);
@@ -173,7 +173,7 @@ export class TerrainTileset {
             roots.set(getTerrainTileKey(root), root);
         }
         /** A branch either has full child coverage or retains its loaded ancestor. */
-        const visit = (tile: TerrainTileCoordinate): TerrainTileRecord[] | null => {
+        const visit = (tile: TerrainTileCoordinate): TerrainTileRecord<Data>[] | null => {
             const key = getTerrainTileKey(tile), record = this.records.get(key);
             if (selected.has(key)) return record?.data ? [record] : null;
             const children = getTerrainChildren(tile).map(visit);
@@ -200,10 +200,13 @@ export class TerrainTileset {
     }
 
     /** Detached queue, error and byte counts for user-visible resource diagnostics. */
-    getStatistics(): {active: number; queued: number; resident: number; bytes: number; byteLimit: number; failed: number; failure?: string} {
+    getStatistics(): {active: number; queued: number; resident: number; bytes: number; sourceBytes: number; gridBytes: number; meshBytes: number; byteLimit: number; failed: number; failure?: string} {
         const counts = this.queue.getCounts();
+        const memory = [...this.records.values()].map(record => this.getRecordMemory(record));
         return {active: counts.activeBuilds, queued: counts.queuedBuilds, resident: this.records.size,
-            bytes: [...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record), 0), byteLimit: this.options.maxResidentBytes ?? 128 * 1024 * 1024, failed: [...this.records.values()].filter(record => record.error).length,
+            bytes: memory.reduce((sum, record) => sum + record.bytes, 0), sourceBytes: memory.reduce((sum, record) => sum + record.sourceBytes, 0),
+            gridBytes: memory.reduce((sum, record) => sum + record.gridBytes, 0), meshBytes: memory.reduce((sum, record) => sum + record.meshBytes, 0),
+            byteLimit: this.options.maxResidentBytes ?? 128 * 1024 * 1024, failed: [...this.records.values()].filter(record => record.error).length,
             failure: [...this.records.values()].find(record => record.error)?.error};
     }
 
@@ -217,7 +220,7 @@ export class TerrainTileset {
     }
 
     /** Acquire once, decode a warm copy, then publish only the currently owned generation. */
-    private async load(record: TerrainTileRecord, token: string, meshMaxError: number): Promise<void> {
+    private async load(record: TerrainTileRecord<Data>, token: string, meshMaxError: number): Promise<void> {
         const controller = new AbortController();
         this.active.set(record.key, {token, controller, meshMaxError});
         try {
@@ -268,26 +271,33 @@ export class TerrainTileset {
     }
 
     /** Count unique typed-array buffers as well as retained compressed bytes. */
-    private getRecordBytes(record: TerrainTileRecord): number {
+    private getRecordBytes(record: TerrainTileRecord<Data>): number {
+        return this.getRecordMemory(record).bytes;
+    }
+
+    /** Unique backing storage belongs to the first source/grid/mesh category referencing it; sums match admission. */
+    private getRecordMemory(record: TerrainTileRecord<Data>): {bytes: number; sourceBytes: number; gridBytes: number; meshBytes: number} {
         const buffers = new Set<ArrayBufferLike>();
-        if (record.bytes) buffers.add(record.bytes);
+        const add = (buffer: ArrayBufferLike): number => {if (buffers.has(buffer)) return 0; buffers.add(buffer); return buffer.byteLength;};
+        const sourceBytes = record.bytes ? add(record.bytes) : 0;
+        let gridBytes = 0, meshBytes = 0;
         if (record.data) {
-            buffers.add(record.data.grid.heights.buffer); buffers.add(record.data.grid.valid.buffer);
-            for (const attribute of Object.values(record.data.mesh.attributes)) buffers.add(attribute.value.buffer);
-            if (record.data.mesh.indices) buffers.add(record.data.mesh.indices.value.buffer);
+            gridBytes += add(record.data.grid.heights.buffer) + add(record.data.grid.valid.buffer);
+            for (const attribute of Object.values(record.data.mesh?.attributes ?? {})) meshBytes += add(attribute.value.buffer);
+            if (record.data.mesh?.indices) meshBytes += add(record.data.mesh.indices.value.buffer);
         }
-        return [...buffers].reduce((sum, buffer) => sum + buffer.byteLength, 0);
+        return {bytes: sourceBytes + gridBytes + meshBytes, sourceBytes, gridBytes, meshBytes};
     }
 
     /** Admit atomically: evict cold arrays first, never exceed the cap or discard a warm fallback. */
-    private admit(candidate: TerrainTileRecord): void {
+    private admit(candidate: TerrainTileRecord<Data>): void {
         const records = [...this.records.values()].map(record => {
             const retained = record.key === candidate.key ? candidate : record;
             return {key: record.key, bytes: this.getRecordBytes(retained), protected: record.key === candidate.key || this.residency.isProtected(record.key) || this.queue.has(record.key)};
         });
         let protectedBytes = records.filter(record => record.protected).reduce((sum, record) => sum + record.bytes, 0);
         const limit = this.options.maxResidentBytes ?? 128 * 1024 * 1024;
-        const yielded: TerrainTileRecord[] = [];
+        const yielded: TerrainTileRecord<Data>[] = [];
         // A lower-priority warm download must not prevent the first complete coarse tile.
         // Plan all releases before mutating ownership; completed fallback geometry is never sacrificed.
         for (const record of [...this.records.values()].sort((first, second) => (this.priorities.get(second.key) ?? Infinity) - (this.priorities.get(first.key) ?? Infinity))) {

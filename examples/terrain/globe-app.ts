@@ -10,7 +10,9 @@ import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainTileset} from './terrain-tileset';
 import {getTerrainTileBounds, getTerrainTileKey} from './tile-selection';
 import {selectGlobeTerrainDetail, type GlobeTerrainDetail} from './globe-detail';
-import {decodeTerrainInWorker} from './worker-client';
+import {TerrainDecoderPool} from './decoder-pool';
+import {formatTerrainDecoderStatus} from './decoder-status';
+import type {TerrainGridData} from './terrain-payload';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';
 import type {TerrainExample} from './app';
 
@@ -40,7 +42,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const root = document.createElement('div');
     root.className = 'mounted-example terrain-example';
     root.innerHTML = `<div data-example="map"></div><aside data-example="controls">
-      <h1>Globe terrain</h1><p data-example="status" role="status">Loading global elevation…</p>
+      <h1>Globe terrain</h1><p data-example="status" role="status">Loading global elevation…</p><p data-example="decoder-status" class="hint"></p>
       <label class="control"><span>Maximum globe exaggeration</span><input data-example="exaggeration" type="range" min="0" max="200" step="1"><output data-example="exaggeration-value"></output></label>
       <label class="control"><span>Terrain detail</span><select data-example="detail"><option value="128">High</option><option value="256">Balanced</option><option value="512">Fast</option></select></label>
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
@@ -79,7 +81,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     let displayedMaximum: number | undefined, displayedWireframe: boolean | undefined;
     let deckReady = false, deckGeneration = 0;
     let renderingError: string | undefined;
-    let tileset: TerrainTileset | undefined;
+    let tileset: TerrainTileset<TerrainGridData> | undefined;
+    const decoder = new TerrainDecoderPool(workerUrl.href);
     let grids: TerrainHeightGrid[] = [];
     let detail: GlobeTerrainDetail | undefined, selectionSignature = '', detailCameraSignature = '';
     const abort = new AbortController();
@@ -131,12 +134,13 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         }
         deck.setProps({layers: [layer]});
         const statistics = tileset.getStatistics();
+        element('decoder-status').textContent = formatTerrainDecoderStatus(decoder.getStatistics(), statistics);
         const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
         const highest = Math.max(0, ...drawable.map(tile => tile.coordinate.zoom));
         status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · z${highest} detail · ${effective.toFixed(1)}× displayed · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(0)} MB cached${statistics.active || statistics.queued ? ` · ${statistics.active} active / ${statistics.queued} queued` : ''}${detail.limited ? ' · detail budget/source limit' : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
     }
-    tileset = new TerrainTileset({minZoom: 1, maxZoom: source.maxZoom, hierarchical: true, maxResidentBytes: 256 * 1024 * 1024, maxCachedTiles: 48, maxCachedBytes: 64 * 1024 * 1024, fetch: (tile, signal) => source.fetchTile(tile, signal),
-        decode: (bytes, tile, error, signal) => decodeTerrainInWorker(workerUrl.href, bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), error, signal, source.noData), onChange: schedule});
+    tileset = new TerrainTileset<TerrainGridData>({minZoom: 1, maxZoom: source.maxZoom, hierarchical: true, maxResidentBytes: 256 * 1024 * 1024, maxCachedTiles: 48, maxCachedBytes: 64 * 1024 * 1024, fetch: (tile, signal) => source.fetchTile(tile, signal),
+        decode: (bytes, tile, _error, signal) => decoder.decodeGrid(bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), signal, source.noData), onChange: schedule});
     const observer = new ResizeObserver(() => {if (!disposed) {deck.setProps({width: container.clientWidth, height: container.clientHeight}); schedule();}});
     observer.observe(container);
     exaggeration.addEventListener('input', () => {
@@ -167,6 +171,6 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     selectionSignature = coordinates.map(getTerrainTileKey).join(',');
     tileset.update(coordinates, 10000);
     return {ready: tileset.waitForIdle().then(() => {updateLayers();}), destroy() {
-        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); destroyCard(); deck.finalize(); root.remove();
+        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); destroyCard(); deck.finalize(); layer = undefined; grids = []; detail = undefined; root.remove();
     }};
 }

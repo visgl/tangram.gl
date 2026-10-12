@@ -22,7 +22,9 @@ include navigation, projected tile footprint, mesh error, wireframe, seam skirts
 and collapsible information.
 
 Elevation stays at physical scale. Changing mesh error reuses downloaded bytes.
-Each fetch/decode job owns its worker; cancellation terminates it. Shared Tangram
+Each mount owns at most two lazy decoder workers. Successful requests reuse them;
+cancellation, failure and timeout terminate the affected worker. Request IDs
+isolate responses; the shared tile queue is the only scheduler. Shared Tangram
 queue, residency and cache policies bound work and retain warm source bytes.
 Neighbor heights/normals agree at full-resolution edges; visual skirts cover
 incomplete and mixed-detail boundaries without entering elevation queries.
@@ -60,4 +62,7 @@ High/Balanced/Fast detail settings use sampled screen footprints and hysteresis,
 not a certified geometric-error guarantee. Limits are 96 selected leaves,
 two fetch/decode jobs and 256 MiB of retained compressed/decoded arrays.
 Transient worker, query and GPU memory are not included in that byte limit.
+Globe jobs return physical grids only, without unused adaptive Mercator meshes.
+The decoder panel separates retained grid/mesh bytes and reports worker creations,
+warm transports and decode/round-trip elapsed time; these are not frame-rate metrics.
 No polar-cap data, temporal height morphing, basemap draping or immersive terrain.

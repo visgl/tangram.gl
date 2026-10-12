@@ -4,7 +4,8 @@
 
 import type {Mesh} from '@loaders.gl/schema';
 import {TerrainMeshSurface, projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
-import {decodeTerrainTile, type TerrainTileData, type TerrainNoDataPolicy} from './decode-terrain';
+import {decodeTerrainTile} from './decode-terrain';
+import type {TerrainTileData, TerrainNoDataPolicy} from './terrain-payload';
 
 /** Drawn top triangles and their physical query geometry; queries never contain skirts. */
 export interface LoadedTerrain extends TerrainTileData {

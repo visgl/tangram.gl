@@ -7,7 +7,7 @@ import {mountGlobeTerrainExample} from '../examples/terrain/globe-app';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 
-const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, selectDetail: vi.fn(), construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]}))}));
+const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, decoderDestroy: vi.fn(), selectDetail: vi.fn(), construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]}))}));
 vi.mock('../examples/terrain/globe-detail', async original => {
     const module = await original<typeof import('../examples/terrain/globe-detail')>();
     return {...module, selectGlobeTerrainDetail: (...parameters: Parameters<typeof module.selectGlobeTerrainDetail>) => {mocks.selectDetail(...parameters); return module.selectGlobeTerrainDetail(...parameters);}};
@@ -24,7 +24,11 @@ vi.mock('@vis.gl/tangram-layers/experimental/terrain', () => ({getGlobeScreenRat
     constructor(props: unknown) {mocks.layers(props);}
     pickTerrain = mocks.pick;
 }}));
-vi.mock('../examples/terrain/worker-client', () => ({decodeTerrainInWorker: vi.fn(async () => createTerrainStreamFixture())}));
+vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
+    decodeGrid = vi.fn(async () => ({grid: createTerrainStreamFixture().grid}));
+    destroy = mocks.decoderDestroy;
+    getStatistics = () => ({created: 2, active: 0, idle: 2, completed: 20, failed: 0, cancelled: 0});
+}}));
 const hosts: HTMLElement[] = [], instances: ReturnType<typeof mountGlobeTerrainExample>[] = [];
 afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); hosts.splice(0).forEach(host => host.remove()); vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.autoLoad = true; mocks.viewportZoom = 1;});
 
@@ -63,6 +67,7 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     expect(mocks.layers).toHaveBeenLastCalledWith(expect.objectContaining({globeTerrainExaggeration: 100, data: expect.any(Array)}));
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('16 tiles');
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('100.0×');
+    expect(host.querySelector('[data-example="decoder-status"]')?.textContent).toContain('0.0 MB source meshes');
     expect(host.querySelector('[data-example="attribution"]')?.textContent).toContain('Mapterhorn');
     const maximum = host.querySelector<HTMLInputElement>('[data-example="exaggeration"]')!;
     expect(maximum.type).toBe('range'); expect(maximum.min).toBe('0'); expect(maximum.max).toBe('200'); expect(maximum.step).toBe('1');
@@ -99,6 +104,7 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     expect(mocks.layers.mock.calls.length).toBe(buildsBeforeCamera + 1);
     instance.destroy(); instance.destroy(); maximum.dispatchEvent(new Event('input'));
     expect(mocks.finalize).toHaveBeenCalledTimes(2); expect(host.children).toHaveLength(0);
+    expect(mocks.decoderDestroy).toHaveBeenCalledOnce();
 });
 
 test('invalid hosts reject before allocation; failed tile requests report retry and remain bounded', async () => {

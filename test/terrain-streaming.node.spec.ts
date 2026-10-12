@@ -6,7 +6,7 @@ import {expect, test, vi} from 'vitest';
 import {TerrainTileset} from '../examples/terrain/terrain-tileset';
 import {selectTerrainTiles, getTerrainTileKey, getTerrainParent, type TerrainTileCoordinate} from '../examples/terrain/tile-selection';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
-import type {TerrainTileData} from '../examples/terrain/decode-terrain';
+import type {TerrainTileData, TerrainGridData} from '../examples/terrain/terrain-payload';
 
 /** Controlled completion without timers or public network. */
 function deferred<T>() {
@@ -16,6 +16,29 @@ function deferred<T>() {
 }
 const child = {zoom: 2, column: 2, row: 2};
 const sibling = {...child, column: 3};
+
+test('grid-only payload admission retains parent coverage without unused mesh bytes and stays warm', async () => {
+  const fetch = vi.fn(async () => new ArrayBuffer(8));
+  const decode = vi.fn(async () => ({grid: createTerrainStreamFixture().grid}));
+  const tileset = new TerrainTileset<TerrainGridData>({fetch, decode, minZoom: 1, maxResidentBytes: 84, onChange() {}});
+  tileset.update([child, sibling]); await tileset.waitForIdle();
+  expect(tileset.getStatistics()).toMatchObject({bytes: 84, sourceBytes: 24, gridBytes: 60, meshBytes: 0, failed: 0});
+  expect(tileset.getDrawableTiles()).toHaveLength(2);
+  tileset.update([child]); await tileset.waitForIdle();
+  expect(fetch).toHaveBeenCalledTimes(3); expect(decode).toHaveBeenCalledTimes(3);
+  tileset.destroy(); expect(tileset.getStatistics()).toMatchObject({bytes: 0, sourceBytes: 0, gridBytes: 0, meshBytes: 0});
+});
+
+test('memory categories count shared backing storage once and preserve existing admission totals', async () => {
+  const data = createTerrainStreamFixture();
+  data.mesh.attributes.SHARED_HEIGHT = {size: 1, value: data.grid.heights};
+  const tileset = new TerrainTileset({fetch: async () => new ArrayBuffer(8), decode: async () => data, minZoom: 2, onChange() {}});
+  tileset.update([child]); await tileset.waitForIdle();
+  const statistics = tileset.getStatistics();
+  expect(statistics.bytes).toBe(statistics.sourceBytes + statistics.gridBytes + statistics.meshBytes);
+  expect(statistics).toMatchObject({bytes: 132, sourceBytes: 8, gridBytes: 20, meshBytes: 104});
+  tileset.destroy();
+});
 
 test('coarse fallback waits for all selected siblings, stays non-overlapping and reuses warm bytes', async () => {
   const jobs = new Map<string, ReturnType<typeof deferred<TerrainTileData>>>();

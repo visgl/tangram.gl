@@ -8,6 +8,7 @@ export const terrainMarkup = `
       <aside data-example="controls">
         <h1>Mercator terrain</h1>
         <p data-example="status" role="status">Loading…</p>
+        <p data-example="decoder-status" class="hint"></p>
         <label class="control"><span>Mesh error (meters)</span>
           <select data-example="mesh-error"><option value="5">5 m</option><option value="20" selected>20 m</option><option value="50">50 m</option></select>
         </label>

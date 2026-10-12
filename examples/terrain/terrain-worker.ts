@@ -2,10 +2,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {decodeTerrainTile, type TerrainNoDataPolicy} from './decode-terrain';
+import {decodeTerrainGrid} from './decode-height-grid';
+import type {TerrainNoDataPolicy, TerrainPayload} from './terrain-payload';
 
 /** One dedicated worker processes one job; terminating it cancels image/mesh work. */
 interface TerrainDecodeRequest {
+    /** Correlation key for reusable clients; omitted by legacy one-shot callers. */
+    requestId?: number;
+    /** Grid-only avoids unused Mercator topology; omitted legacy mode means mesh. */
+    mode?: 'grid' | 'mesh';
     /** Transferred private copy of cached image bytes. */
     bytes: ArrayBuffer;
     /** Canonical geographic XYZ bounds. */
@@ -20,20 +25,26 @@ interface TerrainDecodeRequest {
 function isRequest(value: unknown): value is TerrainDecodeRequest {
     return Boolean(value && typeof value === 'object' && 'bytes' in value && value.bytes instanceof ArrayBuffer &&
         'bounds' in value && Array.isArray(value.bounds) && value.bounds.length === 4 && value.bounds.every(Number.isFinite) &&
-        'meshMaxError' in value && typeof value.meshMaxError === 'number' && 'noData' in value && (value.noData === 'opaque' || value.noData === 'alpha-zero'));
+        'meshMaxError' in value && typeof value.meshMaxError === 'number' && 'noData' in value && (value.noData === 'opaque' || value.noData === 'alpha-zero') &&
+        (!('requestId' in value) || typeof value.requestId === 'number' && Number.isSafeInteger(value.requestId) && value.requestId > 0) &&
+        (!('mode' in value) || value.mode === 'grid' || value.mode === 'mesh'));
 }
 
 addEventListener('message', async (event: MessageEvent<unknown>) => {
+    const requestId = event.data && typeof event.data === 'object' && 'requestId' in event.data ? event.data.requestId : undefined;
     try {
         if (!isRequest(event.data)) throw new Error('Malformed terrain decode request');
-        const data = await decodeTerrainTile(event.data.bytes, event.data.bounds, event.data.meshMaxError, event.data.noData);
+        const started = performance.now();
+        const data: TerrainPayload = event.data.mode === 'grid' ? await decodeTerrainGrid(event.data.bytes, event.data.bounds, event.data.noData) :
+            await (await import('./decode-terrain')).decodeTerrainTile(event.data.bytes, event.data.bounds, event.data.meshMaxError, event.data.noData);
+        const decodeMs = performance.now() - started;
         const buffers = new Set<ArrayBuffer>();
-        for (const attribute of Object.values(data.mesh.attributes)) if (attribute.value.buffer instanceof ArrayBuffer) buffers.add(attribute.value.buffer);
-        if (data.mesh.indices?.value.buffer instanceof ArrayBuffer) buffers.add(data.mesh.indices.value.buffer);
+        for (const attribute of Object.values(data.mesh?.attributes ?? {})) if (attribute.value.buffer instanceof ArrayBuffer) buffers.add(attribute.value.buffer);
+        if (data.mesh?.indices?.value.buffer instanceof ArrayBuffer) buffers.add(data.mesh.indices.value.buffer);
         if (data.grid.heights.buffer instanceof ArrayBuffer) buffers.add(data.grid.heights.buffer);
         if (data.grid.valid.buffer instanceof ArrayBuffer) buffers.add(data.grid.valid.buffer);
-        postMessage({type: 'result', data}, {transfer: [...buffers]});
+        postMessage({type: 'result', requestId, data, decodeMs}, {transfer: [...buffers]});
     } catch (error) {
-        postMessage({type: 'error', message: error instanceof Error ? error.message : String(error)});
+        postMessage({type: 'error', requestId, message: error instanceof Error ? error.message : String(error)});
     }
 });

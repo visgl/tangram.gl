@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {TerrainTileData} from '../examples/terrain/decode-terrain';
+import type {TerrainTileData} from '../examples/terrain/terrain-payload';
 
 /** Four adaptive corners and a small physical pixel-center height field. */
 export function createTerrainStreamFixture(bounds: [number, number, number, number] = [0, 0, 2, 2], heights = [10, 20, 30, 40]): TerrainTileData {

@@ -33,6 +33,10 @@ and rolls back fine groups when loading fallback would violate balanced 2:1 edge
 Fine edge nodes are also inserted into coarse spherical meshes; shared-edge relief
 lighting and physical queries use the same sample neighborhood.
 
+The globe requests **height grids only**. It does not decode a second bitmap or
+build/retain the adaptive Mercator mesh used by the planar reference. Both outputs
+share the same physical sampling, registration, validity and datum contract.
+
 Navigation changes deck's camera immediately, while new detail selection waits
 120 ms after the last navigation update. Loaded fallback continues drawing during
 motion; there is no lower-resolution interactive mesh. Mesh preparation snapshots
@@ -209,9 +213,26 @@ loaders.gl implementation, compare grid and mesh heights, and query its triangle
 GPU tests exercise the mesh on WebGL 2 and WebGPU. Required tests never access
 Mapterhorn or a CDN.
 
+Each mount owns a lazy pool of at most two same-origin module workers. Successful
+requests reuse warm workers; a cancelled, timed-out or failed request terminates
+its actual worker, with replacement created only when another job needs it.
+The pool has no secondary pending queue: `TileBuildQueue` remains the sole
+scheduler and excess concurrent submissions reject. Request IDs prevent stale
+or duplicated replies from settling later jobs. Device changes keep the pool;
+mount teardown releases idle workers and cancels active jobs.
+
+The decoder panel reports constructed/warm workers, completed jobs, retained
+grid/mesh bytes, and the last round-trip and worker decode elapsed times.
+Round-trip includes startup, transfer and scheduling; decode elapsed includes
+async image work. Neither is CPU-only execution time or frame time. Byte
+categories sum to the existing retained-array admission total; a backing buffer
+shared between categories counts only once per record. Worker heaps, browser
+image decoding, render/query meshes and GPU resources are not included.
+
 Decoding runs in a packaged same-origin module worker. Inside that owned worker,
 `core.worker: false` avoids nested/CDN workers. Tests compare worker and local
-outputs, cancellation, warm cache, parent fallback, shared edges and physical
+outputs, grid-only/full-mesh conformance, pooled reuse, correlated replies,
+cancellation, warm cache, parent fallback, shared edges and physical
 queries. Tests also cover 2:1 edge topology/heights/normals without skirts, mixed-detail
 no-data, resident admission and atomic replacement, opt-in following and missing
 surface behavior. Both GPU backends draw a coarse/fine boundary without skirts and
