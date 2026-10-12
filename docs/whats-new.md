@@ -8,6 +8,12 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- FirstPerson terrain adds standard deck navigation, bounded eye-centered streaming,
+  physical-height screen picking and a point-eye floor constraint. XY meter offsets
+  move both tile selection and elevation probes; missing terrain holds altitude.
+  Canvas-relative picking routes offset Map/FirstPerson viewports without rebuilding
+  unchanged geometry. Continuous collision, horizon coverage and draping are deferred.
+
 - Terrain query collections add nearest-tile identities, finite trimmed sightlines,
   geographic elevation brackets and Mercator point-clearance constraints. Globe
   terrain exposes admitted-geometry probes and a pinned-target visibility inspector;

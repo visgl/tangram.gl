@@ -4,7 +4,7 @@
 
 import {getVitestConfig} from '@vis.gl/dev-tools';
 import {startRenderingDiagnostics, renderingDiagnostics, dragRenderingCanvas, panRenderingCanvas,
-  pinchRenderingCanvas, saveRenderingArtifact} from './test/rendering/commands.ts';
+  pinchRenderingCanvas, walkRenderingCanvas, saveRenderingArtifact} from './test/rendering/commands.ts';
 
 const device = process.env.TANGRAM_TEST_DEVICE || 'webgl';
 if (!['webgl', 'webgpu'].includes(device)) {
@@ -48,7 +48,7 @@ export default getVitestConfig({
           viewport: {width: 900, height: 650},
           screenshotDirectory: `screenshots/rendering/${device}`,
           commands: {startRenderingDiagnostics, renderingDiagnostics, dragRenderingCanvas, panRenderingCanvas,
-            pinchRenderingCanvas, saveRenderingArtifact}
+            pinchRenderingCanvas, walkRenderingCanvas, saveRenderingArtifact}
         }
       }
     }

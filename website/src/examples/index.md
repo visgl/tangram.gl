@@ -56,6 +56,11 @@ page, so the examples sidebar stays visible while you move between demos.
     <strong>Globe terrain</strong>
     <span>Displaced global Mapterhorn elevation with zoom-aware 100× relief and physical-meter picking.</span>
   </a>
+  <a className="example-tile" href="/tangram.gl/examples/deck-first-person-terrain">
+    <span className="example-tile__eyebrow">FirstPersonView · experimental</span>
+    <strong>FirstPerson terrain</strong>
+    <span>Walk through loaded terrain with physical-height picking, bounded eye-centered streaming and a point-eye floor constraint.</span>
+  </a>
 </div>
 
 ## @vis.gl/tangram-layers (WebXR)

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Deck, MapView, WebMercatorViewport, LightingEffect, AmbientLight, DirectionalLight, type MapViewState} from '@deck.gl/core';
+import {Deck, MapView, FirstPersonView, WebMercatorViewport, LightingEffect, AmbientLight, DirectionalLight, type MapViewState} from '@deck.gl/core';
 import {TerrainLayer} from '@deck.gl/geo-layers';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
@@ -14,6 +14,7 @@ import {selectTerrainTiles, getTerrainTileKey, getTerrainTileBounds} from './til
 import {TerrainTileset} from './terrain-tileset';
 import {buildTerrainRenderMesh, terrainGridsTouch, type TerrainRenderMesh} from './terrain-mesh';
 import {sampleTerrainAnchor} from './ground-following';
+import {getTerrainEyeCoordinate, constrainTerrainEye} from './first-person';
 import {selectTerrainDetail} from './terrain-detail';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';
 
@@ -29,6 +30,8 @@ export interface TerrainExample {
 export function mountTerrainExample(host: HTMLElement, options: {
   /** Explicit same-origin worker asset, supplied by the website or standalone host. */
   workerUrl: string;
+  /** Select a MapView target or FirstPerson eye; either uses the same bounded source pipeline. */
+  view?: 'map' | 'first-person';
   /** Initial URL settings. */
   parameters?: URLSearchParams;
   /** Persist settings without navigating away. */
@@ -51,6 +54,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
   root.innerHTML = terrainMarkup;
   host.append(root);
   const parameters = new URLSearchParams(options.parameters);
+  const firstPerson = (options.view ?? parameters.get('view')) === 'first-person';
   const element = <T extends HTMLElement>(name: string): T => {
     const value = root.querySelector<T>(`[data-example="${name}"]`);
     if (!value) throw new Error(`Missing terrain control: ${name}`);
@@ -66,18 +70,30 @@ export function mountTerrainExample(host: HTMLElement, options: {
   const clearance = element<HTMLSelectElement>('clearance');
   const container = element<HTMLDivElement>('map');
   const attribution = element<HTMLParagraphElement>('attribution');
+  if (firstPerson) {
+    element('title').textContent = 'FirstPerson terrain';
+    element('follow-label').textContent = 'Keep eye above terrain';
+    element('clearance-label').textContent = 'Minimum eye clearance (meters)';
+    element('detail-label').textContent = 'Local source detail';
+    for (const option of detail.options) option.textContent = option.value === '256' ? 'z12 — finer' : option.value === '1024' ? 'z10 — coarser' : 'z11 — balanced';
+    follow.checked = true; clearance.value = '20';
+    element<HTMLButtonElement>('land-eye').hidden = false;
+    element('navigation-hint').textContent = 'Drag to look; Shift-drag to move sideways/up; arrow keys to walk; scroll to move forward. Focus the canvas for keyboard controls.';
+    element('limitations').textContent = 'A bounded local tile window follows the actual eye, including XY meter offsets. Source detail is fixed by the detail selector, not a certified horizon/error policy. Loaded top triangles clamp the point eye upward; missing data holds its previous height. This is not swept-volume collision: walls, tunnels, gravity and continuous movement collision are not implemented. No basemap draping.';
+  }
   attribution.replaceChildren(document.createTextNode('Elevation: '));
   source.credits.forEach((credit, index) => {
     if (index) attribution.append(document.createTextNode(' · '));
     const link = document.createElement('a'); link.textContent = credit.label; link.href = credit.url; link.rel = 'noopener noreferrer'; attribution.append(link);
   });
   const bounds = getTerrainTileBounds(11, 1068, 728);
-  let camera: MapViewState = {longitude: (bounds[0] + bounds[2]) / 2, latitude: (bounds[1] + bounds[3]) / 2, position: [0, 0, 2500], zoom: 11.7, pitch: 60, bearing: -25};
+  let camera: MapViewState & {position: [number, number, number]} = {longitude: (bounds[0] + bounds[2]) / 2, latitude: (bounds[1] + bounds[3]) / 2, position: [0, 0, firstPerson ? 3500 : 2500], zoom: 11.7, pitch: firstPerson ? 25 : 60, bearing: -25};
   let freeAnchorHeight = 2500;
   let anchorAvailable = false;
   let deviceType = parameters.get('device') === 'webgl' ? 'webgl' : parameters.get('device') === 'webgpu' || navigator.gpu ? 'webgpu' : 'webgl';
   const abort = new AbortController();
   let disposed = false;
+  let deckGeneration = 0;
   let animationFrame = 0;
   let signature = '';
   let revision = 0;
@@ -98,25 +114,45 @@ export function mountTerrainExample(host: HTMLElement, options: {
   function schedule(): void {
     if (!disposed && !animationFrame) animationFrame = requestAnimationFrame(() => {animationFrame = 0; updateSelection(); updateLayers();});
   }
-  /** Follow the MapView target, not an avatar; missing terrain retains the previous elevation. */
+  /** Follow a MapView target or clamp a FirstPerson point eye, never a swept avatar volume. */
   function updateAnchor(): boolean {
     if (!follow.checked) {anchorAvailable = false; return false;}
+    if (firstPerson) {
+      const result = constrainTerrainEye(camera, [...geometry.values()].map(tile => tile.mesh.loaded), Number(clearance.value), camera.position[2]);
+      anchorAvailable = result.available;
+      if (result.state.position[2] === camera.position[2]) return false;
+      camera = {...camera, position: result.state.position};
+      return true;
+    }
     const height = sampleTerrainAnchor([...geometry.values()].map(tile => tile.mesh.loaded), [camera.longitude, camera.latitude], Number(clearance.value));
     anchorAvailable = height !== null;
     if (height === null || Math.abs((camera.position?.[2] ?? 0) - height) < 1e-4) return false;
     camera = {...camera, position: [camera.position?.[0] ?? 0, camera.position?.[1] ?? 0, height]};
     return true;
   }
-  function createDeck(): Deck<MapView> {
+  function createDeck(): Deck<MapView | FirstPersonView> {
+    const generation = ++deckGeneration;
     return new Deck({
       parent: container, width: '100%', height: '100%', useDevicePixels: true,
-      views: new MapView({id: 'terrain', controller: {dragRotate: true, touchRotate: true}}),
+      views: firstPerson ? new FirstPersonView({id: 'terrain', near: 0.1, far: 20000, controller: {dragRotate: true, touchRotate: true, keyboard: true}}) : new MapView({id: 'terrain', controller: {dragRotate: true, touchRotate: true}}),
       viewState: camera,
-      onViewStateChange: ({viewState}) => {camera = {...viewState, position: viewState.position ?? camera.position}; if (!follow.checked) freeAnchorHeight = camera.position?.[2] ?? 0; updateAnchor(); deck.setProps({viewState: camera}); schedule();},
+      onViewStateChange: ({viewState}) => {
+        if (disposed || generation !== deckGeneration) return;
+        const previousAltitude = camera.position[2];
+        const position = viewState.position ?? camera.position;
+        camera = {...camera, ...viewState, longitude: viewState.longitude ?? camera.longitude, latitude: viewState.latitude ?? camera.latitude, position: [position[0], position[1], position[2]]};
+        if (firstPerson && follow.checked) {
+          const result = constrainTerrainEye(camera, [...geometry.values()].map(tile => tile.mesh.loaded), Number(clearance.value), previousAltitude);
+          camera = {...camera, position: result.state.position}; anchorAvailable = result.available;
+        } else updateAnchor();
+        if (!follow.checked) freeAnchorHeight = camera.position[2];
+        deck.setProps({viewState: camera}); schedule();
+      },
       deviceProps: deviceType === 'webgpu' ? {type: 'webgpu', adapters: [webgpuAdapter]} : {type: 'webgl'},
       effects: [new LightingEffect({ambient: new AmbientLight({intensity: 1}), sun: new DirectionalLight({direction: [-1, -2, -3], intensity: 2})})],
-      onError: exception => {if (!disposed) status.textContent = `Rendering error: ${exception.message}`;},
+      onError: exception => {if (!disposed && generation === deckGeneration) status.textContent = `Rendering error: ${exception.message}`;},
       onClick: information => {
+        if (disposed || generation !== deckGeneration) return;
         const viewport = information.viewport || deck.getViewports()[0];
         let nearest: TerrainScreenHit | null = null;
         for (const tile of geometry.values()) {
@@ -131,6 +167,16 @@ export function mountTerrainExample(host: HTMLElement, options: {
   /** Select at most nine detail tiles and their immediate coarse parents. */
   function updateSelection(): void {
     if (!tileset || disposed) return;
+    if (firstPerson) {
+      const coordinate = getTerrainEyeCoordinate(camera);
+      // Explicit bounded local detail, not MapView footprint or horizon enumeration.
+      const zoom = Math.max(source.minZoom, Math.min(source.maxZoom, Number(detail.value) === 256 ? 12 : Number(detail.value) === 1024 ? 10 : 11));
+      detailZoom = zoom; detailLimited = true;
+      const selected = selectTerrainTiles({longitude: coordinate[0], latitude: coordinate[1], zoom}, options.maxVisibleTiles ?? 9, zoom);
+      const next = `${selected.map(getTerrainTileKey).join(',')}:${error.value}`;
+      if (next !== signature) {signature = next; tileset.update(selected, Number(error.value));}
+      return;
+    }
     const viewport = new WebMercatorViewport({...camera, width: Math.max(1, container.clientWidth), height: Math.max(1, container.clientHeight)});
     const resolved = selectTerrainDetail(viewport, {targetTilePixels: Number(detail.value), minZoom: source.minZoom, maxZoom: source.maxZoom, previousZoom: detailZoom});
     detailZoom = resolved.zoom; detailLimited = resolved.limited;
@@ -165,7 +211,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     deck.setProps({layers, viewState: camera});
     const statistics = tileset.getStatistics();
     element('decoder-status').textContent = formatTerrainDecoderStatus(decoder.getStatistics(), statistics);
-    status.textContent = `${deviceType === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · ${triangles} triangles · data z${detailZoom}${detailLimited ? ' (source/footprint limit)' : ''} · ${statistics.active} active / ${statistics.queued} queued · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(1)} MB cached${follow.checked ? ` · terrain anchor ${anchorAvailable ? `${camera.position?.[2].toFixed(1)} m` : 'waiting — height held'}` : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure?.slice(0, 200)} — retry available` : ''}`;
+    status.textContent = `${deviceType === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · ${triangles} triangles · data z${detailZoom}${firstPerson ? ' (local window)' : detailLimited ? ' (source/footprint limit)' : ''} · ${statistics.active} active / ${statistics.queued} queued · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(1)} MB cached${follow.checked ? ` · terrain ${firstPerson ? 'eye' : 'anchor'} ${anchorAvailable ? `${camera.position[2].toFixed(1)} m` : 'waiting — height held'}` : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure?.slice(0, 200)} — retry available` : ''}`;
   }
   tileset = new TerrainTileset({
     fetch: (tile, signal) => source.fetchTile(tile, signal), minZoom: source.minZoom, maxZoom: source.maxZoom,
@@ -179,10 +225,18 @@ export function mountTerrainExample(host: HTMLElement, options: {
   skirts.addEventListener('change', schedule, {signal: abort.signal});
   detail.addEventListener('change', () => {detailZoom = undefined; updateSelection(); schedule();}, {signal: abort.signal});
   follow.addEventListener('change', () => {
-    if (!follow.checked) camera = {...camera, position: [camera.position?.[0] ?? 0, camera.position?.[1] ?? 0, freeAnchorHeight]};
+    if (!follow.checked && !firstPerson) camera = {...camera, position: [camera.position[0], camera.position[1], freeAnchorHeight]};
     updateAnchor(); deck.setProps({viewState: camera}); schedule();
   }, {signal: abort.signal});
   clearance.addEventListener('change', () => {updateAnchor(); deck.setProps({viewState: camera}); schedule();}, {signal: abort.signal});
+  element('land-eye').addEventListener('click', () => {
+    if (!firstPerson) return;
+    const coordinate = getTerrainEyeCoordinate(camera);
+    const height = sampleTerrainAnchor([...geometry.values()].map(tile => tile.mesh.loaded), [coordinate[0], coordinate[1]], Number(clearance.value));
+    if (height === null) {selection.textContent = 'No loaded top triangle under the eye; height held'; return;}
+    camera = {...camera, position: [camera.position[0], camera.position[1], height]};
+    freeAnchorHeight = height; deck.setProps({viewState: camera}); schedule();
+  }, {signal: abort.signal});
   element('retry').addEventListener('click', () => tileset?.retry(), {signal: abort.signal});
   const destroyCard = createCollapsibleInfoCard(element('controls'));
   function updateDeviceTabs(): void {

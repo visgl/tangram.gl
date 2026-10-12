@@ -4,7 +4,7 @@
 
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
-import {Deck, MapView, WebMercatorViewport} from '@deck.gl/core';
+import {Deck, MapView, FirstPersonView, FirstPersonViewport, WebMercatorViewport} from '@deck.gl/core';
 import {TerrainLayer} from '@deck.gl/geo-layers';
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {parseTerrainTile} from '../../examples/terrain/load-terrain';
@@ -17,7 +17,7 @@ import {sampleTerrainAnchor} from '../../examples/terrain/ground-following';
 import {worldToLngLat} from '@math.gl/web-mercator';
 
 let harness: RenderingHarness | undefined;
-let deck: Deck<MapView> | undefined;
+let deck: Deck<MapView | FirstPersonView> | undefined;
 beforeEach(() => commands.startRenderingDiagnostics());
 afterEach(async () => {
     try {
@@ -26,6 +26,36 @@ afterEach(async () => {
     } finally {
         deck?.finalize(); deck = undefined;
         harness?.destroy(); harness = undefined;
+    }
+});
+
+test.each([-46, 0, 46])(`${DEVICE_TYPE}: FirstPerson terrain renders and picks physical height at latitude %s`, async latitude => {
+    harness = new RenderingHarness(); await harness.initializeDevice();
+    const bounds: [number, number, number, number] = [-0.01, latitude - 0.01, 0.01, latitude + 0.01];
+    const data = await parseTerrainTile((await createTerrainFixture(0.025)).bytes, bounds, 0);
+    const {loaded, renderMesh} = buildTerrainRenderMesh(data, [], 250);
+    const coordinate = loaded.surface.intersectRay({origin: projectGeographicPosition([0.001, latitude + 0.002, 10000], 'web-mercator'), direction: [0, 0, -1]})!.coordinate;
+    const viewState = {longitude: 0, latitude: latitude - 0.004, position: [0, 0, 300] as [number, number, number], pitch: 20, bearing: 0};
+    let currentBearing = 0;
+    let currentPosition = [0, 0, 300];
+    deck = new Deck({canvas: harness.canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
+        views: new FirstPersonView({id: 'terrain', far: 20000, controller: true}), initialViewState: viewState, _animate: true, onError: error => harness!.errors.push(error.message),
+        onViewStateChange: ({viewState: nextState}) => {currentBearing = nextState.bearing ?? 0; currentPosition = nextState.position ?? currentPosition;},
+        layers: [new TerrainLayer({id: 'first-person-terrain', elevationData: 'fixture://first-person', bounds, color: [120, 180, 130], material: false, fetch: async () => renderMesh})]});
+    await expect.poll(async () => coloredPixels(await readCanvasPixels(harness!.canvas)), {timeout: 15000}).toBeGreaterThan(100);
+    const viewport = new FirstPersonViewport({...viewState, width: 512, height: 320, far: 20000});
+    const pixel = viewport.project(coordinate);
+    expect(pixel[0]).toBeGreaterThan(0); expect(pixel[0]).toBeLessThan(512); expect(pixel[1]).toBeGreaterThan(0); expect(pixel[1]).toBeLessThan(320);
+    const hit = pickTerrainSurface(viewport, loaded.mesh, [pixel[0], pixel[1]]);
+    expect(hit?.coordinate[0]).toBeCloseTo(coordinate[0], 5); expect(hit?.coordinate[1]).toBeCloseTo(coordinate[1], 5); expect(hit?.coordinate[2]).toBeCloseTo(coordinate[2], 2);
+    const image = await readCanvasPixels(harness.canvas);
+    const offset = (Math.round(pixel[1]) * image.width + Math.round(pixel[0])) * 4;
+    expect(image.data[offset + 1]).toBeGreaterThan(image.data[offset]);
+    if (latitude === 0) {
+        await commands.dragRenderingCanvas('left');
+        await expect.poll(() => currentBearing).not.toBe(0);
+        await commands.walkRenderingCanvas();
+        await expect.poll(() => Math.hypot(currentPosition[0], currentPosition[1])).toBeGreaterThan(1);
     }
 });
 

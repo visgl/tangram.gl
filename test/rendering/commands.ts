@@ -61,6 +61,13 @@ export const dragRenderingCanvas = defineBrowserCommand(async ({page, frame}, si
   await page.mouse.up();
 });
 
+/** Focus the map and send a trusted keyboard navigation event through deck's controller. */
+export const walkRenderingCanvas = defineBrowserCommand(async ({page, frame}) => {
+  const canvas = (await frame()).locator('#rendering-fixture');
+  await canvas.evaluate(element => {element.tabIndex = 0; element.focus();});
+  await page.keyboard.press('ArrowUp');
+});
+
 /** Model a trackpad wheel stream, distinct from discrete mouse-wheel ticks. */
 export const panRenderingCanvas = defineBrowserCommand(async ({frame}, side: 'left' | 'right') => {
   await (await frame()).locator('#rendering-fixture').evaluate((canvas, eye) => {
@@ -105,6 +112,7 @@ declare module 'vitest/browser' {
     renderingDiagnostics(): Promise<string[]>;
     saveRenderingArtifact(name: string, image: string): Promise<void>;
     dragRenderingCanvas(side: 'left' | 'right'): Promise<void>;
+    walkRenderingCanvas(): Promise<void>;
     panRenderingCanvas(side: 'left' | 'right'): Promise<void>;
     pinchRenderingCanvas(): Promise<void>;
   }
