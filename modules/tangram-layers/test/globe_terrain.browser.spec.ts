@@ -111,10 +111,11 @@ test('tile replacement invalidates only touching neighborhoods, and evicted/reso
     expect(layer.state.prepared?.[0].template).not.toBe(first[0].template);
     expect(layer.state.prepared?.[1]).toBe(first[1]);
     expect(layer.state.prepared?.[0].neighbors).toEqual([neighbor]);
+    const distantLayer = layer.renderLayers()[1];
     const reordered = new GlobeTerrainLayer({id: 'terrain', data: [distant, source, neighbor], meshResolution: 4});
     reordered.state = layer.state; reordered.updateState(prepare(reordered));
-    expect(reordered.renderLayers()[0].id).toBe(layer.renderLayers()[1].id);
-    expect(reordered.renderLayers()[0].props.mesh).toBe(layer.renderLayers()[1].props.mesh);
+    expect(reordered.renderLayers()[0].id).toBe(distantLayer.id);
+    expect(reordered.renderLayers()[0].props.mesh).toBe(distantLayer.props.mesh);
     const removed = new GlobeTerrainLayer({id: 'terrain', data: [distant], meshResolution: 4});
     removed.state = layer.state; removed.updateState(prepare(removed));
     expect(removed.state.prepared).toEqual([first[1]]);
