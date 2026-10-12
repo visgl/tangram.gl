@@ -152,9 +152,9 @@ jobs:
       - name: Collect Node coverage blob
         run: |
           mkdir -p .vitest-reports
-          yarn test-node --coverage --reporter=blob --outputFile.blob=.vitest-reports/node.json
+          yarn test-node --coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/node.json
       - name: Collect browser coverage blob
-        run: yarn test-coverage --reporter=blob --outputFile.blob=.vitest-reports/headless.json
+        run: yarn test-coverage --reporter=default --reporter=blob --outputFile.blob=.vitest-reports/headless.json
       - name: Merge coverage and enforce independent module thresholds
         env:
           TANGRAM_COVERAGE_ENFORCE: '1'
@@ -183,6 +183,13 @@ jobs:
           name: module-coverage
           path: coverage/
           if-no-files-found: error
+      - name: Upload coverage test results for failure diagnosis
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-test-results
+          path: .vitest-reports/
+          if-no-files-found: warn
 
   test-rendering:
     name: Rendering (${{ matrix.device }})
