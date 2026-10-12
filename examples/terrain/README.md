@@ -58,6 +58,14 @@ Exaggerated mode fades to flat after one apparent-diameter doubling; explicit
 resampling on zoom, and flat buffers remain unchanged on subsequent camera updates.
 Navigation is immediate; source-detail selection runs after 120 ms of quiet.
 Current drawable neighborhoods, not historical mesh variants, own those snapshots.
+The globe example advances CPU preparation with a 4 ms cooperative target, paused
+during navigation. Completed stitched generations swap atomically; the previous
+terrain and physical queries remain available on cancellation or failure. A
+separate 96 MiB current/staged template retention cap and CPU-slice diagnostics
+are exposed. `preparationBudgetMs`, `maxPreparedBytes` and uniform `meshResolution`
+(2–256 cells per tile axis, default 64) configure this mount.
+Individual chunks can overrun; scratch, display/query and GPU work are outside
+these limits. This is time-budgeted main-thread work, not a worker mesh builder.
 High/Balanced/Fast detail settings use sampled screen footprints and hysteresis,
 not a certified geometric-error guarantee. Limits are 96 selected leaves,
 two fetch/decode jobs and 256 MiB of retained compressed/decoded arrays.

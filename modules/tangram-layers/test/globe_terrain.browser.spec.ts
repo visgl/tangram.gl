@@ -5,7 +5,7 @@
 import {expect, test, vi} from 'vitest';
 import {_GlobeViewport as GlobeViewport, WebMercatorViewport, LayerExtension, type UpdateParameters} from '@deck.gl/core';
 import {GlobeTerrainLayer, getGlobeScreenRatio} from '../src/experimental/terrain';
-import type {TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainPreparation, getPreparedGlobeTerrainTemplate, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 
 /** Marker extension exercising the deliberately unsupported vertex-extension boundary. */
 class TestExtension extends LayerExtension {}
@@ -141,4 +141,20 @@ test('wrapped corner and edge neighbors participate in cache invalidation', () =
     const changed = new GlobeTerrainLayer({data: [west, replacement], meshResolution: 4});
     changed.state = layer.state; changed.updateState(prepare(changed));
     expect(changed.state.prepared?.[0].template).not.toBe(retained);
+});
+
+test('completed cooperative snapshots render and pick identically without synchronous preparation', () => {
+    const source = grid(), preparation = new GlobeTerrainPreparation();
+    preparation.request([source], 8);
+    while (preparation.isPending()) preparation.advance(1000);
+    const snapshot = preparation.getSnapshot()!;
+    const synchronous = new GlobeTerrainLayer({data: [source], meshResolution: 8}); synchronous.updateState(prepare(synchronous));
+    const prepared = new GlobeTerrainLayer({data: snapshot.grids, preparedTerrain: snapshot, meshResolution: 8}); prepared.updateState(prepare(prepared));
+    expect(prepared.state.prepared?.[0].template).toBe(getPreparedGlobeTerrainTemplate(snapshot, source));
+    expect(prepared.renderLayers()[0].props.mesh).toEqual(synchronous.renderLayers()[0].props.mesh);
+    expect(prepared.pickTerrain(prepared.context.viewport, [266, 180])).toEqual(synchronous.pickTerrain(synchronous.context.viewport, [266, 180]));
+    for (const layer of [new GlobeTerrainLayer({data: [grid()], preparedTerrain: snapshot, meshResolution: 8}), new GlobeTerrainLayer({data: [source], preparedTerrain: snapshot, meshResolution: 4})]) expect(() => layer.updateState(prepare(layer))).toThrow('must match');
+    const forged = new GlobeTerrainLayer({data: [source], preparedTerrain: {grids: [source], resolution: 8, byteLength: 0}, meshResolution: 8});
+    expect(() => forged.updateState(prepare(forged))).toThrow('completed snapshot');
+    preparation.destroy();
 });

@@ -69,6 +69,17 @@ the source footprint or use a local-coordinate terrain adapter for such tiny til
 Show mesh edges. Otherwise vertex colors provide baked spherical relief lighting;
 no extra shader, texture, light effect or backend-specific normal transform is needed.
 
+### `preparedTerrain` (optional)
+
+A completed `GlobeTerrainPreparationSnapshot` from the renderer's
+[`GlobeTerrainPreparation`](./map-logic/terrain-data.md#cooperative-globe-preparation).
+Supply its `grids` as `data`, in the same order, with matching `meshResolution`.
+Mismatched identities/resolution and forged templates reject. The layer skips
+source sampling and stitching, then performs its normal synchronous display
+scaling and physical-query setup. Without this prop, preparation remains
+synchronous. The experimental globe example advances preparation in idle
+animation-frame slices and atomically publishes completed generations.
+
 ## `pickTerrain(viewport, [x, y])`
 
 Call on the current initialized layer and the viewport that rendered it. Pixels

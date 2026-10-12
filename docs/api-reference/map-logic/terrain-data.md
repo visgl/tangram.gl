@@ -9,7 +9,7 @@ Copyright (c) vis.gl contributors
 <span className="badge badge--warning">Status: Experimental</span>
 
 Import from `@vis.gl/tangram-renderer/map-logic`. These CPU helpers do not fetch
-images, generate meshes, render terrain or require deck.gl/loaders.gl.
+images, render terrain or require deck.gl/loaders.gl.
 
 ```ts
 import {TERRARIUM_DECODER, decodeTerrainHeightGrid, sampleTerrainHeight}
@@ -84,13 +84,59 @@ inside the EPSG:3857 world and share a datum.
 For repeated display changes, call `prepareGlobeTerrainMesh(grid, {resolution,
 neighbors})` once, then `scaleGlobeTerrainMesh(template, exaggeration)` on zoom or
 slider updates. Preparation snapshots physical samples, slopes, spherical frames,
-no-data holes and stitched topology. The opaque handle exposes `vertexCount` and
-`triangleCount`; source changes require a new template. Handles belong to the
+no-data holes and stitched topology. The opaque handle exposes `vertexCount`,
+`triangleCount` and retained typed-array `byteLength`; source changes require a new template. Handles belong to the
 module instance that prepared them and cannot be serialized or transferred to a
 worker. Scaling returns detached
 buffers, so changing one result cannot corrupt subsequent results. It performs no
 source sampling or topology reconstruction. `buildGlobeTerrainMesh` remains the
 one-shot convenience API using the same pipeline.
+
+## Cooperative globe preparation
+
+`GlobeTerrainPreparation` prepares a complete stitched dataset across host-driven
+slices. It has no timer, worker, network or deck.gl dependency. The normal
+synchronous helpers remain available and produce the same packed geometry.
+
+```ts
+import {GlobeTerrainPreparation} from '@vis.gl/tangram-renderer/map-logic';
+
+const preparation = new GlobeTerrainPreparation(96 * 1024 * 1024);
+preparation.request(heightGrids, 64);
+
+// Call once per animation frame when navigation is idle.
+preparation.advance(4);
+const snapshot = preparation.getSnapshot();
+if (snapshot) {
+  // Publish snapshot.grids and preparedTerrain: snapshot together.
+}
+```
+
+`request(grids, resolution = 64)` replaces obsolete staged work, reusing unchanged
+source identities and touching neighborhoods, including wrapped edges. Treat all
+source grids as immutable. `advance(budgetMs = 4, now?)` runs at least one chunk,
+then yields after the elapsed target. It returns true only on a complete commit.
+The clock must be monotonic; the optional clock supports deterministic tests.
+Allocation, row processing and final array packing are indivisible, so the target
+is **not** a hard frame-time bound. Scaling, query indexing and GPU uploads are
+outside these slices.
+
+`getSnapshot()` returns only the latest completed generation. While a replacement
+is pending or fails, the previous snapshot remains drawable and pickable; partially
+stitched neighborhoods are never published. `getPreparedGlobeTerrainTemplate(snapshot,
+grid)` resolves a template by exact source identity and rejects forged handles.
+`prepareGlobeTerrainMeshSteps(grid, options)` exposes the lower-level generator;
+consume its return value or close it to abandon unfinished work.
+
+The constructor limits unique **retained template buffers across current and
+staged generations**, default 96 MiB. Admission failure discards staged work and
+keeps current terrain. It does not automatically retry: call `retry()` or request
+a changed dataset/resolution. This is not a peak/process/GPU cap: source grids,
+JavaScript scratch arrays, the candidate being admitted, display/query arrays,
+and externally retained snapshots are excluded. `getStatistics()` reports pending
+tiles, new/reused templates, retention, slice counts and CPU elapsed times; it is
+not FPS. `destroy()` closes pending work and releases owned references. A caller
+that retains a snapshot remains responsible for releasing it.
 
 `getGlobeTerrainExaggeration(globeScreenRatio, maximum = 100)` supplies the display
 policy: maxima above 1 apply while the globe fits, with a smooth logarithmic fade
