@@ -11,6 +11,9 @@ import {normalizeTerrainDraping, drapeTerrainMesh, getTerrainVertexLayout, hasTe
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
 import VertexLayout from '../src/gl/vertex_layout';
 import {PROJECTION_CONSTANTS} from '../src/scene/projection_math';
+import {Style} from '../src/styles/style';
+import Scene from '../src/scene/scene';
+import TileManager from '../src/tile/tile_manager';
 
 const layout = new VertexLayout([{name: 'a_position', size: 4, type: 5122}, {name: 'a_color', size: 4, type: 5121}, {name: 'a_selection_color', size: 4, type: 5121}]);
 const meters = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** 16);
@@ -45,6 +48,66 @@ test('tile admission excludes unloaded and edge-only footprints without hiding p
     expect(hasTerrainTileCoverage([field], {x: 0, y: 0, z: 1})).toBe(false);
     expect(hasTerrainTileCoverage([field], {x: 1, y: 1, z: 1})).toBe(false);
     expect(hasTerrainTileCoverage([grid(1, [-100, 1, 0, 100])], {x: 1, y: 0, z: 1})).toBe(false);
+});
+
+test('worker style completion remaps annotation bytes and avoids raster acquisition for empty terrain', async () => {
+    const input = request();
+    const style = Object.create(Style);
+    const createData = () => ({meshes: {point: {variant: {}, labels: {first: {ranges: [[layout.stride, 2]]}},
+        vertex_data: {vertex_count: 3, end: vi.fn(), vertex_buffer: input.vertices, element_buffer: input.indices}}}});
+    const data = createData();
+    style.tile_data = {fixture: data}; style.terrain = input.terrain;
+    style.vertexLayoutForMeshVariant = () => layout; style.baseStyle = () => 'points';
+    style.buildRasterTextures = vi.fn(async (_tile: unknown, result: unknown) => result);
+    const tile = {id: 'fixture', min: {x: 0, y: 0}, coords: {z: 16}, style_z: 16};
+    expect(await style.endData(tile)).toBe(data);
+    expect(data.meshes.point.labels.first.ranges).toEqual([[getTerrainVertexLayout(layout).stride, 2]]);
+    expect(data.meshes.point.variant).toMatchObject({terrain: true, terrainStatistics: {vertices: 3, triangles: 1}});
+    style.buildRasterTextures.mockClear();
+    style.tile_data = {fixture: createData()}; style.terrain = normalizeTerrainDraping({grids: []});
+    expect(await style.endData(tile)).toBeNull();
+    expect(style.buildRasterTextures).not.toHaveBeenCalled();
+});
+
+test.each(['position', 'width', 'cpu-projection'])('style initialization rejects incompatible %s deformation', block => {
+    const style = Object.create(Style);
+    style.shaders = {blocks: block === 'cpu-projection' ? {} : {[block]: 'procedural block'}};
+    expect(() => style.init({terrain: normalizeTerrainDraping({grids: []}), config: {scene: {cpu_projection: block === 'cpu-projection'}}})).toThrow(/does not support/);
+});
+
+test('draw and selection passes share the mesh clock across portable and classic uniform paths', () => {
+    const scene = Object.create(Scene.prototype);
+    const mesh = {variant: {terrain: true, blend_order: 0, mesh_order: 0}, geometry_count: 2};
+    const setUniforms = vi.fn(); const uniform = vi.fn();
+    scene.styles = {ground: {render: vi.fn(() => false)}};
+    scene.setupStyle = () => ({uniform}); scene.requestRedraw = vi.fn();
+    scene.tile_manager = {getRenderableTiles: () => [{meshes: {ground: [mesh]}, shouldProxyForStyle: () => true}]};
+    scene.view = {setupTile: vi.fn(), projection: {type: 'web-mercator'}};
+    scene.uniform_buffers = {TangramTile: {setUniforms}};
+    scene.terrain = normalizeTerrainDraping({grids: [], transitionDuration: 100});
+    scene.terrainExaggeration = 2; scene.terrainFrameTime = 100;
+    expect(scene.renderStyle('ground', 'program', 0)).toBe(2);
+    expect(setUniforms).toHaveBeenLastCalledWith({u_terrain_blend: 0, u_terrain_exaggeration: 2});
+    scene.terrainFrameTime = 150;
+    scene.renderStyle('ground', 'program', 0); scene.renderStyle('ground', 'selection_program', 0);
+    expect(setUniforms).toHaveBeenLastCalledWith({u_terrain_blend: 0.5, u_terrain_exaggeration: 2});
+    scene.uniform_buffers = {}; scene.requestRedraw.mockClear(); scene.terrainFrameTime = 250;
+    scene.renderStyle('ground', 'program', 0);
+    expect(uniform).toHaveBeenCalledWith('1f', 'u_terrain_blend', 1);
+    expect(uniform).toHaveBeenCalledWith('1f', 'u_terrain_exaggeration', 2);
+    expect(scene.requestRedraw).not.toHaveBeenCalled();
+    scene.terrain = normalizeTerrainDraping({grids: [], transitionDuration: 0});
+    scene.renderStyle('ground', 'program', 0);
+    expect(uniform).toHaveBeenLastCalledWith('1f', 'u_terrain_exaggeration', 2);
+});
+
+test('resident preparation statistics count valid worker outputs without counting flat or disposed meshes', () => {
+    const manager = Object.create(TileManager.prototype);
+    const statistics = {vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, preparationMs: 5, detailLimited: true};
+    manager.tileset = {tileRecords: {first: {meshes: {ground: [{valid: true, variant: {terrainStatistics: statistics}}, {valid: false, variant: {terrainStatistics: statistics}}, {valid: true, variant: {}}]}}, empty: {}}};
+    expect(manager.getTerrainDrapingStatistics(normalizeTerrainDraping({grids: [grid()]}))).toEqual({enabled: true, gridBytes: 45, meshes: 1, vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, maximumPreparationMs: 5, detailLimitedMeshes: 1});
+    manager.tileset = {tileRecords: {}};
+    expect(manager.getTerrainDrapingStatistics()).toMatchObject({enabled: false, gridBytes: 0, meshes: 0});
 });
 
 test('snapshots detach input arrays and retain explicit datum, masks and byte budgets', () => {
