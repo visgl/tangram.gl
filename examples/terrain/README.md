@@ -51,6 +51,11 @@ The native `/tangram.gl/examples/deck-globe-terrain` page mounts
 visible regions with a balanced hierarchy, parent-first loading, warm cache,
 stitched spherical edges and shared relief lighting. The maximum exaggeration
 slider is 0–200, default 100; physical source heights and queries are unchanged.
+Exaggerated mode fades to flat after one apparent-diameter doubling; explicit
+1× keeps physical relief. Prepared topology/slope snapshots rescale without
+resampling on zoom, and flat buffers remain unchanged on subsequent camera updates.
+Navigation is immediate; source-detail selection runs after 120 ms of quiet.
+Current drawable neighborhoods, not historical mesh variants, own those snapshots.
 High/Balanced/Fast detail settings use sampled screen footprints and hysteresis,
 not a certified geometric-error guarantee. Limits are 96 selected leaves,
 two fetch/decode jobs and 256 MiB of retained compressed/decoded arrays.

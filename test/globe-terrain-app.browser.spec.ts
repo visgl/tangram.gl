@@ -7,7 +7,11 @@ import {mountGlobeTerrainExample} from '../examples/terrain/globe-app';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 
-const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]}))}));
+const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, selectDetail: vi.fn(), construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]}))}));
+vi.mock('../examples/terrain/globe-detail', async original => {
+    const module = await original<typeof import('../examples/terrain/globe-detail')>();
+    return {...module, selectGlobeTerrainDetail: (...parameters: Parameters<typeof module.selectGlobeTerrainDetail>) => {mocks.selectDetail(...parameters); return module.selectGlobeTerrainDetail(...parameters);}};
+});
 vi.mock('@deck.gl/core', async original => {
     const module = await original<typeof import('@deck.gl/core')>();
     return {...module, Deck: class {
@@ -23,6 +27,31 @@ vi.mock('@vis.gl/tangram-layers/experimental/terrain', () => ({getGlobeScreenRat
 vi.mock('../examples/terrain/worker-client', () => ({decodeTerrainInWorker: vi.fn(async () => createTerrainStreamFixture())}));
 const hosts: HTMLElement[] = [], instances: ReturnType<typeof mountGlobeTerrainExample>[] = [];
 afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); hosts.splice(0).forEach(host => host.remove()); vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.autoLoad = true; mocks.viewportZoom = 1;});
+
+test('navigation draws immediately but coalesces detail selection until settled; teardown cancels the pending selection', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`}); instances.push(instance);
+    await instance.ready;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const selected = mocks.selectDetail.mock.calls.length, properties = mocks.construct.mock.calls[0][0];
+    if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function') throw new Error('Missing navigation callback');
+    vi.useFakeTimers({toFake: ['setTimeout', 'clearTimeout']});
+    try {
+        mocks.viewportZoom = 3;
+        for (let index = 0; index < 4; index++) {properties.onViewStateChange({viewState: {longitude: 80 + index, latitude: 25, zoom: 3}}); await vi.advanceTimersByTimeAsync(100);}
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        expect(mocks.setProps).toHaveBeenCalledWith({viewState: {longitude: 83, latitude: 25, zoom: 3, maxZoom: 12}});
+        expect(mocks.selectDetail).toHaveBeenCalledTimes(selected);
+        await vi.advanceTimersByTimeAsync(20);
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        expect(mocks.selectDetail).toHaveBeenCalledTimes(selected + 1);
+        properties.onViewStateChange({viewState: {longitude: 90, latitude: 25, zoom: 3}});
+        instance.destroy(); await vi.advanceTimersByTimeAsync(200);
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        expect(mocks.selectDetail).toHaveBeenCalledTimes(selected + 1);
+    } finally {vi.useRealTimers();}
+});
 
 test('mount keeps global bytes warm across camera/settings/device changes and owns teardown', async () => {
     const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);

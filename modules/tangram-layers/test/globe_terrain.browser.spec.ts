@@ -33,7 +33,9 @@ test('default 100× relief fades with actual GlobeView scale; normal Mercator is
     const surfaces = layer.state.surfaces;
     layer.updateState(prepare(layer, 1, false)); expect(layer.state.surfaces).toBe(surfaces);
     layer.updateState(prepare(layer, 4, false)); expect(layer.state.exaggeration).toBeLessThan(100);
-    layer.updateState(prepare(layer, 8, false)); expect(layer.state.exaggeration).toBe(1);
+    layer.updateState(prepare(layer, 8, false)); expect(layer.state.exaggeration).toBe(0);
+    const flatSurfaces = layer.state.surfaces;
+    layer.updateState(prepare(layer, 9, false)); expect(layer.state.surfaces).toBe(flatSurfaces);
     expect(() => getGlobeScreenRatio(new WebMercatorViewport({width: 512, height: 320}))).toThrow('GlobeView');
     for (const dimension of ['width', 'height']) {
         const invalid = new GlobeViewport({width: 512, height: 320}); Object.defineProperty(invalid, dimension, {value: 0}); expect(() => getGlobeScreenRatio(invalid)).toThrow('GlobeView');
@@ -81,4 +83,62 @@ test('zero displacement stays flat when zooming while queries preserve physical 
     layer.updateState(prepare(layer, 8, false));
     expect(layer.state.exaggeration).toBe(0);
     expect(layer.state.surfaces).toBe(surfaces);
+});
+
+test('camera exaggeration reuses detached sampling templates, and display-only props retain query/mesh buffers', () => {
+    const source = grid(), layer = new GlobeTerrainLayer({id: 'terrain', data: [source], meshResolution: 8});
+    layer.updateState(prepare(layer));
+    const template = layer.state.prepared?.[0].template, surface = layer.state.surfaces[0];
+    const firstMesh = layer.renderLayers()[0].props.mesh;
+    const wireframe = new GlobeTerrainLayer({id: 'terrain', data: [source], meshResolution: 8, wireframe: true});
+    wireframe.state = layer.state; wireframe.updateState(prepare(wireframe));
+    expect(wireframe.state.prepared?.[0].template).toBe(template);
+    expect(wireframe.state.surfaces[0]).toBe(surface); expect(wireframe.renderLayers()[0].props.mesh).toBe(firstMesh);
+    wireframe.updateState(prepare(wireframe, 4, false));
+    expect(wireframe.state.prepared?.[0].template).toBe(template);
+    expect(wireframe.state.surfaces[0]).not.toBe(surface);
+    expect(wireframe.pickTerrain(wireframe.context.viewport, [266, 180])?.coordinate[2]).toBeCloseTo(1000);
+});
+
+test('tile replacement invalidates only touching neighborhoods, and evicted/resolution-changed templates are released', () => {
+    const source = grid(), distant: TerrainHeightGrid = {...grid(), bounds: [5000000, -1000000, 7000000, 1000000]};
+    let layer = new GlobeTerrainLayer({id: 'terrain', data: [source, distant], meshResolution: 4});
+    layer.updateState(prepare(layer));
+    const first = layer.state.prepared!;
+    const neighbor: TerrainHeightGrid = {...grid(3000), bounds: [1000000, -1000000, 3000000, 1000000]};
+    const changed = new GlobeTerrainLayer({id: 'terrain', data: [source, distant, neighbor], meshResolution: 4});
+    changed.state = layer.state; changed.updateState(prepare(changed)); layer = changed;
+    expect(layer.state.prepared?.[0].template).not.toBe(first[0].template);
+    expect(layer.state.prepared?.[1]).toBe(first[1]);
+    expect(layer.state.prepared?.[0].neighbors).toEqual([neighbor]);
+    const distantLayer = layer.renderLayers()[1];
+    const reordered = new GlobeTerrainLayer({id: 'terrain', data: [distant, source, neighbor], meshResolution: 4});
+    reordered.state = layer.state; reordered.updateState(prepare(reordered));
+    expect(reordered.renderLayers()[0].id).toBe(distantLayer.id);
+    expect(reordered.renderLayers()[0].props.mesh).toBe(distantLayer.props.mesh);
+    const removed = new GlobeTerrainLayer({id: 'terrain', data: [distant], meshResolution: 4});
+    removed.state = layer.state; removed.updateState(prepare(removed));
+    expect(removed.state.prepared).toEqual([first[1]]);
+    const refined = new GlobeTerrainLayer({id: 'terrain', data: [distant], meshResolution: 8});
+    refined.state = removed.state; refined.updateState(prepare(refined));
+    expect(refined.state.prepared?.[0].template).not.toBe(first[1].template);
+    const incompatible = new GlobeTerrainLayer({data: [source, {...distant, verticalDatum: 'ellipsoidal'}]});
+    expect(() => incompatible.updateState(prepare(incompatible))).toThrow('datum');
+    const duplicate = new GlobeTerrainLayer({data: [source, {...source}]});
+    expect(() => duplicate.updateState(prepare(duplicate))).toThrow('distinct footprints');
+});
+
+test('wrapped corner and edge neighbors participate in cache invalidation', () => {
+    const edge = Math.PI * 6378137;
+    const west: TerrainHeightGrid = {...grid(), bounds: [-edge, -1000000, -edge + 2000000, 1000000]};
+    const east: TerrainHeightGrid = {...grid(3000), bounds: [edge - 2000000, -1000000, edge, 1000000]};
+    const layer = new GlobeTerrainLayer({data: [west, east], meshResolution: 4});
+    layer.updateState(prepare(layer));
+    expect(layer.state.prepared?.[0].neighbors).toEqual([east]);
+    expect(layer.state.prepared?.[1].neighbors).toEqual([west]);
+    const retained = layer.state.prepared?.[0].template;
+    const replacement = {...east, heights: east.heights.slice()};
+    const changed = new GlobeTerrainLayer({data: [west, replacement], meshResolution: 4});
+    changed.state = layer.state; changed.updateState(prepare(changed));
+    expect(changed.state.prepared?.[0].template).not.toBe(retained);
 });

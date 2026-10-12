@@ -6,7 +6,25 @@ import {CompositeLayer, COORDINATE_SYSTEM, type LayerProps, type UpdateParameter
 import {SimpleMeshLayer} from '@deck.gl/mesh-layers';
 import {Matrix4} from '@math.gl/core';
 import {TerrainMeshSurface, type TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
-import {buildGlobeTerrainMesh, getGlobeTerrainExaggeration, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {prepareGlobeTerrainMesh, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration, type GlobeTerrainMesh, type GlobeTerrainMeshTemplate, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+
+/** Stable mesh object lets deck.gl retain unchanged attribute buffers. */
+function getTerrainRenderMesh(mesh: GlobeTerrainMesh) {
+    return {attributes: {POSITION: {size: 3, value: mesh.geographicPositions}, COLOR_0: {size: 3, value: mesh.colors}}, indices: {size: 1, value: mesh.indices}};
+}
+
+/** One current immutable neighborhood and its most recent displayed/query geometry. */
+interface PreparedGlobeTerrainTile {
+    grid: TerrainHeightGrid;
+    neighbors: readonly TerrainHeightGrid[];
+    template: GlobeTerrainMeshTemplate;
+    exaggeration: number;
+    mesh: ReturnType<typeof getTerrainRenderMesh>;
+    surface: TerrainMeshSurface;
+}
+
+/** Non-instanced mesh input stays stable across camera and display updates. */
+const terrainInstances = [{}];
 
 /** Globe-only physical DEM input, without a loader, network request or source ownership. */
 export type GlobeTerrainLayerProps = LayerProps & {
@@ -39,7 +57,7 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
         wireframe: false
     };
     /** Immutable display meshes and their lazy triangle-query snapshots. */
-    declare state: {layers: SimpleMeshLayer[]; surfaces: TerrainMeshSurface[]; exaggeration: number};
+    declare state: {layers: SimpleMeshLayer[]; surfaces: TerrainMeshSurface[]; exaggeration: number; prepared?: PreparedGlobeTerrainTile[]; resolution?: number};
 
     /** Recompute display geometry when the camera changes scale, not on every animation tick. */
     shouldUpdateState({changeFlags}: UpdateParameters<this>): boolean {
@@ -49,13 +67,29 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
     /** Keep each eye's display multiplier tied to the active viewport; grids remain physically unchanged. */
     updateState({changeFlags}: UpdateParameters<this>): void {
         if (this.props.modelMatrix || this.props.extensions.length) throw new Error('Globe terrain does not support vertex transforms or layer extensions');
+        if (this.props.data.some(grid => grid.verticalDatum !== this.props.data[0].verticalDatum)) throw new Error('Globe terrain grids require one compatible vertical datum');
+        if (new Set(this.props.data.map(grid => grid.bounds.join(','))).size !== this.props.data.length) throw new Error('Globe terrain grids must have distinct footprints');
         const exaggeration = getGlobeTerrainExaggeration(getGlobeScreenRatio(this.context.viewport), this.props.globeTerrainExaggeration);
         if (!changeFlags.propsOrDataChanged && this.state.exaggeration === exaggeration) return;
-        const meshes = this.props.data.map(grid => buildGlobeTerrainMesh(grid, {exaggeration, resolution: this.props.meshResolution, neighbors: this.props.data.filter(candidate => candidate !== grid)}));
+        const circumference = 2 * Math.PI * 6378137;
+        const previous = new Map(this.state.prepared?.map(tile => [tile.grid, tile]));
+        const prepared = this.props.data.map(grid => {
+            // Sampling and stitching only depend on touching footprints, including wrapped corners.
+            const neighbors = this.props.data.filter(candidate => candidate !== grid && [-circumference, 0, circumference].some(shift =>
+                candidate.bounds[0] + shift <= grid.bounds[2] && candidate.bounds[2] + shift >= grid.bounds[0] && candidate.bounds[1] <= grid.bounds[3] && candidate.bounds[3] >= grid.bounds[1]));
+            const retained = previous.get(grid);
+            const sameNeighborhood = retained && this.state.resolution === this.props.meshResolution && retained.neighbors.length === neighbors.length && retained.neighbors.every((neighbor, index) => neighbor === neighbors[index]);
+            if (sameNeighborhood && retained.exaggeration === exaggeration) return retained;
+            const template = sameNeighborhood ? retained.template : prepareGlobeTerrainMesh(grid, {resolution: this.props.meshResolution, neighbors});
+            const mesh = scaleGlobeTerrainMesh(template, exaggeration);
+            return {grid, neighbors, template, exaggeration, mesh: getTerrainRenderMesh(mesh),
+                surface: new TerrainMeshSurface({projection: 'globe', positions: mesh.positions, indices: mesh.indices, physicalHeights: mesh.physicalHeights, cullBackfaces: true})};
+        });
         this.setState({exaggeration,
-            surfaces: meshes.map(mesh => new TerrainMeshSurface({projection: 'globe', positions: mesh.positions, indices: mesh.indices, physicalHeights: mesh.physicalHeights, cullBackfaces: true})),
-            layers: meshes.map((mesh, index) => new SimpleMeshLayer(this.getSubLayerProps({id: `mesh-${index}`}), {
-                data: [{}], mesh: {attributes: {POSITION: {size: 3, value: mesh.geographicPositions}, COLOR_0: {size: 3, value: mesh.colors}}, indices: {size: 1, value: mesh.indices}},
+            prepared, resolution: this.props.meshResolution,
+            surfaces: prepared.map(tile => tile.surface),
+            layers: prepared.map(tile => new SimpleMeshLayer(this.getSubLayerProps({id: `mesh-${tile.grid.bounds.join(',')}`}), {
+                data: terrainInstances, mesh: tile.mesh,
                 coordinateSystem: COORDINATE_SYSTEM.LNGLAT, _instanced: false, getPosition: [0, 0, 0], getColor: [255, 255, 255],
                 // Colors already contain spherical relief lighting; do not transform them as planar ENU normals.
                 material: false, wireframe: this.props.wireframe, pickable: false, parameters: {...this.props.parameters, cullMode: 'back'}

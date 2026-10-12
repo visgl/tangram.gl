@@ -19,7 +19,8 @@ The [Globe terrain example](/tangram.gl/examples/deck-globe-terrain) uses the se
 [experimental GlobeTerrainLayer](../api-reference/globe-terrain-layer.md). It resamples
 physical height grids into curved spherical triangles, with a configurable maximum
 `globeTerrainExaggeration` of 100 by default. As the apparent globe diameter grows
-from one to four viewport diameters, relief smoothly attenuates to physical scale.
+from one to two viewport diameters, exaggerated relief smoothly attenuates to flat.
+Explicit 1× keeps physical-scale relief; zero and subphysical settings stay fixed.
 Queries intersect the displayed surface but interpolate source meters, rather than
 reporting exaggerated radial altitude or triangle-chord depression.
 
@@ -31,6 +32,15 @@ The scheduler retains all required ancestors, publishes complete sibling groups,
 and rolls back fine groups when loading fallback would violate balanced 2:1 edges.
 Fine edge nodes are also inserted into coarse spherical meshes; shared-edge relief
 lighting and physical queries use the same sample neighborhood.
+
+Navigation changes deck's camera immediately, while new detail selection waits
+120 ms after the last navigation update. Loaded fallback continues drawing during
+motion; there is no lower-resolution interactive mesh. Mesh preparation snapshots
+physical samples, hole masks, stitched topology and relief slopes. Zooming only
+rescales those prepared buffers; once the display becomes flat, it reuses them.
+New tiles invalidate only touching neighborhoods. The prepared cache retains one
+snapshot per current drawable grid and is released with layer ownership; these
+arrays are outside the source-cache budget described below.
 
 Rotation, exaggeration and GPU switches do not reset the source cache. Cold detail
 can be evicted: retained compressed bytes and decoded arrays have a hard 256 MiB

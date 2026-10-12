@@ -25,7 +25,10 @@ Copyright (c) vis.gl contributors
   WebGL and WebGPU devices, vector styles, and the animated TRON style.
 - The opt-in [GlobeTerrainLayer](./api-reference/globe-terrain-layer.md) displaces
   spherical terrain from physical DEM grids. `globeTerrainExaggeration` defaults
-  to 100 while the globe fits and fades to 1 at close range. The Mapterhorn globe
+  to 100 while the globe fits and fades to flat after one diameter doubling;
+  explicit 1× retains physical scale. Prepared terrain samples/topology are reused
+  through zoom and neighborhood changes, and detail selection waits for navigation
+  to settle. The Mapterhorn globe
   example retains global coarse coverage while refining visible DEM tiles, stitches
   balanced 2:1 spherical edges and shares relief lighting and physical picking.
   High/Balanced/Fast detail controls expose a bounded footprint policy; source

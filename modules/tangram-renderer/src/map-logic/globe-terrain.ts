@@ -54,12 +54,30 @@ export interface GlobeTerrainMesh {
     colors: Float32Array;
 }
 
-/** Attenuate exaggerated relief to physical scale; flat and subphysical settings stay fixed. */
+/** Opaque immutable sampling/topology snapshot; keep it to rescale without reading source grids again. */
+export interface GlobeTerrainMeshTemplate {
+    /** Number of regular and stitched vertices in this snapshot. */
+    readonly vertexCount: number;
+    /** Number of outward triangles, excluding no-data cells. */
+    readonly triangleCount: number;
+}
+
+/** Private backing arrays cannot be modified through the public template handle. */
+const terrainTemplates = new WeakMap<GlobeTerrainMeshTemplate, {
+    coordinates: Float32Array;
+    heights: Float64Array;
+    gradients: Float64Array;
+    frame: Float64Array;
+    physicalHeights: Float32Array;
+    indices: Uint32Array;
+}>();
+
+/** Attenuate exaggerated relief to flat after one diameter doubling; explicit physical/subphysical settings stay fixed. */
 export function getGlobeTerrainExaggeration(globeScreenRatio: number, maximum = 100): number {
     if (!Number.isFinite(maximum) || maximum < 0 || maximum > 1000 || !Number.isFinite(globeScreenRatio) || globeScreenRatio < 0) throw new Error('Invalid globe terrain exaggeration or screen ratio');
     if (maximum <= 1) return maximum;
-    const progress = Math.max(0, Math.min(1, Math.log2(Math.max(1, globeScreenRatio)) / 2));
-    return maximum ** (1 - progress * progress * (3 - 2 * progress));
+    const progress = Math.max(0, Math.min(1, Math.log2(Math.max(1, globeScreenRatio))));
+    return (maximum + 1) ** (1 - progress * progress * (3 - 2 * progress)) - 1;
 }
 
 /** Resample a Mercator DEM onto curved triangles; neighbors reconcile matching tile edges. */
@@ -71,8 +89,18 @@ export function buildGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
     /** Same-datum, non-overlapping neighbors with balanced 2:1 edges and the same cell resolution. */
     neighbors?: readonly TerrainHeightGrid[];
 } = {}): GlobeTerrainMesh {
-    const resolution = options.resolution ?? 64, exaggeration = options.exaggeration ?? 1;
-    getGlobeTerrainExaggeration(0, exaggeration);
+    getGlobeTerrainExaggeration(0, options.exaggeration ?? 1);
+    return scaleGlobeTerrainMesh(prepareGlobeTerrainMesh(grid, options), options.exaggeration ?? 1);
+}
+
+/** Snapshot source sampling, no-data, edge stitching and physical slopes once per immutable neighborhood. */
+export function prepareGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
+    /** Uniform cells per tile axis, integer [2, 256]; defaults to 64. */
+    resolution?: number;
+    /** Same-datum non-overlapping neighbors with balanced 2:1 edges. */
+    neighbors?: readonly TerrainHeightGrid[];
+} = {}): GlobeTerrainMeshTemplate {
+    const resolution = options.resolution ?? 64;
     if (!Number.isSafeInteger(resolution) || resolution < 2 || resolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
     const grids = [grid, ...(options.neighbors ?? [])];
     const halfWorld = Math.PI * MERCATOR_RADIUS;
@@ -114,15 +142,14 @@ export function buildGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
         const index = physicalHeights.length; nodes.set(key, index);
         const x = west + (east - west) * column / resolution, y = north - (north - south) * row / resolution;
         const height = sampleTerrainNeighborhood(samplingGrids, [x, y]);
-        if (height !== null && (!Number.isFinite(height) || EARTH_RADIUS + height * exaggeration <= 0)) throw new Error('Invalid globe terrain elevation');
+        if (height !== null && !Number.isFinite(height)) throw new Error('Invalid globe terrain elevation');
         valid.push(height !== null); physicalHeights.push(height ?? NaN); samplePositions.push([x, y]);
         const coordinate = worldToLngLat([x * worldScale + 256, y * worldScale + 256]);
-        const packed = [Math.fround(coordinate[0]), Math.fround(coordinate[1]), Math.fround((height ?? 0) * exaggeration)];
+        const packed = [Math.fround(coordinate[0]), Math.fround(coordinate[1]), 0];
         geographicPositions.push(...packed);
-        if (!Number.isFinite(packed[2])) throw new Error('Globe terrain elevation exceeds packed display range');
         // Compute queries from the exact Float32 attributes submitted to deck.gl.
         const longitude = packed[0] * Math.PI / 180, latitude = packed[1] * Math.PI / 180;
-        const radius = GLOBE_RADIUS * (1 + packed[2] / EARTH_RADIUS);
+        const radius = GLOBE_RADIUS;
         positions.push(Math.sin(longitude) * Math.cos(latitude) * radius, -Math.cos(longitude) * Math.cos(latitude) * radius, Math.sin(latitude) * radius);
         return index;
     }
@@ -177,7 +204,7 @@ export function buildGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
         reconstruct([[column, row], [column, row + 1], [column + 1, row]]);
         reconstruct([[column + 1, row], [column, row + 1], [column + 1, row + 1]]);
     }
-    const colors = new Float32Array(physicalHeights.length * 3);
+    const gradients = new Float64Array(physicalHeights.length * 2), frame = new Float64Array(physicalHeights.length * 4);
     /** Identical edge sample neighborhoods yield identical spherical lighting at either LOD. */
     function slope(negative: number | null, positive: number | null, center: number, distance: number): number {
         return negative !== null && positive !== null ? (positive - negative) / (2 * distance) : positive !== null ? (positive - center) / distance : negative !== null ? (center - negative) / distance : 0;
@@ -185,18 +212,51 @@ export function buildGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
     for (let index = 0; index < physicalHeights.length; index++) {
         const offset = index * 3, [x, y] = samplePositions[index], height = physicalHeights[index];
         const longitude = geographicPositions[offset] * Math.PI / 180, latitude = geographicPositions[offset + 1] * Math.PI / 180;
+        frame.set([Math.sin(longitude), Math.cos(longitude), Math.sin(latitude), Math.cos(latitude)], index * 4);
         const touching = samplingGrids.filter(candidate => x >= candidate.bounds[0] - tolerance && x <= candidate.bounds[2] + tolerance && y >= candidate.bounds[1] - tolerance && y <= candidate.bounds[3] + tolerance);
         const distanceX = Math.min(...touching.map(candidate => (candidate.bounds[2] - candidate.bounds[0]) / (candidate.registration === 'pixel-center' ? candidate.width : candidate.width - 1)));
         const distanceY = Math.min(...touching.map(candidate => (candidate.bounds[3] - candidate.bounds[1]) / (candidate.registration === 'pixel-center' ? candidate.height : candidate.height - 1)));
-        const physicalScale = Math.cos(latitude) * EARTH_RADIUS / MERCATOR_RADIUS, radiusScale = 1 + geographicPositions[offset + 2] / EARTH_RADIUS;
-        const gradientX = !valid[index] ? 0 : slope(sampleTerrainNeighborhood(samplingGrids, [x - distanceX, y]), sampleTerrainNeighborhood(samplingGrids, [x + distanceX, y]), height, distanceX * physicalScale) * exaggeration / radiusScale;
-        const gradientY = !valid[index] ? 0 : slope(sampleTerrainNeighborhood(samplingGrids, [x, y - distanceY]), sampleTerrainNeighborhood(samplingGrids, [x, y + distanceY]), height, distanceY * physicalScale) * exaggeration / radiusScale;
-        const radial = [Math.sin(longitude) * Math.cos(latitude), -Math.cos(longitude) * Math.cos(latitude), Math.sin(latitude)];
-        const eastDirection = [Math.cos(longitude), Math.sin(longitude), 0], northDirection = [-Math.sin(longitude) * Math.sin(latitude), Math.cos(longitude) * Math.sin(latitude), Math.cos(latitude)];
-        const normal = radial.map((value, axis) => value - gradientX * eastDirection[axis] - gradientY * northDirection[axis]);
-        if (!normal.every(Number.isFinite)) throw new Error('Invalid globe terrain slope');
-        const light = 0.4 + 0.6 * Math.max(0, (normal[0] - normal[1] + normal[2]) / (Math.hypot(...normal) * Math.sqrt(3)));
-        colors.set((height > 2500 ? [0.9, 0.92, 0.96] : height <= 0 ? [0.12, 0.3, 0.48] : [0.36, 0.58, 0.34]).map(value => value * light), offset);
+        const physicalScale = Math.cos(latitude) * EARTH_RADIUS / MERCATOR_RADIUS;
+        gradients[index * 2] = !valid[index] ? 0 : slope(sampleTerrainNeighborhood(samplingGrids, [x - distanceX, y]), sampleTerrainNeighborhood(samplingGrids, [x + distanceX, y]), height, distanceX * physicalScale);
+        gradients[index * 2 + 1] = !valid[index] ? 0 : slope(sampleTerrainNeighborhood(samplingGrids, [x, y - distanceY]), sampleTerrainNeighborhood(samplingGrids, [x, y + distanceY]), height, distanceY * physicalScale);
     }
-    return {geographicPositions: Float32Array.from(geographicPositions), positions: Float64Array.from(positions), physicalHeights: Float32Array.from(physicalHeights), indices: Uint32Array.from(triangles), colors};
+    const template = Object.freeze({vertexCount: physicalHeights.length, triangleCount: triangles.length / 3});
+    terrainTemplates.set(template, {
+        coordinates: Float32Array.from(geographicPositions.filter((_, index) => index % 3 !== 2)),
+        heights: Float64Array.from(physicalHeights), gradients, frame,
+        physicalHeights: Float32Array.from(physicalHeights), indices: Uint32Array.from(triangles)
+    });
+    return template;
+}
+
+/** Rebuild detached display/query buffers without resampling or restitching the immutable template. */
+export function scaleGlobeTerrainMesh(template: GlobeTerrainMeshTemplate, exaggeration = 1): GlobeTerrainMesh {
+    getGlobeTerrainExaggeration(0, exaggeration);
+    const prepared = terrainTemplates.get(template);
+    if (!prepared) throw new Error('Globe terrain template must come from prepareGlobeTerrainMesh');
+    const geographicPositions = new Float32Array(template.vertexCount * 3), positions = new Float64Array(template.vertexCount * 3), colors = new Float32Array(template.vertexCount * 3);
+    for (let index = 0; index < template.vertexCount; index++) {
+        const offset = index * 3, height = prepared.heights[index];
+        const valid = !Number.isNaN(height);
+        if (valid && EARTH_RADIUS + height * exaggeration <= 0) throw new Error('Invalid globe terrain elevation');
+        geographicPositions[offset] = prepared.coordinates[index * 2];
+        geographicPositions[offset + 1] = prepared.coordinates[index * 2 + 1];
+        geographicPositions[offset + 2] = (valid ? height : 0) * exaggeration;
+        if (!Number.isFinite(geographicPositions[offset + 2])) throw new Error('Globe terrain elevation exceeds packed display range');
+        const radiusScale = 1 + geographicPositions[offset + 2] / EARTH_RADIUS;
+        const gradientX = prepared.gradients[index * 2] * exaggeration / radiusScale, gradientY = prepared.gradients[index * 2 + 1] * exaggeration / radiusScale;
+        const sinLongitude = prepared.frame[index * 4], cosLongitude = prepared.frame[index * 4 + 1], sinLatitude = prepared.frame[index * 4 + 2], cosLatitude = prepared.frame[index * 4 + 3];
+        const radialX = sinLongitude * cosLatitude, radialY = -cosLongitude * cosLatitude;
+        const radius = GLOBE_RADIUS * radiusScale;
+        positions[offset] = radialX * radius; positions[offset + 1] = radialY * radius; positions[offset + 2] = sinLatitude * radius;
+        const normalX = radialX - gradientX * cosLongitude - gradientY * (-sinLongitude * sinLatitude);
+        const normalY = radialY - gradientX * sinLongitude - gradientY * (cosLongitude * sinLatitude);
+        const normalZ = sinLatitude - gradientX * 0 - gradientY * cosLatitude;
+        if (![normalX, normalY, normalZ].every(Number.isFinite)) throw new Error('Invalid globe terrain slope');
+        const light = 0.4 + 0.6 * Math.max(0, (normalX - normalY + normalZ) / (Math.hypot(normalX, normalY, normalZ) * Math.sqrt(3)));
+        colors[offset] = (height > 2500 ? 0.9 : height <= 0 ? 0.12 : 0.36) * light;
+        colors[offset + 1] = (height > 2500 ? 0.92 : height <= 0 ? 0.3 : 0.58) * light;
+        colors[offset + 2] = (height > 2500 ? 0.96 : height <= 0 ? 0.48 : 0.34) * light;
+    }
+    return {geographicPositions, positions, physicalHeights: prepared.physicalHeights.slice(), indices: prepared.indices.slice(), colors};
 }

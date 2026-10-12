@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
-import {buildGlobeTerrainMesh, getGlobeTerrainExaggeration} from '../src/map-logic/globe-terrain';
+import {buildGlobeTerrainMesh, prepareGlobeTerrainMesh, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration} from '../src/map-logic/globe-terrain';
+import {createHash} from 'node:crypto';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
 import {TerrainMeshSurface} from '../src/selection/terrain_surface';
 import {lngLatToWorld} from '@math.gl/web-mercator';
@@ -12,6 +13,53 @@ import {lngLatToWorld} from '@math.gl/web-mercator';
 function grid(height = 1000, bounds: [number, number, number, number] = [-100000, -100000, 100000, 100000]): TerrainHeightGrid {
     return {width: 2, height: 2, heights: new Float32Array(4).fill(height), valid: new Uint8Array(4).fill(1), bounds, verticalDatum: 'unknown', registration: 'grid-node'};
 }
+
+test('prepared scaling reproduces pre-refactor packed geometry, topology and lighting byte-for-byte', () => {
+    const edge = Math.PI * 6378137, width = 128;
+    const grids: TerrainHeightGrid[] = Array.from({length: 16}, (_, index) => {
+        const column = index % 4, row = Math.floor(index / 4);
+        return {width, height: width, heights: Float32Array.from({length: width * width}, (_, pixel) => Math.sin(pixel % width / 11) * 1600 + Math.cos(Math.floor(pixel / width) / 13) * 700),
+            valid: new Uint8Array(width * width).fill(1), bounds: [-edge + column * edge / 2, edge - (row + 1) * edge / 2, -edge + (column + 1) * edge / 2, edge - row * edge / 2], registration: 'pixel-center', verticalDatum: 'unknown'};
+    });
+    const template = prepareGlobeTerrainMesh(grids[0], {resolution: 4, neighbors: grids.slice(1)});
+    const expected = [
+        '934b80ce54a613b5a9388ffa48dc4a5e800c34aeb57ab55455f5c70188ca279a',
+        '7bb9848a90ec22968eda853a87e30d6d7f71edbf304f05b3fc98eaae86726804',
+        '0a57c153389922466cc1df147c1d252c5442cc1251b040d0027bd1471da50881',
+        '194618227aacdf22f6d9fb499111bbf811d530955e04023e0f3a6c7694be34c5',
+        '6b12102465f4b684bd71fdc5229bd19588c89151e18f1bd69d4117376a12aee5'
+    ];
+    for (const [index, exaggeration] of [0, 0.5, 1, 7.3, 100].entries()) {
+        const mesh = scaleGlobeTerrainMesh(template, exaggeration), hash = createHash('sha256');
+        // Float32 query-position hashing avoids platform-libm differences below GPU precision.
+        for (const values of [mesh.geographicPositions, Float32Array.from(mesh.positions), mesh.physicalHeights, mesh.indices, mesh.colors]) hash.update(new Uint8Array(values.buffer, values.byteOffset, values.byteLength));
+        expect(hash.digest('hex')).toBe(expected[index]);
+        expect(template.vertexCount).toBe(mesh.physicalHeights.length); expect(template.triangleCount).toBe(mesh.indices.length / 3);
+    }
+});
+
+test('templates detach sampling from mutable source data, retain topology and reject forged handles', () => {
+    const source = grid(), template = prepareGlobeTerrainMesh(source, {resolution: 4});
+    const first = scaleGlobeTerrainMesh(template, 100);
+    source.heights.fill(7000); source.valid.fill(0);
+    const second = scaleGlobeTerrainMesh(template, 1);
+    expect(second.physicalHeights.every(height => height === 1000)).toBe(true);
+    expect(second.indices).toEqual(first.indices); expect(second.physicalHeights).toEqual(first.physicalHeights);
+    expect(second.indices).not.toBe(first.indices); expect(second.physicalHeights).not.toBe(first.physicalHeights);
+    expect(second.positions).not.toBe(first.positions); expect(second.colors).not.toBe(first.colors);
+    expect(second.geographicPositions.filter((_, index) => index % 3 === 2).every(height => height === 1000)).toBe(true);
+    expect(Object.isFrozen(template)).toBe(true);
+    first.indices.fill(0); first.physicalHeights.fill(123);
+    expect(scaleGlobeTerrainMesh(template, 1).indices).toEqual(second.indices);
+    expect(scaleGlobeTerrainMesh(template, 1).physicalHeights).toEqual(second.physicalHeights);
+    expect(() => scaleGlobeTerrainMesh({vertexCount: 0, triangleCount: 0})).toThrow('prepareGlobeTerrainMesh');
+    expect(() => scaleGlobeTerrainMesh(template, Infinity)).toThrow('Invalid');
+    const negative = prepareGlobeTerrainMesh(grid(-7000000), {resolution: 2});
+    expect(scaleGlobeTerrainMesh(negative, 0).indices.length).toBe(24);
+    expect(() => scaleGlobeTerrainMesh(negative, 1)).toThrow('Invalid globe terrain elevation');
+    const overflowing = prepareGlobeTerrainMesh(grid(3e38), {resolution: 2});
+    expect(() => scaleGlobeTerrainMesh(overflowing, 100)).toThrow('packed display range');
+});
 
 test('display exaggeration preserves source heights and follows exact packed geographic vertices', () => {
     const source = grid(), original = source.heights.slice();
@@ -29,11 +77,12 @@ test('display exaggeration preserves source heights and follows exact packed geo
     }
 });
 
-test('screen-relative fade is bounded, smooth, monotonic and physical after two diameter doublings', () => {
+test('screen-relative fade is bounded, smooth, monotonic and flat after one diameter doubling', () => {
     expect(getGlobeTerrainExaggeration(0)).toBe(100); expect(getGlobeTerrainExaggeration(1)).toBe(100);
-    expect(getGlobeTerrainExaggeration(2)).toBeCloseTo(10); expect(getGlobeTerrainExaggeration(4)).toBe(1); expect(getGlobeTerrainExaggeration(100)).toBe(1);
+    expect(getGlobeTerrainExaggeration(Math.sqrt(2))).toBeCloseTo(Math.sqrt(101) - 1);
+    expect(getGlobeTerrainExaggeration(2)).toBe(0); expect(getGlobeTerrainExaggeration(4)).toBe(0); expect(getGlobeTerrainExaggeration(100)).toBe(0);
     let previous = Infinity;
-    for (let ratio = 0; ratio <= 5; ratio += 0.1) {const value = getGlobeTerrainExaggeration(ratio, 50); expect(value).toBeLessThanOrEqual(previous); expect(value).toBeGreaterThanOrEqual(1); previous = value;}
+    for (let ratio = 0; ratio <= 5; ratio += 0.1) {const value = getGlobeTerrainExaggeration(ratio, 50); expect(value).toBeLessThanOrEqual(previous); expect(value).toBeGreaterThanOrEqual(0); previous = value;}
     expect(getGlobeTerrainExaggeration(2, 1)).toBe(1);
 });
 

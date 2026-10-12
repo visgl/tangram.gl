@@ -40,8 +40,14 @@ test(`${DEVICE_TYPE}: spherical terrain grows at 100×, remains interactive and 
     await expect.poll(() => layer.state?.exaggeration).toBe(200);
     await expect.poll(async () => countTerrainPixels(await readCanvasPixels(harness!.canvas)), {timeout: 15000}).toBeGreaterThan(physicalPixels * 1.1);
     deck.setProps({viewState: {longitude: 40, latitude: 20, zoom: 8}});
-    await expect.poll(() => layer.state.exaggeration).toBe(1);
+    await expect.poll(() => layer.state.exaggeration).toBe(0);
     expect(layer.pickTerrain(deck.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
+    const flatSurface = layer.state.surfaces[0], template = layer.state.prepared?.[0].template;
+    deck.setProps({viewState: {longitude: 45, latitude: 22, zoom: 9}});
+    await expect.poll(() => deck!.getViewports()[0].zoom).toBe(9);
+    await expect.poll(() => layer.pickTerrain(deck!.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
+    expect(layer.state.surfaces[0]).toBe(flatSurface);
+    expect(layer.state.prepared?.[0].template).toBe(template);
 });
 
 test(`${DEVICE_TYPE}: stitched 2:1 spherical terrain has no background gap at the shared edge`, async () => {

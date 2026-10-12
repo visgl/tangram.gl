@@ -33,7 +33,9 @@ Immutable `TerrainHeightGrid[]` in absolute EPSG:3857 meters with physical heigh
 explicit validity, registration and one shared vertical datum. Use non-overlapping
 tiles with balanced 2:1 edge neighbors; matching edges average heights, including the
 antimeridian. Cells touching missing samples are omitted, not bridged. Do not
-mutate grids in place: replace the data array after changing source samples.
+mutate grids in place: replace each changed grid object and the data array after
+changing source samples. Grid identity is the preparation-cache key; replacing
+only the array does not invalidate unchanged grid objects.
 Validity is checked over each cell's complete interpolation footprint, so source
 holes smaller than the display mesh remain holes, including touching neighbors.
 All tiles use the same `meshResolution`. Coarse boundary triangles include the
@@ -47,7 +49,7 @@ heights through time: newly loaded sibling groups replace their parent together.
 Maximum display multiplier, range `[0, 1000]`. The example provides a live
 `0–200` slider, default `100`. Exaggeration above `1` applies while the globe's apparent
 diameter fits the shorter viewport dimension. A smooth logarithmic fade reaches
-`1` at four viewport diameters (two diameter doublings). The policy uses actual
+`0` at two viewport diameters (one diameter doubling). The policy uses actual
 camera scale and viewport dimensions rather than assuming a particular zoom value.
 `1` always renders physical scale. `0` removes displacement at every zoom;
 values between `0` and `1` stay at that reduced scale rather than fading upward.
@@ -77,8 +79,14 @@ remain radius-256 common-space geometry values. No-data holes return no hit.
 Backface culling is shared by drawing and querying, so missing front-side samples
 do not reveal or select the far hemisphere.
 Closed tile bounds prune unrelated rays before allocating each lazy triangle index.
-Camera-only updates reuse meshes; a device change creates new owned render resources
-without discarding decoded grids.
+Camera rotation at a fixed display scale reuses meshes and query surfaces. Zoom
+or exaggeration changes rescale prepared physical samples and relief slopes without
+resampling source grids or rebuilding stitched topology. Once exaggerated mode
+reaches flat, further zooming retains those buffers. Adding/removing tiles
+invalidates only affected touching neighborhoods, including antimeridian corners;
+other meshes and query surfaces stay warm. Wireframe-only updates retain geometry.
+The cache holds only the current dataset, not historical mesh variants. A device
+change creates new owned render resources without discarding decoded grids.
 
 The renderer's `TerrainMeshSurface` now also accepts optional `physicalHeights`
 per vertex. It snapshots those values so exaggerated geometry can be queried
