@@ -55,6 +55,16 @@ test('query work is pruned, detached geometry is stable and equal-distance ties 
     expect(ties.queryRay([0.5, 0.5, 0], [0, 0, 1], 0).hit?.parameter).toBe(0);
 });
 
+test('ArrayLike values are read once and the copied geometry is what gets validated', () => {
+    const positions = [0, 0, 0, 2, 0, 0, 0, 2, 0], indices = [0, 1, 2];
+    let positionReads = 0, indexReads = 0;
+    Object.defineProperty(positions, 0, {get: () => positionReads++ === 0 ? 0 : NaN});
+    Object.defineProperty(indices, 0, {get: () => indexReads++ === 0 ? 0 : NaN});
+    const index = new TriangleQueryIndex(positions, indices);
+    expect(positionReads).toBe(1); expect(indexReads).toBe(1);
+    expect(index.queryRay([0.5, 0.5, 1], [0, 0, -1]).hit?.parameter).toBe(1);
+});
+
 test('empty, invalid and degenerate rays/triangles do not produce phantom hits', () => {
     const empty = new TriangleQueryIndex([], []);
     expect(empty.queryRay([0, 0, 0], [0, 0, 1])).toEqual({hit: null, testedBounds: 0, testedTriangles: 0});

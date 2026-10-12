@@ -74,11 +74,16 @@ export class TriangleQueryIndex {
         if (!Number.isSafeInteger(positions.length) || !Number.isSafeInteger(indices.length) || positions.length % 3 || indices.length % 3 ||
             !Number.isSafeInteger(leafSize) || leafSize < 1 || leafSize > 64) throw new Error('Invalid triangle index dimensions or leaf size');
         if (indices.length / 3 > 0xffffffff) throw new Error('Triangle positions and indices must be finite and in range');
-        for (let offset = 0; offset < positions.length; offset++) if (!Number.isFinite(positions[offset])) throw new Error('Triangle positions and indices must be finite and in range');
-        for (let offset = 0; offset < indices.length; offset++) if (!Number.isSafeInteger(indices[offset]) || indices[offset] < 0 || indices[offset] >= positions.length / 3 || indices[offset] > 0xffffffff) throw new Error('Triangle positions and indices must be finite and in range');
         if (options.maxHierarchyBytes !== undefined && (!Number.isSafeInteger(options.maxHierarchyBytes) || options.maxHierarchyBytes < 0)) throw new Error('Triangle hierarchy byte limit must be a non-negative integer');
         this.positions = Float64Array.from(positions);
-        this.indices = Uint32Array.from(indices);
+        // Validate the owned snapshot, not a separate read of caller-owned ArrayLike values.
+        for (let offset = 0; offset < this.positions.length; offset++) if (!Number.isFinite(this.positions[offset])) throw new Error('Triangle positions and indices must be finite and in range');
+        this.indices = new Uint32Array(indices.length);
+        for (let offset = 0; offset < indices.length; offset++) {
+            const index = indices[offset];
+            if (!Number.isSafeInteger(index) || index < 0 || index >= this.positions.length / 3 || index > 0xffffffff) throw new Error('Triangle positions and indices must be finite and in range');
+            this.indices[offset] = index;
+        }
         this.triangleCount = indices.length / 3;
         this.leafSize = leafSize;
         const counts = new Map<number, number>();
@@ -111,8 +116,13 @@ export class TriangleQueryIndex {
 
     /** Detached indexed vertex and its original identity, without exposing mutable backing arrays. */
     getTriangleVertex(triangle: number, vertex: number): {index: number; position: [number, number, number]} {
+        return {index: this.getVertexIndex(triangle, vertex), position: this.getVertex(triangle, vertex)};
+    }
+
+    /** Read one original vertex identity without allocating coordinates or exposing topology storage. */
+    getVertexIndex(triangle: number, vertex: number): number {
         if (!Number.isSafeInteger(triangle) || triangle < 0 || triangle >= this.triangleCount || !Number.isSafeInteger(vertex) || vertex < 0 || vertex > 2) throw new Error('Triangle vertex is out of range');
-        return {index: this.indices[triangle * 3 + vertex], position: this.getVertex(triangle, vertex)};
+        return this.indices[triangle * 3 + vertex];
     }
 
     /** Two-sided math.gl queries with bounds pruning, finite clipping and stable tie-breaking. */

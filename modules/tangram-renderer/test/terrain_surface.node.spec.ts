@@ -8,6 +8,16 @@ import HostFrame from '../src/scene/host_frame';
 import {TerrainMeshSurface, pickTerrainAt} from '../src/selection/terrain_surface';
 import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
 
+test('terrain validates detached physical heights against owned topology, reading caller values once', () => {
+    const indices = [0, 1, 2], physicalHeights = [123, 123, 123];
+    let indexReads = 0, heightReads = 0;
+    Object.defineProperty(indices, 0, {get: () => indexReads++ === 0 ? 0 : NaN});
+    Object.defineProperty(physicalHeights, 0, {get: () => heightReads++ === 0 ? 123 : NaN});
+    const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [0, 0, 2, 2, 0, 2, 0, 2, 2], indices, physicalHeights});
+    expect(indexReads).toBe(1); expect(heightReads).toBe(1);
+    expect(surface.intersectRay({origin: [0.5, 0.5, 10], direction: [0, 0, -1]})?.coordinate[2]).toBe(123);
+});
+
 test('terrain owns geometry once and zero-budget linear queries preserve indexed physical/backface results', () => {
     const options = {projection: 'globe', positions: [-2, -256, -2, 2, -256, -2, 0, -256, 2], indices: [0, 1, 2], physicalHeights: [123, 123, 123], cullBackfaces: true} as const;
     const accelerated = new TerrainMeshSurface(options), linear = new TerrainMeshSurface({...options, maxQueryIndexBytes: 0});

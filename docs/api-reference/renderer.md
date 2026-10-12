@@ -516,6 +516,11 @@ Queries lazily build the reusable [triangle bounds index](./map-logic/triangle-q
 and prune bounds before math.gl triangle tests. Equal-distance ties retain the
 lower original triangle ID. The index is owned by the immutable surface; large
 datasets may still supply their own streamed `TerrainSurface` implementation.
+`maxQueryIndexBytes` caps lazy hierarchy typed arrays; zero or insufficient space
+uses exact linear queries instead of disabling picking. `getStatistics()` reports
+owned `geometryBytes`, allocated `queryIndexBytes` and `requiredQueryIndexBytes`.
+Geometry is copied only once, not again when acceleration is built. These figures
+exclude caller data, JavaScript objects, construction scratch and GPU storage.
 
 The package also exports `pickTerrainAt(hostFrame, pixel, surface, options?)` for
 hosts without a renderer. This API neither loads/renders DEMs nor associates

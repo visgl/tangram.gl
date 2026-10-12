@@ -91,8 +91,8 @@ export class TerrainMeshSurface implements TerrainSurface {
         const physicalHeights = options.physicalHeights;
         if (physicalHeights) {
             if (physicalHeights.length !== options.positions.length / 3) throw new Error('Terrain physical heights must match indexed vertices');
-            for (let offset = 0; offset < options.indices.length; offset++) if (!Number.isFinite(physicalHeights[options.indices[offset]])) throw new Error('Terrain physical heights must match indexed vertices');
             this.physicalHeights = Float64Array.from(physicalHeights);
+            for (let triangle = 0; triangle < this.queryIndex.triangleCount; triangle++) for (let vertex = 0; vertex < 3; vertex++) if (!Number.isFinite(this.physicalHeights[this.queryIndex.getVertexIndex(triangle, vertex)])) throw new Error('Terrain physical heights must match indexed vertices');
         }
     }
 
@@ -125,7 +125,7 @@ export class TerrainMeshSurface implements TerrainSurface {
         const normal = new Vector3(vertices[1]).subtract(vertices[0]).cross(new Vector3(vertices[2]).subtract(vertices[0])).normalize();
         const coordinate = getGeographicProjectionProcedure(this.projection).unproject(position);
         const physicalHeights = this.physicalHeights;
-        if (physicalHeights) coordinate[2] = hit.barycentric.reduce((height, weight, vertex) => height + weight * physicalHeights[this.queryIndex.getTriangleVertex(hit.triangleIndex, vertex).index], 0);
+        if (physicalHeights) coordinate[2] = hit.barycentric.reduce((height, weight, vertex) => height + weight * physicalHeights[this.queryIndex.getVertexIndex(hit.triangleIndex, vertex)], 0);
         return {position, coordinate,
             distance: hit.parameter, normal: [normal[0], normal[1], normal[2]], triangleIndex: index / 3, barycentric: hit.barycentric};
     }

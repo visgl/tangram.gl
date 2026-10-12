@@ -76,6 +76,7 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     await expect.poll(() => host.querySelector('[data-example="status"]')?.textContent).toContain('16 tiles');
     expect(fetch).toHaveBeenCalledTimes(20); // Four z1 parents and sixteen global z2 tiles.
     expect(mocks.layers).toHaveBeenLastCalledWith(expect.objectContaining({globeTerrainExaggeration: 100, data: expect.any(Array)}));
+    expect(mocks.layers.mock.lastCall?.[0]).toMatchObject({maxDisplayBytes: 128 * 1024 * 1024, maxQueryIndexBytes: 64 * 1024 * 1024});
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('16 tiles');
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('100.0×');
     expect(host.querySelector('[data-example="decoder-status"]')?.textContent).toContain('0.0 MB source meshes');

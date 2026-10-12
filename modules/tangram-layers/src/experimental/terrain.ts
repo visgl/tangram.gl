@@ -103,7 +103,8 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
     /** Keep each eye's display multiplier tied to the active viewport; grids remain physically unchanged. */
     updateState({changeFlags}: UpdateParameters<this>): void {
         const started = performance.now();
-        for (const limit of [this.props.maxDisplayBytes, this.props.maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit! < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
+        const maxDisplayBytes = this.props.maxDisplayBytes ?? 128 * 1024 * 1024, maxQueryIndexBytes = this.props.maxQueryIndexBytes ?? 64 * 1024 * 1024;
+        for (const limit of [maxDisplayBytes, maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
         if (this.props.modelMatrix || this.props.extensions.length) throw new Error('Globe terrain does not support vertex transforms or layer extensions');
         if (this.props.data.some(grid => grid.verticalDatum !== this.props.data[0].verticalDatum)) throw new Error('Globe terrain grids require one compatible vertical datum');
         if (new Set(this.props.data.map(grid => grid.bounds.join(','))).size !== this.props.data.length) throw new Error('Globe terrain grids must have distinct footprints');
@@ -113,7 +114,7 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
         if (!changeFlags.propsOrDataChanged && this.state.exaggeration === exaggeration) return;
         const circumference = 2 * Math.PI * 6378137;
         const previous = new Map(this.state.prepared?.map(tile => [tile.grid, tile]));
-        const queryLimit = Math.floor(this.props.maxQueryIndexBytes! / Math.max(1, this.props.data.length));
+        const queryLimit = Math.floor(maxQueryIndexBytes / Math.max(1, this.props.data.length));
         const candidates = this.props.data.map(grid => {
             // Sampling and stitching only depend on touching footprints, including wrapped corners.
             const neighbors = this.props.data.filter(candidate => candidate !== grid && [-circumference, 0, circumference].some(shift =>
@@ -131,7 +132,7 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
         const retainedBytes = this.getStatistics().displayBytes;
         const replacementBytes = candidates.reduce((sum, tile) => sum + (tile.retained ? 0 : this.getDisplayBytes(tile.template)), 0);
         const displayedBytes = candidates.reduce((sum, tile) => sum + this.getDisplayBytes(tile.template), 0);
-        if (displayedBytes > this.props.maxDisplayBytes! || replacementBytes > 0 && retainedBytes + replacementBytes > this.props.maxDisplayBytes!) {
+        if (displayedBytes > maxDisplayBytes || replacementBytes > 0 && retainedBytes + replacementBytes > maxDisplayBytes) {
             this.setState({memoryError: 'Globe terrain display-byte limit exceeded; previous terrain retained', updateMs: performance.now() - started});
             return;
         }

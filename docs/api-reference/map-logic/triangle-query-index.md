@@ -47,6 +47,8 @@ same clipping, acceptance and tie rules. Zero disables acceleration, not picking
 Construction scratch, JavaScript objects and caller buffers are not included.
 `getTriangleVertex(triangleIndex, vertex)` returns a detached position and its
 original vertex index without exposing mutable backing storage.
+`getVertexIndex(triangleIndex, vertex)` reads just that identity without allocating
+coordinate arrays; both accessors reject invalid triangle/vertex offsets.
 
 ## Rays and clipping
 

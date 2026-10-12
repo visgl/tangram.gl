@@ -47,7 +47,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const meshResolution = options.meshResolution ?? 64;
     if (!Number.isSafeInteger(meshResolution) || meshResolution < 2 || meshResolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
     const preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
-    for (const limit of [options.maxDisplayBytes, options.maxQueryIndexBytes]) if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) throw new Error('Globe terrain byte limits must be non-negative integers');
+    const maxDisplayBytes = options.maxDisplayBytes ?? 128 * 1024 * 1024, maxQueryIndexBytes = options.maxQueryIndexBytes ?? 64 * 1024 * 1024;
+    for (const limit of [maxDisplayBytes, maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
     const parameters = new URLSearchParams(options.parameters);
     const rawExaggeration = parameters.get('exaggeration');
     const requested = rawExaggeration?.trim() ? Number(rawExaggeration) : 100;
@@ -158,7 +159,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         if (dataChanged) {displayedSnapshot = snapshot; grids = [...(snapshot?.grids ?? [])];}
         const currentExaggeration = Number(exaggeration.value);
         if (!layer || dataChanged || displayedMaximum !== currentExaggeration || displayedWireframe !== wireframe.checked) {
-            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot, meshResolution, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked, maxDisplayBytes: options.maxDisplayBytes, maxQueryIndexBytes: options.maxQueryIndexBytes});
+            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot, meshResolution, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked, maxDisplayBytes, maxQueryIndexBytes});
             displayedMaximum = currentExaggeration; displayedWireframe = wireframe.checked;
         }
         deck.setProps({layers: [layer]});

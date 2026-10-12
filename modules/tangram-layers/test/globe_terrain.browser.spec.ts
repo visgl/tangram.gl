@@ -64,6 +64,8 @@ test('current display mesh picks physical heights, honors viewport offsets, hole
 });
 
 test('explicit physical scale, empty input, custom resolution and invalid maximum are handled', () => {
+    const defaults = new GlobeTerrainLayer({data: [grid()], meshResolution: 2, maxDisplayBytes: undefined, maxQueryIndexBytes: undefined}); defaults.updateState(prepare(defaults));
+    expect(defaults.getStatistics().tileCount).toBe(1); expect(defaults.getStatistics().error).toBeUndefined();
     const physical = new GlobeTerrainLayer({data: [grid()], globeTerrainExaggeration: 1, meshResolution: 2, wireframe: true}); physical.updateState(prepare(physical));
     expect(physical.state.exaggeration).toBe(1); expect(physical.renderLayers()[0].props.wireframe).toBe(true);
     const empty = new GlobeTerrainLayer({data: []}); empty.updateState(prepare(empty)); expect(empty.renderLayers()).toEqual([]);
