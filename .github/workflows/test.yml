@@ -189,6 +189,7 @@ jobs:
         with:
           name: coverage-test-results
           path: .vitest-reports/
+          include-hidden-files: true
           if-no-files-found: warn
 
   test-rendering:
