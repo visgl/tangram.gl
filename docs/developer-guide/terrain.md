@@ -59,6 +59,11 @@ navigation so the latest attenuation/slider request can progress without blockin
 the camera callback. Geometry can briefly lag the requested multiplier while a
 complete replacement is prepared. The info card distinguishes requested and admitted
 relief and reports pending display work, retention, slices and elapsed time.
+The display stage also warms picking indexes cooperatively before publication.
+Current-plus-staged acceleration is capped, including reservations for cold current
+indexes; the card reports warmed and peak-budget-deferred tile counts. Deferred
+indexes remain lazy, and insufficient per-tile space keeps exact linear picking.
+Near-first bounds traversal reduces work without changing physical height results.
 
 Only one template-to-display handoff runs at a time: further template preparation
 waits while display work is pending. Source acquisition and camera updates
@@ -85,7 +90,8 @@ its target. Source grids, scratch arrays, the candidate before admission,
 display/query buffers, query indexes and GPU uploads are outside this controller's
 byte/slice limits. The ordinary layer path still scales synchronously; the globe mount
 uses `preparedDisplay` to avoid that work during layer updates. Per-tile query copies,
-final typed-array copies and lazy picking-index construction remain indivisible. The
+final typed-array copies remain indivisible. Hierarchy scans and median partitions
+now yield; ordinary lazy queries still build synchronously if warming was deferred. The
 prepared snapshots are separate from the source-cache budget below and are
 released on unmount; GPU switches keep the current CPU snapshot warm.
 

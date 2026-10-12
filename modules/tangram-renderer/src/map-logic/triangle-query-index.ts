@@ -3,7 +3,6 @@
 // Copyright (c) vis.gl contributors
 
 import {intersectRayBounds, intersectRayTriangle} from '@math.gl/culling/queries';
-import quickselect from 'quickselect';
 
 /** Nearest two-sided triangle; the ray parameter retains the supplied direction scale. */
 export interface IndexedTriangleHit {
@@ -63,6 +62,8 @@ export class TriangleQueryIndex {
     /** Six Float64 bounds and four Uint32 topology offsets per node. */
     private bounds?: Float64Array;
     private topology?: Uint32Array;
+    /** In-progress storage is counted but never traversed until the whole hierarchy is ready. */
+    private preparing?: {order: Uint32Array; bounds: Float64Array; topology: Uint32Array};
     private readonly leafSize: number;
     private readonly nodeCount: number;
     private readonly hierarchyAllowed: boolean;
@@ -112,7 +113,22 @@ export class TriangleQueryIndex {
     get arrayBytes(): number {return this.geometryBytes + this.hierarchyBytes;}
 
     /** Exact allocated acceleration storage; zero before a lazy query or in linear mode. */
-    get hierarchyBytes(): number {return (this.order?.byteLength ?? 0) + (this.bounds?.byteLength ?? 0) + (this.topology?.byteLength ?? 0);}
+    get hierarchyBytes(): number {return this.preparing ? this.requiredHierarchyBytes : (this.order?.byteLength ?? 0) + (this.bounds?.byteLength ?? 0) + (this.topology?.byteLength ?? 0);}
+
+    /** Warm acceleration in bounded scanning/partition chunks; closing the iterator discards partial storage. */
+    *prepareHierarchySteps(): Generator<void, void, void> {
+        if (this.order || this.preparing || !this.hierarchyAllowed || !this.triangleCount) return;
+        const storage = {order: new Uint32Array(this.triangleCount), bounds: new Float64Array(this.nodeCount * 6), topology: new Uint32Array(this.nodeCount * 4)};
+        this.preparing = storage;
+        try {
+            for (let offset = 0; offset < storage.order.length; offset++) {
+                storage.order[offset] = offset;
+                if (offset % 128 === 127) yield;
+            }
+            yield* this.buildNodeSteps(storage, 0, this.triangleCount, {next: 0});
+            this.bounds = storage.bounds; this.topology = storage.topology; this.order = storage.order;
+        } finally {this.preparing = undefined;}
+    }
 
     /** Detached indexed vertex and its original identity, without exposing mutable backing arrays. */
     getTriangleVertex(triangle: number, vertex: number): {index: number; position: [number, number, number]} {
@@ -133,7 +149,7 @@ export class TriangleQueryIndex {
         const length = Math.hypot(...direction);
         if (origin.length !== 3 || direction.length !== 3 || !origin.every(Number.isFinite) || !direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0 || !this.triangleCount) return result;
         if (intersectRayBounds(origin, direction, this.minimum, this.maximum, maxParameter) === null) return result;
-        if (this.hierarchyAllowed && !this.order) this.buildHierarchy();
+        if (this.hierarchyAllowed && !this.order && !this.preparing) this.buildHierarchy();
         /** Share hit acceptance and stable tie-breaking across accelerated and allocation-free fallback paths. */
         const testTriangle = (triangleIndex: number): void => {
             result.testedTriangles++;
@@ -147,12 +163,21 @@ export class TriangleQueryIndex {
             for (let triangle = 0; triangle < this.triangleCount; triangle++) testTriangle(triangle);
             return result;
         }
-        const stack = [0];
+        const stack = [{index: 0, near: 0}];
+        result.testedBounds++;
         while (stack.length) {
-            const index = stack.pop()!, node = this.readNode(index);
-            result.testedBounds++;
-            if (intersectRayBounds(origin, direction, node.minimum, node.maximum, result.hit?.parameter ?? maxParameter) === null) continue;
-            if (node.children) {stack.push(node.children[1], node.children[0]); continue;}
+            const {index, near} = stack.pop()!;
+            if (near > (result.hit?.parameter ?? maxParameter)) continue;
+            const node = this.readNode(index);
+            if (node.children) {
+                const candidates = node.children.flatMap(child => {
+                    const bounds = this.readNode(child); result.testedBounds++;
+                    const entry = intersectRayBounds(origin, direction, bounds.minimum, bounds.maximum, result.hit?.parameter ?? maxParameter);
+                    return entry === null ? [] : [{index: child, near: entry}];
+                });
+                candidates.sort((first, second) => second.near - first.near || second.index - first.index);
+                stack.push(...candidates); continue;
+            }
             for (let offset = node.start; offset < node.end; offset++) {
                 testTriangle(this.order[offset]);
             }
@@ -160,14 +185,9 @@ export class TriangleQueryIndex {
         return result;
     }
 
-    /** Allocate packed nodes only after preflight admission; sorting scratch is temporary. */
+    /** Preserve synchronous construction/lazy-query compatibility by consuming the same cooperative builder. */
     private buildHierarchy(): void {
-        if (!this.triangleCount) return;
-        this.bounds = new Float64Array(this.nodeCount * 6);
-        this.topology = new Uint32Array(this.nodeCount * 4);
-        const order = Array.from({length: this.triangleCount}, (_, index) => index);
-        this.buildNode(order, 0, this.triangleCount, {next: 0});
-        this.order = Uint32Array.from(order);
+        for (const step of this.prepareHierarchySteps()) {void step;}
     }
 
     /** Decode a node without retaining per-node JavaScript objects. */
@@ -183,24 +203,49 @@ export class TriangleQueryIndex {
     }
 
     /** Partition on the longest bounds axis; midpoint splitting bounds recursion depth. */
-    private buildNode(order: number[], start: number, end: number, cursor: {next: number}): number {
+    private *buildNodeSteps(storage: {order: Uint32Array; bounds: Float64Array; topology: Uint32Array}, start: number, end: number, cursor: {next: number}): Generator<void, number, void> {
+        const {order, bounds, topology} = storage;
         const minimum: [number, number, number] = [Infinity, Infinity, Infinity];
         const maximum: [number, number, number] = [-Infinity, -Infinity, -Infinity];
-        for (let offset = start; offset < end; offset++) for (let vertex = 0; vertex < 3; vertex++) {
-            const positionOffset = this.indices[order[offset] * 3 + vertex] * 3;
-            for (let axis = 0; axis < 3; axis++) {const value = this.positions[positionOffset + axis]; minimum[axis] = Math.min(minimum[axis], value); maximum[axis] = Math.max(maximum[axis], value);}
+        for (let offset = start; offset < end; offset++) {
+            for (let vertex = 0; vertex < 3; vertex++) {
+                const positionOffset = this.indices[order[offset] * 3 + vertex] * 3;
+                for (let axis = 0; axis < 3; axis++) {const value = this.positions[positionOffset + axis]; minimum[axis] = Math.min(minimum[axis], value); maximum[axis] = Math.max(maximum[axis], value);}
+            }
+            if ((offset - start) % 128 === 127) yield;
         }
         const index = cursor.next++;
-        this.bounds!.set([...minimum, ...maximum], index * 6);
-        this.topology!.set([start, end], index * 4);
+        bounds.set([...minimum, ...maximum], index * 6);
+        topology.set([start, end], index * 4);
         if (end - start > this.leafSize) {
             let axis = 0;
             for (let candidate = 1; candidate < 3; candidate++) if (maximum[candidate] - minimum[candidate] > maximum[axis] - minimum[axis]) axis = candidate;
             const centroid = (triangle: number) => (this.positions[this.indices[triangle * 3] * 3 + axis] + this.positions[this.indices[triangle * 3 + 1] * 3 + axis] + this.positions[this.indices[triangle * 3 + 2] * 3 + axis]) / 3;
             const middle = start + Math.floor((end - start) / 2);
-            quickselect(order, middle, start, end - 1, (first, second) => centroid(first) - centroid(second) || first - second);
-            this.topology!.set([this.buildNode(order, start, middle, cursor), this.buildNode(order, middle, end, cursor)], index * 4 + 2);
+            yield* this.partitionSteps(order, middle, start, end - 1, (first, second) => centroid(first) - centroid(second) || first - second);
+            const left = yield* this.buildNodeSteps(storage, start, middle, cursor);
+            const right = yield* this.buildNodeSteps(storage, middle, end, cursor);
+            topology.set([left, right], index * 4 + 2);
         }
+        yield;
         return index;
+    }
+
+    /** In-place median selection with cooperative comparisons and no temporary full-size JavaScript order array. */
+    private *partitionSteps(order: Uint32Array, middle: number, left: number, right: number, compare: (first: number, second: number) => number): Generator<void, void, void> {
+        let comparisons = 0;
+        while (left < right) {
+            const pivot = order[left + Math.floor((right - left) / 2)];
+            let lower = left, upper = right;
+            while (lower <= upper) {
+                while (compare(order[lower], pivot) < 0) {lower++; if (++comparisons % 128 === 0) yield;}
+                while (compare(order[upper], pivot) > 0) {upper--; if (++comparisons % 128 === 0) yield;}
+                if (lower <= upper) {const value = order[lower]; order[lower++] = order[upper]; order[upper--] = value;}
+                if (++comparisons % 128 === 0) yield;
+            }
+            if (middle <= upper) right = upper;
+            else if (middle >= lower) left = lower;
+            else return;
+        }
     }
 }

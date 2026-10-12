@@ -78,7 +78,9 @@ Display rescaling and matching query surfaces now use a separate cooperative
 during navigation, retains previous complete drawing/picking until replacement,
 and cancels superseded multiplier requests. New template work waits for the display
 handoff, while the camera and source acquisition continue. Per-tile query copying
-and lazy index construction are still indivisible; these are not hard frame-time
+remains indivisible. Picking-index scans and median partitions now yield before
+publication when their peak acceleration budget fits; deferred indexes keep lazy
+construction. Diagnostics show warmed/deferred counts; these are not hard frame-time
 or GPU-memory bounds. The info card reports admitted vs requested relief, display
 work slices, retained completed arrays and errors. Unmount releases both stages;
 device changes reuse the complete CPU display generation.

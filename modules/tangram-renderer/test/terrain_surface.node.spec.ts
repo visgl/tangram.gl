@@ -8,6 +8,82 @@ import HostFrame from '../src/scene/host_frame';
 import {TerrainMeshSurface, pickTerrainAt} from '../src/selection/terrain_surface';
 import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
 
+/** Separated stacked triangles make traversal order and clipping observable without timing assertions. */
+function stackedTriangles(count: number) {
+    const positions: number[] = [], indices: number[] = [];
+    for (let triangle = 0; triangle < count; triangle++) {
+        positions.push(0, 0, triangle, 2, 0, triangle, 0, 2, triangle);
+        indices.push(triangle * 3, triangle * 3 + 1, triangle * 3 + 2);
+    }
+    return {positions, indices};
+}
+
+test('cooperative query indexes publish atomically, keep exact pending queries and release cancelled storage', () => {
+    const {positions, indices} = stackedTriangles(257);
+    const index = new TriangleQueryIndex(positions, indices, 8, {lazy: true});
+    const linear = new TriangleQueryIndex(positions, indices, 8, {maxHierarchyBytes: 0});
+    const steps = index.prepareHierarchySteps(); expect(steps.next().done).toBe(false);
+    expect(index.hierarchyBytes).toBe(index.requiredHierarchyBytes);
+    expect(index.queryRay([0.5, 0.5, 300], [0, 0, -1])).toEqual(linear.queryRay([0.5, 0.5, 300], [0, 0, -1]));
+    expect(index.prepareHierarchySteps().next().done).toBe(true);
+    steps.return(); expect(index.hierarchyBytes).toBe(0);
+    let yields = 0;
+    for (const step of index.prepareHierarchySteps()) {void step; yields++;}
+    expect(yields).toBeGreaterThan(10); expect(index.hierarchyBytes).toBe(index.requiredHierarchyBytes);
+    expect(index.prepareHierarchySteps().next().done).toBe(true);
+    for (const origin of [[0.5, 0.5, 300], [0.5, 0.5, -10], [5, 5, 300]] as const) {
+        for (const direction of [[0, 0, -2], [0, 0, 1]] as const) for (const limit of [0, 10, 500]) {
+            const accept = (hit: {triangleIndex: number}) => hit.triangleIndex % 3 === 1;
+            expect(index.queryRay(origin, direction, limit, accept).hit).toEqual(linear.queryRay(origin, direction, limit, accept).hit);
+        }
+    }
+    const budget = new TriangleQueryIndex(positions, indices, 8, {lazy: true, maxHierarchyBytes: 0});
+    expect(budget.prepareHierarchySteps().next().done).toBe(true); expect(budget.hierarchyBytes).toBe(0);
+    expect(new TriangleQueryIndex([], [], 8, {lazy: true}).prepareHierarchySteps().next().done).toBe(true);
+});
+
+test('near-first traversal skips farther leaves while preserving acceptance and stable coincident ties', () => {
+    const {positions, indices} = stackedTriangles(64), index = new TriangleQueryIndex(positions, indices, 1);
+    const nearest = index.queryRay([0.5, 0.5, 100], [0, 0, -1]);
+    expect(nearest.hit?.triangleIndex).toBe(63); expect(nearest.testedTriangles).toBe(1);
+    expect(index.queryRay([0.5, 0.5, 100], [0, 0, -1], Infinity, hit => hit.triangleIndex < 31).hit?.triangleIndex).toBe(30);
+    expect(index.queryRay([0.5, 0.5, -1], [0, 0, 1]).testedTriangles).toBe(1);
+    const duplicates = new TriangleQueryIndex([0, 0, 2, 2, 0, 2, 0, 2, 2], Array.from({length: 257}, () => [0, 1, 2]).flat(), 1);
+    expect(duplicates.queryRay([0.5, 0.5, 10], [0, 0, -1]).hit?.triangleIndex).toBe(0);
+    expect(duplicates.queryRay([0.5, 0.5, 10], [0, 0, -1], 8, hit => hit.triangleIndex >= 100).hit?.triangleIndex).toBe(100);
+});
+
+test.each([0, 1, 2])('cooperative partitioning agrees with linear queries on shuffled axis %s planes', axis => {
+    const positions: number[] = [], indices: number[] = [];
+    for (let triangle = 0; triangle < 257; triangle++) {
+        const height = (triangle * 73) % 257;
+        for (const coordinate of [[0, 0], [2, 0], [0, 2]]) {
+            const point = [0, 0, 0]; point[axis] = height;
+            point[(axis + 1) % 3] = coordinate[0]; point[(axis + 2) % 3] = coordinate[1]; positions.push(...point);
+        }
+        indices.push(triangle * 3, triangle * 3 + 1, triangle * 3 + 2);
+    }
+    const index = new TriangleQueryIndex(positions, indices, 3, {lazy: true});
+    const linear = new TriangleQueryIndex(positions, indices, 3, {maxHierarchyBytes: 0});
+    for (const step of index.prepareHierarchySteps()) {void step;}
+    for (const height of [-1, 50.5, 300]) for (const sign of [-2, 1]) for (const limit of [0, 25, Infinity]) {
+        const origin: [number, number, number] = [0.5, 0.5, 0.5], direction: [number, number, number] = [0, 0, 0]; origin[axis] = height; direction[axis] = sign;
+        expect(index.queryRay(origin, direction, limit).hit).toEqual(linear.queryRay(origin, direction, limit).hit);
+    }
+});
+
+test('surface warming preserves physical height queries during every cooperative stage', () => {
+    const {positions, indices} = stackedTriangles(129);
+    const surface = new TerrainMeshSurface({projection: 'web-mercator', positions, indices, physicalHeights: positions.filter((_, offset) => offset % 3 === 2).map(() => 123)});
+    const ray = {origin: [0.5, 0.5, 200], direction: [0, 0, -1]} as const;
+    const steps = surface.prepareQueryIndexSteps(); expect(steps.next().done).toBe(false);
+    expect(surface.intersectRay(ray)?.coordinate[2]).toBeCloseTo(123);
+    steps.return(); expect(surface.getStatistics().queryIndexBytes).toBe(0);
+    for (const step of surface.prepareQueryIndexSteps()) {void step;}
+    const statistics = surface.getStatistics(); expect(statistics.queryIndexBytes).toBe(statistics.requiredQueryIndexBytes);
+    expect(surface.intersectRay(ray)?.coordinate[2]).toBeCloseTo(123); expect(surface.getStatistics()).toEqual(statistics);
+});
+
 test('terrain validates detached physical heights against owned topology, reading caller values once', () => {
     const indices = [0, 1, 2], physicalHeights = [123, 123, 123];
     let indexReads = 0, heightReads = 0;

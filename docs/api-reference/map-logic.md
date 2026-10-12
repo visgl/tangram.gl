@@ -10,9 +10,10 @@ Copyright (c) vis.gl contributors
 
 The optional `@vis.gl/tangram-renderer/map-logic` entry provides CPU-only map
 algorithms and types. It has no renderer, deck.gl, luma.gl, DOM or worker imports.
-Triangle queries use the lightweight `@math.gl/culling/queries` kernels and the
-renderer's existing `quickselect` dependency for bounds partitioning; other
-helpers remain dependency-free. The normal renderer entry does not re-export this
+Triangle queries use lightweight `@math.gl/culling/queries` kernels with cooperative
+in-place bounds partitioning. Terrain helpers use math.gl coordinate/vector APIs;
+the utility graph contains only authored helpers and math.gl, not the renderer's
+polygon-builder dependencies. The normal renderer entry does not re-export this
 utility entry.
 
 This API is experimental: names and contracts may change. These helpers form an
