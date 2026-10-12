@@ -24,6 +24,7 @@ vi.mock('@deck.gl/core', async original => {
 vi.mock('@vis.gl/tangram-layers/experimental/terrain', () => ({getGlobeScreenRatio: () => 1, GlobeTerrainLayer: class {
     constructor(props: unknown) {mocks.layers(props);}
     pickTerrain = mocks.pick;
+    getStatistics = () => ({tileCount: 16, exaggeration: 100, displayBytes: 4096, queryIndexBytes: 0, updateMs: 1, queryMs: 2});
 }}));
 vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
     decodeGrid = vi.fn(async (_bytes: ArrayBuffer, bounds: readonly [number, number, number, number]) => {
@@ -107,6 +108,9 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: {longitude: 100, latitude: 20, zoom: 12, maxZoom: 12}});
     properties.onClick({x: 256, y: 160});
     expect(host.querySelector('[data-example="terrain-hit"]')?.textContent).toContain('1234.0 physical m');
+    expect(host.querySelector('[data-example="display-status"]')?.textContent).toContain('last pick 2.0 ms');
+    expect(host.querySelector('[data-example="display-status"]')?.textContent).toContain('excludes GPU/transient');
+    if ('onAfterRender' in properties && typeof properties.onAfterRender === 'function') properties.onAfterRender();
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(mocks.layers.mock.calls.length).toBe(buildsBeforeCamera);
     host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
@@ -123,6 +127,8 @@ test('invalid hosts reject before allocation; failed tile requests report retry 
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: 'https://example.invalid/worker.js'})).toThrow('same-origin');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, preparationBudgetMs: 0})).toThrow('slice target');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxPreparedBytes: -1})).toThrow('byte limit');
+    expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxDisplayBytes: -1})).toThrow('byte limits');
+    expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxQueryIndexBytes: 0.5})).toThrow('byte limits');
     for (const meshResolution of [1, 257, 2.5]) expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, meshResolution})).toThrow('resolution');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, source: createTerrainImageSource({id: 'local', urlTemplate: `${location.origin}/{z}/{x}/{y}`, minZoom: 3, credits: [{label: 'local', url: location.origin}]})})).toThrow('zooms');
     expect(host.children).toHaveLength(0);

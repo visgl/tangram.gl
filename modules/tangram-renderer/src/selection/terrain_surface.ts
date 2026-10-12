@@ -3,7 +3,6 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4, Vector3} from '@math.gl/core';
-import {intersectRayBounds} from '@math.gl/culling/queries';
 import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import type HostFrame from '../scene/host_frame';
 import {getGeographicProjectionProcedure} from '../scene/projection_math';
@@ -55,49 +54,51 @@ export interface TerrainMeshOptions {
     physicalHeights?: ArrayLike<number>;
     /** Match an outward backface-culled draw pass; default false preserves two-sided queries. */
     cullBackfaces?: boolean;
+    /** Lazy hierarchy typed-array limit; exact linear picking is used when acceleration does not fit. */
+    maxQueryIndexBytes?: number;
+}
+
+/** Detached retained-storage diagnostics; no GPU or JavaScript heap estimate is included. */
+export interface TerrainMeshStatistics {
+    /** Owned immutable positions, topology and optional physical heights. */
+    geometryBytes: number;
+    /** Currently allocated packed hierarchy storage. */
+    queryIndexBytes: number;
+    /** Required acceleration bytes, even when linear picking is selected. */
+    requiredQueryIndexBytes: number;
 }
 
 /** Immutable physical terrain surface backed by the reusable CPU triangle hierarchy. */
 export class TerrainMeshSurface implements TerrainSurface {
     /** Mercator XY/physical Z meters, or already projected globe common coordinates. */
     readonly projection: TerrainSurface['projection'];
-    /** Detached vertex snapshot. */
-    private readonly positions: Float64Array;
-    /** Detached triangle topology. */
-    private readonly indices: Uint32Array;
     /** Optional detached physical elevations; only indexed vertices must be finite. */
     private readonly physicalHeights?: Float64Array;
     /** Optional render-pass face convention; unrelated to geographic height units. */
     private readonly cullBackfaces: boolean;
     /** Projection-independent immutable triangle query index. */
-    private queryIndex?: TriangleQueryIndex;
-    /** Closed lower content-space corner rejects unrelated rays before allocating an index. */
-    private readonly minimum: [number, number, number] = [Infinity, Infinity, Infinity];
-    /** Closed upper content-space corner, derived from the detached vertex snapshot. */
-    private readonly maximum: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+    private readonly queryIndex: TriangleQueryIndex;
 
     /** Copy a finite indexed triangle mesh; mutation of caller buffers cannot change queries. */
     constructor(options: TerrainMeshOptions) {
         if (!['web-mercator', 'globe'].includes(options.projection)) throw new Error('Terrain projection must be web-mercator or globe');
         if (options.positions.length % 3 || options.indices.length % 3) throw new Error('Terrain requires XYZ positions and triangle indices');
-        const positions = Array.from(options.positions);
-        const indices = Array.from(options.indices);
-        if (!positions.every(Number.isFinite) || !indices.every(index => Number.isSafeInteger(index) && index >= 0 && index < positions.length / 3)) {
-            throw new Error('Terrain mesh positions and indices must be finite and in range');
-        }
         this.projection = options.projection;
-        this.positions = new Float64Array(positions);
-        this.indices = new Uint32Array(indices);
-        for (let offset = 0; offset < positions.length; offset += 3) for (let axis = 0; axis < 3; axis++) {
-            this.minimum[axis] = Math.min(this.minimum[axis], positions[offset + axis]);
-            this.maximum[axis] = Math.max(this.maximum[axis], positions[offset + axis]);
-        }
+        try {
+            this.queryIndex = new TriangleQueryIndex(options.positions, options.indices, 8, {lazy: true, maxHierarchyBytes: options.maxQueryIndexBytes});
+        } catch (error) {throw new Error(`Terrain mesh: ${error instanceof Error ? error.message : String(error)}`);}
         this.cullBackfaces = options.cullBackfaces ?? false;
         const physicalHeights = options.physicalHeights;
         if (physicalHeights) {
-            if (physicalHeights.length !== positions.length / 3 || indices.some(index => !Number.isFinite(physicalHeights[index]))) throw new Error('Terrain physical heights must match indexed vertices');
+            if (physicalHeights.length !== options.positions.length / 3) throw new Error('Terrain physical heights must match indexed vertices');
+            for (let offset = 0; offset < options.indices.length; offset++) if (!Number.isFinite(physicalHeights[options.indices[offset]])) throw new Error('Terrain physical heights must match indexed vertices');
             this.physicalHeights = Float64Array.from(physicalHeights);
         }
+    }
+
+    /** Exact retained typed arrays; snapshots cannot mutate query ownership. */
+    getStatistics(): TerrainMeshStatistics {
+        return {geometryBytes: this.queryIndex.geometryBytes + (this.physicalHeights?.byteLength ?? 0), queryIndexBytes: this.queryIndex.hierarchyBytes, requiredQueryIndexBytes: this.queryIndex.requiredHierarchyBytes};
     }
 
     /** Two-sided indexed math.gl queries; distance is normalized to the surface's coordinate units. */
@@ -105,32 +106,26 @@ export class TerrainMeshSurface implements TerrainSurface {
         if (maxDistance < 0 || Number.isNaN(maxDistance)) throw new Error('Terrain ray distance must be non-negative');
         const length = Math.hypot(...ray.direction);
         if (ray.origin.length !== 3 || ray.direction.length !== 3 || !ray.origin.every(Number.isFinite) ||
-            !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0 || !this.indices.length) return null;
+            !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0 || !this.queryIndex.triangleCount) return null;
         const direction: [number, number, number] = [ray.direction[0] / length, ray.direction[1] / length, ray.direction[2] / length];
-        if (intersectRayBounds(ray.origin, direction, this.minimum, this.maximum, maxDistance) === null) return null;
-        this.queryIndex ??= new TriangleQueryIndex(this.positions, this.indices);
         const hit = this.queryIndex.queryRay(ray.origin, direction, maxDistance, candidate => {
             if (this.projection === 'globe' && Math.hypot(ray.origin[0] + direction[0] * candidate.parameter,
                 ray.origin[1] + direction[1] * candidate.parameter, ray.origin[2] + direction[2] * candidate.parameter) === 0) return false;
             if (!this.cullBackfaces) return true;
-            const offsets = [0, 1, 2].map(vertex => this.indices[candidate.triangleIndex * 3 + vertex] * 3);
-            const first = new Vector3(this.positions.slice(offsets[0], offsets[0] + 3));
-            const normal = new Vector3(this.positions.slice(offsets[1], offsets[1] + 3)).subtract(first)
-                .cross(new Vector3(this.positions.slice(offsets[2], offsets[2] + 3)).subtract(first));
+            const vertices = [0, 1, 2].map(vertex => this.queryIndex.getTriangleVertex(candidate.triangleIndex, vertex).position);
+            const first = new Vector3(vertices[0]);
+            const normal = new Vector3(vertices[1]).subtract(first).cross(new Vector3(vertices[2]).subtract(first));
             return normal.dot(direction) < 0;
         }).hit;
         if (!hit) return null;
         const index = hit.triangleIndex * 3;
-        const vertices = [0, 1, 2].map((offset): [number, number, number] => {
-            const start = this.indices[index + offset] * 3;
-            return [this.positions[start], this.positions[start + 1], this.positions[start + 2]];
-        });
+        const vertices = [0, 1, 2].map(offset => this.queryIndex.getTriangleVertex(hit.triangleIndex, offset).position);
         const position: [number, number, number] = [ray.origin[0] + direction[0] * hit.parameter,
             ray.origin[1] + direction[1] * hit.parameter, ray.origin[2] + direction[2] * hit.parameter];
         const normal = new Vector3(vertices[1]).subtract(vertices[0]).cross(new Vector3(vertices[2]).subtract(vertices[0])).normalize();
         const coordinate = getGeographicProjectionProcedure(this.projection).unproject(position);
         const physicalHeights = this.physicalHeights;
-        if (physicalHeights) coordinate[2] = hit.barycentric.reduce((height, weight, vertex) => height + weight * physicalHeights[this.indices[index + vertex]], 0);
+        if (physicalHeights) coordinate[2] = hit.barycentric.reduce((height, weight, vertex) => height + weight * physicalHeights[this.queryIndex.getTriangleVertex(hit.triangleIndex, vertex).index], 0);
         return {position, coordinate,
             distance: hit.parameter, normal: [normal[0], normal[1], normal[2]], triangleIndex: index / 3, barycentric: hit.barycentric};
     }

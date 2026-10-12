@@ -8,6 +8,9 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- Globe terrain adds atomic display-memory admission and bounded lazy picking
+  acceleration. Query geometry is retained once; a zero hierarchy budget keeps
+  exact linear picking. Diagnostics report retained arrays and CPU update/pick time.
 - Tangram source, renderer bundles, fixtures, and renderer tests now live in
   `modules/tangram-renderer`.
 - The deck.gl adapter is a separate `@vis.gl/tangram-layers` workspace. Both

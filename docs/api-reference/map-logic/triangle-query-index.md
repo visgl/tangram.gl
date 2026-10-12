@@ -34,7 +34,19 @@ triangle ID. Each balanced partition uses the existing lightweight `quickselect`
 dependency to split the longest bounds axis without fully sorting each level. Build cost
 and retained arrays grow with mesh size; heavily overlapping geometry can still
 require linear query work. `triangleCount` and `arrayBytes` expose triangle count
-and typed-array bytes; `arrayBytes` excludes hierarchy-object overhead.
+and exact retained typed-array bytes. Nodes use packed Float64 bounds and Uint32
+topology, not retained per-node JavaScript objects. `geometryBytes` counts the
+immutable positions and original indices; `hierarchyBytes` counts acceleration
+storage. `requiredHierarchyBytes` is available before allocation.
+
+The optional fourth constructor argument is `{lazy, maxHierarchyBytes}`.
+`lazy: true` defers acceleration until a ray intersects the whole-mesh bounds.
+`maxHierarchyBytes` is a non-negative integer cap on retained hierarchy arrays;
+when the complete hierarchy cannot fit, queries test triangles linearly with the
+same clipping, acceptance and tie rules. Zero disables acceleration, not picking.
+Construction scratch, JavaScript objects and caller buffers are not included.
+`getTriangleVertex(triangleIndex, vertex)` returns a detached position and its
+original vertex index without exposing mutable backing storage.
 
 ## Rays and clipping
 
@@ -49,7 +61,11 @@ hits. Rejected hits do not clip away farther valid geometry; terrain uses this t
 skip the geographically undefined globe center. Keep predicates deterministic
 and avoid mutating the supplied hit.
 
-`TerrainMeshSurface` builds this index lazily for physical Mercator/globe queries.
+`TerrainMeshSurface` owns one copied geometry snapshot in this index and builds
+only its hierarchy lazily. Its `maxQueryIndexBytes` option controls that hierarchy;
+`getStatistics()` reports geometry, allocated hierarchy and required hierarchy
+bytes. Physical heights have their own detached Float64 snapshot. A first pick
+no longer duplicates the geometry arrays.
 The [terrain example](../../developer-guide/terrain.md) retains a separate
 common-space index per top mesh, projecting screen rays with the current deck
 viewport. Visual skirts never enter these queries.

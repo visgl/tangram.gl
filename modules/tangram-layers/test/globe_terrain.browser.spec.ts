@@ -158,3 +158,39 @@ test('completed cooperative snapshots render and pick identically without synchr
     expect(() => forged.updateState(prepare(forged))).toThrow('completed snapshot');
     preparation.destroy();
 });
+
+test('display preflight rejects replacements atomically while zero query budget preserves exact picking', () => {
+    const source = grid(), layer = new GlobeTerrainLayer({id: 'bounded', data: [source], meshResolution: 8, maxQueryIndexBytes: 0});
+    layer.updateState(prepare(layer));
+    const initial = layer.getStatistics(), surfaces = layer.state.surfaces, mesh = layer.renderLayers()[0].props.mesh;
+    const template = layer.state.prepared![0].template;
+    expect(initial.displayBytes).toBe(template.vertexCount * 56 + template.triangleCount * 24);
+    expect(layer.pickTerrain(layer.context.viewport, [266, 180])?.coordinate[2]).toBeCloseTo(1000);
+    expect(layer.getStatistics().queryIndexBytes).toBe(0);
+    const replacement = new GlobeTerrainLayer({id: 'bounded', data: [grid(2000)], meshResolution: 8, maxDisplayBytes: initial.displayBytes, maxQueryIndexBytes: 0});
+    replacement.state = layer.state; replacement.updateState(prepare(replacement));
+    expect(replacement.getStatistics().error).toContain('previous terrain retained');
+    expect(replacement.state.surfaces).toBe(surfaces);
+    expect(replacement.renderLayers()[0].props.mesh).toBe(mesh);
+    expect(replacement.pickTerrain(replacement.context.viewport, [266, 180])?.coordinate[2]).toBeCloseTo(1000);
+    const admitted = new GlobeTerrainLayer({id: 'bounded', data: replacement.props.data, meshResolution: 8, maxDisplayBytes: initial.displayBytes * 2, maxQueryIndexBytes: 0});
+    admitted.state = replacement.state; admitted.updateState(prepare(admitted));
+    expect(admitted.getStatistics().error).toBeUndefined();
+    expect(admitted.pickTerrain(admitted.context.viewport, [266, 180])?.coordinate[2]).toBeCloseTo(2000);
+    const removed = new GlobeTerrainLayer({id: 'bounded', data: [], maxDisplayBytes: 0}); removed.state = admitted.state; removed.updateState(prepare(removed));
+    expect(removed.getStatistics().displayBytes).toBe(0); expect(removed.renderLayers()).toEqual([]);
+});
+
+test('unchanged geometry fits an exact display cap; current per-tile acceleration cannot exceed the shared cap', () => {
+    const source = grid(), layer = new GlobeTerrainLayer({data: [source], meshResolution: 8, maxQueryIndexBytes: 1}); layer.updateState(prepare(layer));
+    const bytes = layer.getStatistics().displayBytes;
+    const unchanged = new GlobeTerrainLayer({data: [source], meshResolution: 8, maxDisplayBytes: bytes, maxQueryIndexBytes: 1, wireframe: true});
+    unchanged.state = layer.state; unchanged.updateState(prepare(unchanged));
+    expect(unchanged.getStatistics().error).toBeUndefined(); expect(unchanged.state.surfaces[0]).toBe(layer.state.surfaces[0]);
+    unchanged.pickTerrain(unchanged.context.viewport, [266, 180]); expect(unchanged.getStatistics().queryIndexBytes).toBeLessThanOrEqual(1);
+    const empty = new GlobeTerrainLayer({data: [source], maxDisplayBytes: 0}); empty.updateState(prepare(empty));
+    expect(empty.renderLayers()).toEqual([]); expect(empty.getStatistics().displayBytes).toBe(0);
+    for (const limit of [-1, 0.5, Infinity, NaN]) for (const key of ['maxDisplayBytes', 'maxQueryIndexBytes']) {
+        const invalid = new GlobeTerrainLayer({data: [], [key]: limit}); expect(() => invalid.updateState(prepare(invalid))).toThrow('byte limits');
+    }
+});

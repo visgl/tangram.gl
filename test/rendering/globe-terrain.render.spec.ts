@@ -48,6 +48,18 @@ test(`${DEVICE_TYPE}: spherical terrain grows at 100×, remains interactive and 
     await expect.poll(() => layer.pickTerrain(deck!.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
     expect(layer.state.surfaces[0]).toBe(flatSurface);
     expect(layer.state.prepared?.[0].template).toBe(template);
+    // Admission failure must keep the old draw/query generation, not publish an empty frame.
+    const displayedBytes = layer.getStatistics().displayBytes;
+    const limited = new GlobeTerrainLayer({id: 'terrain', data: [grid], meshResolution: 64, globeTerrainExaggeration: 1, maxDisplayBytes: displayedBytes, maxQueryIndexBytes: 0});
+    deck.setProps({layers: [limited]});
+    await expect.poll(() => limited.getStatistics().error).toContain('previous terrain retained');
+    expect(limited.state.surfaces[0]).toBe(flatSurface);
+    expect(limited.pickTerrain(deck.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
+    const linear = new GlobeTerrainLayer({id: 'terrain', data: [grid], meshResolution: 64, globeTerrainExaggeration: 1, maxQueryIndexBytes: 0});
+    deck.setProps({layers: [linear]});
+    await expect.poll(() => linear.state.exaggeration).toBe(1);
+    expect(linear.pickTerrain(deck.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
+    expect(linear.getStatistics().queryIndexBytes).toBe(0);
 });
 
 test(`${DEVICE_TYPE}: stitched 2:1 spherical terrain has no background gap at the shared edge`, async () => {

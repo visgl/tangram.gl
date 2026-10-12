@@ -17,7 +17,7 @@ export {TERRARIUM_DECODER, TERRAIN_RGB_DECODER, decodeTerrainHeightGrid, sampleT
 export {sampleTerrainNeighborhood, resampleTerrainNodes} from './terrain-neighborhood';
 export type {ElevationDecoder, TerrainGridOptions, TerrainHeightGrid} from './terrain-data';
 export {TriangleQueryIndex} from './triangle-query-index';
-export type {IndexedTriangleHit, TriangleQueryResult} from './triangle-query-index';
+export type {IndexedTriangleHit, TriangleQueryResult, TriangleQueryIndexOptions} from './triangle-query-index';
 export {buildGlobeTerrainMesh, prepareGlobeTerrainMesh, prepareGlobeTerrainMeshSteps, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration} from './globe-terrain';
 export type {GlobeTerrainMesh, GlobeTerrainMeshTemplate} from './globe-terrain';
 export {GlobeTerrainPreparation, getPreparedGlobeTerrainTemplate} from './globe-terrain-preparation';

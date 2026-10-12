@@ -31,9 +31,9 @@ function linear(positions: number[], indices: number[], origin: [number, number,
     return nearest;
 }
 
-test.each([1, 8, 64])('indexed rays conform to the linear math.gl oracle with leaf size %s', leafSize => {
+test.each([{leafSize: 1}, {leafSize: 8}, {leafSize: 64}, {leafSize: 8, maxHierarchyBytes: 0}])('indexed or budget-fallback rays conform to the linear math.gl oracle: %j', ({leafSize, maxHierarchyBytes}) => {
     const {positions, indices} = fixture();
-    const index = new TriangleQueryIndex(positions, indices, leafSize);
+    const index = new TriangleQueryIndex(positions, indices, leafSize, {maxHierarchyBytes});
     for (const column of [-1, 0, 31, 73, 127, 128]) for (const direction of [[0, 0, -1], [0, 0, -100], [0, 0, 1], [1, 0, 0]] satisfies [number, number, number][]) {
         const origin: [number, number, number] = [column * 3 + 0.4, 0.5, 10];
         for (const maximum of [0, 0.05, 5, 6, Infinity]) expect(index.queryRay(origin, direction, maximum).hit).toEqual(linear(positions, indices, origin, direction, maximum));

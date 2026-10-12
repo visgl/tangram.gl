@@ -21,6 +21,25 @@ interface PreparedGlobeTerrainTile {
     exaggeration: number;
     mesh: ReturnType<typeof getTerrainRenderMesh>;
     surface: TerrainMeshSurface;
+    queryLimit: number;
+}
+
+/** Exact retained display/query arrays and CPU timings, not total process/GPU memory. */
+export interface GlobeTerrainLayerStatistics {
+    /** Actual admitted tiles, which can differ from requested data after a failed replacement. */
+    tileCount: number;
+    /** Actual admitted display multiplier; zero before initial admission. */
+    exaggeration: number;
+    /** Packed geographic/color/index buffers plus immutable query geometry and physical heights. */
+    displayBytes: number;
+    /** Current lazy query hierarchy bytes, bounded independently from display storage. */
+    queryIndexBytes: number;
+    /** Current display-generation admission failure; previous geometry remains visible and pickable. */
+    error?: string;
+    /** Most recent synchronous update, including validation, rescaling and query snapshots. */
+    updateMs: number;
+    /** Most recent complete picking call, including any lazy index construction. */
+    queryMs: number;
 }
 
 /** Non-instanced mesh input stays stable across camera and display updates. */
@@ -36,6 +55,10 @@ export type GlobeTerrainLayerProps = LayerProps & {
     meshResolution?: number;
     /** Optional cooperatively prepared complete generation, matching data identities/order and meshResolution. */
     preparedTerrain?: GlobeTerrainPreparationSnapshot;
+    /** Current plus replacement display/query geometry typed-array cap; defaults to 128 MiB. */
+    maxDisplayBytes?: number;
+    /** Total current lazy query hierarchy typed-array cap; defaults to 64 MiB. */
+    maxQueryIndexBytes?: number;
     /** Show triangle edges rather than shaded terrain. */
     wireframe?: boolean;
 };
@@ -56,10 +79,21 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
     static defaultProps = {
         globeTerrainExaggeration: {type: 'number', value: 100, min: 0, max: 1000},
         meshResolution: {type: 'number', value: 64, min: 2, max: 256},
-        wireframe: false
+        wireframe: false,
+        maxDisplayBytes: {type: 'number', value: 128 * 1024 * 1024, min: 0},
+        maxQueryIndexBytes: {type: 'number', value: 64 * 1024 * 1024, min: 0}
     };
     /** Immutable display meshes and their lazy triangle-query snapshots. */
-    declare state: {layers: SimpleMeshLayer[]; surfaces: TerrainMeshSurface[]; exaggeration: number; prepared?: PreparedGlobeTerrainTile[]; resolution?: number};
+    declare state: {layers: SimpleMeshLayer[]; surfaces: TerrainMeshSurface[]; exaggeration: number; prepared?: PreparedGlobeTerrainTile[]; resolution?: number; memoryError?: string; updateMs?: number; queryMs?: number};
+
+    /** Detached current storage/timing diagnostics; index bytes may grow only on an intersecting query. */
+    getStatistics(): GlobeTerrainLayerStatistics {
+        const tiles = this.state?.prepared ?? [];
+        return {tileCount: tiles.length, exaggeration: this.state?.exaggeration ?? 0, displayBytes: tiles.reduce((sum, tile) => sum + this.getDisplayBytes(tile.template), 0), queryIndexBytes: tiles.reduce((sum, tile) => sum + tile.surface.getStatistics().queryIndexBytes, 0), error: this.state?.memoryError, updateMs: this.state?.updateMs ?? 0, queryMs: this.state?.queryMs ?? 0};
+    }
+
+    /** Geographic/color buffers, render topology and one owned query snapshot; no duplicate index geometry. */
+    private getDisplayBytes(template: GlobeTerrainMeshTemplate): number {return template.vertexCount * 56 + template.triangleCount * 24;}
 
     /** Recompute display geometry when the camera changes scale, not on every animation tick. */
     shouldUpdateState({changeFlags}: UpdateParameters<this>): boolean {
@@ -68,6 +102,8 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
 
     /** Keep each eye's display multiplier tied to the active viewport; grids remain physically unchanged. */
     updateState({changeFlags}: UpdateParameters<this>): void {
+        const started = performance.now();
+        for (const limit of [this.props.maxDisplayBytes, this.props.maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit! < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
         if (this.props.modelMatrix || this.props.extensions.length) throw new Error('Globe terrain does not support vertex transforms or layer extensions');
         if (this.props.data.some(grid => grid.verticalDatum !== this.props.data[0].verticalDatum)) throw new Error('Globe terrain grids require one compatible vertical datum');
         if (new Set(this.props.data.map(grid => grid.bounds.join(','))).size !== this.props.data.length) throw new Error('Globe terrain grids must have distinct footprints');
@@ -77,19 +113,35 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
         if (!changeFlags.propsOrDataChanged && this.state.exaggeration === exaggeration) return;
         const circumference = 2 * Math.PI * 6378137;
         const previous = new Map(this.state.prepared?.map(tile => [tile.grid, tile]));
-        const prepared = this.props.data.map(grid => {
+        const queryLimit = Math.floor(this.props.maxQueryIndexBytes! / Math.max(1, this.props.data.length));
+        const candidates = this.props.data.map(grid => {
             // Sampling and stitching only depend on touching footprints, including wrapped corners.
             const neighbors = this.props.data.filter(candidate => candidate !== grid && [-circumference, 0, circumference].some(shift =>
                 candidate.bounds[0] + shift <= grid.bounds[2] && candidate.bounds[2] + shift >= grid.bounds[0] && candidate.bounds[1] <= grid.bounds[3] && candidate.bounds[3] >= grid.bounds[1]));
             const retained = previous.get(grid);
             const sameNeighborhood = retained && this.state.resolution === this.props.meshResolution && retained.neighbors.length === neighbors.length && retained.neighbors.every((neighbor, index) => neighbor === neighbors[index]);
             const template = snapshot ? getPreparedGlobeTerrainTemplate(snapshot, grid) : sameNeighborhood ? retained.template : prepareGlobeTerrainMesh(grid, {resolution: this.props.meshResolution, neighbors});
-            if (sameNeighborhood && retained.template === template && retained.exaggeration === exaggeration) return retained;
-            const mesh = scaleGlobeTerrainMesh(template, exaggeration);
-            return {grid, neighbors, template, exaggeration, mesh: getTerrainRenderMesh(mesh),
-                surface: new TerrainMeshSurface({projection: 'globe', positions: mesh.positions, indices: mesh.indices, physicalHeights: mesh.physicalHeights, cullBackfaces: true})};
+            // A changed tile count must not churn warm geometry when the complete hierarchy still fits.
+            const requiredBytes = retained ? retained.surface.getStatistics().requiredQueryIndexBytes : 0;
+            const sameQueryPolicy = retained && (requiredBytes <= retained.queryLimit) === (requiredBytes <= queryLimit);
+            const reuse = sameNeighborhood && retained.template === template && retained.exaggeration === exaggeration && sameQueryPolicy;
+            return {grid, neighbors, template, retained: reuse ? retained : undefined};
         });
-        this.setState({exaggeration,
+        // Preflight the peak retained current + new geometry, counting reused tiles only once.
+        const retainedBytes = this.getStatistics().displayBytes;
+        const replacementBytes = candidates.reduce((sum, tile) => sum + (tile.retained ? 0 : this.getDisplayBytes(tile.template)), 0);
+        const displayedBytes = candidates.reduce((sum, tile) => sum + this.getDisplayBytes(tile.template), 0);
+        if (displayedBytes > this.props.maxDisplayBytes! || replacementBytes > 0 && retainedBytes + replacementBytes > this.props.maxDisplayBytes!) {
+            this.setState({memoryError: 'Globe terrain display-byte limit exceeded; previous terrain retained', updateMs: performance.now() - started});
+            return;
+        }
+        const prepared = candidates.map(({grid, neighbors, template, retained}) => {
+            if (retained) return retained;
+            const mesh = scaleGlobeTerrainMesh(template, exaggeration);
+            return {grid, neighbors, template, exaggeration, queryLimit, mesh: getTerrainRenderMesh(mesh),
+                surface: new TerrainMeshSurface({projection: 'globe', positions: mesh.positions, indices: mesh.indices, physicalHeights: mesh.physicalHeights, cullBackfaces: true, maxQueryIndexBytes: queryLimit})};
+        });
+        this.setState({exaggeration, memoryError: undefined, updateMs: performance.now() - started,
             prepared, resolution: this.props.meshResolution,
             surfaces: prepared.map(tile => tile.surface),
             layers: prepared.map(tile => new SimpleMeshLayer(this.getSubLayerProps({id: `mesh-${tile.grid.bounds.join(',')}`}), {
@@ -101,10 +153,11 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
     }
 
     /** Draw curved physical terrain, independently of the basemap's styling/tile lifecycle. */
-    renderLayers(): SimpleMeshLayer[] {return this.state.layers;}
+    renderLayers(): SimpleMeshLayer[] {return this.state.layers ?? [];}
 
     /** Query displayed triangles but return barycentrically interpolated physical source meters. */
     pickTerrain(viewport: Viewport, pixel: readonly [number, number]): TerrainSurfaceHit | null {
+        const started = performance.now();
         getGlobeScreenRatio(viewport);
         if (pixel.length !== 2 || !pixel.every(Number.isFinite)) throw new Error('Globe terrain pixels must be finite');
         const inverse = new Matrix4(viewport.viewProjectionMatrix).invert();
@@ -116,6 +169,7 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
             const hit = surface.intersectRay({origin, direction}, Math.hypot(...direction));
             if (hit && (!nearest || hit.distance < nearest.distance)) nearest = hit;
         }
+        if (this.state) this.state.queryMs = performance.now() - started;
         return nearest;
     }
 }

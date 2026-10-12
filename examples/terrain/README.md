@@ -48,6 +48,13 @@ changes; visual skirts never enter picking.
 
 ## Globe terrain
 
+Display/query geometry has a separate 128 MiB retained-array admission cap;
+failed replacements keep the previous complete generation visible and pickable.
+Lazy query hierarchies have a 64 MiB shared cap, with exact linear picking when
+acceleration cannot fit. The info card reports retained display/query storage and
+last CPU update/pick time. Mount options `maxDisplayBytes` and `maxQueryIndexBytes`
+configure these caps; neither includes transient allocations, JavaScript heap or GPU memory.
+
 The native `/tangram.gl/examples/deck-globe-terrain` page mounts
 `mountGlobeTerrainExample`. It keeps a complete coarse world cover and refines
 visible regions with a balanced hierarchy, parent-first loading, warm cache,
