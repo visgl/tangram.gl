@@ -4,6 +4,32 @@
 
 import {expect, test, vi} from 'vitest';
 import Renderer from '../src/scene/renderer';
+import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
+
+/** Physical fields small enough to exercise generation policy without GPU fixtures. */
+function field(height: number, verticalDatum: TerrainHeightGrid['verticalDatum'] = 'orthometric'): TerrainHeightGrid {
+    return {width: 2, height: 2, bounds: [-1, -1, 1, 1], heights: new Float32Array(4).fill(height), valid: new Uint8Array(4).fill(1), registration: 'grid-node', verticalDatum};
+}
+
+test('automatic previous fields enforce joint budgets and datum, then release obsolete height limits', async () => {
+    const renderer = Renderer.create({}, {terrain: {grids: [field(-10000)]}});
+    vi.spyOn(renderer.scene, 'rebuild').mockResolvedValue(undefined);
+    await renderer.setTerrain({grids: [field(0)]});
+    expect(renderer.scene.terrain?.minimumHeight).toBe(-10000);
+    expect(renderer.scene.terrain?.previousGrids[0].heights[0]).toBe(-10000);
+    expect(() => renderer.setTerrainExaggeration(1000)).toThrow(/invert/);
+    await renderer.setTerrain({grids: [field(0)]});
+    expect(renderer.scene.terrain?.minimumHeight).toBe(0);
+    expect(() => renderer.setTerrainExaggeration(1000)).not.toThrow();
+    const admitted = renderer.scene.terrain;
+    await expect(renderer.setTerrain({grids: [field(0)], maxGridBytes: 30})).rejects.toThrow(/current\/previous/);
+    await expect(renderer.setTerrain({grids: [field(0, 'ellipsoidal')]})).rejects.toThrow(/datum/);
+    expect(renderer.scene.terrain).toBe(admitted);
+    await renderer.setTerrain({grids: [field(0, 'ellipsoidal')], previousGrids: []});
+    expect(renderer.scene.terrain?.previousGrids).toHaveLength(0);
+    expect(renderer.scene.terrain?.byteLength).toBe(20);
+    renderer.destroy();
+});
 
 test('queued terrain snapshots coalesce, serialize and keep source caches warm', async () => {
     const renderer = Renderer.create({}, {terrain: {grids: []}});

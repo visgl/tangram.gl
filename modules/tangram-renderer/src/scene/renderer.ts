@@ -148,7 +148,13 @@ export default class Renderer {
                 const byteLength = terrain.byteLength + previous.grids.reduce((bytes, grid) => bytes + grid.heights.byteLength + grid.valid.byteLength, 0);
                 if (byteLength > terrain.maxGridBytes) throw new Error('Terrain draping current/previous grid-byte budget exceeded');
                 if (previous.grids[0].verticalDatum !== terrain.grids[0].verticalDatum) throw new Error('Terrain draping previous datum must match');
-                terrain = {...terrain, previousGrids: previous.grids, byteLength, minimumHeight: Math.min(terrain.minimumHeight, previous.minimumHeight)};
+                // Only the previous current grids survive this update. Its own older
+                // morph field must not permanently constrain future exaggeration.
+                const minimumPreviousHeight = previous.grids.reduce((minimum, grid) => {
+                    for (let index = 0; index < grid.heights.length; index++) if (grid.valid[index]) minimum = Math.min(minimum, grid.heights[index]);
+                    return minimum;
+                }, 0);
+                terrain = {...terrain, previousGrids: previous.grids, byteLength, minimumHeight: Math.min(terrain.minimumHeight, minimumPreviousHeight)};
             }
             if (terrain.minimumHeight * this.scene.terrainExaggeration <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
             this.scene.terrain = terrain;

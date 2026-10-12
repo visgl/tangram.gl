@@ -139,11 +139,22 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
           record.terrain = props.terrain;
           const terrain = props.terrain;
           const revision = record.terrainRevision = (record.terrainRevision || 0) + 1;
-          Promise.resolve(record.loadPromise).then(() => {
-            if (!record.disposed && revision === record.terrainRevision && terrain) return record.renderer.setTerrain(terrain);
+          record.terrainPendingRevision = revision;
+          Promise.resolve(record.loadPromise).then(async () => {
+            try {
+              if (!record.disposed && revision === record.terrainRevision && terrain) {
+                await record.renderer.setTerrain(terrain);
+                if (!record.disposed && revision === record.terrainRevision) {
+                  record.terrainPendingRevision = 0;
+                  record.renderer.setTerrainExaggeration(record.owner.props.terrainExaggeration ?? 1);
+                }
+              }
+            } finally {
+              if (record.terrainPendingRevision === revision) record.terrainPendingRevision = 0;
+            }
           }).catch(error => {if (!record.disposed && revision === record.terrainRevision) this._raiseBridgeError(normalizeError(error));});
         }
-        if (props.terrain) {
+        if (props.terrain && !record.terrainPendingRevision) {
           try {record.renderer.setTerrainExaggeration(props.terrainExaggeration ?? 1);}
           catch (error) {this._raiseBridgeError(normalizeError(error));}
         }
@@ -281,6 +292,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         apiKey: props.apiKey,
         projectionEngine: props.projectionEngine ?? undefined,
         terrain: props.terrain,
+        terrainPendingRevision: 0,
         projectionEngineExecution: props.projectionEngineExecution ?? undefined,
         maxConcurrentTileLoadsPerWorker: props.maxConcurrentTileLoadsPerWorker ?? undefined,
         canvasWidth: null,

@@ -25,7 +25,19 @@ test('terrain props rebuild the existing renderer, while enabling/disabling repl
         const next = {grids: [], maxSegmentLength: 100};
         layer.props = {scene, ...callbacks, terrain: next, terrainExaggeration: 2}; layer.updateState({props: layer.props}); await Promise.resolve(); await Promise.resolve();
         expect(layer.state.tangramRecord).toBe(first); expect(first.renderer.setTerrain).toHaveBeenCalledWith(next);
-        expect(first.renderer.setTerrainExaggeration).toHaveBeenLastCalledWith(2);
+        await expect.poll(() => first.renderer.setTerrainExaggeration.mock.calls.at(-1)?.[0]).toBe(2);
+        let finish: () => void = () => {};
+        first.renderer.setTerrain.mockImplementationOnce(() => new Promise<void>(resolve => {finish = resolve;}));
+        first.renderer.setTerrainExaggeration.mockClear();
+        const replacement = {grids: [], previousGrids: []};
+        layer.props = {scene, ...callbacks, terrain: replacement, terrainExaggeration: 1000}; layer.updateState({props: layer.props});
+        await Promise.resolve(); await Promise.resolve();
+        expect(first.renderer.setTerrainExaggeration).not.toHaveBeenCalled();
+        // Exaggeration-only updates during the rebuild also wait, and the latest owner wins.
+        layer.props = {...layer.props, terrainExaggeration: 500}; layer.updateState({props: layer.props});
+        expect(first.renderer.setTerrainExaggeration).not.toHaveBeenCalled();
+        finish();
+        await expect.poll(() => first.renderer.setTerrainExaggeration.mock.calls.at(-1)?.[0]).toBe(500);
         layer.props = {scene, ...callbacks}; layer.updateState({props: layer.props}); await layer.state.tangramRecord.loadPromise;
         expect(first.renderer.destroy).toHaveBeenCalledOnce();
         const flat = layer.state.tangramRecord;
