@@ -8,7 +8,8 @@ import {webgpuAdapter} from '@luma.gl/webgpu';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainScreenQuery, type TerrainScreenHit} from './picking';
 import {terrainMarkup} from './view';
-import {decodeTerrainInWorker} from './worker-client';
+import {TerrainDecoderPool} from './decoder-pool';
+import {formatTerrainDecoderStatus} from './decoder-status';
 import {selectTerrainTiles, getTerrainTileKey, getTerrainTileBounds} from './tile-selection';
 import {TerrainTileset} from './terrain-tileset';
 import {buildTerrainRenderMesh, terrainGridsTouch, type TerrainRenderMesh} from './terrain-mesh';
@@ -83,6 +84,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
   let detailZoom: number | undefined;
   let detailLimited = false;
   let tileset: TerrainTileset | undefined;
+  const decoder = new TerrainDecoderPool(workerUrl);
   /** Only drawable meshes are retained; off-screen payloads remain in the bounded source cache. */
   const geometry = new Map<string, {signature: string; mesh: TerrainRenderMesh; bounds: [number, number, number, number]; revision: number; query: TerrainScreenQuery}>();
   const payloadIds = new WeakMap<object, number>();
@@ -162,11 +164,12 @@ export function mountTerrainExample(host: HTMLElement, options: {
     if (updateAnchor()) schedule();
     deck.setProps({layers, viewState: camera});
     const statistics = tileset.getStatistics();
+    element('decoder-status').textContent = formatTerrainDecoderStatus(decoder.getStatistics(), statistics);
     status.textContent = `${deviceType === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${drawable.length} tiles · ${triangles} triangles · data z${detailZoom}${detailLimited ? ' (source/footprint limit)' : ''} · ${statistics.active} active / ${statistics.queued} queued · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(1)} MB cached${follow.checked ? ` · terrain anchor ${anchorAvailable ? `${camera.position?.[2].toFixed(1)} m` : 'waiting — height held'}` : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure?.slice(0, 200)} — retry available` : ''}`;
   }
   tileset = new TerrainTileset({
     fetch: (tile, signal) => source.fetchTile(tile, signal), minZoom: source.minZoom, maxZoom: source.maxZoom,
-    decode: (bytes, tile, meshMaxError, signal) => decodeTerrainInWorker(workerUrl, bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), meshMaxError, signal, source.noData),
+    decode: (bytes, tile, meshMaxError, signal) => decoder.decodeMesh(bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), meshMaxError, signal, source.noData),
     onChange: schedule, maxResidentBytes: options.maxResidentBytes
   });
   const observer = new ResizeObserver(() => {if (!disposed) {deck.setProps({width: container.clientWidth, height: container.clientHeight}); schedule();}});
@@ -203,6 +206,6 @@ export function mountTerrainExample(host: HTMLElement, options: {
   const ready = tileset.waitForIdle().then(() => {if (!disposed) updateLayers();});
   return {ready, destroy() {
     if (disposed) return;
-    disposed = true; abort.abort(); cancelAnimationFrame(animationFrame); tileset?.destroy(); geometry.clear(); observer.disconnect(); destroyCard(); deck.finalize(); root.remove();
+    disposed = true; abort.abort(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); geometry.clear(); observer.disconnect(); destroyCard(); deck.finalize(); root.remove();
   }};
 }

@@ -9,7 +9,7 @@ import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 
 const mocks = vi.hoisted(() => {
     const selected: {tiles: TerrainTileCoordinate[] | null} = {tiles: null};
-    return {selected, build: vi.fn((data: object) => ({loaded: data, renderMesh: 'mesh' in data ? data.mesh : null})), construct: vi.fn(), finalize: vi.fn(), setProps: vi.fn(),
+    return {selected, decoderDestroy: vi.fn(), build: vi.fn((data: object) => ({loaded: data, renderMesh: 'mesh' in data ? data.mesh : null})), construct: vi.fn(), finalize: vi.fn(), setProps: vi.fn(),
     viewport: {id: 'terrain'}, anchor: vi.fn<() => number | null>(() => null), pick: vi.fn(() => ({coordinate: [7, 46, 1234], triangleIndex: 1, rayParameter: 0.5})),
     parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}, attributes: {}}, grid: {width: 2, height: 2, bounds: [0, 0, 2, 2], heights: new Float32Array(4), valid: new Uint8Array(4)}}))};
 });
@@ -24,7 +24,11 @@ vi.mock('@deck.gl/core', async importOriginal => ({
 }));
 vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
-vi.mock('../examples/terrain/worker-client', () => ({decodeTerrainInWorker: mocks.parse}));
+vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
+    decodeMesh = mocks.parse;
+    destroy = mocks.decoderDestroy;
+    getStatistics = () => ({created: 2, active: 0, idle: 2, completed: 2, failed: 0, cancelled: 0});
+}}));
 vi.mock('../examples/terrain/terrain-mesh', async importOriginal => ({...(await importOriginal<typeof import('../examples/terrain/terrain-mesh')>()), buildTerrainRenderMesh: mocks.build}));
 vi.mock('../examples/terrain/ground-following', () => ({sampleTerrainAnchor: mocks.anchor}));
 vi.mock('../examples/terrain/tile-selection', async importOriginal => {
@@ -101,7 +105,7 @@ test('early settings, click picking and device changes preserve cached bytes wit
     properties.onClick({x: 100, y: 80});
     expect(mocks.pick).toHaveBeenCalledWith(mocks.viewport, [100, 80]);
     expect(host.querySelector('[data-example="terrain-hit"]')!.textContent).toContain('1234.0 m (triangle 1)');
-    expect(mocks.parse).toHaveBeenCalledWith(expect.stringContaining('terrain-worker.js'), expect.any(ArrayBuffer), [0, 0, 1, 1], 5, expect.any(AbortSignal), 'opaque');
+    expect(mocks.parse).toHaveBeenCalledWith(expect.any(ArrayBuffer), [0, 0, 1, 1], 5, expect.any(AbortSignal), 'opaque');
     const downloads = fetchMock.mock.calls.length;
     const decodes = mocks.parse.mock.calls.length;
     host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
@@ -166,7 +170,7 @@ test('injected source owns attribution, no-data and acquisition independently of
     const instance = mountTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, source, maxVisibleTiles: 1}); instances.push(instance);
     await instance.ready;
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(mocks.parse).toHaveBeenCalledWith(expect.any(String), expect.any(ArrayBuffer), expect.any(Array), expect.any(Number), expect.any(AbortSignal), 'alpha-zero');
+    expect(mocks.parse).toHaveBeenCalledWith(expect.any(ArrayBuffer), expect.any(Array), expect.any(Number), expect.any(AbortSignal), 'alpha-zero');
     const attribution = host.querySelector('[data-example="attribution"]')!;
     expect(attribution.textContent).toContain('<script>literal</script>'); expect(attribution.querySelector('script')).toBeNull();
     expect(attribution.querySelector('a')?.href).toBe('https://fixture.test/license');

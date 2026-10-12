@@ -5,7 +5,7 @@
 import type {Mesh} from '@loaders.gl/schema';
 import {worldToLngLat} from '@math.gl/web-mercator';
 import {sampleTerrainNeighborhood, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
-import type {TerrainTileData} from './decode-terrain';
+import type {TerrainTileData} from './terrain-payload';
 import {createTerrainQuerySurface, type LoadedTerrain} from './load-terrain';
 
 /** Presentation walls are separate from physical top-surface sampling and picking. */

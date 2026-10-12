@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {TerrainTileCoordinate} from './tile-selection';
-import type {TerrainNoDataPolicy} from './decode-terrain';
+import type {TerrainNoDataPolicy} from './terrain-payload';
 
 /** Visible source credit; text is never interpreted as HTML. */
 export interface TerrainSourceCredit {
