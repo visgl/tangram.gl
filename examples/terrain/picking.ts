@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {WebMercatorViewport} from '@deck.gl/core';
+import {Viewport, WebMercatorViewport, FirstPersonViewport} from '@deck.gl/core';
 import type {Mesh} from '@loaders.gl/schema';
 import {pixelsToWorld} from '@math.gl/web-mercator';
 import {TriangleQueryIndex} from '@vis.gl/tangram-renderer/map-logic';
@@ -44,19 +44,21 @@ export class TerrainScreenQuery {
     /** Detached counts for checking query acceleration and projection-cache ownership. */
     getStatistics(): {builds: number; testedTriangles: number} {return {builds: this.builds, testedTriangles: this.testedTriangles};}
 
-    /** Intersect a finite MapView CSS-pixel ray; physical altitude never includes skirts. */
+    /** Intersect a finite Map/FirstPerson canvas CSS-pixel ray, including viewport offsets. */
     pick(viewport: unknown, pixel: readonly [number, number]): TerrainScreenHit | null {
     this.testedTriangles = 0;
-    if (!(viewport instanceof WebMercatorViewport) || !pixel.every(Number.isFinite) || pixel[0] < 0 || pixel[1] < 0 || pixel[0] > viewport.width || pixel[1] > viewport.height) return null;
+    if (!(viewport instanceof Viewport) || !(viewport instanceof WebMercatorViewport || viewport instanceof FirstPersonViewport) || !viewport.isGeospatial || !pixel.every(Number.isFinite)) return null;
+    const horizontal = pixel[0] - viewport.x, vertical = pixel[1] - viewport.y;
+    if (horizontal < 0 || vertical < 0 || horizontal >= viewport.width || vertical >= viewport.height) return null;
     // Geographic unproject() varies endpoint Z by latitude: keep this ray straight in common space.
-    const near = pixelsToWorld([pixel[0], pixel[1], -1], viewport.pixelUnprojectionMatrix);
-    const far = pixelsToWorld([pixel[0], pixel[1], 1], viewport.pixelUnprojectionMatrix);
+    const near = pixelsToWorld([horizontal, vertical, -1], viewport.pixelUnprojectionMatrix);
+    const far = pixelsToWorld([horizontal, vertical, 1], viewport.pixelUnprojectionMatrix);
     if (!near.every(Number.isFinite) || !far.every(Number.isFinite)) return null;
     const origin: [number, number, number] = [near[0], near[1], near[2]];
     const direction: [number, number, number] = [far[0] - near[0], far[1] - near[1], far[2] - near[2]];
-    // WebMercatorViewport's XY mapping is fixed. Its two supported Z conventions
-    // are latitude-dependent physical meters and a latitude-independent legacy
-    // scale. These probes detect both the convention and its current scale.
+    // XY is Mercator in both accepted views. MapView's physical/legacy modes
+    // and FirstPerson's anchor-meter scale have different height mappings.
+    // Public probes detect the convention and its current scale.
     const signature = [-60, 0, 60].flatMap(latitude => viewport.projectPosition([0, latitude, 1])).join(',');
     if (!this.index || signature !== this.projectionSignature) {
         const positions = new Float64Array(this.positions.length);

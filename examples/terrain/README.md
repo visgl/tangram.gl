@@ -46,6 +46,24 @@ Projected-footprint LOD uses CSS pixels and hysteresis, not a certified terrain
 error metric. Owned query indexes prune physical top triangles and survive camera
 changes; visual skirts never enter picking.
 
+## FirstPerson terrain
+
+Open `/tangram.gl/examples/deck-first-person-terrain`, or append
+`?view=first-person` to the standalone terrain page. The same mount accepts
+`view: 'first-person'`; it owns no separate tile cache or worker pipeline.
+Standard deck controls look, translate and walk. Local source detail selects
+z10/z11/z12 (provider-clamped), with a bounded window centered on the actual
+camera including its XY meter offsets, not its fixed geographic anchor.
+
+Picking intersects finite near/far rays through Map/FirstPerson camera matrices
+and canvas-relative viewport offsets. Floor probes use physical loaded top
+triangles, not skirts. **Keep eye above terrain** clamps upward with a 20 m default
+clearance; missing terrain holds the previous height. **Lower eye to loaded terrain**
+explicitly descends to that floor, or reports unavailable coverage. This is point
+clearance, not gravity or continuous/swept collision, and it does not certify
+terrain coverage near the horizon. Device changes reuse source bytes and meshes;
+stale device callbacks and unmounted controls cannot change the active view.
+
 ## Globe terrain
 
 Display/query geometry has a separate 128 MiB retained-array admission cap;
@@ -97,6 +115,6 @@ triangles. Idle frames skip repeated queries; no target coverage reports unknown
 and no blocker means only that loaded triangles supplied none. Clear the target
 from the info card. These are CPU visibility primitives, not automatic label occlusion.
 Mercator target following uses reusable renderer collection/elevation probes;
-`resolveTerrainClearance` supplies a point-floor contract for future FirstPerson hosts,
+`resolveTerrainClearance` supplies a point-floor contract for FirstPerson hosts,
 not continuous/swept collision. No polar-cap data, temporal height morphing,
 basemap draping or immersive terrain.

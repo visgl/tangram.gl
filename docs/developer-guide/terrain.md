@@ -15,6 +15,23 @@ tiles at physical scale. It is **not** a terrain-enabled Tangram scene: vector
 basemap draping is deferred. Opt-in target following is available
 in this bounded Mercator example; it is not first-person collision physics.
 
+The [FirstPerson terrain example](/tangram.gl/examples/deck-first-person-terrain)
+uses deck's standard FirstPerson controller over the same loaded top triangles.
+Drag to look, Shift-drag to translate, arrow keys to walk and scroll to advance.
+The actual eye includes local XY meter offsets; both tile selection and the floor
+probe follow that eye, not its fixed longitude/latitude anchor. Source detail is
+explicit z10, z11 or z12 (clamped to the provider domain), with at most nine local
+tiles and their coarse parents. This bounded neighborhood is not horizon coverage
+or certified projected-error LOD. Device switches retain downloaded and decoded data.
+
+**Keep eye above terrain** clamps a point eye upward to loaded elevation plus
+clearance (20 m by default). Missing/no-data terrain holds the previous eye altitude.
+**Lower eye to loaded terrain** explicitly lowers an airborne camera to that floor;
+it does nothing when coverage is missing. These controls do not implement gravity,
+continuous/swept collision, avatar volume, walls or tunnels. Picking uses the actual
+Map/FirstPerson projection and canvas-relative viewport offsets, including split
+views, while returning unexaggerated top-triangle height rather than skirt height.
+
 The [Globe terrain example](/tangram.gl/examples/deck-globe-terrain) uses the separate
 [experimental GlobeTerrainLayer](../api-reference/globe-terrain-layer.md). It resamples
 physical height grids into curved spherical triangles, with a configurable maximum
@@ -97,8 +114,9 @@ Renderer hosts can use `TerrainSurfaceCollection`, `sampleTerrainElevation` and
 probe brackets and a Mercator point-floor constraint. The Mercator example's
 target-following helper now uses this collection/probe boundary while retaining
 its canonical longitude, source domain, highest loaded top triangle and missing-data
-hold behavior. FirstPerson controller integration and continuous collision remain
-separate work; clearance probes alone do not prevent tunneling through a slope or wall.
+hold behavior. The FirstPerson example integrates point clearance with its controller;
+continuous collision remains separate work. Clearance probes alone do not prevent
+tunneling through a slope or wall.
 
 This is not a hard frame-time or peak-memory cap: an indivisible chunk can overrun
 its target. Source grids, scratch arrays, the candidate before admission,

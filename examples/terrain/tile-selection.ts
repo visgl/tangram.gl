@@ -28,8 +28,8 @@ export function getTerrainTileBounds(zoom: number, column: number, row: number):
     return [column / count * 360 - 180, latitude(row + 1), (column + 1) / count * 360 - 180, latitude(row)];
 }
 
-/** Bounded screen-footprint selection, without enumerating a horizon-sized rectangle. */
-export function selectTerrainTiles(view: {zoom: number; longitude: number; latitude: number; getBounds(options?: {z?: number}): [number, number, number, number]}, maxTiles = 9, sourceZoom?: number): TerrainTileCoordinate[] {
+/** Bounded footprint selection; without getBounds, select a local eye-centered window, not a horizon frustum. */
+export function selectTerrainTiles(view: {zoom: number; longitude: number; latitude: number; getBounds?(options?: {z?: number}): [number, number, number, number]}, maxTiles = 9, sourceZoom?: number): TerrainTileCoordinate[] {
     if (![view.zoom, view.longitude, view.latitude].every(Number.isFinite) || !Number.isSafeInteger(maxTiles) || maxTiles < 1 || maxTiles > 25) throw new Error('Invalid terrain selection');
     // Global Mapterhorn coverage is z0-z12; finer regional archives are not assumed.
     if (sourceZoom !== undefined && (!Number.isSafeInteger(sourceZoom) || sourceZoom < 0 || sourceZoom > 12)) throw new Error('Invalid terrain source zoom');
@@ -39,15 +39,16 @@ export function selectTerrainTiles(view: {zoom: number; longitude: number; latit
     const centerColumn = (longitude + 180) / 360 * count;
     const tileRow = (latitude: number) => (1 - Math.asinh(Math.tan(Math.max(-85.0511287798066, Math.min(85.0511287798066, latitude)) * Math.PI / 180)) / Math.PI) / 2 * count;
     const centerRow = tileRow(view.latitude);
-    const bounds = view.getBounds({z: 2500});
+    const bounds = view.getBounds?.({z: 2500}) ?? [-Infinity, -85.0511287798066, Infinity, 85.0511287798066];
     const finiteBounds = bounds.every(Number.isFinite);
-    let west = finiteBounds ? (bounds[0] + 180) / 360 * count : centerColumn - 1;
-    let east = finiteBounds ? (bounds[2] + 180) / 360 * count : centerColumn + 1;
+    const fallbackRadius = view.getBounds ? 1 : Math.ceil(Math.sqrt(maxTiles));
+    let west = finiteBounds ? (bounds[0] + 180) / 360 * count : centerColumn - fallbackRadius;
+    let east = finiteBounds ? (bounds[2] + 180) / 360 * count : centerColumn + fallbackRadius;
     if (east < west) east += count;
     const shift = Math.round((centerColumn - (west + east) / 2) / count) * count;
     west += shift; east += shift;
-    const north = finiteBounds ? tileRow(bounds[3]) : centerRow - 1;
-    const south = finiteBounds ? tileRow(bounds[1]) : centerRow + 1;
+    const north = finiteBounds ? tileRow(bounds[3]) : centerRow - fallbackRadius;
+    const south = finiteBounds ? tileRow(bounds[1]) : centerRow + fallbackRadius;
     // A fixed-radius candidate window keeps allocation independent of pitch/horizon extent.
     const radius = Math.ceil(Math.sqrt(maxTiles));
     const candidates: {tile: TerrainTileCoordinate; distance: number}[] = [];

@@ -15,12 +15,13 @@ const mocks = vi.hoisted(() => {
 });
 vi.mock('@deck.gl/core', async importOriginal => ({
     WebMercatorViewport: (await importOriginal<typeof import('@deck.gl/core')>()).WebMercatorViewport,
+    FirstPersonViewport: (await importOriginal<typeof import('@deck.gl/core')>()).FirstPersonViewport,
     Deck: class {
         constructor(properties: unknown) {mocks.construct(properties);}
         finalize = mocks.finalize; setProps = mocks.setProps;
         getViewports = () => [mocks.viewport];
     },
-    MapView: class {}, LightingEffect: class {}, AmbientLight: class {}, DirectionalLight: class {}
+    MapView: class {}, FirstPersonView: class {}, LightingEffect: class {}, AmbientLight: class {}, DirectionalLight: class {}
 }));
 vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
@@ -39,12 +40,12 @@ vi.mock('../examples/terrain/picking', () => ({TerrainScreenQuery: class {pick =
 
 const hosts: HTMLElement[] = [];
 const instances: ReturnType<typeof mountTerrainExample>[] = [];
-function mount() {
+function mount(view: 'map' | 'first-person' = 'map') {
     const host = document.createElement('div');
     host.style.width = '512px'; host.style.height = '320px';
     document.body.append(host); hosts.push(host);
     const parametersChanged = vi.fn();
-    const instance = mountTerrainExample(host, {workerUrl: `${location.origin}/terrain-worker.js`, maxVisibleTiles: 1, parameters: new URLSearchParams('device=webgl'), onParametersChange: parametersChanged});
+    const instance = mountTerrainExample(host, {view, workerUrl: `${location.origin}/terrain-worker.js`, maxVisibleTiles: 1, parameters: new URLSearchParams('device=webgl'), onParametersChange: parametersChanged});
     instances.push(instance);
     return {host, instance, parametersChanged};
 }
@@ -53,6 +54,36 @@ afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); ho
 
 test('importing the runtime does not start a browser example', () => {
     expect(mocks.construct).not.toHaveBeenCalled();
+});
+
+test('FirstPerson navigation uses the offset eye, clamps loaded floors, holds missing heights and ignores stale generations', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    const {host, instance} = mount('first-person'); await instance.ready;
+    expect(host.querySelector('[data-example="title"]')?.textContent).toBe('FirstPerson terrain');
+    expect(host.querySelector<HTMLInputElement>('[data-example="follow-terrain"]')?.checked).toBe(true);
+    expect(host.querySelector<HTMLSelectElement>('[data-example="clearance"]')?.value).toBe('20');
+    const properties = mocks.construct.mock.calls[0][0];
+    if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function' || !('onClick' in properties) || typeof properties.onClick !== 'function') throw new Error('Missing FirstPerson handlers');
+    mocks.anchor.mockReturnValue(120);
+    properties.onViewStateChange({viewState: {longitude: 0.5, latitude: 0.5, position: [1000, 2000, 50], bearing: 45, pitch: 15}});
+    expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: expect.objectContaining({position: [1000, 2000, 120]})});
+    expect(mocks.anchor).toHaveBeenLastCalledWith(expect.any(Array), [expect.closeTo(0.50898, 4), expect.closeTo(0.51796, 4)], 20);
+    mocks.anchor.mockReturnValue(null);
+    properties.onViewStateChange({viewState: {longitude: 0.5, latitude: 0.5, position: [1200, 2200, 25]}});
+    expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: expect.objectContaining({position: [1200, 2200, 120]})});
+    host.querySelector<HTMLButtonElement>('[data-example="land-eye"]')!.click();
+    expect(host.querySelector('[data-example="terrain-hit"]')?.textContent).toContain('height held');
+    mocks.anchor.mockReturnValue(80);
+    host.querySelector<HTMLButtonElement>('[data-example="land-eye"]')!.click();
+    expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: expect.objectContaining({position: [1200, 2200, 80]})});
+    const downloads = mocks.parse.mock.calls.length;
+    host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
+    const calls = mocks.setProps.mock.calls.length, picks = mocks.pick.mock.calls.length;
+    properties.onViewStateChange({viewState: {position: [0, 0, -500]}}); properties.onClick({x: 100, y: 80});
+    expect(mocks.setProps).toHaveBeenCalledTimes(calls); expect(mocks.pick).toHaveBeenCalledTimes(picks);
+    expect(mocks.parse).toHaveBeenCalledTimes(downloads);
+    instance.destroy(); properties.onClick({x: 100, y: 80});
+    expect(mocks.pick).toHaveBeenCalledTimes(picks);
 });
 
 test('hard cache failures explain rejected admission and invalid host limits allocate nothing', async () => {

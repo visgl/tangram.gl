@@ -53,6 +53,7 @@ jobs:
           test -f website/build/modules/tangram-layers/dist/experimental/projected-basemaps.js
           test -f website/build/examples/deck-projected.html
           test -f website/build/examples/deck-terrain.html
+          test -f website/build/examples/deck-first-person-terrain.html
           test -n "$(find website/build/assets/js -name 'example-runtime-shared.*.js' -print -quit)"
           test -f website/build/examples/terrain/app.js
           test -f website/build/examples/terrain/terrain-worker.js
