@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, test} from 'vitest';
 import TangramLayer, {
   TangramLayer as NamedTangramLayer,
   createTangramLayerClass,
@@ -22,14 +22,17 @@ import Tangram, {
   WebMercatorVisibilityAdapter,
   calculatePlanarGroundBounds,
   convertLumaLight,
-  mapTangramLight
+  mapTangramLight,
+  TerrainSurfaceCollection as RootTerrainCollection,
+  sampleTerrainElevation as rootSampleElevation,
+  resolveTerrainClearance as rootResolveClearance
 } from '../modules/tangram-renderer/dist/index.js';
 import {TangramStyleSheetSchema} from '../modules/tangram-renderer/dist/style-schema.js';
 import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-style.schema.json';
 import {hillshade, triplanar, planar, sphereMap, heightDecode, globeHorizon} from '../modules/tangram-renderer/dist/shader-modules.js';
 import {resolveLabelPlacement, TileBuildQueue, intersectsScreenBounds,
   areGeographicLabelCopies, TileResidency, TileCachePolicy} from '../modules/tangram-renderer/dist/map-logic.js';
-import {Renderer as CoreRenderer, HostFrame as CoreHostFrame,
+import {Renderer as CoreRenderer, HostFrame as CoreHostFrame, TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance,
   calculatePlanarGroundBounds as coreGroundBounds,
   PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure,
   convertLumaLight as coreConvertLumaLight} from '../modules/tangram-renderer/dist/core.js';
@@ -44,6 +47,16 @@ import rendererPackage from '../modules/tangram-renderer/package.json';
 // the build. Check export mappings too, so these paths stay the published ones.
 
 describe('published package entrypoints', () => {
+  test('built root and core expose working terrain collection, elevation and clearance APIs', () => {
+    for (const [Collection, sample, resolve] of [[RootTerrainCollection, rootSampleElevation, rootResolveClearance], [TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance]]) {
+      const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [-2, -2, 20, 2, -2, 20, 0, 2, 20], indices: [0, 1, 2]});
+      const collection = new Collection('web-mercator', [{id: 'tile', surface}]);
+      const probe = {minimumAltitude: -10, maximumAltitude: 100};
+      expect(sample(collection, [0, 0], probe)?.coordinate[2]).toBeCloseTo(20);
+      expect(resolve(collection, [0, 0, 1], 2, probe)?.coordinate[2]).toBeCloseTo(22);
+      expect(collection.intersectSegment([0, 0, 100], [0, 0, 20], {endInset: 0.01})).toBeNull();
+    }
+  });
   it.each([
     [layerPackage, '.', './dist/index.js'],
     [layerPackage, './experimental/webxr', './dist/experimental/webxr.js'],

@@ -5,7 +5,7 @@
 import {Matrix4, Vector3} from '@math.gl/core';
 import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import type HostFrame from '../scene/host_frame';
-import {getGeographicProjectionProcedure} from '../scene/projection_math';
+import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS} from '../scene/projection_math';
 import type {FeatureSelectionOptions} from '../types';
 
 /** A ray in the same absolute content coordinates as the supplied terrain. */
@@ -32,6 +32,8 @@ export interface TerrainSurfaceHit {
     barycentric: [number, number, number];
     /** Eye used for a screen query; absent for a content-space ray. */
     renderViewId?: string;
+    /** Caller collection identity; absent on an individual surface query. */
+    surfaceId?: string;
 }
 
 /** Host-owned terrain query boundary; it does not load, render or displace a DEM. */
@@ -40,6 +42,113 @@ export interface TerrainSurface {
     readonly projection: 'web-mercator' | 'globe';
     /** Return the nearest two-sided hit within the finite camera segment, or null. */
     intersectRay(ray: TerrainRay, maxDistance?: number): TerrainSurfaceHit | null;
+}
+
+/** One stable caller-owned surface identity; collections snapshot membership, not geometry. */
+export interface TerrainSurfaceEntry {
+    /** Unique nonempty identifier used to distinguish triangle offsets in different tiles. */
+    id: string;
+    /** Immutable terrain query owner, using the collection's projection. */
+    surface: TerrainSurface;
+}
+
+/** Nearest collection hit with the identity of its owning tile/surface. */
+export interface TerrainCollectionHit extends TerrainSurfaceHit {
+    /** Original caller identity, unaffected by nearest-hit clipping. */
+    surfaceId: string;
+}
+
+/** Explicit geographic probe bracket; altitude values describe displayed geometry, not source elevation. */
+export interface TerrainElevationProbe {
+    /** Lower geographic altitude in meters; must be strictly below maximumAltitude. */
+    minimumAltitude: number;
+    /** Upper geographic altitude in meters, above every surface that should be considered. */
+    maximumAltitude: number;
+    /** Optional Mercator longitude anchor for unwrapped tile coordinates. */
+    anchorLongitude?: number;
+}
+
+/** Snapshot tile membership and query nearest geometry without owning sources, views, buffers or resources. */
+export class TerrainSurfaceCollection implements TerrainSurface {
+    /** Shared absolute coordinate convention; mixed projections reject at construction. */
+    readonly projection: TerrainSurface['projection'];
+    /** Snapshotted membership and caller identities, retaining owners without copying their geometry. */
+    private readonly entries: readonly TerrainSurfaceEntry[];
+
+    /** Retain immutable surface references with unique IDs; caller membership changes do not affect this collection. */
+    constructor(projection: TerrainSurface['projection'], entries: readonly TerrainSurfaceEntry[]) {
+        if (!['web-mercator', 'globe'].includes(projection)) throw new Error('Terrain collection projection must be web-mercator or globe');
+        this.projection = projection;
+        this.entries = entries.map(({id, surface}) => {
+            if (typeof id !== 'string' || !id.length || surface.projection !== projection) throw new Error('Terrain collection requires nonempty IDs and matching projections');
+            return Object.freeze({id, surface});
+        });
+        if (new Set(this.entries.map(entry => entry.id)).size !== this.entries.length) throw new Error('Terrain collection IDs must be unique');
+    }
+
+    /** Clip farther tiles after an accepted hit; equal-distance ties retain original membership order. */
+    intersectRay(ray: TerrainRay, maxDistance = Infinity): TerrainCollectionHit | null {
+        if (maxDistance < 0 || Number.isNaN(maxDistance)) throw new Error('Terrain ray distance must be non-negative');
+        const length = Math.hypot(...ray.direction);
+        if (ray.origin.length !== 3 || ray.direction.length !== 3 || !ray.origin.every(Number.isFinite) || !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0) return null;
+        let nearest: TerrainCollectionHit | null = null;
+        for (const entry of this.entries) {
+            const hit = entry.surface.intersectRay(ray, nearest?.distance ?? maxDistance);
+            if (hit && (!nearest || hit.distance < nearest.distance)) nearest = {...hit, surfaceId: entry.id};
+        }
+        return nearest;
+    }
+
+    /** Query a finite content-space sightline; misses mean no loaded triangle hit, not certified world visibility. */
+    intersectSegment(start: readonly [number, number, number], end: readonly [number, number, number], options: {
+        /** Trim origin self-intersections, in mesh coordinate units; defaults to zero. */
+        startInset?: number;
+        /** Trim target self-intersections, in mesh coordinate units; defaults to zero. */
+        endInset?: number;
+    } = {}): TerrainCollectionHit | null {
+        const startInset = options.startInset ?? 0, endInset = options.endInset ?? 0;
+        if (start.length !== 3 || end.length !== 3 || !start.every(Number.isFinite) || !end.every(Number.isFinite) || ![startInset, endInset].every(value => Number.isFinite(value) && value >= 0)) throw new Error('Terrain segment requires finite endpoints and non-negative finite insets');
+        const direction: [number, number, number] = [end[0] - start[0], end[1] - start[1], end[2] - start[2]], length = Math.hypot(...direction);
+        if (!Number.isFinite(length)) throw new Error('Terrain segment length must be finite');
+        if (length === 0 || startInset + endInset >= length) return null;
+        const origin: [number, number, number] = [start[0] + direction[0] * startInset / length, start[1] + direction[1] * startInset / length, start[2] + direction[2] * startInset / length];
+        const hit = this.intersectRay({origin, direction}, length - startInset - endInset);
+        return hit ? {...hit, distance: hit.distance + startInset} : null;
+    }
+}
+
+/** Probe loaded top triangles along geographic up; returned coordinate altitude retains physical source meters. */
+export function sampleTerrainElevation(surface: TerrainSurface, coordinate: readonly [number, number], options: TerrainElevationProbe): TerrainSurfaceHit | null {
+    if (coordinate.length !== 2 || !coordinate.every(Number.isFinite) || Math.abs(coordinate[1]) > 90 ||
+        ![options.minimumAltitude, options.maximumAltitude].every(Number.isFinite) || options.minimumAltitude >= options.maximumAltitude ||
+        options.anchorLongitude !== undefined && !Number.isFinite(options.anchorLongitude)) throw new Error('Invalid terrain elevation probe');
+    const projection = getGeographicProjectionProcedure(surface.projection);
+    if (Math.abs(coordinate[1]) > projection.latitudeLimit) return null;
+    // A radial bracket must not cross the globe center and sample its far hemisphere.
+    if (surface.projection === 'globe' && options.minimumAltitude <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Globe elevation probes must remain above the center');
+    const origin = projection.project([coordinate[0], coordinate[1], options.maximumAltitude], options.anchorLongitude);
+    const end = projection.project([coordinate[0], coordinate[1], options.minimumAltitude], options.anchorLongitude);
+    const direction: [number, number, number] = [end[0] - origin[0], end[1] - origin[1], end[2] - origin[2]];
+    if (!origin.every(Number.isFinite) || !end.every(Number.isFinite) || !Number.isFinite(Math.hypot(...direction))) throw new Error('Terrain elevation probe exceeds finite projection range');
+    return surface.intersectRay({origin, direction}, Math.hypot(...direction));
+}
+
+/** Resolve a Mercator camera/anchor floor; this is a point probe, not swept-volume collision or locomotion. */
+export function resolveTerrainClearance(surface: TerrainSurface, coordinate: readonly [number, number, number], clearance: number, options: TerrainElevationProbe): {
+    /** Geographic position raised only when it lies below displayed terrain plus clearance. */
+    coordinate: [number, number, number];
+    /** Source elevation meters, independent of any caller-provided display displacement. */
+    physicalElevation: number;
+    /** True when the supplied altitude was raised. */
+    adjusted: boolean;
+} | null {
+    if (surface.projection !== 'web-mercator') throw new Error('Terrain clearance requires a physical-meter Mercator frame');
+    if (coordinate.length !== 3 || !coordinate.every(Number.isFinite) || !Number.isFinite(clearance) || clearance < 0) throw new Error('Invalid terrain clearance');
+    const hit = sampleTerrainElevation(surface, [coordinate[0], coordinate[1]], options);
+    if (!hit) return null;
+    const altitude = Math.max(coordinate[2], hit.position[2] + clearance);
+    if (!Number.isFinite(altitude)) throw new Error('Terrain clearance exceeds finite altitude range');
+    return {coordinate: [coordinate[0], coordinate[1], altitude], physicalElevation: hit.coordinate[2], adjusted: altitude > coordinate[2]};
 }
 
 /** Indexed content-space triangles; source buffers are copied at construction. */
@@ -103,6 +212,9 @@ export class TerrainMeshSurface implements TerrainSurface {
 
     /** Cooperatively warm picking acceleration; queries during preparation remain exact linear queries. */
     *prepareQueryIndexSteps(): Generator<void, void, void> {yield* this.queryIndex.prepareHierarchySteps();}
+
+    /** Detached conservative mesh bounds; no mutable geometry or acceleration buffers escape. */
+    getBounds(): {minimum: [number, number, number]; maximum: [number, number, number]} | null {return this.queryIndex.getBounds();}
 
     /** Two-sided indexed math.gl queries; distance is normalized to the surface's coordinate units. */
     intersectRay(ray: TerrainRay, maxDistance = Infinity): TerrainSurfaceHit | null {

@@ -70,6 +70,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
       <button data-example="retry" type="button">Retry failed tiles</button>
       <output data-example="terrain-hit" aria-live="polite">Click terrain for physical elevation</output>
+      <output data-example="terrain-visibility" aria-live="polite">Click terrain to pin a sightline target</output>
+      <button data-example="clear-target" type="button">Clear pinned target</button>
       <p class="hint">Drag to rotate; scroll/pinch to zoom. Exaggerated relief fades to flat over one apparent-diameter doubling; explicit 1× stays physical. Detail preparation pauses during navigation; display rescaling yields in separate CPU slices. The requested multiplier can briefly lead admitted relief. Complete drawing and picking generations swap together.</p>
       <p class="hint">Adaptive globe terrain: global fallback stays warm while visible regions refine, bounded to 96 leaf tiles and 256 MiB of retained source/decoded arrays. Coarse/fine edges are stitched. This is not basemap draping or a certified pixel-error guarantee. Polar regions outside ±85.05° and no-data areas have no terrain. Elevations retain the source datum; displayed mountains are exaggerated, returned meters are not.</p>
       <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a></aside>
@@ -107,6 +109,9 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const decoder = new TerrainDecoderPool(workerUrl.href);
     let grids: TerrainHeightGrid[] = [];
     let displayedSnapshot: GlobeTerrainDisplaySnapshot | undefined;
+    let pinnedCoordinate: [number, number] | undefined;
+    let pinnedSignature = '', pinnedLayer: GlobeTerrainLayer | undefined;
+    let pinnedSurfaces: GlobeTerrainLayer['state']['surfaces'] | undefined;
     const zoomByGrid = new WeakMap<TerrainHeightGrid, number>();
     let detail: GlobeTerrainDetail | undefined, selectionSignature = '', detailCameraSignature = '';
     const abort = new AbortController();
@@ -119,8 +124,25 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         if (disposed || !layer) return;
         const statistics = layer.getStatistics();
         const work = displayPreparation.getStatistics();
-        const text = `Admitted: ${statistics.tileCount} tiles · ${statistics.exaggeration.toFixed(1)}× displayed · display/query geometry ${(statistics.displayBytes / 1000000).toFixed(1)} MB · picking index ${(statistics.queryIndexBytes / 1000000).toFixed(1)} MB · ${work.warmedIndexes} indexes warmed / ${work.deferredIndexes} deferred · display preparation ${work.pending} pending · ${(work.retainedBytes / 1000000).toFixed(1)} / ${(work.byteLimit / 1000000).toFixed(1)} MB retained · ${(work.requiredPeakBytes / 1000000).toFixed(1)} MB preflight · ${work.slices} slices / ${work.workMs.toFixed(1)} ms elapsed / longest ${work.maxSliceMs.toFixed(1)} ms · last update ${statistics.updateMs.toFixed(1)} ms · last pick ${statistics.queryMs.toFixed(1)} ms${statistics.error || work.error ? ` · ${statistics.error ?? work.error}` : ''} · excludes GPU/transient allocations`;
+        const text = `Admitted: ${statistics.tileCount} tiles · ${statistics.exaggeration.toFixed(1)}× displayed · display/query geometry ${(statistics.displayBytes / 1000000).toFixed(1)} MB · picking index ${(statistics.queryIndexBytes / 1000000).toFixed(1)} MB · ${work.warmedIndexes} indexes warmed / ${work.deferredIndexes} deferred · display preparation ${work.pending} pending · ${(work.retainedBytes / 1000000).toFixed(1)} / ${(work.byteLimit / 1000000).toFixed(1)} MB retained · ${(work.requiredPeakBytes / 1000000).toFixed(1)} MB preflight · ${work.slices} slices / ${work.workMs.toFixed(1)} ms elapsed / longest ${work.maxSliceMs.toFixed(1)} ms · last update ${statistics.updateMs.toFixed(1)} ms · last query ${statistics.queryMs.toFixed(1)} ms${statistics.error || work.error ? ` · ${statistics.error ?? work.error}` : ''} · excludes GPU/transient allocations`;
         const target = element('display-status'); if (target.textContent !== text) target.textContent = text;
+    }
+    /** Re-sample the pinned geographic target only when camera or admitted geometry changes, never every idle frame. */
+    function updatePinnedStatus(): void {
+        if (disposed || !layer || !pinnedCoordinate) return;
+        const viewport = deck.getViewports()[0];
+        if (!viewport || viewport.projectionMode !== 2) return;
+        const signature = [...pinnedCoordinate, ...viewport.viewProjectionMatrix].join(',');
+        if (pinnedSignature === signature && pinnedLayer === layer && pinnedSurfaces === layer.state?.surfaces) return;
+        pinnedSignature = signature; pinnedLayer = layer; pinnedSurfaces = layer.state?.surfaces;
+        const target = layer.sampleElevation(pinnedCoordinate);
+        let text = 'Pinned target is outside loaded terrain; visibility unknown';
+        if (target) {
+            const camera = viewport.cameraPosition;
+            const blocker = layer.intersectTerrainSegment([camera[0], camera[1], camera[2]], target.position, {startInset: 1e-7, endInset: 1e-4});
+            text = `Pinned ${pinnedCoordinate[0].toFixed(4)}, ${pinnedCoordinate[1].toFixed(4)} · ${target.coordinate[2].toFixed(1)} physical m · ${blocker ? 'blocked by loaded terrain' : 'no blocker in loaded terrain (not certified visibility)'}`;
+        }
+        const output = element('terrain-visibility'); if (output.textContent !== text) output.textContent = text;
     }
     /** Create one owned device, with a controlled GlobeView. */
     function createDeck(): Deck<GlobeView> {
@@ -129,6 +151,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         return new Deck({parent: container, width: '100%', height: '100%', views: new GlobeView({id: 'globe-terrain', controller: true}), viewState: camera,
             deviceProps: device === 'webgpu' ? {type: 'webgpu', adapters: [webgpuAdapter]} : {type: 'webgl'},
             onViewStateChange: ({viewState}) => {
+                if (disposed || generation !== deckGeneration) return;
                 camera = {...viewState, zoom: Math.min(12, viewState.zoom), maxZoom: 12}; deck.setProps({viewState: camera});
                 // Navigation stays immediate; select new source detail once motion settles.
                 clearTimeout(detailTimer);
@@ -137,11 +160,14 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
             },
             onError: error => {if (!disposed && generation === deckGeneration) {renderingError = error.message; status.textContent = `Rendering error: ${error.message}`;}},
             onClick: information => {
+                if (disposed || generation !== deckGeneration) return;
                 const viewport = information.viewport ?? deck.getViewports()[0];
                 const hit = viewport && layer?.pickTerrain(viewport, [information.x, information.y]);
                 output.textContent = hit ? `${hit.coordinate[0].toFixed(4)}, ${hit.coordinate[1].toFixed(4)} — ${hit.coordinate[2].toFixed(1)} physical m` : 'Outside loaded terrain';
-                updateDisplayStatus();
-            }, onAfterRender: () => {if (generation === deckGeneration) updateDisplayStatus();}, onLoad: () => {if (!disposed && generation === deckGeneration) {deckReady = true; schedule();}}});
+                pinnedCoordinate = hit ? [hit.coordinate[0], hit.coordinate[1]] : undefined; pinnedSignature = '';
+                element('terrain-visibility').textContent = 'Click terrain to pin a sightline target';
+                updatePinnedStatus(); updateDisplayStatus();
+            }, onAfterRender: () => {if (generation === deckGeneration) {updatePinnedStatus(); updateDisplayStatus();}}, onLoad: () => {if (!disposed && generation === deckGeneration) {deckReady = true; schedule();}}});
     }
     let deck = createDeck();
     /** Refine visible data with hysteresis, retaining complete stitched parent fallback and warm sources. */
@@ -204,6 +230,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         parameters.set('detail', detailControl.value); options.onParametersChange?.(new URLSearchParams(parameters)); clearTimeout(detailTimer); detailTimer = undefined; detailCameraSignature = ''; schedule();
     }, {signal: abort.signal});
     element('retry').addEventListener('click', () => {tileset?.retry(); preparation.retry(); displayPreparation.retry(); schedule();}, {signal: abort.signal});
+    element('clear-target').addEventListener('click', () => {pinnedCoordinate = undefined; pinnedLayer = undefined; pinnedSurfaces = undefined; pinnedSignature = ''; element('terrain-visibility').textContent = 'Click terrain to pin a sightline target';}, {signal: abort.signal});
     element('fullscreen').addEventListener('click', () => {if (document.fullscreenElement === root) void document.exitFullscreen(); else void root.requestFullscreen().catch(error => {status.textContent = `Fullscreen unavailable: ${error.message}`;});}, {signal: abort.signal});
     /** Preserve source/cache ownership when switching GPU devices. */
     function updateTabs(): void {
@@ -220,6 +247,6 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     selectionSignature = coordinates.map(getTerrainTileKey).join(',');
     tileset.update(coordinates, 10000);
     return {ready: tileset.waitForIdle().then(() => {updateLayers();}), destroy() {
-        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); preparation.destroy(); displayPreparation.destroy(); destroyCard(); deck.finalize(); layer = undefined; displayedSnapshot = undefined; grids = []; detail = undefined; root.remove();
+        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); preparation.destroy(); displayPreparation.destroy(); destroyCard(); deck.finalize(); layer = undefined; displayedSnapshot = undefined; pinnedLayer = undefined; pinnedSurfaces = undefined; pinnedCoordinate = undefined; grids = []; detail = undefined; root.remove();
     }};
 }

@@ -5,7 +5,7 @@
 import {expect, test} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
-import {TerrainMeshSurface, pickTerrainAt} from '../src/selection/terrain_surface';
+import {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt} from '../src/selection/terrain_surface';
 import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
 
 /** Separated stacked triangles make traversal order and clipping observable without timing assertions. */
@@ -168,6 +168,66 @@ function terrain() {
     return new TerrainMeshSurface({projection: 'web-mercator',
         positions: [-2, -2, 1, 2, -2, 3, 2, 2, 3, -2, 2, 1], indices: [0, 1, 2, 0, 2, 3]});
 }
+
+test('terrain collections snapshot membership, clip farther surfaces and preserve stable identities and ties', () => {
+    const low = terrain(), high = new TerrainMeshSurface({projection: 'web-mercator', positions: [-2, -2, 4, 2, -2, 4, 0, 2, 4], indices: [0, 1, 2]});
+    const entries = [{id: 'low', surface: low}, {id: 'high', surface: high}, {id: 'tie', surface: high}];
+    const collection = new TerrainSurfaceCollection('web-mercator', entries); entries[1].id = 'changed'; entries.pop();
+    const ray = {origin: [0, 0, 10], direction: [0, 0, -20]} as const;
+    expect(collection.intersectRay(ray)).toMatchObject({surfaceId: 'high', distance: 6, triangleIndex: 0});
+    expect(collection.intersectRay(ray, 5.9)).toBeNull(); expect(collection.intersectRay(ray, 6)?.surfaceId).toBe('high');
+    expect(collection.intersectRay({origin: [0, 0, 0], direction: [0, 0, 1]})?.surfaceId).toBe('low');
+    expect(collection.intersectRay({origin: [0, 0, 0], direction: [0, 0, 0]})).toBeNull();
+    expect(collection.intersectRay({origin: [NaN, 0, 0], direction: [0, 0, 1]})).toBeNull();
+    expect(new TerrainSurfaceCollection('web-mercator', []).intersectRay(ray)).toBeNull();
+    for (const distance of [-1, NaN]) expect(() => collection.intersectRay(ray, distance)).toThrow('distance');
+    for (const invalid of [[{id: '', surface: low}], [{id: 'a', surface: low}, {id: 'a', surface: high}], [{id: 'globe', surface: new TerrainMeshSurface({projection: 'globe', positions: [], indices: []})}]]) expect(() => new TerrainSurfaceCollection('web-mercator', invalid)).toThrow('Terrain collection');
+    expect(() => Reflect.construct(TerrainSurfaceCollection, ['projected', []])).toThrow('projection');
+});
+
+test('finite terrain sightlines trim self hits, retain original-origin distances and never test behind the target', () => {
+    const {positions, indices} = stackedTriangles(5);
+    const collection = new TerrainSurfaceCollection('web-mercator', [{id: 'stack', surface: new TerrainMeshSurface({projection: 'web-mercator', positions, indices})}]);
+    expect(collection.intersectSegment([0.5, 0.5, 10], [0.5, 0.5, 5])).toBeNull();
+    expect(collection.intersectSegment([0.5, 0.5, 10], [0.5, 0.5, 4])?.distance).toBe(6);
+    expect(collection.intersectSegment([0.5, 0.5, 10], [0.5, 0.5, 4], {endInset: 0.001})).toBeNull();
+    expect(collection.intersectSegment([0.5, 0.5, 4], [0.5, 0.5, 0], {startInset: 0.01, endInset: 0.01})).toMatchObject({surfaceId: 'stack', distance: expect.closeTo(1), position: [0.5, 0.5, 3]});
+    expect(collection.intersectSegment([0.5, 0.5, 10], [0.5, 0.5, 10])).toBeNull();
+    expect(collection.intersectSegment([0.5, 0.5, 10], [0.5, 0.5, 0], {startInset: 6, endInset: 4})).toBeNull();
+    for (const inset of [-1, NaN, Infinity]) for (const field of ['startInset', 'endInset']) expect(() => collection.intersectSegment([0, 0, 10], [0, 0, 0], {[field]: inset})).toThrow('insets');
+    expect(() => collection.intersectSegment([NaN, 0, 0], [0, 0, 0])).toThrow('endpoints');
+    expect(() => collection.intersectSegment([-1e308, 0, 0], [1e308, 0, 0])).toThrow('length');
+});
+
+test('elevation probes and Mercator clearance use displayed top geometry while preserving physical source heights', () => {
+    const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [-2, -2, 20, 2, -2, 20, 0, 2, 20], indices: [0, 1, 2], physicalHeights: [2, 2, 2]});
+    const probe = {minimumAltitude: -10, maximumAltitude: 100};
+    expect(sampleTerrainElevation(surface, [0, 0], probe)).toMatchObject({position: [0, expect.closeTo(0), 20], coordinate: [0, expect.closeTo(0), 2]});
+    expect(resolveTerrainClearance(surface, [0, 0, 10], 5, probe)).toEqual({coordinate: [0, 0, 25], physicalElevation: 2, adjusted: true});
+    expect(resolveTerrainClearance(surface, [0, 0, 30], 5, probe)).toEqual({coordinate: [0, 0, 30], physicalElevation: 2, adjusted: false});
+    expect(resolveTerrainClearance(surface, [1, 0, 10], 5, probe)).toBeNull();
+    expect(sampleTerrainElevation(surface, [0, 90], probe)).toBeNull();
+    expect(sampleTerrainElevation(surface, [360, 0], {...probe, anchorLongitude: 0})?.coordinate[2]).toBeCloseTo(2);
+    for (const changed of [{minimumAltitude: 100}, {maximumAltitude: Infinity}, {anchorLongitude: NaN}]) expect(() => sampleTerrainElevation(surface, [0, 0], {...probe, ...changed})).toThrow('probe');
+    for (const coordinate of [[NaN, 0], [0, 91]] as const) expect(() => sampleTerrainElevation(surface, coordinate, probe)).toThrow('probe');
+    for (const clearance of [-1, NaN, Infinity]) expect(() => resolveTerrainClearance(surface, [0, 0, 10], clearance, probe)).toThrow('clearance');
+    expect(() => resolveTerrainClearance(surface, [0, 0, NaN], 1, probe)).toThrow('clearance');
+    const bounds = surface.getBounds()!; bounds.maximum[2] = 1000; expect(surface.getBounds()?.maximum[2]).toBe(20);
+    expect(new TerrainMeshSurface({projection: 'globe', positions: [], indices: []}).getBounds()).toBeNull();
+    const high = new TerrainMeshSurface({projection: 'web-mercator', positions: [-1, -1, 1e308, 1, -1, 1e308, 0, 1, 1e308], indices: [0, 1, 2]});
+    expect(() => resolveTerrainClearance(high, [0, 0, 0], 1e308, {minimumAltitude: 0, maximumAltitude: 1.01e308})).toThrow('finite altitude');
+});
+
+test('globe radial probes stay on the near hemisphere and return physical rather than exaggerated elevation', () => {
+    const surface = new TerrainMeshSurface({projection: 'globe', positions: [-2, -260, -2, 2, -260, -2, 0, -260, 2], indices: [0, 1, 2], physicalHeights: [1200, 1200, 1200]});
+    const probe = {minimumAltitude: -6000000, maximumAltitude: 1000000};
+    expect(sampleTerrainElevation(surface, [0, 0], probe)?.coordinate[2]).toBeCloseTo(1200);
+    expect(sampleTerrainElevation(surface, [180, 0], probe)).toBeNull();
+    expect(() => sampleTerrainElevation(surface, [0, 0], {...probe, minimumAltitude: -6370972})).toThrow('center');
+    expect(() => resolveTerrainClearance(surface, [0, 0, 100], 1, probe)).toThrow('Mercator');
+    const huge = {minimumAltitude: -1e308, maximumAltitude: 1e308};
+    expect(() => sampleTerrainElevation(terrain(), [0, 0], huge)).toThrow('finite projection');
+});
 
 /** One logical screen with two different finite camera rays. */
 function frame() {

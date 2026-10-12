@@ -63,6 +63,28 @@ test('current display mesh picks physical heights, honors viewport offsets, hole
     expect(holes.pickTerrain(viewport, [266, 180])).toBeNull();
 });
 
+test('radial elevation and finite sightlines query admitted relief and preserve physical meters', () => {
+    const layer = new GlobeTerrainLayer({data: [grid()], meshResolution: 8, globeTerrainExaggeration: 100}); layer.updateState(prepare(layer));
+    const target = layer.sampleElevation([0, 0])!;
+    expect(target.coordinate[2]).toBeCloseTo(1000); expect(Math.hypot(...target.position)).toBeGreaterThan(256);
+    expect(layer.intersectTerrainSegment([0, -400, 0], target.position)?.position).toEqual(target.position.map(value => expect.closeTo(value)));
+    expect(layer.intersectTerrainSegment([0, -400, 0], target.position, {endInset: 1e-4})).toBeNull();
+    // Looking across the globe to an opposite target is blocked by the loaded near-side top triangles.
+    expect(layer.intersectTerrainSegment([0, -400, 0], [0, 400, 0])?.coordinate[2]).toBeCloseTo(1000);
+    expect(layer.sampleElevation([180, 0])).toBeNull();
+    const bytes = layer.getStatistics().displayBytes, surface = layer.state.surfaces[0];
+    const limited = new GlobeTerrainLayer({data: [grid(2000)], meshResolution: 8, globeTerrainExaggeration: 100, maxDisplayBytes: bytes}); limited.state = layer.state; limited.updateState(prepare(limited));
+    expect(limited.getStatistics().error).toContain('previous terrain retained'); expect(limited.state.surfaces[0]).toBe(surface);
+    expect(limited.sampleElevation([0, 0])?.coordinate[2]).toBeCloseTo(1000);
+    const empty = new GlobeTerrainLayer({data: []}); expect(empty.sampleElevation([0, 0])).toBeNull();
+    expect(empty.intersectTerrainSegment([0, -400, 0], [0, 400, 0])).toBeNull();
+    expect(() => layer.sampleElevation([0, 91])).toThrow('probe');
+    expect(() => empty.intersectTerrainSegment([0, NaN, 0], [0, 0, 0])).toThrow('endpoints');
+    const missing = grid(); missing.valid.fill(0);
+    const holes = new GlobeTerrainLayer({data: [missing]}); holes.updateState(prepare(holes)); expect(holes.sampleElevation([0, 0])).toBeNull();
+    expect(layer.getStatistics().queryMs).toBeGreaterThanOrEqual(0);
+});
+
 test('explicit physical scale, empty input, custom resolution and invalid maximum are handled', () => {
     const defaults = new GlobeTerrainLayer({data: [grid()], meshResolution: 2, maxDisplayBytes: undefined, maxQueryIndexBytes: undefined}); defaults.updateState(prepare(defaults));
     expect(defaults.getStatistics().tileCount).toBe(1); expect(defaults.getStatistics().error).toBeUndefined();

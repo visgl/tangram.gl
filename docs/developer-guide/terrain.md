@@ -85,6 +85,21 @@ instead of duplicating positions/topology on the first pick. The globe mount acc
 Display diagnostics report actual retained arrays and the last CPU update/pick
 elapsed time after rendering or selection, without scheduling another frame.
 
+Clicking globe terrain now pins a geographic sightline target. The inspector
+re-samples the admitted triangles after camera or terrain changes and distinguishes
+loaded blockers from unknown target coverage. It skips queries on unchanged idle
+frames. Screen picking, geographic probes and finite segments share the same bounded
+query owners; no new geometry cache is introduced. Missing/no-data geometry does
+not certify visibility, and this does not automatically hide basemap annotations.
+
+Renderer hosts can use `TerrainSurfaceCollection`, `sampleTerrainElevation` and
+`resolveTerrainClearance` for shared nearest-tile lookup, explicit geographic
+probe brackets and a Mercator point-floor constraint. The Mercator example's
+target-following helper now uses this collection/probe boundary while retaining
+its canonical longitude, source domain, highest loaded top triangle and missing-data
+hold behavior. FirstPerson controller integration and continuous collision remain
+separate work; clearance probes alone do not prevent tunneling through a slope or wall.
+
 This is not a hard frame-time or peak-memory cap: an indivisible chunk can overrun
 its target. Source grids, scratch arrays, the candidate before admission,
 display/query buffers, query indexes and GPU uploads are outside this controller's

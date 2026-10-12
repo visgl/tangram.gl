@@ -8,7 +8,7 @@ import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 import {lngLatToWorld} from '@math.gl/web-mercator';
 
-const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, decoderDestroy: vi.fn(), selectDetail: vi.fn(), construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]}))}));
+const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, decoderDestroy: vi.fn(), selectDetail: vi.fn(), construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]})), elevation: vi.fn((): {coordinate: number[]; position: [number, number, number]} | null => ({coordinate: [80, 25, 1234], position: [0, -256, 0]})), blocker: vi.fn((_start: readonly [number, number, number], _end: readonly [number, number, number], _options?: {startInset?: number; endInset?: number}): {distance: number} | null => null)}));
 vi.mock('../examples/terrain/globe-detail', async original => {
     const module = await original<typeof import('../examples/terrain/globe-detail')>();
     return {...module, selectGlobeTerrainDetail: (...parameters: Parameters<typeof module.selectGlobeTerrainDetail>) => {mocks.selectDetail(...parameters); return module.selectGlobeTerrainDetail(...parameters);}};
@@ -24,6 +24,8 @@ vi.mock('@deck.gl/core', async original => {
 vi.mock('@vis.gl/tangram-layers/experimental/terrain', async original => ({...await original<typeof import('@vis.gl/tangram-layers/experimental/terrain')>(), getGlobeScreenRatio: () => 1, GlobeTerrainLayer: class {
     constructor(props: unknown) {mocks.layers(props);}
     pickTerrain = mocks.pick;
+    sampleElevation = mocks.elevation;
+    intersectTerrainSegment = mocks.blocker;
     getStatistics = () => ({tileCount: 16, exaggeration: 100, displayBytes: 4096, queryIndexBytes: 0, updateMs: 1, queryMs: 2});
 }}));
 vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
@@ -41,6 +43,36 @@ function mountTestGlobeTerrainExample(host: HTMLElement, options: Parameters<typ
 
 const hosts: HTMLElement[] = [], instances: ReturnType<typeof mountGlobeTerrainExample>[] = [];
 afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); hosts.splice(0).forEach(host => host.remove()); vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.autoLoad = true; mocks.viewportZoom = 1;});
+
+test('pinned targets re-sample admitted terrain on camera changes, skip idle frames and ignore stale or disposed callbacks', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('device=webgl')}); instances.push(instance); await instance.ready;
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    const properties = mocks.construct.mock.calls[0][0];
+    if (!properties || typeof properties !== 'object' || !('onClick' in properties) || typeof properties.onClick !== 'function' || !('onAfterRender' in properties) || typeof properties.onAfterRender !== 'function' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function') throw new Error('Missing target callbacks');
+    properties.onClick({x: 256, y: 160});
+    const status = host.querySelector('[data-example="terrain-visibility"]')!;
+    expect(status.textContent).toContain('1234.0 physical m'); expect(status.textContent).toContain('not certified visibility');
+    const queried = mocks.elevation.mock.calls.length;
+    for (let frame = 0; frame < 4; frame++) properties.onAfterRender();
+    expect(mocks.elevation).toHaveBeenCalledTimes(queried);
+    mocks.viewportZoom = 2; mocks.blocker.mockReturnValueOnce({distance: 1}); properties.onAfterRender();
+    expect(status.textContent).toContain('blocked by loaded terrain');
+    expect(mocks.blocker.mock.lastCall?.[2]).toEqual({startInset: 1e-7, endInset: 1e-4});
+    mocks.viewportZoom = 3; mocks.elevation.mockReturnValueOnce(null); properties.onAfterRender();
+    expect(status.textContent).toContain('visibility unknown');
+    host.querySelector<HTMLButtonElement>('[data-example="clear-target"]')!.click();
+    expect(status.textContent).toContain('Click terrain to pin');
+    const cleared = mocks.elevation.mock.calls.length; properties.onAfterRender(); expect(mocks.elevation).toHaveBeenCalledTimes(cleared);
+    host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
+    const picked = mocks.pick.mock.calls.length, updates = mocks.setProps.mock.calls.length;
+    properties.onClick({x: 256, y: 160}); properties.onViewStateChange({viewState: {longitude: 0, latitude: 0, zoom: 3}});
+    expect(mocks.pick).toHaveBeenCalledTimes(picked); expect(mocks.setProps).toHaveBeenCalledTimes(updates);
+    const latest = mocks.construct.mock.lastCall?.[0]; instance.destroy();
+    if (!latest || typeof latest !== 'object' || !('onClick' in latest) || typeof latest.onClick !== 'function') throw new Error('Missing latest target callback');
+    latest.onClick({x: 256, y: 160}); expect(mocks.pick).toHaveBeenCalledTimes(picked);
+});
 
 test('navigation draws immediately but coalesces detail selection until settled; teardown cancels the pending selection', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
@@ -109,7 +141,7 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: {longitude: 100, latitude: 20, zoom: 12, maxZoom: 12}});
     properties.onClick({x: 256, y: 160});
     expect(host.querySelector('[data-example="terrain-hit"]')?.textContent).toContain('1234.0 physical m');
-    expect(host.querySelector('[data-example="display-status"]')?.textContent).toContain('last pick 2.0 ms');
+    expect(host.querySelector('[data-example="display-status"]')?.textContent).toContain('last query 2.0 ms');
     expect(host.querySelector('[data-example="display-status"]')?.textContent).toContain('excludes GPU/transient');
     if ('onAfterRender' in properties && typeof properties.onAfterRender === 'function') properties.onAfterRender();
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
