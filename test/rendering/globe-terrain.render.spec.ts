@@ -5,7 +5,7 @@
 import {afterEach, expect, test} from 'vitest';
 import {Deck, _GlobeView as GlobeView} from '@deck.gl/core';
 import {GlobeTerrainLayer} from '@vis.gl/tangram-layers/experimental/terrain';
-import type {TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainPreparation, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 import {RenderingHarness, readCanvasPixels, DEVICE_TYPE} from './harness';
 
 /** Snow-covered terrain is nearly grayscale, so use coverage rather than color saturation. */
@@ -54,7 +54,11 @@ test(`${DEVICE_TYPE}: stitched 2:1 spherical terrain has no background gap at th
     harness = new RenderingHarness('globe'); await harness.initializeDevice();
     /** Small constant DEMs expose a shared coarse/fine edge through the camera target. */
     const grid = (height: number, bounds: [number, number, number, number]): TerrainHeightGrid => ({width: 2, height: 2, heights: new Float32Array(4).fill(height), valid: new Uint8Array(4).fill(1), bounds, verticalDatum: 'unknown', registration: 'grid-node'});
-    const layer = new GlobeTerrainLayer({id: 'stitched', data: [grid(1000, [-2000000, -1000000, 0, 1000000]), grid(3000, [0, 0, 1000000, 1000000]), grid(2000, [0, -1000000, 1000000, 0])], meshResolution: 16, globeTerrainExaggeration: 100});
+    const preparation = new GlobeTerrainPreparation();
+    preparation.request([grid(1000, [-2000000, -1000000, 0, 1000000]), grid(3000, [0, 0, 1000000, 1000000]), grid(2000, [0, -1000000, 1000000, 0])], 16);
+    while (preparation.isPending()) {preparation.advance(1); await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));}
+    const snapshot = preparation.getSnapshot()!;
+    const layer = new GlobeTerrainLayer({id: 'stitched', data: snapshot.grids, preparedTerrain: snapshot, meshResolution: 16, globeTerrainExaggeration: 100});
     deck = new Deck({canvas: harness.canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false, views: new GlobeView({id: 'terrain', controller: true}),
         initialViewState: {longitude: 0, latitude: 0, zoom: 3}, layers: [layer], _animate: true, onError: error => harness!.errors.push(error.message)});
     await expect.poll(async () => countTerrainPixels(await readCanvasPixels(harness!.canvas)), {timeout: 15000}).toBeGreaterThan(100);

@@ -52,7 +52,7 @@ test('templates detach sampling from mutable source data, retain topology and re
     first.indices.fill(0); first.physicalHeights.fill(123);
     expect(scaleGlobeTerrainMesh(template, 1).indices).toEqual(second.indices);
     expect(scaleGlobeTerrainMesh(template, 1).physicalHeights).toEqual(second.physicalHeights);
-    expect(() => scaleGlobeTerrainMesh({vertexCount: 0, triangleCount: 0})).toThrow('prepareGlobeTerrainMesh');
+    expect(() => scaleGlobeTerrainMesh({vertexCount: 0, triangleCount: 0, byteLength: 0})).toThrow('prepareGlobeTerrainMesh');
     expect(() => scaleGlobeTerrainMesh(template, Infinity)).toThrow('Invalid');
     const negative = prepareGlobeTerrainMesh(grid(-7000000), {resolution: 2});
     expect(scaleGlobeTerrainMesh(negative, 0).indices.length).toBe(24);

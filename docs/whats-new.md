@@ -36,6 +36,10 @@ Copyright (c) vis.gl contributors
   Terrain mounts reuse bounded same-origin decoder workers, and the globe requests
   physical height grids without constructing unused Mercator topology. Diagnostics
   expose retained grid/mesh memory and decode/round-trip elapsed time.
+  Globe mesh preparation now cooperates with animation-frame slices, pauses during
+  navigation and swaps complete stitched snapshots atomically. A separate prepared
+  template retention cap preserves current terrain on admission failure; CPU-slice
+  diagnostics identify overruns without claiming a whole-GPU-memory or FPS budget.
 - The opt-in `experimental/projected-basemaps` layer adds worker-side math.gl
   Equal Earth, regional Albers, equirectangular, ellipsoidal Mercator and Web
   Mercator projection for ground polygons, raster meshes, meter/pixel roads

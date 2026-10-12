@@ -10,8 +10,13 @@ import type {TerrainHeightGrid} from './terrain-data';
 const GLOBE_RADIUS = 256, EARTH_RADIUS = 6370972, MERCATOR_RADIUS = 6378137;
 
 /** Build an inclusive summed-area mask only when a source actually contains holes. */
-function buildMissingTerrainPrefix(grid: TerrainHeightGrid): Uint32Array | null {
-    if (grid.valid.every(value => value !== 0)) return null;
+function* buildMissingTerrainPrefix(grid: TerrainHeightGrid): Generator<void, Uint32Array | null, void> {
+    let missingSample = false;
+    for (let offset = 0; offset < grid.valid.length && !missingSample; offset += 4096) {
+        for (let index = offset; index < Math.min(grid.valid.length, offset + 4096); index++) if (grid.valid[index] === 0) {missingSample = true; break;}
+        yield;
+    }
+    if (!missingSample) return null;
     const stride = grid.width + 1, prefix = new Uint32Array(stride * (grid.height + 1));
     for (let row = 0; row < grid.height; row++) {
         let missing = 0;
@@ -19,6 +24,7 @@ function buildMissingTerrainPrefix(grid: TerrainHeightGrid): Uint32Array | null 
             missing += Number(grid.valid[row * grid.width + column] === 0);
             prefix[(row + 1) * stride + column + 1] = prefix[row * stride + column + 1] + missing;
         }
+        if (row % 8 === 7) yield;
     }
     return prefix;
 }
@@ -60,6 +66,8 @@ export interface GlobeTerrainMeshTemplate {
     readonly vertexCount: number;
     /** Number of outward triangles, excluding no-data cells. */
     readonly triangleCount: number;
+    /** Owned typed-array backing storage; excludes source grids and temporary JavaScript arrays. */
+    readonly byteLength: number;
 }
 
 /** Private backing arrays cannot be modified through the public template handle. */
@@ -100,6 +108,19 @@ export function prepareGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
     /** Same-datum non-overlapping neighbors with balanced 2:1 edges. */
     neighbors?: readonly TerrainHeightGrid[];
 } = {}): GlobeTerrainMeshTemplate {
+    const steps = prepareGlobeTerrainMeshSteps(grid, options);
+    let result = steps.next();
+    while (!result.done) result = steps.next();
+    return result.value;
+}
+
+/** Cooperatively prepare identical topology; each yield releases control between bounded sampling chunks. */
+export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: {
+    /** Uniform cells per tile axis, integer [2, 256]; defaults to 64. */
+    resolution?: number;
+    /** Same-datum non-overlapping neighbors with balanced 2:1 edges. */
+    neighbors?: readonly TerrainHeightGrid[];
+} = {}): Generator<void, GlobeTerrainMeshTemplate, void> {
     const resolution = options.resolution ?? 64;
     if (!Number.isSafeInteger(resolution) || resolution < 2 || resolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
     const grids = [grid, ...(options.neighbors ?? [])];
@@ -113,10 +134,11 @@ export function prepareGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
     const circumference = 2 * Math.PI * MERCATOR_RADIUS;
     const samplingGrids = grids.flatMap(candidate => [-1, 0, 1].map((world): TerrainHeightGrid => ({...candidate, bounds: [candidate.bounds[0] + world * circumference, candidate.bounds[1], candidate.bounds[2] + world * circumference, candidate.bounds[3]]})))
         .filter(candidate => candidate.bounds[0] <= grid.bounds[2] && candidate.bounds[2] >= grid.bounds[0] && candidate.bounds[1] <= grid.bounds[3] && candidate.bounds[3] >= grid.bounds[1]);
-    const missingRegions = samplingGrids.flatMap(candidate => {
-        const prefix = buildMissingTerrainPrefix(candidate);
-        return prefix ? [{grid: candidate, prefix}] : [];
-    });
+    const missingRegions: {grid: TerrainHeightGrid; prefix: Uint32Array}[] = [];
+    for (const candidate of samplingGrids) {
+        const prefix = yield* buildMissingTerrainPrefix(candidate);
+        if (prefix) missingRegions.push({grid: candidate, prefix});
+    }
     const [west, south, east, north] = grid.bounds;
     const tolerance = Math.max(east - west, north - south) * 1e-10;
     for (const candidate of samplingGrids) {
@@ -154,7 +176,10 @@ export function prepareGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
         return index;
     }
     // Retain regular node ordering; additional nodes are confined to stitched boundary rings.
-    for (let row = 0; row < size; row++) for (let column = 0; column < size; column++) vertex(column, row);
+    for (let row = 0; row < size; row++) {
+        for (let column = 0; column < size; column++) vertex(column, row);
+        yield;
+    }
     const triangles: number[] = [];
     /** Add one outward non-degenerate triangle to the shared render/query topology. */
     function triangle(vertices: readonly number[]): void {
@@ -195,7 +220,8 @@ export function prepareGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
             for (let edge = 0; edge < ring.length; edge++) triangle([center, ring[edge], ring[(edge + 1) % ring.length]]);
         }
     }
-    for (let row = 0; row < resolution; row++) for (let column = 0; column < resolution; column++) {
+    for (let row = 0; row < resolution; row++) {
+      for (let column = 0; column < resolution; column++) {
         const first = row * size + column, second = first + 1, third = first + size, fourth = third + 1;
         if (![first, second, third, fourth].every(vertex => valid[vertex])) continue;
         const cellBounds: [number, number, number, number] = [west + (east - west) * column / resolution, north - (north - south) * (row + 1) / resolution,
@@ -203,6 +229,8 @@ export function prepareGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
         if (missingRegions.some(region => hasMissingTerrain(region.grid, region.prefix, cellBounds))) continue;
         reconstruct([[column, row], [column, row + 1], [column + 1, row]]);
         reconstruct([[column + 1, row], [column, row + 1], [column + 1, row + 1]]);
+      }
+      yield;
     }
     const gradients = new Float64Array(physicalHeights.length * 2), frame = new Float64Array(physicalHeights.length * 4);
     /** Identical edge sample neighborhoods yield identical spherical lighting at either LOD. */
@@ -219,13 +247,16 @@ export function prepareGlobeTerrainMesh(grid: TerrainHeightGrid, options: {
         const physicalScale = Math.cos(latitude) * EARTH_RADIUS / MERCATOR_RADIUS;
         gradients[index * 2] = !valid[index] ? 0 : slope(sampleTerrainNeighborhood(samplingGrids, [x - distanceX, y]), sampleTerrainNeighborhood(samplingGrids, [x + distanceX, y]), height, distanceX * physicalScale);
         gradients[index * 2 + 1] = !valid[index] ? 0 : slope(sampleTerrainNeighborhood(samplingGrids, [x, y - distanceY]), sampleTerrainNeighborhood(samplingGrids, [x, y + distanceY]), height, distanceY * physicalScale);
+        if (index % 128 === 127) yield;
     }
-    const template = Object.freeze({vertexCount: physicalHeights.length, triangleCount: triangles.length / 3});
-    terrainTemplates.set(template, {
+    const buffers = {
         coordinates: Float32Array.from(geographicPositions.filter((_, index) => index % 3 !== 2)),
         heights: Float64Array.from(physicalHeights), gradients, frame,
         physicalHeights: Float32Array.from(physicalHeights), indices: Uint32Array.from(triangles)
-    });
+    };
+    const byteLength = Object.values(buffers).reduce((sum, values) => sum + values.byteLength, 0);
+    const template = Object.freeze({vertexCount: physicalHeights.length, triangleCount: triangles.length / 3, byteLength});
+    terrainTemplates.set(template, buffers);
     return template;
 }
 

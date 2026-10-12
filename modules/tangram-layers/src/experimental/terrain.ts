@@ -6,7 +6,7 @@ import {CompositeLayer, COORDINATE_SYSTEM, type LayerProps, type UpdateParameter
 import {SimpleMeshLayer} from '@deck.gl/mesh-layers';
 import {Matrix4} from '@math.gl/core';
 import {TerrainMeshSurface, type TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
-import {prepareGlobeTerrainMesh, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration, type GlobeTerrainMesh, type GlobeTerrainMeshTemplate, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {prepareGlobeTerrainMesh, getPreparedGlobeTerrainTemplate, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration, type GlobeTerrainMesh, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 
 /** Stable mesh object lets deck.gl retain unchanged attribute buffers. */
 function getTerrainRenderMesh(mesh: GlobeTerrainMesh) {
@@ -34,6 +34,8 @@ export type GlobeTerrainLayerProps = LayerProps & {
     globeTerrainExaggeration?: number;
     /** Uniform curved cells per tile axis, range [2, 256]; defaults to 64. */
     meshResolution?: number;
+    /** Optional cooperatively prepared complete generation, matching data identities/order and meshResolution. */
+    preparedTerrain?: GlobeTerrainPreparationSnapshot;
     /** Show triangle edges rather than shaded terrain. */
     wireframe?: boolean;
 };
@@ -69,6 +71,8 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
         if (this.props.modelMatrix || this.props.extensions.length) throw new Error('Globe terrain does not support vertex transforms or layer extensions');
         if (this.props.data.some(grid => grid.verticalDatum !== this.props.data[0].verticalDatum)) throw new Error('Globe terrain grids require one compatible vertical datum');
         if (new Set(this.props.data.map(grid => grid.bounds.join(','))).size !== this.props.data.length) throw new Error('Globe terrain grids must have distinct footprints');
+        const snapshot = this.props.preparedTerrain;
+        if (snapshot && (snapshot.resolution !== this.props.meshResolution || snapshot.grids.length !== this.props.data.length || snapshot.grids.some((grid, index) => grid !== this.props.data[index]))) throw new Error('Prepared globe terrain must match data and meshResolution');
         const exaggeration = getGlobeTerrainExaggeration(getGlobeScreenRatio(this.context.viewport), this.props.globeTerrainExaggeration);
         if (!changeFlags.propsOrDataChanged && this.state.exaggeration === exaggeration) return;
         const circumference = 2 * Math.PI * 6378137;
@@ -79,8 +83,8 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
                 candidate.bounds[0] + shift <= grid.bounds[2] && candidate.bounds[2] + shift >= grid.bounds[0] && candidate.bounds[1] <= grid.bounds[3] && candidate.bounds[3] >= grid.bounds[1]));
             const retained = previous.get(grid);
             const sameNeighborhood = retained && this.state.resolution === this.props.meshResolution && retained.neighbors.length === neighbors.length && retained.neighbors.every((neighbor, index) => neighbor === neighbors[index]);
-            if (sameNeighborhood && retained.exaggeration === exaggeration) return retained;
-            const template = sameNeighborhood ? retained.template : prepareGlobeTerrainMesh(grid, {resolution: this.props.meshResolution, neighbors});
+            const template = snapshot ? getPreparedGlobeTerrainTemplate(snapshot, grid) : sameNeighborhood ? retained.template : prepareGlobeTerrainMesh(grid, {resolution: this.props.meshResolution, neighbors});
+            if (sameNeighborhood && retained.template === template && retained.exaggeration === exaggeration) return retained;
             const mesh = scaleGlobeTerrainMesh(template, exaggeration);
             return {grid, neighbors, template, exaggeration, mesh: getTerrainRenderMesh(mesh),
                 surface: new TerrainMeshSurface({projection: 'globe', positions: mesh.positions, indices: mesh.indices, physicalHeights: mesh.physicalHeights, cullBackfaces: true})};

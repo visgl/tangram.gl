@@ -42,9 +42,22 @@ Navigation changes deck's camera immediately, while new detail selection waits
 motion; there is no lower-resolution interactive mesh. Mesh preparation snapshots
 physical samples, hole masks, stitched topology and relief slopes. Zooming only
 rescales those prepared buffers; once the display becomes flat, it reuses them.
-New tiles invalidate only touching neighborhoods. The prepared cache retains one
-snapshot per current drawable grid and is released with layer ownership; these
-arrays are outside the source-cache budget described below.
+New tiles invalidate only touching neighborhoods. The globe example uses the
+deck-independent `GlobeTerrainPreparation` controller to advance sampling and
+stitching with a 4 ms cooperative slice target, paused during navigation. A complete
+stitched generation replaces the previous display and physical-query surface
+atomically. Old terrain remains visible on cancellation or preparation failure.
+The default 96 MiB prepared-template retention cap counts unique current and
+staged template buffers; admission failure reports a manual-retry error.
+`mountGlobeTerrainExample` accepts `preparationBudgetMs` and `maxPreparedBytes`.
+The diagnostics show pending tiles, reuse, bytes and CPU-slice elapsed times.
+
+This is not a hard frame-time or peak-memory cap: an indivisible chunk can overrun
+its target. Source grids, scratch arrays, the candidate before admission,
+display/query buffers, query indexes and GPU uploads are outside this controller's
+byte/slice limits. Display scaling still runs synchronously in the layer. The
+prepared snapshots are separate from the source-cache budget below and are
+released on unmount; GPU switches keep the current CPU snapshot warm.
 
 Rotation, exaggeration and GPU switches do not reset the source cache. Cold detail
 can be evicted: retained compressed bytes and decoded arrays have a hard 256 MiB
