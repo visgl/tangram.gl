@@ -20,7 +20,7 @@ import type {
 } from './types.js';
 export type {FeatureSelectionResult, FeatureSelectionOptions} from './types.js';
 export {TerrainMeshSurface, pickTerrainAt} from './selection/terrain_surface';
-export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions} from './selection/terrain_surface';
+export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions, TerrainMeshStatistics} from './selection/terrain_surface';
 export type {
   TangramGPUBackend,
   TangramGPUSceneOptions,

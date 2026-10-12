@@ -53,6 +53,15 @@ staged template buffers; admission failure reports a manual-retry error.
 `meshResolution` (uniform cells per tile axis, integer 2–256, default 64).
 The diagnostics show pending tiles, reuse, bytes and CPU-slice elapsed times.
 
+The layer separately admits current plus replacement display/query geometry under
+a 128 MiB retained-array cap. Failure keeps the previous generation visible and
+pickable. Lazy picking acceleration has a separate 64 MiB cap; a tile that cannot
+fit uses exact linear triangle queries. Query snapshots now own geometry once,
+instead of duplicating positions/topology on the first pick. The globe mount accepts
+`maxDisplayBytes` and `maxQueryIndexBytes`, both non-negative integer byte limits.
+Display diagnostics report actual retained arrays and the last CPU update/pick
+elapsed time after rendering or selection, without scheduling another frame.
+
 This is not a hard frame-time or peak-memory cap: an indivisible chunk can overrun
 its target. Source grids, scratch arrays, the candidate before admission,
 display/query buffers, query indexes and GPU uploads are outside this controller's
@@ -63,8 +72,10 @@ released on unmount; GPU switches keep the current CPU snapshot warm.
 Rotation, exaggeration and GPU switches do not reset the source cache. Cold detail
 can be evicted: retained compressed bytes and decoded arrays have a hard 256 MiB
 cap, with at most two fetch/decode jobs, 48 cold records and a 64 MiB cold budget.
-The cap excludes in-flight worker temporaries, render/query meshes and GPU resources;
-the separate leaf and mesh-resolution limits bound their counts, not total bytes.
+The source cap excludes in-flight worker temporaries, render/query meshes and GPU
+resources. The display and hierarchy caps above cover their retained CPU arrays,
+not temporary decode/scaling/sorting allocations, JavaScript objects, external
+snapshots or GPU resources.
 The footprint estimate is not a certified curvature/height-error bound, and height
 changes at sibling replacement are not temporally morphed. The example still does
 not implement polar terrain, terrain-aware basemap draping or immersive/stereo

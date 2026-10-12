@@ -30,6 +30,10 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     preparationBudgetMs?: number;
     /** Current plus staged prepared-template retention; default 96 MiB, excluding scratch/display/query/GPU buffers. */
     maxPreparedBytes?: number;
+    /** Current plus replacement display/query geometry typed-array cap; default 128 MiB. */
+    maxDisplayBytes?: number;
+    /** Total current lazy picking hierarchy typed-array cap; default 64 MiB. */
+    maxQueryIndexBytes?: number;
     /** Uniform curved cells per tile axis, integer [2, 256]; defaults to 64. */
     meshResolution?: number;
 }): TerrainExample {
@@ -43,6 +47,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const meshResolution = options.meshResolution ?? 64;
     if (!Number.isSafeInteger(meshResolution) || meshResolution < 2 || meshResolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
     const preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
+    const maxDisplayBytes = options.maxDisplayBytes ?? 128 * 1024 * 1024, maxQueryIndexBytes = options.maxQueryIndexBytes ?? 64 * 1024 * 1024;
+    for (const limit of [maxDisplayBytes, maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
     const parameters = new URLSearchParams(options.parameters);
     const rawExaggeration = parameters.get('exaggeration');
     const requested = rawExaggeration?.trim() ? Number(rawExaggeration) : 100;
@@ -53,7 +59,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const root = document.createElement('div');
     root.className = 'mounted-example terrain-example';
     root.innerHTML = `<div data-example="map"></div><aside data-example="controls">
-      <h1>Globe terrain</h1><p data-example="status" role="status">Loading global elevation…</p><p data-example="decoder-status" class="hint"></p><p data-example="preparation-status" class="hint"></p>
+      <h1>Globe terrain</h1><p data-example="status" role="status">Loading global elevation…</p><p data-example="decoder-status" class="hint"></p><p data-example="preparation-status" class="hint"></p><p data-example="display-status" class="hint"></p>
       <label class="control"><span>Maximum globe exaggeration</span><input data-example="exaggeration" type="range" min="0" max="200" step="1"><output data-example="exaggeration-value"></output></label>
       <label class="control"><span>Terrain detail</span><select data-example="detail"><option value="128">High</option><option value="256">Balanced</option><option value="512">Fast</option></select></label>
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
@@ -103,6 +109,12 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     function schedule(): void {
         if (!disposed && !animationFrame) animationFrame = requestAnimationFrame(() => {animationFrame = 0; updateLayers();});
     }
+    /** Report actual retained display/query arrays after deck updates and lazy picking, without scheduling another frame. */
+    function updateDisplayStatus(): void {
+        if (disposed || !layer) return;
+        const statistics = layer.getStatistics();
+        element('display-status').textContent = `Admitted: ${statistics.tileCount} tiles · ${statistics.exaggeration.toFixed(1)}× displayed · display/query geometry ${(statistics.displayBytes / 1000000).toFixed(1)} MB · picking index ${(statistics.queryIndexBytes / 1000000).toFixed(1)} MB · last update ${statistics.updateMs.toFixed(1)} ms · last pick ${statistics.queryMs.toFixed(1)} ms${statistics.error ? ` · ${statistics.error}` : ''} · excludes GPU/transient allocations`;
+    }
     /** Create one owned device, with a controlled GlobeView. */
     function createDeck(): Deck<GlobeView> {
         const generation = ++deckGeneration;
@@ -121,7 +133,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
                 const viewport = information.viewport ?? deck.getViewports()[0];
                 const hit = viewport && layer?.pickTerrain(viewport, [information.x, information.y]);
                 output.textContent = hit ? `${hit.coordinate[0].toFixed(4)}, ${hit.coordinate[1].toFixed(4)} — ${hit.coordinate[2].toFixed(1)} physical m` : 'Outside loaded terrain';
-            }, onLoad: () => {if (!disposed && generation === deckGeneration) {deckReady = true; schedule();}}});
+                updateDisplayStatus();
+            }, onAfterRender: () => {if (generation === deckGeneration) updateDisplayStatus();}, onLoad: () => {if (!disposed && generation === deckGeneration) {deckReady = true; schedule();}}});
     }
     let deck = createDeck();
     /** Refine visible data with hysteresis, retaining complete stitched parent fallback and warm sources. */
@@ -146,7 +159,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         if (dataChanged) {displayedSnapshot = snapshot; grids = [...(snapshot?.grids ?? [])];}
         const currentExaggeration = Number(exaggeration.value);
         if (!layer || dataChanged || displayedMaximum !== currentExaggeration || displayedWireframe !== wireframe.checked) {
-            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot, meshResolution, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked});
+            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot, meshResolution, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked, maxDisplayBytes, maxQueryIndexBytes});
             displayedMaximum = currentExaggeration; displayedWireframe = wireframe.checked;
         }
         deck.setProps({layers: [layer]});
@@ -156,7 +169,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         element('preparation-status').textContent = `Preparation: ${prepared.pending} pending · ${(prepared.retainedBytes / 1000000).toFixed(1)} / ${(prepared.byteLimit / 1000000).toFixed(1)} MB templates · ${prepared.prepared} new / ${prepared.reused} reused · ${prepared.slices} slices · ${prepared.workMs.toFixed(1)} ms CPU elapsed · longest ${prepared.maxSliceMs.toFixed(1)} ms${prepared.error ? ` · ${prepared.error} — retry available` : ''}`;
         const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
         const highest = Math.max(0, ...grids.map(grid => zoomByGrid.get(grid) ?? 0));
-        status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${grids.length} tiles · z${highest} detail · ${effective.toFixed(1)}× displayed · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(0)} MB cached${statistics.active || statistics.queued ? ` · ${statistics.active} active / ${statistics.queued} queued` : ''}${detail.limited ? ' · detail budget/source limit' : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
+        status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${grids.length} tiles prepared · z${highest} detail · ${effective.toFixed(1)}× requested · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(0)} MB cached${statistics.active || statistics.queued ? ` · ${statistics.active} active / ${statistics.queued} queued` : ''}${detail.limited ? ' · detail budget/source limit' : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
         if (preparation.isPending() && detailTimer === undefined) schedule();
     }
     tileset = new TerrainTileset<TerrainGridData>({minZoom: 1, maxZoom: source.maxZoom, hierarchical: true, maxResidentBytes: 256 * 1024 * 1024, maxCachedTiles: 48, maxCachedBytes: 64 * 1024 * 1024, fetch: (tile, signal) => source.fetchTile(tile, signal),

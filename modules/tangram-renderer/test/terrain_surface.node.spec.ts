@@ -6,17 +6,63 @@ import {expect, test} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import {TerrainMeshSurface, pickTerrainAt} from '../src/selection/terrain_surface';
+import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
+
+test('terrain validates detached physical heights against owned topology, reading caller values once', () => {
+    const indices = [0, 1, 2], physicalHeights = [123, 123, 123];
+    let indexReads = 0, heightReads = 0;
+    Object.defineProperty(indices, 0, {get: () => indexReads++ === 0 ? 0 : NaN});
+    Object.defineProperty(physicalHeights, 0, {get: () => heightReads++ === 0 ? 123 : NaN});
+    const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [0, 0, 2, 2, 0, 2, 0, 2, 2], indices, physicalHeights});
+    expect(indexReads).toBe(1); expect(heightReads).toBe(1);
+    expect(surface.intersectRay({origin: [0.5, 0.5, 10], direction: [0, 0, -1]})?.coordinate[2]).toBe(123);
+});
+
+test('terrain owns geometry once and zero-budget linear queries preserve indexed physical/backface results', () => {
+    const options = {projection: 'globe', positions: [-2, -256, -2, 2, -256, -2, 0, -256, 2], indices: [0, 1, 2], physicalHeights: [123, 123, 123], cullBackfaces: true} as const;
+    const accelerated = new TerrainMeshSurface(options), linear = new TerrainMeshSurface({...options, maxQueryIndexBytes: 0});
+    const ray = {origin: [0, -300, 0], direction: [0, 1, 0]} as const;
+    expect(linear.getStatistics()).toMatchObject({geometryBytes: 9 * 8 + 3 * 4 + 3 * 8, queryIndexBytes: 0});
+    expect(linear.intersectRay(ray)).toEqual(accelerated.intersectRay(ray));
+    expect(linear.intersectRay(ray)?.coordinate[2]).toBeCloseTo(123);
+    expect(linear.intersectRay({origin: [0, -200, 0], direction: [0, -1, 0]})).toBeNull();
+    expect(linear.getStatistics().queryIndexBytes).toBe(0);
+    expect(accelerated.getStatistics().geometryBytes).toBe(linear.getStatistics().geometryBytes);
+    expect(accelerated.getStatistics().queryIndexBytes).toBe(68);
+    for (const limit of [-1, NaN, Infinity, 1.5]) expect(() => new TerrainMeshSurface({...options, maxQueryIndexBytes: limit})).toThrow('byte limit');
+});
+
+test.each([1, 8, 9, 17, 32, 65])('packed hierarchy accounts exactly for %s triangles and matches budget fallback', count => {
+    const positions = [0, 0, 2, 2, 0, 2, 0, 2, 2], indices = Array.from({length: count}, () => [0, 1, 2]).flat();
+    const lazy = new TriangleQueryIndex(positions, indices, 8, {lazy: true});
+    const linear = new TriangleQueryIndex(positions, indices, 8, {maxHierarchyBytes: lazy.requiredHierarchyBytes - 1});
+    const exact = new TriangleQueryIndex(positions, indices, 8, {maxHierarchyBytes: lazy.requiredHierarchyBytes});
+    const geometryBytes = positions.length * 8 + indices.length * 4;
+    expect(lazy.arrayBytes).toBe(geometryBytes);
+    expect(lazy.queryRay([10, 10, 10], [0, 0, -1]).hit).toBeNull(); expect(lazy.hierarchyBytes).toBe(0);
+    const accepted = (hit: {triangleIndex: number}) => hit.triangleIndex === count - 1;
+    const acceleratedHit = lazy.queryRay([0.5, 0.5, 10], [0, 0, -2], 4, accepted).hit;
+    expect(acceleratedHit?.triangleIndex).toBe(count - 1);
+    expect(linear.queryRay([0.5, 0.5, 10], [0, 0, -2], 4, accepted).hit).toEqual(acceleratedHit);
+    expect(exact.queryRay([0.5, 0.5, 10], [0, 0, -2], 4, accepted).hit).toEqual(acceleratedHit);
+    expect(lazy.hierarchyBytes).toBe(lazy.requiredHierarchyBytes);
+    expect(lazy.arrayBytes).toBe(geometryBytes + lazy.requiredHierarchyBytes);
+    expect(linear.hierarchyBytes).toBe(0);
+    const vertex = lazy.getTriangleVertex(0, 0); vertex.position.fill(99);
+    expect(lazy.getTriangleVertex(0, 0)).toEqual({index: 0, position: [0, 0, 2]});
+    for (const pair of [[-1, 0], [count, 0], [0, 3], [0, NaN]]) expect(() => lazy.getTriangleVertex(pair[0], pair[1])).toThrow('out of range');
+});
 
 test('bounds rejection keeps unrelated terrain query indexes unallocated', () => {
     const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [-1, -1, 2, 1, -1, 2, 0, 1, 2], indices: [0, 1, 2]});
-    expect(Reflect.get(surface, 'queryIndex')).toBeUndefined();
+    const initial = surface.getStatistics(); expect(initial.queryIndexBytes).toBe(0);
     expect(surface.intersectRay({origin: [100, 100, 10], direction: [0, 0, -1]})).toBeNull();
     expect(surface.intersectRay({origin: [0, 0, 10], direction: [0, 0, -1]}, 7.9)).toBeNull();
-    expect(Reflect.get(surface, 'queryIndex')).toBeUndefined();
+    expect(surface.getStatistics()).toEqual(initial);
     expect(surface.intersectRay({origin: [0, 0, 10], direction: [0, 0, -10]}, 8)?.distance).toBe(8);
-    const index = Reflect.get(surface, 'queryIndex'); expect(index).toBeDefined();
+    const indexed = surface.getStatistics(); expect(indexed.queryIndexBytes).toBe(indexed.requiredQueryIndexBytes);
     expect(surface.intersectRay({origin: [0, 0, 2], direction: [0, 0, 1]}, 0)?.distance).toBe(0);
-    expect(Reflect.get(surface, 'queryIndex')).toBe(index);
+    expect(surface.getStatistics()).toEqual(indexed);
 });
 import type {TerrainRay} from '../src/selection/terrain_surface';
 

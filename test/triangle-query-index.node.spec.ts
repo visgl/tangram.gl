@@ -31,9 +31,9 @@ function linear(positions: number[], indices: number[], origin: [number, number,
     return nearest;
 }
 
-test.each([1, 8, 64])('indexed rays conform to the linear math.gl oracle with leaf size %s', leafSize => {
+test.each([{leafSize: 1}, {leafSize: 8}, {leafSize: 64}, {leafSize: 8, maxHierarchyBytes: 0}])('indexed or budget-fallback rays conform to the linear math.gl oracle: %j', ({leafSize, maxHierarchyBytes}) => {
     const {positions, indices} = fixture();
-    const index = new TriangleQueryIndex(positions, indices, leafSize);
+    const index = new TriangleQueryIndex(positions, indices, leafSize, {maxHierarchyBytes});
     for (const column of [-1, 0, 31, 73, 127, 128]) for (const direction of [[0, 0, -1], [0, 0, -100], [0, 0, 1], [1, 0, 0]] satisfies [number, number, number][]) {
         const origin: [number, number, number] = [column * 3 + 0.4, 0.5, 10];
         for (const maximum of [0, 0.05, 5, 6, Infinity]) expect(index.queryRay(origin, direction, maximum).hit).toEqual(linear(positions, indices, origin, direction, maximum));
@@ -53,6 +53,16 @@ test('query work is pruned, detached geometry is stable and equal-distance ties 
     const ties = new TriangleQueryIndex([0, 0, 0, 2, 0, 0, 0, 2, 0], [0, 1, 2, 2, 1, 0], 1);
     expect(ties.queryRay([0.5, 0.5, 1], [0, 0, -1]).hit?.triangleIndex).toBe(0);
     expect(ties.queryRay([0.5, 0.5, 0], [0, 0, 1], 0).hit?.parameter).toBe(0);
+});
+
+test('ArrayLike values are read once and the copied geometry is what gets validated', () => {
+    const positions = [0, 0, 0, 2, 0, 0, 0, 2, 0], indices = [0, 1, 2];
+    let positionReads = 0, indexReads = 0;
+    Object.defineProperty(positions, 0, {get: () => positionReads++ === 0 ? 0 : NaN});
+    Object.defineProperty(indices, 0, {get: () => indexReads++ === 0 ? 0 : NaN});
+    const index = new TriangleQueryIndex(positions, indices);
+    expect(positionReads).toBe(1); expect(indexReads).toBe(1);
+    expect(index.queryRay([0.5, 0.5, 1], [0, 0, -1]).hit?.parameter).toBe(1);
 });
 
 test('empty, invalid and degenerate rays/triangles do not produce phantom hits', () => {

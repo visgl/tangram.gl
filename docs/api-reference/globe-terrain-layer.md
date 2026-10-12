@@ -104,6 +104,33 @@ per vertex. It snapshots those values so exaggerated geometry can be queried
 through `pickTerrainAt` and existing `HostFrame` eye routing without changing
 the renderer's deck-independent camera contract.
 
+## Memory admission and diagnostics
+
+`maxDisplayBytes` defaults to 128 MiB and accepts a non-negative integer.
+It admits the **current plus replacement** geographic/color/index buffers and
+immutable query geometry/physical heights before allocating replacement display
+arrays. Reused tiles count once. If admission fails, the entire previous generation
+remains drawn and pickable; `getStatistics().error` explains the failure. Increasing
+the budget or reducing data/resolution retries on the next props update. Empty data
+always releases geometry, even after lowering a budget below the retained size.
+Lowering a limit does not forcibly discard already displayed fallback.
+
+`maxQueryIndexBytes` defaults to 64 MiB, divided equally among the current tiles.
+Lazy packed hierarchy arrays cannot exceed that shared cap. A tile whose hierarchy
+does not fit uses exact linear queries; zero disables acceleration, not picking.
+This trades query speed for bounded retained acceleration storage.
+Budget changes take effect when a replacement generation is admitted; a rejected
+replacement keeps the previous generation's hierarchy policy too.
+
+`getStatistics()` returns detached admitted `tileCount` and `exaggeration`,
+`displayBytes`, `queryIndexBytes`, `error`,
+`updateMs` and `queryMs`. Timings include synchronous CPU update/picking work and
+lazy hierarchy construction, not GPU time or frame rate. Display accounting is
+56 bytes per vertex plus 24 bytes per triangle. Source grids, prepared templates,
+temporary scaling/sorting arrays, JavaScript objects, external retained layers and
+GPU allocations are outside these caps. The separate preparation controller owns
+the template budget; neither controller claims a whole-process peak-memory cap.
+
 ## Limits
 
 GlobeView only. Vertex-transforming `modelMatrix` and layer extensions reject,
