@@ -33,13 +33,18 @@ vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
     destroy = mocks.decoderDestroy;
     getStatistics = () => ({created: 2, active: 0, idle: 2, completed: 20, failed: 0, cancelled: 0});
 }}));
+/** Streaming/settings tests finish small fixtures in one slice; the pause/teardown test overrides this target explicitly. */
+function mountTestGlobeTerrainExample(host: HTMLElement, options: Parameters<typeof mountGlobeTerrainExample>[1]): ReturnType<typeof mountGlobeTerrainExample> {
+    return mountGlobeTerrainExample(host, {preparationBudgetMs: 1000, ...options});
+}
+
 const hosts: HTMLElement[] = [], instances: ReturnType<typeof mountGlobeTerrainExample>[] = [];
 afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); hosts.splice(0).forEach(host => host.remove()); vi.unstubAllGlobals(); vi.clearAllMocks(); mocks.autoLoad = true; mocks.viewportZoom = 1;});
 
 test('navigation draws immediately but coalesces detail selection until settled; teardown cancels the pending selection', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
     const host = document.createElement('div'); document.body.append(host); hosts.push(host);
-    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`}); instances.push(instance);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`}); instances.push(instance);
     await instance.ready;
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     const selected = mocks.selectDetail.mock.calls.length, properties = mocks.construct.mock.calls[0][0];
@@ -65,7 +70,7 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
     const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
     const host = document.createElement('div'); document.body.append(host); hosts.push(host);
     const changed = vi.fn();
-    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('device=webgl'), onParametersChange: changed}); instances.push(instance);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('device=webgl'), onParametersChange: changed}); instances.push(instance);
     await instance.ready;
     await expect.poll(() => host.querySelector('[data-example="status"]')?.textContent).toContain('16 tiles');
     expect(fetch).toHaveBeenCalledTimes(20); // Four z1 parents and sixteen global z2 tiles.
@@ -115,13 +120,13 @@ test('mount keeps global bytes warm across camera/settings/device changes and ow
 
 test('invalid hosts reject before allocation; failed tile requests report retry and remain bounded', async () => {
     const host = document.createElement('div'); hosts.push(host);
-    expect(() => mountGlobeTerrainExample(host, {workerUrl: 'https://example.invalid/worker.js'})).toThrow('same-origin');
-    expect(() => mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, preparationBudgetMs: 0})).toThrow('slice target');
-    expect(() => mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxPreparedBytes: -1})).toThrow('byte limit');
-    expect(() => mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, source: createTerrainImageSource({id: 'local', urlTemplate: `${location.origin}/{z}/{x}/{y}`, minZoom: 3, credits: [{label: 'local', url: location.origin}]})})).toThrow('zooms');
+    expect(() => mountTestGlobeTerrainExample(host, {workerUrl: 'https://example.invalid/worker.js'})).toThrow('same-origin');
+    expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, preparationBudgetMs: 0})).toThrow('slice target');
+    expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxPreparedBytes: -1})).toThrow('byte limit');
+    expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, source: createTerrainImageSource({id: 'local', urlTemplate: `${location.origin}/{z}/{x}/{y}`, minZoom: 3, credits: [{label: 'local', url: location.origin}]})})).toThrow('zooms');
     expect(host.children).toHaveLength(0);
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', {status: 503})));
-    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('exaggeration=invalid')}); instances.push(instance);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('exaggeration=invalid')}); instances.push(instance);
     await instance.ready;
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('failed');
     expect(host.querySelector<HTMLInputElement>('[data-example="exaggeration"]')?.value).toBe('100');
@@ -130,7 +135,7 @@ test('invalid hosts reject before allocation; failed tile requests report retry 
 test('cooperative preparation pauses during navigation and teardown prevents late publication', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
     const host = document.createElement('div'); document.body.append(host); hosts.push(host);
-    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, preparationBudgetMs: 0.00001}); instances.push(instance);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, preparationBudgetMs: 0.00001}); instances.push(instance);
     await instance.ready;
     const properties = mocks.construct.mock.calls[0][0];
     if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function') throw new Error('Missing navigation callback');
@@ -152,7 +157,7 @@ test('cooperative preparation pauses during navigation and teardown prevents lat
 test('template admission failure reports explicit retry without restarting tile acquisition or publishing partial geometry', async () => {
     const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
     const host = document.createElement('div'); document.body.append(host); hosts.push(host);
-    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxPreparedBytes: 0, preparationBudgetMs: 1000}); instances.push(instance);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxPreparedBytes: 0, preparationBudgetMs: 1000}); instances.push(instance);
     await instance.ready;
     await expect.poll(() => host.querySelector('[data-example="preparation-status"]')?.textContent).toContain('retained-byte limit');
     expect(mocks.layers.mock.lastCall?.[0]).toMatchObject({data: []});
@@ -169,7 +174,7 @@ test('cached tiles wait for asynchronous GPU initialization and ignore replaced 
     mocks.autoLoad = false;
     const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
     const host = document.createElement('div'); document.body.append(host); hosts.push(host);
-    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('device=webgl')}); instances.push(instance);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('device=webgl')}); instances.push(instance);
     await instance.ready;
     expect(mocks.layers).not.toHaveBeenCalled();
     host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')!.click();
@@ -187,7 +192,7 @@ test('cached tiles wait for asynchronous GPU initialization and ignore replaced 
 test.each([['0', '0'], ['200', '200'], ['25.5', '26'], ['-1', '100'], ['201', '100'], ['', '100'], ['%20%20', '100']])('URL exaggeration %s initializes a matching slider and readout', async (requested, expected) => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
     const host = document.createElement('div'); hosts.push(host);
-    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams(`exaggeration=${requested}`)}); instances.push(instance);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams(`exaggeration=${requested}`)}); instances.push(instance);
     await instance.ready;
     expect(host.querySelector<HTMLInputElement>('[data-example="exaggeration"]')?.value).toBe(expected);
     expect(host.querySelector<HTMLOutputElement>('[data-example="exaggeration-value"]')?.value).toBe(`${expected}×`);
@@ -198,7 +203,7 @@ test('zoom streams higher-detail globe tiles and retains global fallback across 
     const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
     const host = document.createElement('div'); document.body.append(host); hosts.push(host);
     // Streaming/payload conformance is independent of wall-clock frame slicing; pause/yield behavior is tested separately.
-    const instance = mountGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('device=webgl'), preparationBudgetMs: 1000}); instances.push(instance);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, parameters: new URLSearchParams('device=webgl'), preparationBudgetMs: 1000}); instances.push(instance);
     await instance.ready;
     const properties = mocks.construct.mock.calls[0][0];
     if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function') throw new Error('Missing navigation callback');
