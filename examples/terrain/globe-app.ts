@@ -30,6 +30,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     preparationBudgetMs?: number;
     /** Current plus staged prepared-template retention; default 96 MiB, excluding scratch/display/query/GPU buffers. */
     maxPreparedBytes?: number;
+    /** Uniform curved cells per tile axis, integer [2, 256]; defaults to 64. */
+    meshResolution?: number;
 }): TerrainExample {
     const workerUrl = new URL(options.workerUrl, location.href);
     if (workerUrl.origin !== location.origin) throw new Error('Terrain worker must be same-origin');
@@ -38,6 +40,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     if (source.minZoom > 0 || source.maxZoom < 2) throw new Error('Global terrain preview requires source zooms 0–2');
     const preparationBudget = options.preparationBudgetMs ?? 4;
     if (!Number.isFinite(preparationBudget) || preparationBudget <= 0) throw new Error('Preparation slice target must be positive');
+    const meshResolution = options.meshResolution ?? 64;
+    if (!Number.isSafeInteger(meshResolution) || meshResolution < 2 || meshResolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
     const preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
     const parameters = new URLSearchParams(options.parameters);
     const rawExaggeration = parameters.get('exaggeration');
@@ -135,14 +139,14 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         const drawable = tileset.getDrawableTiles();
         const nextGrids = drawable.flatMap(tile => tile.data ? [tile.data.grid] : []);
         for (const tile of drawable) if (tile.data) zoomByGrid.set(tile.data.grid, tile.coordinate.zoom);
-        preparation.request(nextGrids);
+        preparation.request(nextGrids, meshResolution);
         if (detailTimer === undefined) preparation.advance(preparationBudget);
         const snapshot = preparation.getSnapshot();
         const dataChanged = displayedSnapshot !== snapshot;
         if (dataChanged) {displayedSnapshot = snapshot; grids = [...(snapshot?.grids ?? [])];}
         const currentExaggeration = Number(exaggeration.value);
         if (!layer || dataChanged || displayedMaximum !== currentExaggeration || displayedWireframe !== wireframe.checked) {
-            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked});
+            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot, meshResolution, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked});
             displayedMaximum = currentExaggeration; displayedWireframe = wireframe.checked;
         }
         deck.setProps({layers: [layer]});

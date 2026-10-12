@@ -49,7 +49,8 @@ stitched generation replaces the previous display and physical-query surface
 atomically. Old terrain remains visible on cancellation or preparation failure.
 The default 96 MiB prepared-template retention cap counts unique current and
 staged template buffers; admission failure reports a manual-retry error.
-`mountGlobeTerrainExample` accepts `preparationBudgetMs` and `maxPreparedBytes`.
+`mountGlobeTerrainExample` accepts `preparationBudgetMs`, `maxPreparedBytes` and
+`meshResolution` (uniform cells per tile axis, integer 2–256, default 64).
 The diagnostics show pending tiles, reuse, bytes and CPU-slice elapsed times.
 
 This is not a hard frame-time or peak-memory cap: an indivisible chunk can overrun

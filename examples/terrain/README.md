@@ -62,7 +62,8 @@ The globe example advances CPU preparation with a 4 ms cooperative target, pause
 during navigation. Completed stitched generations swap atomically; the previous
 terrain and physical queries remain available on cancellation or failure. A
 separate 96 MiB current/staged template retention cap and CPU-slice diagnostics
-are exposed. `preparationBudgetMs` and `maxPreparedBytes` configure this mount.
+are exposed. `preparationBudgetMs`, `maxPreparedBytes` and uniform `meshResolution`
+(2–256 cells per tile axis, default 64) configure this mount.
 Individual chunks can overrun; scratch, display/query and GPU work are outside
 these limits. This is time-budgeted main-thread work, not a worker mesh builder.
 High/Balanced/Fast detail settings use sampled screen footprints and hysteresis,

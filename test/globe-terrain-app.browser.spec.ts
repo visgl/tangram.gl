@@ -33,9 +33,9 @@ vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
     destroy = mocks.decoderDestroy;
     getStatistics = () => ({created: 2, active: 0, idle: 2, completed: 20, failed: 0, cancelled: 0});
 }}));
-/** Streaming/settings tests finish small fixtures in one slice; the pause/teardown test overrides this target explicitly. */
+/** Small topology tests host lifecycle, not exhaustive tessellation; high-resolution geometry is covered in the owning module/GPU tests. */
 function mountTestGlobeTerrainExample(host: HTMLElement, options: Parameters<typeof mountGlobeTerrainExample>[1]): ReturnType<typeof mountGlobeTerrainExample> {
-    return mountGlobeTerrainExample(host, {preparationBudgetMs: 1000, ...options});
+    return mountGlobeTerrainExample(host, {preparationBudgetMs: 1000, meshResolution: 4, ...options});
 }
 
 const hosts: HTMLElement[] = [], instances: ReturnType<typeof mountGlobeTerrainExample>[] = [];
@@ -123,6 +123,7 @@ test('invalid hosts reject before allocation; failed tile requests report retry 
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: 'https://example.invalid/worker.js'})).toThrow('same-origin');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, preparationBudgetMs: 0})).toThrow('slice target');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxPreparedBytes: -1})).toThrow('byte limit');
+    for (const meshResolution of [1, 257, 2.5]) expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, meshResolution})).toThrow('resolution');
     expect(() => mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, source: createTerrainImageSource({id: 'local', urlTemplate: `${location.origin}/{z}/{x}/{y}`, minZoom: 3, credits: [{label: 'local', url: location.origin}]})})).toThrow('zooms');
     expect(host.children).toHaveLength(0);
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', {status: 503})));
