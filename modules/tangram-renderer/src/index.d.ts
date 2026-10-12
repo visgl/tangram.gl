@@ -97,6 +97,12 @@ export declare class ClassicWebGLRenderer {
   getFeatureAt(pixel: {x: number; y: number}, options?: import('./types').FeatureSelectionOptions): Promise<import('./types').FeatureSelectionResult | undefined>;
   /** Reproject loaded meshes without replacing workers; rejects failed builds and permits subsequent recovery. */
   setProjectedBasemapProjection(projection: import('./procedures/mesh-projector').ProjectedBasemapOptions): Promise<void>;
+  /** Rebuild worker terrain geometry while preserving vector source caches. */
+  setTerrain(options: import('./procedures/terrain-draping').TerrainDrapingOptions): Promise<void>;
+  /** Adjust visual relief without resampling or rebuilding worker geometry. */
+  setTerrainExaggeration(value: number): void;
+    /** Resident worker preparation cost, excluding GPU and transient copies. */
+    getTerrainDrapingStatistics(): import('./procedures/terrain-draping').TerrainDrapingStatistics;
   constructor(config: SceneDefinition, options?: RendererOptions);
   static create(config: SceneDefinition, options?: RendererOptions): ClassicWebGLRenderer;
   readonly scene: Scene;
@@ -138,4 +144,5 @@ declare const Tangram: {
 };
 
 export default Tangram;
+export type {TerrainDrapingOptions, TerrainDrapingStatistics} from './procedures/terrain-draping';
 export type {ProjectionEngine, ProjectionEngineOptions, ProjectionEngineTransform} from './types.js';

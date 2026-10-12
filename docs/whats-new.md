@@ -8,11 +8,19 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- Experimental worker-side basemap draping adds physical heights and slope normals
+  to polygons, extruded walls, roads, rasters and point/text anchors on WebGL 2 and
+  WebGPU. Renderer/layer grid updates retain vector caches and animation time;
+  per-mesh height morphing, GPU-only exaggeration, preparation diagnostics and
+  conservative no-data admission accompany the Map/FirstPerson examples.
+  Stereo selection and mocked immersive cameras use the same displacement path.
+  FirstPerson navigation also guards finite eye segments against loaded ridges.
+
 - FirstPerson terrain adds standard deck navigation, bounded eye-centered streaming,
   physical-height screen picking and a point-eye floor constraint. XY meter offsets
   move both tile selection and elevation probes; missing terrain holds altitude.
   Canvas-relative picking routes offset Map/FirstPerson viewports without rebuilding
-  unchanged geometry. Continuous collision, horizon coverage and draping are deferred.
+  unchanged geometry. Avatar collision and certified horizon coverage remain deferred.
 
 - Terrain query collections add nearest-tile identities, finite trimmed sightlines,
   geographic elevation brackets and Mercator point-clearance constraints. Globe

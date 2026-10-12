@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {GLOBE_PROJECTION_WGSL} from '../../scene/projection_shaders';
+import {GLOBE_PROJECTION_WGSL, TERRAIN_DRAPING_WGSL} from '../../scene/projection_shaders';
 import {GLOBE_VISIBILITY_WGSL} from '../globe_visibility_wgsl';
 
 const PI = Math.PI;
@@ -16,17 +16,20 @@ const PI = Math.PI;
  *
  * @param cpuProjection Use preprojected ground anchors for screen-laid-out annotations.
  * @param selection Emit the worker selection key for visible atlas pixels.
+ * @param terrain Add physical terrain height/morph attributes to the anchor.
  * @returns {string} Complete WGSL source for Tangram's text style.
  */
-export function buildTextWGSL(cpuProjection = false, selection = false) {
+export function buildTextWGSL(cpuProjection = false, selection = false, terrain = false) {
     return `
 @group(0) @binding(3) var u_texture: texture_2d<f32>;
 @group(0) @binding(4) var u_textureSampler: sampler;
 ${GLOBE_PROJECTION_WGSL}
+${terrain ? TERRAIN_DRAPING_WGSL : ''}
 ${GLOBE_VISIBILITY_WGSL}
 
 struct TextAttributes {
-    @location(0) a_position: vec4<i32>,
+    ${terrain ? '@location(14) a_terrain: vec4<f32>, @location(15) a_terrain_previous: vec4<f32>,' : ''}
+    @location(0) a_position: vec4<${terrain ? 'f32' : 'i32'}>,
     @location(1) a_shape: vec4<i32>,
     @location(2) a_texcoord: vec2<f32>,
     @location(3) a_offset: vec2<i32>,
@@ -122,7 +125,7 @@ fn vertexMain(attributes: TextAttributes) -> TextVaryings {
     let local_position = vec4<f32>(
         f32(attributes.a_position.x),
         f32(attributes.a_position.y),
-        f32(attributes.a_position.z),
+        f32(attributes.a_position.z) ${terrain ? '+ tangramTerrainHeight(attributes.a_terrain, attributes.a_terrain_previous)' : ''},
         1.0
     );
     let projected_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};

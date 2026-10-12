@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import Geo from '../../utils/geo';
-import {GLOBE_PROJECTION_WGSL, GLOBE_NORMAL_WGSL} from '../../scene/projection_shaders';
+import {GLOBE_PROJECTION_WGSL, GLOBE_NORMAL_WGSL, TERRAIN_DRAPING_WGSL} from '../../scene/projection_shaders';
 import {buildLightingWGSL} from '../../lights/lighting-wgsl';
 
 const LAYER_DELTA = 1 / (1 << 14);
@@ -26,7 +26,9 @@ const ATTRIBUTE_SCALE = 1024;
  * @param {boolean} options.animated Enables the portable traffic vehicles.
  * @returns {string} Complete WGSL source for the line style.
  */
-export function buildLinesWGSL({ animated = false, lighting, lightCount, cpuProjection = false, selection = false }: {
+export function buildLinesWGSL({ animated = false, lighting, lightCount, cpuProjection = false, terrain = false, selection = false }: {
+    /** Physical ground displacement from worker attributes. */
+    terrain?: boolean;
     /** Emit the worker selection key after applying texture and dash masks. */
     selection?: boolean;
     /** Enable the existing portable traffic animation. */
@@ -87,11 +89,13 @@ export function buildLinesWGSL({ animated = false, lighting, lightCount, cpuProj
 @group(0) @binding(4) var u_textureSampler: sampler;
 ${GLOBE_PROJECTION_WGSL}
 ${configured ? `${GLOBE_NORMAL_WGSL}\n${buildLightingWGSL(lightCount)}` : ''}
+${terrain ? TERRAIN_DRAPING_WGSL : ''}
 
 struct LineAttributes {
-    @location(0) a_position: vec4<i32>,
-    @location(1) a_extrude: vec2<i32>,
-    @location(2) a_offset: vec2<i32>,
+    ${terrain ? '@location(14) a_terrain: vec4<f32>, @location(15) a_terrain_previous: vec4<f32>,' : ''}
+    @location(0) a_position: vec4<${terrain ? 'f32' : 'i32'}>,
+    @location(1) a_extrude: vec2<${terrain ? 'f32' : 'i32'}>,
+    @location(2) a_offset: vec2<${terrain ? 'f32' : 'i32'}>,
     @location(3) a_z_and_offset_scale: vec2<i32>,
     @location(4) a_texcoord: vec2<f32>,
     @location(5) a_color: vec4<f32>,
@@ -143,7 +147,7 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
 
     let local_position = vec4<f32>(
         vec2<f32>(attributes.a_position.xy) + extrusion + offset,
-        f32(attributes.a_z_and_offset_scale.x) / ${Geo.height_scale}.0,
+        f32(attributes.a_z_and_offset_scale.x) / ${Geo.height_scale}.0 ${terrain ? '+ tangramTerrainHeight(attributes.a_terrain, attributes.a_terrain_previous) + tangramTerrainRibbonOffset(extrusion + offset, vec2<f32>(attributes.a_position.xy), attributes.a_terrain, attributes.a_terrain_previous)' : ''},
         1.0
     );
     let eye_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};
@@ -171,9 +175,11 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
     output.texcoord = attributes.a_texcoord / 65535.0;
     output.texcoord.y *= TangramLine.u_v_scale_adjust;
     ${configured ? `
-    var normal = normalize(TangramTile.u_normalMatrix * vec3<f32>(0.0, 0.0, 1.0));
+    var local_normal = vec3<f32>(0.0, 0.0, 1.0);
+    ${terrain ? 'local_normal = tangramTerrainNormal(local_normal, attributes.a_terrain, attributes.a_terrain_previous, vec2<f32>(attributes.a_position.xy));' : ''}
+    var normal = normalize(TangramTile.u_normalMatrix * local_normal);
     if (TangramView.u_projection_mode == 1) {
-        normal = tangramGlobeNormal((TangramTile.u_model * local_position).xyz, vec3<f32>(0.0, 0.0, 1.0));
+        normal = tangramGlobeNormal((TangramTile.u_model * local_position).xyz, local_normal);
     }
     output.normal = normal;
     output.eye_position = eye_position.xyz - TangramCamera.u_eye;

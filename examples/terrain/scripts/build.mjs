@@ -9,7 +9,7 @@ import {getOcularConfig} from '@vis.gl/dev-tools';
 
 const repositoryDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const configuration = await getOcularConfig({root: repositoryDirectory});
-const external = ['@deck.gl/core', '@deck.gl/geo-layers', '@luma.gl/core', '@luma.gl/webgpu', '@vis.gl/tangram-renderer'];
+const external = ['@deck.gl/core', '@deck.gl/geo-layers', '@luma.gl/core', '@luma.gl/webgpu', '@vis.gl/tangram-renderer', '@vis.gl/tangram-layers'];
 
 // The dedicated decoder contains CPU helpers only and has no import-map/CDN dependency.
 const worker = await build({absWorkingDir: repositoryDirectory,

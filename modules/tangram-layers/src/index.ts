@@ -10,12 +10,31 @@ import createTangramLayerClass, {
   getGlobeViewFrame,
   injectNextzenApiKey
 } from './tangram-layer.js';
+import type {TangramLayerProps} from './tangram-layer.js';
+
+const BaseTangramLayer = createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer: undefined});
 
 /**
  * A deck.gl basemap layer that renders a Tangram scene into deck's active
  * luma.gl device and render pass.
  */
-const TangramLayer = createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer: undefined});
+class TangramLayer extends BaseTangramLayer {
+  /** Stable deck.gl metadata for the typed public subclass. */
+  static componentName = 'TangramLayer';
+  /** Compatibility name for integrations using deck.gl's historical metadata. */
+  static layerName = 'TangramLayer';
+  /** Preserve deck.gl's public initialization signature through the injected superclass. */
+  initializeState(_context: Layer<TangramLayerProps>['context']): void {super.initializeState();}
+  /** Forward the standard deck.gl property/state change contract. */
+  updateState(parameters: Parameters<Layer<TangramLayerProps>['updateState']>[0]): void {super.updateState(parameters);}
+  /** Release the scene using the standard deck.gl finalization signature. */
+  finalizeState(_context: Layer<TangramLayerProps>['context']): void {super.finalizeState();}
+  /** Forward deck's complete draw options to the existing render-pass bridge. */
+  draw(options: Parameters<Layer<TangramLayerProps>['draw']>[0]): void {super.draw(options);}
+}
+
+/** deck.gl fields inherited through the dependency-injected runtime superclass. */
+interface TangramLayer extends Layer<TangramLayerProps> {}
 
 export {
   TangramLayer,

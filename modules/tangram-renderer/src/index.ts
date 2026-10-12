@@ -101,3 +101,4 @@ export type {
 } from './scene/visibility_adapter';
 
 export default Tangram;
+export type {TerrainDrapingOptions, TerrainDrapingStatistics} from './procedures/terrain-draping';

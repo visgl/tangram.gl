@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import Geo from '../../utils/geo';
-import {GLOBE_PROJECTION_WGSL, GLOBE_NORMAL_WGSL} from '../../scene/projection_shaders';
+import {GLOBE_PROJECTION_WGSL, GLOBE_NORMAL_WGSL, TERRAIN_DRAPING_WGSL} from '../../scene/projection_shaders';
 import {buildLightingWGSL} from '../../lights/lighting-wgsl';
 
 const LAYER_DELTA = 1 / (1 << 14);
@@ -15,7 +15,9 @@ const LAYER_DELTA = 1 / (1 << 14);
  * This deliberately small WGSL program establishes the native-device path for
  * flat polygons and raster tiles before the remaining style features are ported.
  */
-export function buildPolygonsWGSL({ raster = false, lighting, lightCount, cpuProjection = false, selection = false }: {
+export function buildPolygonsWGSL({ raster = false, lighting, lightCount, cpuProjection = false, terrain = false, selection = false }: {
+    /** Physical ground displacement and slope normals from worker attributes. */
+    terrain?: boolean;
     /** Emit the worker selection key without lighting or color blending. */
     selection?: boolean;
     /** Include raster color sampling. */
@@ -45,9 +47,11 @@ export function buildPolygonsWGSL({ raster = false, lighting, lightCount, cpuPro
 ${raster_declarations}
 ${GLOBE_PROJECTION_WGSL}
 ${GLOBE_NORMAL_WGSL}
+${terrain ? TERRAIN_DRAPING_WGSL : ''}
 ${configured ? buildLightingWGSL(lightCount) : ''}
 struct PolygonAttributes {
-    @location(0) a_position: vec4<i32>,
+    ${terrain ? '@location(14) a_terrain: vec4<f32>, @location(15) a_terrain_previous: vec4<f32>,' : ''}
+    @location(0) a_position: vec4<${terrain ? 'f32' : 'i32'}>,
     @location(1) a_normal: vec4<f32>,
     @location(2) a_color: vec4<f32>,
     ${selection ? '@location(5) a_selection_color: vec4<f32>,' : ''}
@@ -72,7 +76,7 @@ fn vertexMain(attributes: PolygonAttributes) -> PolygonVaryings {
     let local_position = vec4<f32>(
         f32(attributes.a_position.x),
         f32(attributes.a_position.y),
-        f32(attributes.a_position.z) / ${Geo.height_scale}.0,
+        f32(attributes.a_position.z) / ${Geo.height_scale}.0 ${terrain ? '+ tangramTerrainHeight(attributes.a_terrain, attributes.a_terrain_previous)' : ''},
         1.0
     );
     let eye_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};
@@ -83,6 +87,7 @@ fn vertexMain(attributes: PolygonAttributes) -> PolygonVaryings {
     clip_position.z -= layer * ${cpuProjection ? LAYER_DELTA * 0.5 : LAYER_DELTA} * clip_position.w;
 
     var surface_normal = normalize(attributes.a_normal.xyz);
+    ${terrain ? 'surface_normal = tangramTerrainNormal(surface_normal, attributes.a_terrain, attributes.a_terrain_previous, vec2<f32>(attributes.a_position.xy));' : ''}
     if (TangramView.u_projection_mode == 1) {
         let world_position = TangramTile.u_model * local_position;
         surface_normal = tangramGlobeNormal(world_position.xyz, surface_normal);

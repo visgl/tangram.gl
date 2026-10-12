@@ -26,7 +26,7 @@ import debugSettings from '../../utils/debug_settings';
 import points_vs from './points_vertex.glsl';
 import points_fs from './points_fragment.glsl';
 import {buildPointsWGSL} from './points_wgsl';
-import {GLOBE_PROJECTION_GLSL} from '../../scene/projection_shaders';
+import {GLOBE_PROJECTION_GLSL, TERRAIN_DRAPING_GLSL} from '../../scene/projection_shaders';
 import {GLOBE_VISIBILITY_GLSL} from '../globe_visibility_wgsl';
 
 const PLACEMENT = LabelPoint.PLACEMENT;
@@ -49,7 +49,7 @@ Object.assign(Points, TextLabels);
 Object.assign(Points, {
     name: 'points',
     built_in: true,
-    vertex_shader_src: points_vs.replace('#pragma tangram: projection', GLOBE_PROJECTION_GLSL)
+    vertex_shader_src: points_vs.replace('#pragma tangram: projection', GLOBE_PROJECTION_GLSL + TERRAIN_DRAPING_GLSL)
         .replace('#pragma tangram: globe_visibility', GLOBE_VISIBILITY_GLSL),
     fragment_shader_src: points_fs,
     selection: true,  // enable feature selection
@@ -57,7 +57,7 @@ Object.assign(Points, {
     blend: 'overlay', // overlays drawn on top of all other styles, with blending
 
     getWGSLShaderSource(selection = false) {
-        return buildPointsWGSL(Boolean(this.cpu_projection), selection);
+        return buildPointsWGSL(Boolean(this.cpu_projection), selection, Boolean(this.terrain));
     },
 
     init(options = {}) {

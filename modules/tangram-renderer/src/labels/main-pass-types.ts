@@ -15,6 +15,10 @@ export interface MeshLabel {
 
 /** Mutable GPU-mesh surface consumed by the visibility pass. */
 export interface LabelMesh {
+    /** First terrain draw timestamp, shared with color/selection morphing. */
+    terrainVisibleAt?: number;
+    /** Last submitted height blend, for non-terrain callers and diagnostics. */
+    terrainBlend?: number;
     valid: boolean;
     labels?: Record<string, MeshLabel>;
     vertex_layout: {offset: Record<string, number>; stride: number};

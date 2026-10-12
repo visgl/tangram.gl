@@ -9,7 +9,7 @@ import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 
 const mocks = vi.hoisted(() => {
     const selected: {tiles: TerrainTileCoordinate[] | null} = {tiles: null};
-    return {selected, decoderDestroy: vi.fn(), build: vi.fn((data: object) => ({loaded: data, renderMesh: 'mesh' in data ? data.mesh : null})), construct: vi.fn(), finalize: vi.fn(), setProps: vi.fn(),
+    return {selected, basemap: vi.fn((_properties: unknown) => {}), decoderDestroy: vi.fn(), build: vi.fn((data: object) => ({loaded: data, renderMesh: 'mesh' in data ? data.mesh : null})), construct: vi.fn(), finalize: vi.fn(), setProps: vi.fn(),
     viewport: {id: 'terrain'}, anchor: vi.fn<() => number | null>(() => null), pick: vi.fn(() => ({coordinate: [7, 46, 1234], triangleIndex: 1, rayParameter: 0.5})),
     parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}, attributes: {}}, grid: {width: 2, height: 2, bounds: [0, 0, 2, 2], heights: new Float32Array(4), valid: new Uint8Array(4)}}))};
 });
@@ -24,6 +24,7 @@ vi.mock('@deck.gl/core', async importOriginal => ({
     MapView: class {}, FirstPersonView: class {}, LightingEffect: class {}, AmbientLight: class {}, DirectionalLight: class {}
 }));
 vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
+vi.mock('@vis.gl/tangram-layers', () => ({TangramLayer: class {constructor(properties: unknown) {mocks.basemap(properties);}}}));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
 vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
     decodeMesh = mocks.parse;
@@ -32,6 +33,10 @@ vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
 }}));
 vi.mock('../examples/terrain/terrain-mesh', async importOriginal => ({...(await importOriginal<typeof import('../examples/terrain/terrain-mesh')>()), buildTerrainRenderMesh: mocks.build}));
 vi.mock('../examples/terrain/ground-following', () => ({sampleTerrainAnchor: mocks.anchor}));
+vi.mock('../examples/terrain/first-person', async importOriginal => {
+    const actual = await importOriginal<typeof import('../examples/terrain/first-person')>();
+    return {...actual, constrainTerrainMotion: (_previous: import('../examples/terrain/first-person').TerrainEyeState, proposed: import('../examples/terrain/first-person').TerrainEyeState, tiles: Iterable<import('../examples/terrain/load-terrain').LoadedTerrain>, clearance: number) => ({...actual.constrainTerrainEye(proposed, tiles, clearance, _previous.position[2]), blocked: false})};
+});
 vi.mock('../examples/terrain/tile-selection', async importOriginal => {
     const source = await importOriginal<typeof import('../examples/terrain/tile-selection')>();
     return {...source, getTerrainTileBounds: () => [0, 0, 1, 1], selectTerrainTiles: (...viewArguments: Parameters<typeof source.selectTerrainTiles>) => mocks.selected.tiles || source.selectTerrainTiles(...viewArguments)};
@@ -45,7 +50,7 @@ function mount(view: 'map' | 'first-person' = 'map') {
     host.style.width = '512px'; host.style.height = '320px';
     document.body.append(host); hosts.push(host);
     const parametersChanged = vi.fn();
-    const instance = mountTerrainExample(host, {view, workerUrl: `${location.origin}/terrain-worker.js`, maxVisibleTiles: 1, parameters: new URLSearchParams('device=webgl'), onParametersChange: parametersChanged});
+    const instance = mountTerrainExample(host, {view, basemap: false, workerUrl: `${location.origin}/terrain-worker.js`, maxVisibleTiles: 1, parameters: new URLSearchParams('device=webgl'), onParametersChange: parametersChanged});
     instances.push(instance);
     return {host, instance, parametersChanged};
 }
@@ -54,6 +59,33 @@ afterEach(() => {instances.splice(0).forEach(instance => instance.destroy()); ho
 
 test('importing the runtime does not start a browser example', () => {
     expect(mocks.construct).not.toHaveBeenCalled();
+});
+
+test('draping reuses immutable byte identities through topology changes and releases disabled controls', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([1]))));
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountTerrainExample(host, {basemap: {}, workerUrl: `${location.origin}/worker.js`, maxVisibleTiles: 1}); instances.push(instance);
+    await instance.ready;
+    const first = mocks.basemap.mock.calls.at(-1)?.[0];
+    if (!first || typeof first !== 'object' || !('terrain' in first)) throw new Error('Missing terrain basemap');
+    const field = first.terrain;
+    const downloads = mocks.parse.mock.calls.length;
+    const selector = host.querySelector<HTMLSelectElement>('[data-example="mesh-error"]')!;
+    selector.value = '5'; selector.dispatchEvent(new Event('change'));
+    await expect.poll(() => mocks.parse.mock.calls.length).toBeGreaterThan(downloads);
+    await expect.poll(() => mocks.basemap.mock.calls.length).toBeGreaterThan(1);
+    const latest = mocks.basemap.mock.calls.at(-1)?.[0];
+    expect(latest).toMatchObject({terrain: field});
+    if (!latest || typeof latest !== 'object' || !('terrain' in latest)) throw new Error('Missing updated basemap');
+    expect(latest.terrain).toBe(field);
+    if (!('onAttributionChange' in latest) || typeof latest.onAttributionChange !== 'function') throw new Error('Missing provider credits handler');
+    latest.onAttributionChange(['<a href="https://example.com/credits">Custom provider</a><img src="bad" onerror="alert(1)">']);
+    expect(host.querySelector('[data-example="attribution"] a[href="https://example.com/credits"]')?.textContent).toBe('Custom provider');
+    expect(host.querySelector('[data-example="attribution"] img')).toBeNull();
+    const toggle = host.querySelector<HTMLInputElement>('[data-example="draping"]')!;
+    expect(host.querySelector<HTMLInputElement>('[data-example="wireframe"]')?.disabled).toBe(true);
+    toggle.checked = false; toggle.dispatchEvent(new Event('change'));
+    expect(host.querySelector<HTMLInputElement>('[data-example="wireframe"]')?.disabled).toBe(false);
 });
 
 test('FirstPerson navigation uses the offset eye, clamps loaded floors, holds missing heights and ignores stale generations', async () => {
@@ -91,7 +123,7 @@ test('hard cache failures explain rejected admission and invalid host limits all
     const host = document.createElement('div'); document.body.append(host); hosts.push(host);
     expect(() => mountTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxResidentBytes: -1})).toThrow('byte budget');
     expect(host.children).toHaveLength(0); expect(mocks.construct).not.toHaveBeenCalled();
-    const instance = mountTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, maxResidentBytes: 1, maxVisibleTiles: 1}); instances.push(instance);
+    const instance = mountTerrainExample(host, {basemap: false, workerUrl: `${location.origin}/worker.js`, maxResidentBytes: 1, maxVisibleTiles: 1}); instances.push(instance);
     await instance.ready;
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('retained-array budget exceeded');
     expect(host.querySelector('[data-example="status"]')?.textContent).toContain('retry available');
@@ -198,7 +230,7 @@ test('injected source owns attribution, no-data and acquisition independently of
     const host = document.createElement('div'); document.body.append(host); hosts.push(host);
     const fetch = vi.fn(async () => new Response(new Uint8Array([1])));
     const source = createTerrainImageSource({id: 'custom', minZoom: 3, maxZoom: 3, noData: 'alpha-zero', urlTemplate: 'https://fixture.test/{z}/{x}/{y}', credits: [{label: '<script>literal</script>', url: 'https://fixture.test/license'}], fetch});
-    const instance = mountTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, source, maxVisibleTiles: 1}); instances.push(instance);
+    const instance = mountTerrainExample(host, {basemap: false, workerUrl: `${location.origin}/worker.js`, source, maxVisibleTiles: 1}); instances.push(instance);
     await instance.ready;
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(mocks.parse).toHaveBeenCalledWith(expect.any(ArrayBuffer), expect.any(Array), expect.any(Number), expect.any(AbortSignal), 'alpha-zero');

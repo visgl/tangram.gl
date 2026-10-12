@@ -137,6 +137,8 @@ export interface GeometryTileData {
 }
 /** Checked geometry style surface; inherited base lifecycle remains a separate tranche. */
 export interface GeometryStyleRuntime<FeatureStyle extends Omit<PolygonFeatureStyle, 'min_height'> = PolygonFeatureStyle> {
+    /** Opt-in validated worker height field; absent preserves the original packed layout. */
+    terrain?: import('../procedures/terrain-draping').TerrainDrapingSnapshot;
     name: string;
     built_in: boolean;
     vertex_shader_src: string;

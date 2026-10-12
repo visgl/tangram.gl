@@ -20,6 +20,10 @@ import type {TerrainSurface, TerrainSurfaceHit} from '@vis.gl/tangram-renderer/c
 export type TangramLayerProps = LayerProps & {
   /** Inline scene or URL loaded by the renderer. */
   scene: SceneDefinition;
+  /** Opt-in physical-height draping; host owns DEM acquisition and supplies immutable grids. */
+  terrain?: import('@vis.gl/tangram-renderer/core').RendererOptions['terrain'];
+  /** Visual terrain relief multiplier; changing it does not refetch or rebuild meshes. */
+  terrainExaggeration?: number;
   /** Caller-owned CRS factory for CPU-projected basemaps; omitted keeps worker-local math.gl transforms. */
   projectionEngine?: ProjectionEngine;
   /** Immutable host kernel chunking policy; changing it recreates the scene, like changing the engine. */
@@ -107,7 +111,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       super(...properties);
     }
 
-    initializeState() {
+    initializeState(_context?: import('@deck.gl/core').LayerContext) {
       this.setState({tangramRecord: null});
     }
 
@@ -120,6 +124,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         record.apiKey !== props.apiKey ||
         record.projectionEngine !== (props.projectionEngine ?? undefined) ||
         record.projectionEngineExecution !== (props.projectionEngineExecution ?? undefined) ||
+        Boolean(record.terrain) !== Boolean(props.terrain) ||
         record.maxConcurrentTileLoadsPerWorker !== (props.maxConcurrentTileLoadsPerWorker ?? undefined);
 
       if (shouldCreateScene) {
@@ -130,6 +135,18 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
 
       if (record) {
         record.owner = this;
+        if (record.terrain !== props.terrain) {
+          record.terrain = props.terrain;
+          const terrain = props.terrain;
+          const revision = record.terrainRevision = (record.terrainRevision || 0) + 1;
+          Promise.resolve(record.loadPromise).then(() => {
+            if (!record.disposed && revision === record.terrainRevision && terrain) return record.renderer.setTerrain(terrain);
+          }).catch(error => {if (!record.disposed && revision === record.terrainRevision) this._raiseBridgeError(normalizeError(error));});
+        }
+        if (props.terrain) {
+          try {record.renderer.setTerrainExaggeration(props.terrainExaggeration ?? 1);}
+          catch (error) {this._raiseBridgeError(normalizeError(error));}
+        }
       }
     }
 
@@ -177,7 +194,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       }
     }
 
-    finalizeState() {
+    finalizeState(_context?: import('@deck.gl/core').LayerContext) {
       this._disposeTangramRecord(this.state && this.state.tangramRecord);
     }
 
@@ -195,6 +212,12 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       const record = this.state && this.state.tangramRecord;
       if (!record || record.disposed || record.loadFailed || !record.loaded) return null;
       return record.renderer.getTerrainAt(pixel, surface, options);
+    }
+
+    /** Resident worker preparation costs; GPU, source and scratch allocations are separate. */
+    getTerrainDrapingStatistics(): import('@vis.gl/tangram-renderer/core').TerrainDrapingStatistics | undefined {
+      const record = this.state?.tangramRecord;
+      return record && !record.disposed ? record.renderer.getTerrainDrapingStatistics() : undefined;
     }
 
     get isLoaded() {
@@ -257,6 +280,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         sceneBasePath: props.sceneBasePath,
         apiKey: props.apiKey,
         projectionEngine: props.projectionEngine ?? undefined,
+        terrain: props.terrain,
         projectionEngineExecution: props.projectionEngineExecution ?? undefined,
         maxConcurrentTileLoadsPerWorker: props.maxConcurrentTileLoadsPerWorker ?? undefined,
         canvasWidth: null,
@@ -279,6 +303,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
           device,
           canvas: deckCanvas,
           projectionEngine: record.projectionEngine,
+          terrain: record.terrain,
           projectionEngineExecution: record.projectionEngineExecution,
           maxConcurrentTileLoadsPerWorker: record.maxConcurrentTileLoadsPerWorker,
           requestRedraw: () => {
@@ -504,6 +529,8 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
     tileResources: null,
     maxConcurrentTileLoadsPerWorker: null,
     firstPersonMaxGroundExtent: 20000,
+    terrain: {type: 'object', value: null, compare: false},
+    terrainExaggeration: {type: 'number', value: 1, min: 0, max: 1000},
     firstPersonElevationRange: {type: 'array', value: [0, 0], compare: true},
     onSceneLoad: () => {},
     onAttributionChange: () => {},

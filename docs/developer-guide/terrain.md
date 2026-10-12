@@ -11,9 +11,10 @@ Copyright (c) vis.gl contributors
 The [Mercator terrain example](/tangram.gl/examples/deck-terrain) combines
 loaders.gl elevation decoding, deck.gl terrain rendering and Tangram's CPU
 terrain-query surface. It streams a bounded neighborhood of Mapterhorn Terrarium
-tiles at physical scale. It is **not** a terrain-enabled Tangram scene: vector
-basemap draping is deferred. Opt-in target following is available
-in this bounded Mercator example; it is not first-person collision physics.
+tiles at physical scale. **Draped OpenFreeMap basemap** draws Tangram ground,
+landcover, water, roads, buildings and labels over those heights. Uncheck it to
+inspect the deck.gl elevation mesh, wireframe and skirts. Opt-in target following
+is available; it is not first-person avatar physics.
 
 The [FirstPerson terrain example](/tangram.gl/examples/deck-first-person-terrain)
 uses deck's standard FirstPerson controller over the same loaded top triangles.
@@ -25,10 +26,14 @@ tiles and their coarse parents. This bounded neighborhood is not horizon coverag
 or certified projected-error LOD. Device switches retain downloaded and decoded data.
 
 **Keep eye above terrain** clamps a point eye upward to loaded elevation plus
-clearance (20 m by default). Missing/no-data terrain holds the previous eye altitude.
+clearance (20 m by default). Controller translation is held when the endpoint has
+no loaded top triangle; looking remains enabled. A finite eye segment, lowered by
+the clearance, is also checked against loaded triangles so a large step cannot
+silently pass through an intervening ridge.
 **Lower eye to loaded terrain** explicitly lowers an airborne camera to that floor;
 it does nothing when coverage is missing. These controls do not implement gravity,
-continuous/swept collision, avatar volume, walls or tunnels. Picking uses the actual
+avatar volume, walls, tunnels or continuous world-wide collision. Intermediate
+unloaded areas are not certified safe. Picking uses the actual
 Map/FirstPerson projection and canvas-relative viewport offsets, including split
 views, while returning unexaggerated top-triangle height rather than skirt height.
 
@@ -115,8 +120,8 @@ probe brackets and a Mercator point-floor constraint. The Mercator example's
 target-following helper now uses this collection/probe boundary while retaining
 its canonical longitude, source domain, highest loaded top triangle and missing-data
 hold behavior. The FirstPerson example integrates point clearance with its controller;
-continuous collision remains separate work. Clearance probes alone do not prevent
-tunneling through a slope or wall.
+the example additionally guards finite eye segments against loaded top triangles.
+That guard is not avatar collision, and missing intermediate coverage remains unknown.
 
 This is not a hard frame-time or peak-memory cap: an indivisible chunk can overrun
 its target. Source grids, scratch arrays, the candidate before admission,
@@ -137,8 +142,9 @@ not temporary decode/scaling/sorting allocations, JavaScript objects, external
 snapshots or GPU resources.
 The footprint estimate is not a certified curvature/height-error bound, and height
 changes at sibling replacement are not temporally morphed. The example still does
-not implement polar terrain, terrain-aware basemap draping or immersive/stereo
-terrain validation. Missing
+not implement polar terrain or terrain-aware basemap draping in this separate
+globe elevation preview. Worker-side basemap displacement and mocked stereo/XR
+conformance are described below; native headset validation remains deferred. Missing
 samples remain holes. Source datum is preserved, not converted to ellipsoidal height.
 
 ## Ownership and coordinates
@@ -325,10 +331,69 @@ Image decoding disables color-space conversion and alpha premultiplication:
 RGB bytes encode data, not display colors.
 
 The classic Mapterhorn style remains a hillshade shader, not displaced terrain.
-The normal renderer and layer entries are unchanged. For renderer-owned terrain,
-retain the shared data contract and put deck-specific mesh adapters in
-`tangram-layers`. TerrainExtension integration must account for Tangram's custom
-render pass; attaching an extension alone does not make the basemap drape.
+Renderer-owned draping is opt-in through the shared height-grid contract below.
+The renderer remains deck-independent; acquisition and deck view/controller
+integration belong to the host. Attaching TerrainExtension alone still does not
+make Tangram's custom render pass drape.
+
+## Worker-side basemap draping
+
+Pass `terrain: {grids}` to `Renderer.create` or `TangramLayer`. Grids use the
+[shared physical height contract](../api-reference/map-logic/terrain-data.md):
+absolute EPSG:3857 XY, physical-meter heights, explicit pixel-center/grid-node
+registration and a single vertical datum. Current grids must not overlap; previous
+grids form a separate generation. Providers and loaders remain host-owned.
+Valid heights must be finite and within one Earth radius in magnitude; negative
+height/exaggeration combinations that would invert the spherical radius are rejected.
+
+The existing scene workers refine polygons, extruded walls, raster meshes and
+road ribbons, then append current/previous height and ENU-slope attributes.
+GLSL and WGSL displace before projection, so MapView, FirstPersonView, GlobeView
+and host-supplied stereo cameras use the same drawing/feature-selection path.
+Set `scene.lighting: configured` when using authored Tangram lights on both
+backends; the reference basemap opts into this existing portable lighting path.
+Point/text anchors gain the same height, with their pixel shapes retained; screen
+collision uses the displaced anchor. Road width/offset interpolation stays in
+Tangram, with a local tangent-plane correction across the ribbon. This is an
+approximation for wide ribbons on sharply varying terrain, not exact DEM sampling
+at every dynamically extruded corner. Custom position/width blocks and CPU-projected
+basemaps are rejected rather than silently applying incompatible displacement.
+
+Changing immutable grids calls `renderer.setTerrain(options)` on existing workers.
+It retains decoded vector source data and shader animation time, coalesces pending
+updates, and recovers the prior field after a failed rebuild. A failed recovery
+blocks rendering until a successful correction. Enabling/disabling draping on a
+deck layer recreates its renderer because vertex layouts and shader blocks differ.
+Do not mutate grids in place; keep option identities stable until data changes.
+
+`transitionDuration` defaults to 200 ms. Newly admitted meshes blend height and
+slope from the last admitted field, or explicit `previousGrids`; missing previous
+samples start at their current height, not sea level. Color, collision and both
+eyes share a frame clock. Replacement is per mesh, not a global atomic generation
+or a mixed-LOD seam guarantee. `terrainExaggeration` defaults to 1 and is GPU-only:
+it does not refetch tiles, resample grids or rebuild topology.
+
+Missing DEM footprints and invalid bilinear neighborhoods suppress triangles.
+Conservative footprint/mask checks can remove extra triangles near holes; they
+never fill a hole with a zero-height surface. DEM sampling and the examples'
+adaptive physical query triangles are **different approximations**. Feature
+selection follows displaced styled geometry; `getTerrainAt` still requires an
+explicit host surface and does not infer this draped surface or its temporal morph.
+
+Default limits are 96 grids per generation, 32 MiB current/previous grid arrays
+per scene/worker copy, 131072 additional vertices and 16 MiB completed output per
+mesh. Terrain-enabled XY and ribbon attributes are promoted to floats before
+refinement; feature IDs, UVs and annotation shapes retain their original channels.
+A 1/64-tile edge floor bounds detail independently of DEM resolution; budgets fail
+explicitly rather than publishing truncated topology. Refinement, mask-prefix
+scratch, structured clones, retained label buffers and GPU copies are **outside**
+the completed-output cap. This is not a total memory or frame-time guarantee.
+`getTerrainDrapingStatistics()` reports resident vertices/triangles/output bytes,
+masked triangles, detail-limited meshes and slowest worker preparation.
+
+Hermetic tests cover CPU boundaries, replacement/recovery, draped vector/raster
+output, stereo picking and mocked immersive room cameras on WebGL 2 and WebGPU.
+Native headset validation remains a manual gate.
 
 ## Bounded phase acceptance and deferred work
 
@@ -337,7 +402,7 @@ warm topology changes, indexed queries, 2:1 fallback stitching, hard resident ca
 admission and opt-in target following. It does **not** complete the whole terrain
 or WebXR roadmap. The subsequent globe preview adds balanced mixed-detail
 displacement and adaptive source selection. Next larger features remain certified
-pixel-error LOD, draping Tangram basemap geometry, temporal terrain morphing,
-whole-pipeline/GPU memory admission,
-first-person terrain collision/occlusion and native headset validation. None is
+pixel-error LOD, draping/morphing parity on wide dynamic ribbons and mixed-LOD
+boundaries, whole-pipeline/GPU memory admission, avatar collision, terrain occlusion
+of billboard labels, polar terrain and native headset validation. None is
 implied by this example's successful rendering or CPU queries.

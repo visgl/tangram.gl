@@ -107,6 +107,9 @@ void main() {
 
     // Position
     vec4 position = vec4(a_position.xy, TANGRAM_POSITION_Z / TANGRAM_HEIGHT_SCALE, 1.); // convert height back to meters
+    #ifdef TANGRAM_TERRAIN_DRAPED
+        position.z += tangramTerrainHeight();
+    #endif
 
     #ifdef TANGRAM_EXTRUDE_LINES
         vec2 _extrude = a_extrude.xy;
@@ -143,6 +146,9 @@ void main() {
         #endif
 
         position.xy += _extrude + _offset;
+        #ifdef TANGRAM_TERRAIN_DRAPED
+            position.z += tangramTerrainRibbonOffset(_extrude + _offset, a_position.xy);
+        #endif
     #endif
 
     // World coordinates for 3d procedural textures
@@ -153,9 +159,13 @@ void main() {
     #endif
     // Geographic orientation requires absolute meters, before the procedural
     // texture precision wrap changes v_world_position's origin.
+    vec3 surface_normal = TANGRAM_NORMAL;
+    #ifdef TANGRAM_TERRAIN_DRAPED
+        surface_normal = tangramTerrainNormal(surface_normal);
+    #endif
     v_normal = u_projection_mode == 1
-        ? tangramGlobeNormal(v_world_position.xyz, TANGRAM_NORMAL)
-        : normalize(u_normalMatrix * TANGRAM_NORMAL);
+        ? tangramGlobeNormal(v_world_position.xyz, surface_normal)
+        : normalize(u_normalMatrix * surface_normal);
     #if defined(TANGRAM_CPU_PROJECTED) && !defined(TANGRAM_EXTRUDE_LINES)
         v_normal = normalize(a_projected_normal);
     #endif

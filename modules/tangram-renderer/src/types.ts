@@ -204,6 +204,8 @@ export type LegacyHostFrame = {
 };
 
 export type RendererOptions = {
+  /** Opt-in worker-side physical terrain displacement; provider loading remains host-owned. */
+  terrain?: import('./procedures/terrain-draping').TerrainDrapingOptions;
   /** Optional caller-owned CRS factory for CPU-projected basemaps; ordinary Mercator/globe cameras are unchanged. */
   projectionEngine?: ProjectionEngine;
   /** Host kernel chunking policy; captured at renderer creation and independent of worker/build budgets. */

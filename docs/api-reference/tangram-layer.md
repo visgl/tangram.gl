@@ -441,6 +441,26 @@ to each actual eye camera before the renderer unions their visibility.
 First-person pitch supports the full `[-90, 90]` range, including upward-looking
 cameras; the ordinary MapView pitch contract remains unchanged.
 
+### `terrain` and `terrainExaggeration` (experimental)
+
+`terrain` accepts `TerrainDrapingOptions`: immutable physical-height grids and
+worker preparation limits. Omission keeps the flat basemap path. Keep the options
+object stable until grids change. Updates retain the renderer and decoded source
+cache; toggling draping recreates shader/layout resources.
+
+`terrainExaggeration` is a finite `[0, 1000]` multiplier, default **1**. It affects
+only GPU displacement, with additional rejection if negative heights would
+invert the globe. It does not change host terrain query surfaces or source data.
+`layer.getTerrainDrapingStatistics()` reports resident preparation cost, or
+`undefined` without a live renderer. Configure conservative
+`firstPersonElevationRange` / `globeMaxElevation` for displaced content; the
+height field does not automatically expand view-selection bounds.
+
+See [terrain integration](../developer-guide/terrain.md#worker-side-basemap-draping)
+for worker refinement, temporal morphing and missing-data behavior. CPU-projected
+basemaps and custom position/width blocks are currently unsupported. Roads use a local
+tangent-plane width correction; host terrain picking remains a separate surface.
+
 ### Inherited presentation properties
 
 The following inherited deck.gl properties are particularly relevant:
