@@ -32,6 +32,8 @@ export type GlobeMeshOptions = {
     shouldSplitEdge?: (first: DataView, second: DataView) => boolean;
     /** Fan partial-edge refinements around an interior vertex instead of introducing a long diagonal. */
     splitRemainderInterior?: boolean;
+    /** Choose the shorter green-refinement diagonal; useful for floating terrain ribbons and thin MVT faces. */
+    splitRemainderShortest?: boolean;
 };
 
 const INTERPOLATED_ATTRIBUTES = new Set([
@@ -188,8 +190,13 @@ export function refineGlobeMesh(
             else {
                 const endMidpoint = getMidpoint(end, opposite);
                 const startMidpoint = getMidpoint(opposite, start);
-                pending.push([opposite, startMidpoint, endMidpoint],
-                    [start, end, startMidpoint], [end, endMidpoint, startMidpoint]);
+                const distance = (first: number, second: number) => Math.hypot(positions[first][0] - positions[second][0], positions[first][1] - positions[second][1]);
+                pending.push([opposite, startMidpoint, endMidpoint]);
+                if (options.splitRemainderShortest && distance(start, endMidpoint) < distance(end, startMidpoint)) {
+                    pending.push([start, end, endMidpoint], [start, endMidpoint, startMidpoint]);
+                } else {
+                    pending.push([start, end, startMidpoint], [end, endMidpoint, startMidpoint]);
+                }
             }
         }
         if (pending.length + output.length / 3 > maximumTriangles) {

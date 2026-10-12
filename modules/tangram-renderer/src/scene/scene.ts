@@ -42,11 +42,18 @@ import type {SceneListeners, SceneDefinition, SceneLoadOptions, TileSourceStatis
 import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 import type {RenderPass} from '@luma.gl/core';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
+import {normalizeTerrainDraping} from '../procedures/terrain-draping';
 import {HostProjectionEngineAdapter, validateProjectionEngine} from '../procedures/projected-coordinate-transform';
 import {normalizeProjectionExecutionOptions} from '../procedures/projection-batch-executor';
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
+    /** Detached optional worker terrain input; never a deck view or a provider handle. */
+    declare terrain: import('../procedures/terrain-draping').TerrainDrapingSnapshot | undefined;
+    /** Visual multiplier independent of source heights and cache keys. */
+    declare terrainExaggeration: number;
+    /** Monotonic timestamp shared by color, collision and every submitted eye. */
+    declare terrainFrameTime: number | undefined;
     /** Whether scene resources and workers are ready for queries/draws. */
     declare initialized: boolean;
     /** Active selection owner; loading clears this while a Renderer may retain its frame. */
@@ -80,6 +87,8 @@ export default class Scene {
 
     constructor(config_source, options) {
         options = options || {};
+        this.terrain = options.terrain ? normalizeTerrainDraping(options.terrain) : undefined;
+        this.terrainExaggeration = 1;
         validateProjectionEngine(options.projectionEngine);
         normalizeProjectionExecutionOptions(options.projectionEngineExecution);
         this.maxConcurrentTileLoadsPerWorker = validateConcurrentTileLoads(options.maxConcurrentTileLoadsPerWorker);
@@ -438,7 +447,8 @@ export default class Scene {
                 u_modelView: 'mat4',
                 u_normalMatrix: 'mat3',
                 u_inverseNormalMatrix: 'mat3',
-                u_tile_fade_in: 'bool'
+                u_tile_fade_in: 'bool',
+                ...(this.terrain ? {u_terrain_blend: 'float', u_terrain_exaggeration: 'float'} : {})
             }
         });
     }
@@ -989,6 +999,17 @@ export default class Scene {
                     }
 
                     // Render this mesh variant
+                    if (mesh.variant.terrain) {
+                        const now = this.terrainFrameTime ?? performance.now();
+                        mesh.terrainVisibleAt ??= now;
+                        const duration = this.terrain?.transitionDuration ?? 0;
+                        const blend = duration ? Math.max(0, Math.min(1, (now - mesh.terrainVisibleAt) / duration)) : 1;
+                        mesh.terrainBlend = blend;
+                        const uniforms = {u_terrain_blend: blend, u_terrain_exaggeration: this.terrainExaggeration};
+                        if (this.uniform_buffers.TangramTile) this.uniform_buffers.TangramTile.setUniforms(uniforms);
+                        else {program.uniform('1f', 'u_terrain_blend', blend); program.uniform('1f', 'u_terrain_exaggeration', this.terrainExaggeration);}
+                        if (blend < 1) this.requestRedraw();
+                    }
                     if (style.render(mesh, {
                         projection: this.view.projection.type,
                         renderPass,
@@ -1236,7 +1257,7 @@ export default class Scene {
     // Rebuild all tiles, without re-parsing the config or re-compiling styles
     // sync: boolean of whether to sync the config object to the worker
     // sources: optional array of data sources to selectively rebuild (by default all our rebuilt)
-    rebuild({ initial = false, new_generation = true, sources = null, serialize_funcs, profile = false, fade_in = false, preserveTileCache = false } = {}) {
+    rebuild({ initial = false, new_generation = true, sources = null, serialize_funcs, profile = false, fade_in = false, preserveTileCache = false, preserveTime = false } = {}) {
         return new Promise((resolve, reject) => {
             // Skip rebuild if already in progress
             if (this.building) {
@@ -1248,7 +1269,7 @@ export default class Scene {
                 }
 
                 // Save queued request
-                let options = { initial, new_generation, sources, serialize_funcs, profile, fade_in, preserveTileCache };
+                let options = { initial, new_generation, sources, serialize_funcs, profile, fade_in, preserveTileCache, preserveTime };
                 this.building.queued = { resolve, reject, options };
                 log('trace', 'Scene.rebuild(): queuing request');
                 return;
@@ -1274,7 +1295,7 @@ export default class Scene {
             // Update config (in case JS objects were manipulated directly)
             this.syncConfigToWorker({ serialize_funcs });
             this.resetWorkerFeatureSelection(sources);
-            this.resetTime();
+            if (!preserveTime) this.resetTime();
 
             // Rebuild visible tiles
             if (!preserveTileCache) this.tile_manager.pruneToVisibleTiles();
@@ -1717,6 +1738,9 @@ export default class Scene {
 
     // Serialize config and send to worker
     syncConfigToWorker({ serialize_funcs = true } = {}) {
+        // Shader specialization only needs the enabled flag on the main thread,
+        // but its retained style objects must not pin the initial DEM forever.
+        if (this.terrain) for (const style of Object.values(this.styles || {})) style.terrain = this.terrain;
         // Tell workers we're about to rebuild (so they can update styles, etc.)
         let config_serialized =
             serialize_funcs ? Utils.serializeWithFunctions(this.config) : JSON.stringify(this.config);
@@ -1725,6 +1749,7 @@ export default class Scene {
             generation: this.generation,
             introspection: this.introspection,
             projection_target: this.projectionTarget,
+            terrain: this.terrain,
             shader_language: this.shader_language
         }, debugSettings);
     }

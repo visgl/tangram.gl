@@ -19,18 +19,27 @@ import type {FeatureSelectionResult, FeatureSelectionOptions} from '../types';
 import {Matrix4} from '@math.gl/core';
 import {pickTerrainAt} from '../selection/terrain_surface';
 import type {TerrainSurface, TerrainSurfaceHit} from '../selection/terrain_surface';
+import {normalizeTerrainDraping, type TerrainDrapingOptions, type TerrainDrapingSnapshot} from '../procedures/terrain-draping';
+import {PROJECTION_CONSTANTS} from './projection_math';
 
 
 interface FrameOptions {renderViewId?: string}
 
 /** Minimal scene surface needed by the host-driven renderer. */
 interface RendererScene {
+    /** Immutable worker input, separate from vector source residency. */
+    terrain?: TerrainDrapingSnapshot;
+    /** GPU-only multiplier; source heights and worker data remain physical. */
+    terrainExaggeration: number;
+    /** One shared morph timestamp for all eyes and collision in this frame. */
+    terrainFrameTime?: number;
     /** Schedule a viewport-local feature query for a subsequent render. */
     getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number; renderViewId?: string; width?: number; height?: number}): Promise<FeatureSelectionResult | undefined>;
     /** Switch only selection ownership; shared workers/features remain unchanged. */
     setFeatureSelectionView?(id: string, retainedIds: readonly string[]): void;
     /** Shared source/style tile ownership across every eye. */
-    tile_manager: {getResourceStatistics(): TileResourceStatistics; updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void};
+    tile_manager: {getResourceStatistics(): TileResourceStatistics; updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void;
+        getTerrainDrapingStatistics(terrain?: TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics};
     view: View;
     config: {animated?: boolean; scene?: {cpu_projection?: unknown}} | null;
     animated: boolean;
@@ -40,7 +49,7 @@ interface RendererScene {
     subscribe(listeners: SceneListeners): unknown;
     load(config: SceneDefinition | null, options: SceneLoadOptions): unknown;
     /** Rebuild styled meshes without replacing source procedures or worker ownership. */
-    rebuild(options: {preserveTileCache: boolean}): Promise<unknown>;
+    rebuild(options: {preserveTileCache: boolean; preserveTime?: boolean}): Promise<unknown>;
     /** Retrieves current source and TileJSON provider credits for the host UI. */
     getAttributions(): Promise<string[]>;
     /** Normalized source capabilities, including worker-owned archive metadata. */
@@ -79,6 +88,16 @@ export default class Renderer {
     private projectionUpdate: Promise<void> = Promise.resolve();
     /** Failed worker geometry must be rebuilt even when restoring the prior options. */
     private projectionNeedsRebuild = false;
+    /** Terrain updates serialize so worker geometry cannot commit obsolete heights last. */
+    private terrainUpdate: Promise<void> = Promise.resolve();
+    /** Only the latest queued snapshot is retained while an active worker rebuild drains. */
+    private pendingTerrain?: TerrainDrapingSnapshot;
+    /** Automatically morph from the last admitted field, not superseded host requests. */
+    private pendingTerrainUsesPrevious = false;
+    /** Monotonic request identity for superseded queued terrain updates. */
+    private terrainRevision = 0;
+    /** A failed recovery cannot expose a mixture of incompatible worker generations. */
+    private terrainFailed = false;
     /** Prevent queued mesh updates from acting on a released scene. */
     private destroyed = false;
 
@@ -109,6 +128,71 @@ export default class Renderer {
 
     load(config: SceneDefinition | null = null, options: SceneLoadOptions = {}): unknown {
         return this.scene.load(config, options);
+    }
+
+    /** Rebuild displaced meshes on existing workers without refetching vector source data. */
+    setTerrain(options: TerrainDrapingOptions): Promise<void> {
+        if (this.destroyed || !this.scene.terrain) return Promise.reject(new Error('Terrain requires a live enabled renderer'));
+        this.pendingTerrain = normalizeTerrainDraping(options);
+        this.pendingTerrainUsesPrevious = options.previousGrids === undefined;
+        const revision = ++this.terrainRevision;
+        const update = this.terrainUpdate.then(async () => {
+            if (this.destroyed) throw new Error('Cannot update a destroyed renderer');
+            if (revision !== this.terrainRevision) return;
+            if (!this.scene.terrain) throw new Error('Terrain must be enabled at renderer creation');
+            let terrain = this.pendingTerrain;
+            if (!terrain) return;
+            this.pendingTerrain = undefined;
+            const previous = this.scene.terrain;
+            if (this.pendingTerrainUsesPrevious && terrain.grids.length && previous.grids.length) {
+                const byteLength = terrain.byteLength + previous.grids.reduce((bytes, grid) => bytes + grid.heights.byteLength + grid.valid.byteLength, 0);
+                if (byteLength > terrain.maxGridBytes) throw new Error('Terrain draping current/previous grid-byte budget exceeded');
+                if (previous.grids[0].verticalDatum !== terrain.grids[0].verticalDatum) throw new Error('Terrain draping previous datum must match');
+                // Only the previous current grids survive this update. Its own older
+                // morph field must not permanently constrain future exaggeration.
+                const minimumPreviousHeight = previous.grids.reduce((minimum, grid) => {
+                    for (let index = 0; index < grid.heights.length; index++) if (grid.valid[index]) minimum = Math.min(minimum, grid.heights[index]);
+                    return minimum;
+                }, 0);
+                terrain = {...terrain, previousGrids: previous.grids, byteLength, minimumHeight: Math.min(terrain.minimumHeight, minimumPreviousHeight)};
+            }
+            if (terrain.minimumHeight * this.scene.terrainExaggeration <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
+            this.scene.terrain = terrain;
+            try {
+                await this.scene.rebuild({preserveTileCache: true, preserveTime: true});
+                this.terrainFailed = false;
+                if (!this.destroyed) this.scene.requestRedraw();
+            } catch (error) {
+                this.scene.terrain = previous;
+                this.terrainFailed = true;
+                if (!this.destroyed) {
+                    try {
+                        // Restore worker configuration and partially replaced meshes, not only the host field.
+                        await this.scene.rebuild({preserveTileCache: true, preserveTime: true});
+                        this.terrainFailed = false;
+                        if (!this.destroyed) this.scene.requestRedraw();
+                    } catch (recoveryError) {
+                        throw new AggregateError([error, recoveryError], 'Terrain update and recovery failed');
+                    }
+                }
+                throw error;
+            }
+        });
+        this.terrainUpdate = update.catch(() => {});
+        return update;
+    }
+
+    /** Change visual relief without new source loads, mesh builds or height samples. */
+    setTerrainExaggeration(value: number): void {
+        if (this.destroyed || !this.scene.terrain) throw new Error('Terrain requires a live enabled renderer');
+        if (!Number.isFinite(value) || value < 0 || value > 1000) throw new Error('Terrain exaggeration must be in [0, 1000]');
+        if (this.scene.terrain.minimumHeight * value <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
+        if (this.scene.terrainExaggeration !== value) {this.scene.terrainExaggeration = value; this.scene.requestRedraw();}
+    }
+
+    /** Inspect resident worker preparation cost without conflating source/GPU/scratch ownership. */
+    getTerrainDrapingStatistics(): import('../procedures/terrain-draping').TerrainDrapingStatistics {
+        return this.scene.tile_manager.getTerrainDrapingStatistics(this.scene.terrain);
     }
 
     /** Reproject loaded ground meshes while retaining the workers, decoded tiles and source definitions. */
@@ -243,6 +327,7 @@ export default class Renderer {
      * Updates and draws Tangram into a host-owned render pass.
      */
     render({frame, renderPass = null, renderViewId, force = false}: Omit<RenderOptions, 'frame'> & {frame?: HostFrame | RenderOptions['frame']} = {}): boolean {
+        if (this.destroyed || this.terrainFailed) return false;
         if (frame) {
             this.setFrame(frame, { renderViewId });
         }
@@ -268,6 +353,7 @@ export default class Renderer {
             }
         }
         if (this.host_frame) {
+            if (!this.submittedViews.size) this.scene.terrainFrameTime = performance.now();
             this.scene.tile_manager.updateProjectedLabels(this.host_frame, this.gpuBackend?.device.type !== 'webgpu');
         }
         const rendered = this.scene.updateScene({ renderPass });
@@ -285,6 +371,8 @@ export default class Renderer {
 
     destroy() {
         this.destroyed = true;
+        this.pendingTerrain = undefined;
+        this.terrainRevision++;
         try {
             return this.scene.destroy();
         }

@@ -594,6 +594,30 @@ const frameOptions = {
 } satisfies HostFrameOptions;
 ```
 
+## Experimental terrain draping
+
+Initialize displacement attributes with `Renderer.create(scene, {terrain: {grids}})`.
+`TerrainDrapingOptions` and `TerrainDrapingStatistics` are exported from `/core`
+and the package root. Grids are host-owned immutable physical heights, not URLs;
+all current/previous grids must use one datum and non-overlapping footprints.
+
+- `setTerrain(options): Promise<void>` updates worker geometry without replacing
+  sources or resetting shader time. Pending changes coalesce. The previous
+  admitted field is used for a short morph unless `previousGrids` is explicit.
+  Failed rebuilds restore the prior workers/meshes; failed recovery blocks draws
+  until a successful correction. This method requires terrain-enabled creation.
+- `setTerrainExaggeration(value)` accepts finite multipliers in `[0, 1000]`, with
+  additional rejection if negative elevation would invert the globe radius.
+  Default is 1. It changes only uniforms, never physical DEM data.
+- `getTerrainDrapingStatistics()` returns a detached resident-output summary,
+  including vertices, triangles, bytes, holes and worker preparation cost.
+
+Defaults: 250 m requested Mercator edge target, 131072 additional vertices and
+16 MiB completed output per mesh, 32 MiB owned grid arrays per scene/worker copy,
+and 200 ms morph duration. These caps exclude scratch, clones and GPU allocations.
+See [terrain integration](../developer-guide/terrain.md#worker-side-basemap-draping)
+for precision, missing-data, query-surface and projection restrictions.
+
 ## HostFrame
 
 `HostFrame` separates shared geographic state from per-view camera state:

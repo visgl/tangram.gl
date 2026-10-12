@@ -4,11 +4,12 @@
 
 import {expect, test} from 'vitest';
 import {FirstPersonViewport} from '@deck.gl/core';
-import {getTerrainEyeCoordinate, constrainTerrainEye} from '../examples/terrain/first-person';
+import {getTerrainEyeCoordinate, constrainTerrainEye, constrainTerrainMotion} from '../examples/terrain/first-person';
 import {selectTerrainTiles, getTerrainTileKey} from '../examples/terrain/tile-selection';
 import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
-import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
+import {projectGeographicPosition, TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
+import type {LoadedTerrain} from '../examples/terrain/load-terrain';
 
 test.each([-70, 0, 70])('eye offsets at latitude %s resolve through the actual deck camera', latitude => {
     const state = {longitude: 179.999, latitude, position: [5000, 2000, 450] as [number, number, number], bearing: 35, pitch: 20};
@@ -50,4 +51,22 @@ test('local selection is bounded at the poles and changes with eye movement with
     const start = selectTerrainTiles({longitude: 0, latitude: 0, zoom: 11}, 1, 11);
     expect(selectTerrainTiles({longitude: 1, latitude: 0, zoom: 11}, 1, 11)).not.toEqual(start);
     expect(selectTerrainTiles({longitude: 0, latitude: 0, zoom: 0}, 25, 0)).toEqual([{zoom: 0, column: 0, row: 0}]);
+});
+
+test('finite movement stops at an intervening ridge even when both endpoint floors are low', () => {
+    const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [-200, -100, 0, 0, -100, 200, 200, -100, 0, -200, 100, 0, 0, 100, 200, 200, 100, 0], indices: [0, 1, 3, 1, 4, 3, 1, 2, 4, 2, 5, 4]});
+    const fixture = createTerrainStreamFixture([-200, -100, 200, 100]);
+    const loaded: LoadedTerrain = {...fixture, surface, mesh: {...fixture.mesh, header: {vertexCount: 6, boundingBox: [[-0.002, -0.001, 0], [0.002, 0.001, 200]]}}};
+    const previous = {longitude: 0, latitude: 0, position: [-150, 0, 130] as [number, number, number], bearing: 0};
+    const proposed = {...previous, position: [150, 0, 130] as [number, number, number], bearing: 30};
+    const result = constrainTerrainMotion(previous, proposed, [loaded], 20);
+    expect(result.blocked).toBe(true); expect(result.available).toBe(true);
+    expect(result.state.position).toEqual(previous.position); expect(result.state.bearing).toBe(30);
+    const high = constrainTerrainMotion({...previous, position: [-150, 0, 300]}, {...proposed, position: [150, 0, 300]}, [loaded], 20);
+    expect(high.blocked).toBe(false); expect(high.state.position).toEqual([150, 0, 300]);
+    const escaped = constrainTerrainMotion({...previous, position: [-150, 0, 0]}, {...previous, position: [-150, 0, 300]}, [loaded], 20);
+    expect(escaped.blocked).toBe(false); expect(escaped.state.position[2]).toBe(300);
+    const outside = constrainTerrainMotion(previous, {...proposed, position: [1000, 0, 130]}, [loaded], 20);
+    expect(outside.blocked).toBe(true); expect(outside.available).toBe(false); expect(outside.state.position).toEqual(previous.position);
+    expect(() => constrainTerrainMotion(previous, proposed, [loaded], NaN)).toThrow();
 });

@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 export {default as Renderer} from './scene/renderer';
+export type {TerrainDrapingOptions, TerrainDrapingStatistics} from './procedures/terrain-draping';
 export {default as HostFrame} from './scene/host_frame';
 export {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt} from './selection/terrain_surface';
 export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions, TerrainMeshStatistics, TerrainSurfaceEntry, TerrainCollectionHit, TerrainElevationProbe} from './selection/terrain_surface';

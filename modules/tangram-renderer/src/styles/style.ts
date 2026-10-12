@@ -23,6 +23,7 @@ import mergeObjects from '../utils/merge';
 import Thread from '../utils/thread';
 import WorkerBroker from '../utils/worker_broker';
 import makeWireframeForTriangleElementData from '../builders/wireframe';
+import {drapeTerrainMesh, getTerrainVertexLayout} from '../procedures/terrain-draping';
 import debugSettings from '../utils/debug_settings';
 import Geo from '../utils/geo';
 import {normalizeProjectedBasemapOptions, projectTileMesh, validateProjectedLights} from '../procedures/mesh-projector';
@@ -34,12 +35,14 @@ import {heightDecode} from '../shader-modules/height-decode';
 // Base class
 
 export var Style = {
-    init ({ generation, styles, sources = {}, introspection, shader_language = 'glsl', config, projection_target } = {}) {
+    init ({ generation, styles, sources = {}, introspection, shader_language = 'glsl', config, projection_target, terrain } = {}) {
         this.setGeneration(generation);
         this.styles = styles;                       // styles for scene
         this.sources = sources;                     // data sources for scene
         this.shader_language = shader_language;     // keeps worker-built vertex layouts aligned with the renderer
         this.projection_target = projection_target;
+        this.terrain = terrain;
+        if (terrain && (config?.scene?.cpu_projection || this.shaders?.blocks?.position || this.shaders?.blocks?.width)) throw new Error('Terrain draping does not support CPU-projected scenes or procedural position/width blocks');
         this.cpu_projection = config?.scene?.cpu_projection === undefined ? undefined :
             normalizeProjectedBasemapOptions(config.scene.cpu_projection);
         this.screen_space_labels = Boolean(this.cpu_projection) || config?.scene?._host_screen_space_labels === true;
@@ -55,6 +58,7 @@ export var Style = {
             }
         }
         this.defines = (Object.prototype.hasOwnProperty.call(this, 'defines') && this.defines) || {}; // #defines to be injected into the shaders
+        this.defines.TANGRAM_TERRAIN_DRAPED = Boolean(terrain);
         this.shaders = (Object.prototype.hasOwnProperty.call(this, 'shaders') && this.shaders) || {}; // shader customization (uniforms, defines, blocks, etc.)
         this.introspection = introspection || false;
         this.selection = this.selection || this.introspection || false;   // flag indicating if this style supports feature selection
@@ -183,6 +187,19 @@ export var Style = {
                 mesh.vertex_data.end();
                 mesh.vertex_elements = mesh.vertex_data.element_buffer;
                 mesh.vertex_data = mesh.vertex_data.vertex_buffer; // convert from instance to raw typed array
+                if (this.terrain) {
+                    const originalLayout = this.vertexLayoutForMeshVariant(mesh.variant);
+                    const draped = drapeTerrainMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements,
+                        layout: originalLayout, origin: [tile.min.x, tile.min.y], tileZoom: tile.coords.z, styleZoom: tile.style_z,
+                        annotations: ['points', 'text'].includes(this.baseStyle()), terrain: this.terrain});
+                    mesh.vertex_data = draped.vertices; mesh.vertex_elements = draped.indices;
+                    if (mesh.labels) {
+                        const stride = getTerrainVertexLayout(originalLayout).stride;
+                        for (const label of Object.values(mesh.labels)) label.ranges = label.ranges.map(([offset, count]) => [offset / originalLayout.stride * stride, count]);
+                    }
+                    mesh.variant = {...mesh.variant, terrain: true, terrainStatistics: draped.statistics};
+                    if (!draped.indices.length) {delete tile_data.meshes[variant]; continue;}
+                }
                 if (this.cpu_projection) {
                     if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(this.baseStyle())) throw new Error('CPU projection requires ground meshes or screen-facing annotations');
                     const projected = await projectTileMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements,
@@ -197,7 +214,7 @@ export var Style = {
             }
 
             // Fully clipped meshes need neither GPU buffers nor raster texture acquisition.
-            if (this.cpu_projection && Object.keys(tile_data.meshes).length === 0) return null;
+            if ((this.cpu_projection || this.terrain) && Object.keys(tile_data.meshes).length === 0) return null;
 
             // Load raster tiles passed from data source
             // Blocks mesh completion to avoid flickering
@@ -495,6 +512,11 @@ export var Style = {
             }
         }
         let vertex_layout = this.vertexLayoutForMeshVariant(options.variant);
+        if (options.variant?.terrain) {
+            vertex_layout = getTerrainVertexLayout(vertex_layout);
+            // The worker already refines terrain topology; do not rebuild a second main-thread globe mesh.
+            options.globeRefinement = undefined;
+        }
 
         if (debugSettings.wireframe) {
             // In wireframe debug mode, transform mesh into lines

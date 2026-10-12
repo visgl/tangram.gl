@@ -9,6 +9,7 @@ export const terrainMarkup = `
         <h1 data-example="title">Mercator terrain</h1>
         <p data-example="status" role="status">Loading…</p>
         <p data-example="decoder-status" class="hint"></p>
+        <p data-example="draping-status" class="hint" role="status"></p>
         <label class="control"><span>Mesh error (meters)</span>
           <select data-example="mesh-error"><option value="5">5 m</option><option value="20" selected>20 m</option><option value="50">50 m</option></select>
         </label>
@@ -17,6 +18,7 @@ export const terrainMarkup = `
         </label>
         <label class="control checkbox-control"><input type="checkbox" data-example="wireframe"> Wireframe</label>
         <label class="control checkbox-control"><input type="checkbox" data-example="skirts" checked> Seam skirts</label>
+        <label class="control checkbox-control"><input type="checkbox" data-example="draping" checked> Draped OpenFreeMap basemap</label>
         <label class="control checkbox-control"><input type="checkbox" data-example="follow-terrain"> <span data-example="follow-label">Follow terrain target</span></label>
         <label class="control"><span data-example="clearance-label">Target clearance (physical meters)</span>
           <select data-example="clearance"><option value="20">20 m</option><option value="100">100 m</option><option value="250" selected>250 m</option><option value="500">500 m</option></select>
@@ -25,7 +27,7 @@ export const terrainMarkup = `
         <button type="button" data-example="land-eye" hidden>Lower eye to loaded terrain</button>
         <output data-example="terrain-hit" aria-live="polite">Click the terrain to query elevation</output>
         <p class="hint" data-example="navigation-hint">Drag to pan; Shift-drag to rotate; scroll to zoom. Elevation is not exaggerated.</p>
-        <p class="hint" data-example="limitations">Up to nine detail tiles share stitched 2:1 fallback edges and a hard source/decoded-array cache budget (128 MiB by default). Following adjusts the MapView target, not the eye or an avatar; unloaded terrain holds its previous elevation. Picking and following use physical top triangles, never skirts. Tile detail is a local plane estimate, not certified terrain-error LOD. Basemap draping and globe terrain are not implemented here.</p>
+        <p class="hint" data-example="limitations">Up to nine detail tiles share stitched 2:1 fallback edges and a bounded source cache. Basemap geometry is displaced in scene workers; missing DEM coverage hides geometry. The draped surface uses bilinear heights, while physical picking/following uses adaptive top triangles. These are not an exact identical surface. Tile detail is a local plane estimate, not certified terrain-error LOD. Uncheck draping for the elevation mesh and wireframe controls.</p>
         <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a>
       </aside>
       <div class="canvas-toolbar">

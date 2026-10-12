@@ -90,7 +90,7 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Starts a config refresh
-    updateConfig ({ config, generation, introspection, shader_language = 'glsl', projection_target }, debug) {
+    updateConfig ({ config, generation, introspection, shader_language = 'glsl', projection_target, terrain }, debug) {
         config = JSON.parse(config);
         mergeDebugSettings(debug);
 
@@ -113,6 +113,7 @@ const SceneWorker = Object.assign(self, {
             introspection: this.introspection,
             shader_language,
             projection_target,
+            terrain,
             config
         });
 

@@ -5,6 +5,58 @@
 
 import {PROJECTION_CONSTANTS} from './projection_math';
 
+/** Optional physical heights/slopes; identical displacement for color and selection. */
+export const TERRAIN_DRAPING_GLSL = `
+#ifdef TANGRAM_TERRAIN_DRAPED
+attribute vec4 a_terrain;
+attribute vec4 a_terrain_previous;
+uniform float u_terrain_blend;
+uniform float u_terrain_exaggeration;
+float tangramTerrainHeight() {
+    return mix(a_terrain_previous.x, a_terrain.x, u_terrain_blend) * u_terrain_exaggeration;
+}
+float tangramTerrainRibbonOffset(vec2 local_offset, vec2 local_position) {
+    float northing = u_tile_origin.y + local_position.y * u_model[1][1];
+    float latitude_cosine = 2. / (exp(northing / 6378137.) + exp(-northing / 6378137.));
+    vec2 slope = mix(a_terrain_previous.yz, a_terrain.yz, u_terrain_blend) * u_terrain_exaggeration;
+    return dot(slope, local_offset * vec2(u_model[0][0], u_model[1][1]) * latitude_cosine);
+}
+vec3 tangramTerrainNormal(vec3 normal) {
+    vec2 slope = mix(a_terrain_previous.yz, a_terrain.yz, u_terrain_blend) * u_terrain_exaggeration;
+    if (u_projection_mode != 1) {
+        float northing = u_tile_origin.y + a_position.y * u_model[1][1];
+        float latitude_cosine = 2. / (exp(northing / 6378137.) + exp(-northing / 6378137.));
+        // Planar normals are subsequently transformed by the tile normal matrix;
+        // globe normals instead consume ENU directly. Do not apply tile scale twice.
+        slope *= vec2(u_model[0][0], u_model[1][1]) * latitude_cosine;
+    }
+    return normalize(vec3(normal.xy - slope * normal.z, normal.z));
+}
+#endif
+`;
+
+/** Portable counterpart with per-mesh temporal interpolation and a GPU-only multiplier. */
+export const TERRAIN_DRAPING_WGSL = `
+fn tangramTerrainHeight(current: vec4<f32>, previous: vec4<f32>) -> f32 {
+    return mix(previous.x, current.x, TangramTile.u_terrain_blend) * TangramTile.u_terrain_exaggeration;
+}
+fn tangramTerrainRibbonOffset(local_offset: vec2<f32>, local_position: vec2<f32>, current: vec4<f32>, previous: vec4<f32>) -> f32 {
+    let northing = TangramTile.u_tile_origin.y + local_position.y * TangramTile.u_model[1][1];
+    let latitude_cosine = 2.0 / (exp(northing / 6378137.0) + exp(-northing / 6378137.0));
+    let slope = mix(previous.yz, current.yz, TangramTile.u_terrain_blend) * TangramTile.u_terrain_exaggeration;
+    return dot(slope, local_offset * vec2<f32>(TangramTile.u_model[0][0], TangramTile.u_model[1][1]) * latitude_cosine);
+}
+fn tangramTerrainNormal(normal: vec3<f32>, current: vec4<f32>, previous: vec4<f32>, local_position: vec2<f32>) -> vec3<f32> {
+    var slope = mix(previous.yz, current.yz, TangramTile.u_terrain_blend) * TangramTile.u_terrain_exaggeration;
+    if (TangramView.u_projection_mode != 1) {
+        let northing = TangramTile.u_tile_origin.y + local_position.y * TangramTile.u_model[1][1];
+        let latitude_cosine = 2.0 / (exp(northing / 6378137.0) + exp(-northing / 6378137.0));
+        slope *= vec2<f32>(TangramTile.u_model[0][0], TangramTile.u_model[1][1]) * latitude_cosine;
+    }
+    return normalize(vec3<f32>(normal.xy - slope * normal.z, normal.z));
+}
+`;
+
 /** Shared GLSL positions, ENU normals and camera-relative tile path; preserves Tangram block ordering. */
 export const GLOBE_PROJECTION_GLSL = `
 vec3 tangramGlobePosition(vec3 mercator_position) {

@@ -11,6 +11,7 @@ import TilePyramid from './tile_pyramid';
 import Geo from '../utils/geo';
 import mainThreadLabelCollisionPass from '../labels/main_pass';
 import {layoutProjectedAnnotations} from '../labels/projected-pass';
+import {hasTerrainTileCoverage} from '../procedures/terrain-draping';
 import type HostFrame from '../scene/host_frame';
 import log from '../utils/log';
 import WorkerBroker from '../utils/worker_broker';
@@ -131,7 +132,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         try {
             // Find visible tiles and load new ones
             this.visible_coords = {};
-            let tile_coords = this.view.findVisibleTileCoordinates();
+            let tile_coords = this.view.findVisibleTileCoordinates().filter(coords => !this.scene.terrain || hasTerrainTileCoverage(this.scene.terrain.grids, coords));
             for (let c=0; c < tile_coords.length; c++) {
                 const coords = tile_coords[c];
                 this.queueCoordinate(coords);
@@ -139,7 +140,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
             }
 
             this.preloaded_keys.clear();
-            const preloaded = this.view.findPreloadedTileCoordinates?.() || [];
+            const preloaded = (this.view.findPreloadedTileCoordinates?.() || []).filter(coords => !this.scene.terrain || hasTerrainTileCoverage(this.scene.terrain.grids, coords));
             this.preloaded_coords = preloaded;
             this.preload_zoom = preloaded[0]?.z;
             for (const coords of preloaded) {
@@ -210,18 +211,35 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void {
         const tiles = this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for);
         const pending = tiles.some(tile => tile.pending_label_meshes !== null);
-        if (layoutProjectedAnnotations(tiles, frame, {clockwiseRotation})) {
+        const layoutOptions = {clockwiseRotation, terrainExaggeration: this.scene.terrainExaggeration ?? 1,
+            terrainTime: this.scene.terrainFrameTime,
+            terrainTransitionDuration: this.scene.terrain?.transitionDuration ?? 0};
+        if (layoutProjectedAnnotations(tiles, frame, layoutOptions)) {
             if (pending) {
                 // Swapped child styles can retire proxies. Relayout before this same frame draws,
                 // otherwise an invisible older proxy keeps suppressing the child's annotations.
                 this.updateTileStates();
                 layoutProjectedAnnotations(this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for),
-                    frame, {clockwiseRotation});
+                    frame, layoutOptions);
             }
             this.style_manager.updateActiveStyles(this.renderable_tiles);
             this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
             this.scene.requestRedraw();
         }
+    }
+
+    /** Summarize resident worker output, separate from source caches, GPU and transient allocations. */
+    getTerrainDrapingStatistics(terrain?: import('../procedures/terrain-draping').TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics {
+        const result = {enabled: Boolean(terrain), gridBytes: terrain?.byteLength ?? 0, meshes: 0, vertices: 0, triangles: 0, suppressedTriangles: 0, meshBytes: 0, maximumPreparationMs: 0, detailLimitedMeshes: 0};
+        for (const tile of Object.values(this.tiles)) for (const parts of Object.values(tile.meshes || {})) for (const mesh of parts) {
+            const stats = mesh.variant?.terrainStatistics;
+            if (!mesh.valid || !stats) continue;
+            result.meshes++; result.vertices += stats.vertices; result.triangles += stats.triangles;
+            result.suppressedTriangles += stats.suppressedTriangles; result.meshBytes += stats.meshBytes;
+            result.maximumPreparationMs = Math.max(result.maximumPreparationMs, stats.preparationMs);
+            result.detailLimitedMeshes += Number(stats.detailLimited);
+        }
+        return result;
     }
 
     updateLabels () {
@@ -433,6 +451,8 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
 
     // Load all tiles to cover a given logical tile coordinate
     loadCoordinate(coords, preload = false) {
+        // A queued coordinate can outlive a field update; do not start uncovered work.
+        if (this.scene.terrain && !hasTerrainTileCoverage(this.scene.terrain.grids, coords)) return;
         // Skip if not at current scene zoom
         if (!preload && coords.z !== this.view.center.tile.z) {
             return;

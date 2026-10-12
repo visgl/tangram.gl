@@ -8,6 +8,7 @@ import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {HostFrame, Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
 import type {HostTileLODOptions, HostTileResourceOptions} from '@vis.gl/tangram-renderer/core';
+import type {TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
 import type {Scene, SceneDefinition} from '@vis.gl/tangram-renderer';
 import {Timeline} from '@luma.gl/engine';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
@@ -83,6 +84,8 @@ export class RenderingHarness {
   maxConcurrentTileLoadsPerWorker?: number;
   /** Optional globally retained globe loading fallback. */
   globePreloadZoom?: number;
+  /** Optional offline physical height field passed through the packaged worker. */
+  terrain?: TerrainDrapingOptions;
   /** Optional mocked headset frame submitted through the real immersive rendering path. */
   frameState?: XRFrameState;
   device!: Device;
@@ -130,6 +133,7 @@ export class RenderingHarness {
       device: this.device, canvas: this.canvas, numWorkers: 1,
       maxConcurrentTileLoadsPerWorker: this.maxConcurrentTileLoadsPerWorker,
       continuousZoom: true, highDensityDisplay: false, logLevel: 'warn',
+      terrain: this.terrain,
       ...(this.device.type === 'webgl' ? {webGLContext: this.device.handle} : {})
     });
     this.renderer.subscribe({error: message => this.errors.push(JSON.stringify(message))});

@@ -44,6 +44,8 @@ interface TextBuildMesh {
 }
 /** Checked standalone-text style, extending only the point/style capabilities it consumes. */
 export interface TextStyleRuntime extends TextLabelRuntime {
+    /** Optional worker terrain height field for geographic glyph anchors. */
+    terrain?: import('../../procedures/terrain-draping').TerrainDrapingSnapshot;
     /** Optional anchor projection; screen-space glyph geometry remains unchanged. */
     cpu_projection?: import('../../procedures/mesh-projector').ProjectedBasemapOptions;
     /** Whether this is a built-in renderer style. */
@@ -86,7 +88,7 @@ Object.assign(TextStyle, {
     built_in: true,
 
     getWGSLShaderSource(this: TextStyleRuntime, selection = false) {
-        return buildTextWGSL(Boolean(this.cpu_projection), selection);
+        return buildTextWGSL(Boolean(this.cpu_projection), selection, Boolean(this.terrain));
     },
 
     init(this: TextStyleRuntime, options = {}) {

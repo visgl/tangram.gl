@@ -17,7 +17,9 @@ aborts requests, disconnects resize observation and releases GPU resources.
 
 The example starts near Zermatt and streams up to nine visible Mapterhorn tiles
 plus immediate coarse parents. Same-origin workers decode with loaders.gl v5;
-deck.gl TerrainLayer renders reconstructed physical-height meshes. Controls
+Tangram can now drape an OpenFreeMap scene in its existing workers; uncheck
+**Draped OpenFreeMap basemap** to view deck.gl's reconstructed elevation mesh.
+The height-grid and vector-source caches have independent lifetimes. Controls
 include navigation, projected tile footprint, mesh error, wireframe, seam skirts, retry, devices, fullscreen
 and collapsible information.
 
@@ -28,8 +30,8 @@ isolate responses; the shared tile queue is the only scheduler. Shared Tangram
 queue, residency and cache policies bound work and retain warm source bytes.
 Neighbor heights/normals agree at full-resolution edges; visual skirts cover
 incomplete and mixed-detail boundaries without entering elevation queries.
-This is not production Tangram terrain support: basemap draping and certified
-pixel-error LOD remain deferred. Required tests
+Worker-side draping is experimental; certified pixel-error LOD, mixed-LOD
+draping seams and whole-pipeline memory admission remain deferred. Required tests
 use generated fixtures, not live services. See the developer guide for budgets,
 registration, validity and remaining limitations.
 

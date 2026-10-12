@@ -149,7 +149,8 @@ eye routing and retained triangle bounds indexes. No terrain is loaded or render
 The separate [Mercator terrain reference](./terrain.md) now has a bounded source
 window, warm decode cache with hard resident-array admission, stitched 2:1 parent
 fallback, indexed physical picking and opt-in MapView target following. This closes
-the local reference phase, not globe terrain or basemap draping.
+the local reference phase. [Terrain integration](./terrain.md) also describes
+the separate globe elevation layer and experimental worker-side basemap draping.
 
 Next: tangent-space normal maps, rendered terrain normals, surface-oriented labels,
 terrain-aware occlusion and deck.gl synchronous picking.

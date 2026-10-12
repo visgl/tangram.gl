@@ -132,7 +132,11 @@ void main() {
     world_position = vec4(a_projected_position, 1.);
     vec4 position = world_position;
     #else
-    vec4 position = tangramModelView(vec4(a_position.xyz, 1.), world_position);
+    vec4 local_position = vec4(a_position.xyz, 1.);
+    #ifdef TANGRAM_TERRAIN_DRAPED
+        local_position.z += tangramTerrainHeight();
+    #endif
+    vec4 position = tangramModelView(local_position, world_position);
     #endif
     // Occlude the shared geographic anchor before screen-space offsets. This
     // also applies to text and selection programs using this vertex shader.

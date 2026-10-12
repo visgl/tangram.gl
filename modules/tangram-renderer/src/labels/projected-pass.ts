@@ -34,7 +34,15 @@ const eligible = new WeakMap<LabelMesh, Map<MeshLabel, boolean>>();
  * @returns Whether masks changed or pending label meshes were activated.
  */
 export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: HostFrame,
-    {clockwiseRotation = false}: {clockwiseRotation?: boolean} = {}): boolean {
+    {clockwiseRotation = false, terrainExaggeration = 1, terrainTransitionDuration = 0, terrainTime = performance.now()}: {
+        clockwiseRotation?: boolean;
+        /** Same visual relief multiplier used by the terrain vertex shaders. */
+        terrainExaggeration?: number;
+        /** Per-mesh transition duration in milliseconds, matching the renderer. */
+        terrainTransitionDuration?: number;
+        /** Shared monotonic frame time, so both eyes and color agree during morphing. */
+        terrainTime?: number;
+    } = {}): boolean {
     const cameras = frame.renderViews.map(eye => ({eye,
         matrix: frame.projection.type === 'globe' ? new Matrix4(Array.from(eye.camera.projection)) :
             new Matrix4(Array.from(eye.camera.projection)).multiplyRight(Array.from(eye.camera.view))}));
@@ -56,7 +64,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
                         const first = label.ranges[0]?.[0];
                         const data = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
                         const height = label.container.label.layout.projected_height ?? (first === undefined ||
-                            mesh.vertex_layout.offset.a_position === undefined ? 0 : data.getInt16(first + mesh.vertex_layout.offset.a_position + 4, true));
+                            mesh.vertex_layout.offset.a_position === undefined ? 0 : mesh.vertex_layout.offset.a_terrain === undefined ? data.getInt16(first + mesh.vertex_layout.offset.a_position + 4, true) : data.getFloat32(first + mesh.vertex_layout.offset.a_position + 8, true));
                         const layout = label.container.label.layout;
                         candidate = {id, label, tile, parts: [], boxes: new Map(), height,
                             linkedId: String(label.container.linked), collide: layout.projected_collide,
@@ -68,7 +76,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
                     candidate.parts.push({mesh, label});
                     for (const {eye, matrix} of cameras) {
                         const box = getScreenBounds(mesh, label, tile, frame, eye.camera.position, matrix,
-                            eye.viewport.width, eye.viewport.height, clockwiseRotation);
+                            eye.viewport.width, eye.viewport.height, clockwiseRotation, terrainExaggeration, terrainTransitionDuration, terrainTime);
                         if (box) candidate.boxes.set(eye.id, unionBounds(candidate.boxes.get(eye.id), box));
                     }
                 }
@@ -106,7 +114,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
 /** Reconstruct the shader's rotated pixel quad from retained packed geometry, including atlas ranges. */
 function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, frame: HostFrame,
     eye: readonly number[], matrix: Matrix4, width: number, height: number,
-    clockwiseRotation: boolean): Bounds | null {
+    clockwiseRotation: boolean, terrainExaggeration: number, transitionDuration: number, terrainTime: number): Bounds | null {
     let eligibility = eligible.get(mesh);
     if (!eligibility) eligible.set(mesh, eligibility = new Map());
     const data = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
@@ -125,9 +133,20 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
                 data.getFloat32(base + offset.a_projected_position + 8, true)];
         } else {
             const scale = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** tile.coords.z);
-            anchor = [tile.min.x + data.getInt16(base + offset.a_position, true) * scale,
+            anchor = offset.a_terrain === undefined ? [tile.min.x + data.getInt16(base + offset.a_position, true) * scale,
                 tile.min.y + data.getInt16(base + offset.a_position + 2, true) * scale,
-                data.getInt16(base + offset.a_position + 4, true)];
+                data.getInt16(base + offset.a_position + 4, true)] : [
+                tile.min.x + data.getFloat32(base + offset.a_position, true) * scale,
+                tile.min.y + data.getFloat32(base + offset.a_position + 4, true) * scale,
+                data.getFloat32(base + offset.a_position + 8, true)];
+            if (offset.a_terrain !== undefined) {
+                if (data.getFloat32(base + offset.a_terrain + 12, true) < 0.5) return null;
+                mesh.terrainVisibleAt ??= terrainTime;
+                const blend = transitionDuration ? Math.max(0, Math.min(1, (terrainTime - mesh.terrainVisibleAt) / transitionDuration)) : 1;
+                const current = data.getFloat32(base + offset.a_terrain, true);
+                const previous = data.getFloat32(base + offset.a_terrain_previous, true);
+                anchor[2] += (previous + (current - previous) * blend) * terrainExaggeration;
+            }
             if (frame.projection.type === 'globe') {
                 anchor = projectGeographicPosition(getGeographicProjectionProcedure('web-mercator').unproject(anchor), 'globe');
                 if (isGlobeOccluded(anchor, eye)) return null;

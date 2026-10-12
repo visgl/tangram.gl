@@ -26,7 +26,7 @@ import hashString from '../../utils/hash';
 import polygons_vs from '../polygons/polygons_vertex.glsl';
 import polygons_fs from '../polygons/polygons_fragment.glsl';
 import {buildLinesWGSL} from './lines_wgsl';
-import {GLOBE_PROJECTION_GLSL} from '../../scene/projection_shaders';
+import {GLOBE_PROJECTION_GLSL, TERRAIN_DRAPING_GLSL} from '../../scene/projection_shaders';
 import {getProjectedRoadUnit} from '../../procedures/mesh-projector';
 
 export const Lines: LineStyleRuntime = Object.create(Style);
@@ -36,13 +36,13 @@ const DASH_SCALE = 20; // adjustment factor for UV scale to for line dash patter
 Object.assign(Lines, {
     name: 'lines',
     built_in: true,
-    vertex_shader_src: polygons_vs.replace('#pragma tangram: projection', GLOBE_PROJECTION_GLSL),
+    vertex_shader_src: polygons_vs.replace('#pragma tangram: projection', GLOBE_PROJECTION_GLSL + TERRAIN_DRAPING_GLSL),
     fragment_shader_src: polygons_fs,
     selection: true, // enable feature selection
 
     getWGSLShaderSource(this: LineStyleRuntime, selection = false) {
         return buildLinesWGSL({ animated: this.animated === true, lighting: this.portable_lighting_mode,
-            lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection), selection });
+            lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection), terrain: Boolean(this.terrain), selection });
     },
 
     setGL(this: LineStyleRuntime, gl_context: unknown, uniform_blocks: Record<string, UniformBuffer> = {}, options = {}) {
