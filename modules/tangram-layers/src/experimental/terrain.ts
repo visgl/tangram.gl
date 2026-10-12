@@ -10,7 +10,7 @@ import {buildGlobeTerrainMesh, getGlobeTerrainExaggeration, type TerrainHeightGr
 
 /** Globe-only physical DEM input, without a loader, network request or source ownership. */
 export type GlobeTerrainLayerProps = LayerProps & {
-    /** Immutable same-LOD grids in absolute EPSG:3857 meters; no-data cells remain holes. */
+    /** Immutable non-overlapping grids with balanced 2:1 edges in EPSG:3857 meters; no-data stays holes. */
     data: readonly TerrainHeightGrid[];
     /** Maximum display multiplier; defaults to 100, range [0, 1000]. Zero keeps the globe flat. */
     globeTerrainExaggeration?: number;

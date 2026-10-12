@@ -43,3 +43,21 @@ test(`${DEVICE_TYPE}: spherical terrain grows at 100×, remains interactive and 
     await expect.poll(() => layer.state.exaggeration).toBe(1);
     expect(layer.pickTerrain(deck.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(6000);
 });
+
+test(`${DEVICE_TYPE}: stitched 2:1 spherical terrain has no background gap at the shared edge`, async () => {
+    harness = new RenderingHarness('globe'); await harness.initializeDevice();
+    /** Small constant DEMs expose a shared coarse/fine edge through the camera target. */
+    const grid = (height: number, bounds: [number, number, number, number]): TerrainHeightGrid => ({width: 2, height: 2, heights: new Float32Array(4).fill(height), valid: new Uint8Array(4).fill(1), bounds, verticalDatum: 'unknown', registration: 'grid-node'});
+    const layer = new GlobeTerrainLayer({id: 'stitched', data: [grid(1000, [-2000000, -1000000, 0, 1000000]), grid(3000, [0, 0, 1000000, 1000000]), grid(2000, [0, -1000000, 1000000, 0])], meshResolution: 16, globeTerrainExaggeration: 100});
+    deck = new Deck({canvas: harness.canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false, views: new GlobeView({id: 'terrain', controller: true}),
+        initialViewState: {longitude: 0, latitude: 0, zoom: 3}, layers: [layer], _animate: true, onError: error => harness!.errors.push(error.message)});
+    await expect.poll(async () => countTerrainPixels(await readCanvasPixels(harness!.canvas)), {timeout: 15000}).toBeGreaterThan(100);
+    await expect.poll(() => layer.pickTerrain(deck!.getViewports()[0], [256, 160])?.coordinate[2]).toBeCloseTo(2000);
+    for (const zoom of [3, 6]) {
+        deck.setProps({viewState: {longitude: 0, latitude: 0, zoom}});
+        await expect.poll(async () => {
+            const image = await readCanvasPixels(harness!.canvas);
+            return Array.from({length: 7}, (_, index) => (160 * image.width + 253 + index) * 4).every(offset => image.data[offset + 3] > 128 && Math.max(image.data[offset], image.data[offset + 1], image.data[offset + 2]) > 20);
+        }).toBe(true);
+    }
+});

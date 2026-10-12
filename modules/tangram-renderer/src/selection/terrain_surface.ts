@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4, Vector3} from '@math.gl/core';
+import {intersectRayBounds} from '@math.gl/culling/queries';
 import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import type HostFrame from '../scene/host_frame';
 import {getGeographicProjectionProcedure} from '../scene/projection_math';
@@ -70,6 +71,10 @@ export class TerrainMeshSurface implements TerrainSurface {
     private readonly cullBackfaces: boolean;
     /** Projection-independent immutable triangle query index. */
     private queryIndex?: TriangleQueryIndex;
+    /** Closed lower content-space corner rejects unrelated rays before allocating an index. */
+    private readonly minimum: [number, number, number] = [Infinity, Infinity, Infinity];
+    /** Closed upper content-space corner, derived from the detached vertex snapshot. */
+    private readonly maximum: [number, number, number] = [-Infinity, -Infinity, -Infinity];
 
     /** Copy a finite indexed triangle mesh; mutation of caller buffers cannot change queries. */
     constructor(options: TerrainMeshOptions) {
@@ -83,6 +88,10 @@ export class TerrainMeshSurface implements TerrainSurface {
         this.projection = options.projection;
         this.positions = new Float64Array(positions);
         this.indices = new Uint32Array(indices);
+        for (let offset = 0; offset < positions.length; offset += 3) for (let axis = 0; axis < 3; axis++) {
+            this.minimum[axis] = Math.min(this.minimum[axis], positions[offset + axis]);
+            this.maximum[axis] = Math.max(this.maximum[axis], positions[offset + axis]);
+        }
         this.cullBackfaces = options.cullBackfaces ?? false;
         const physicalHeights = options.physicalHeights;
         if (physicalHeights) {
@@ -98,6 +107,7 @@ export class TerrainMeshSurface implements TerrainSurface {
         if (ray.origin.length !== 3 || ray.direction.length !== 3 || !ray.origin.every(Number.isFinite) ||
             !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0 || !this.indices.length) return null;
         const direction: [number, number, number] = [ray.direction[0] / length, ray.direction[1] / length, ray.direction[2] / length];
+        if (intersectRayBounds(ray.origin, direction, this.minimum, this.maximum, maxDistance) === null) return null;
         this.queryIndex ??= new TriangleQueryIndex(this.positions, this.indices);
         const hit = this.queryIndex.queryRay(ray.origin, direction, maxDistance, candidate => {
             if (this.projection === 'globe' && Math.hypot(ray.origin[0] + direction[0] * candidate.parameter,
