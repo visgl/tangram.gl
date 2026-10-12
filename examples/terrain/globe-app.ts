@@ -46,7 +46,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
       <button data-example="retry" type="button">Retry failed tiles</button>
       <output data-example="terrain-hit" aria-live="polite">Click terrain for physical elevation</output>
-      <p class="hint">Drag to rotate; scroll/pinch to zoom. Exaggerated relief fades to 1× over two apparent-diameter doublings; 0× stays flat.</p>
+      <p class="hint">Drag to rotate; scroll/pinch to zoom. Exaggerated relief fades to flat over one apparent-diameter doubling; explicit 1× stays physical. Detail refines after navigation settles.</p>
       <p class="hint">Adaptive globe terrain: global fallback stays warm while visible regions refine, bounded to 96 leaf tiles and 256 MiB of retained source/decoded arrays. Coarse/fine edges are stitched. This is not basemap draping or a certified pixel-error guarantee. Polar regions outside ±85.05° and no-data areas have no terrain. Elevations retain the source datum; displayed mountains are exaggerated, returned meters are not.</p>
       <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a></aside>
       <div class="canvas-toolbar"><div class="canvas-device-tabs" role="tablist" aria-label="Rendering device">
@@ -75,6 +75,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     let camera: GlobeViewState = {longitude: 80, latitude: 25, zoom: 1, maxZoom: 12};
     let device = parameters.get('device') === 'webgl' ? 'webgl' : navigator.gpu ? 'webgpu' : 'webgl';
     let disposed = false, animationFrame = 0, layer: GlobeTerrainLayer | undefined;
+    let detailTimer: ReturnType<typeof setTimeout> | undefined;
     let displayedMaximum: number | undefined, displayedWireframe: boolean | undefined;
     let deckReady = false, deckGeneration = 0;
     let renderingError: string | undefined;
@@ -92,7 +93,13 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         deckReady = false;
         return new Deck({parent: container, width: '100%', height: '100%', views: new GlobeView({id: 'globe-terrain', controller: true}), viewState: camera,
             deviceProps: device === 'webgpu' ? {type: 'webgpu', adapters: [webgpuAdapter]} : {type: 'webgl'},
-            onViewStateChange: ({viewState}) => {camera = {...viewState, zoom: Math.min(12, viewState.zoom), maxZoom: 12}; deck.setProps({viewState: camera}); schedule();},
+            onViewStateChange: ({viewState}) => {
+                camera = {...viewState, zoom: Math.min(12, viewState.zoom), maxZoom: 12}; deck.setProps({viewState: camera});
+                // Navigation stays immediate; select new source detail once motion settles.
+                clearTimeout(detailTimer);
+                detailTimer = setTimeout(() => {detailTimer = undefined; schedule();}, 120);
+                schedule();
+            },
             onError: error => {if (!disposed && generation === deckGeneration) {renderingError = error.message; status.textContent = `Rendering error: ${error.message}`;}},
             onClick: information => {
                 const viewport = information.viewport ?? deck.getViewports()[0];
@@ -107,7 +114,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         const viewport = deck.getViewports()[0];
         if (!viewport || viewport.projectionMode !== 2 || viewport.width <= 0 || viewport.height <= 0) return;
         const cameraSignature = [camera.longitude, camera.latitude, camera.zoom, viewport.x, viewport.y, viewport.width, viewport.height, ...viewport.viewProjectionMatrix].join(',');
-        if (!detail || detailCameraSignature !== cameraSignature) {
+        if (!detail || detailTimer === undefined && detailCameraSignature !== cameraSignature) {
             detail = selectGlobeTerrainDetail({...camera, x: viewport.x, y: viewport.y, width: viewport.width, height: viewport.height, cameraPosition: viewport.cameraPosition, project: position => viewport.project(position)}, {targetPixels: Number(detailControl.value), maxZoom: source.maxZoom, previous: detail?.tiles});
             detailCameraSignature = cameraSignature;
         }
@@ -141,7 +148,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     }, {signal: abort.signal});
     wireframe.addEventListener('change', schedule, {signal: abort.signal});
     detailControl.addEventListener('change', () => {
-        parameters.set('detail', detailControl.value); options.onParametersChange?.(new URLSearchParams(parameters)); detailCameraSignature = ''; schedule();
+        parameters.set('detail', detailControl.value); options.onParametersChange?.(new URLSearchParams(parameters)); clearTimeout(detailTimer); detailTimer = undefined; detailCameraSignature = ''; schedule();
     }, {signal: abort.signal});
     element('retry').addEventListener('click', () => tileset?.retry(), {signal: abort.signal});
     element('fullscreen').addEventListener('click', () => {if (document.fullscreenElement === root) void document.exitFullscreen(); else void root.requestFullscreen().catch(error => {status.textContent = `Fullscreen unavailable: ${error.message}`;});}, {signal: abort.signal});
@@ -160,6 +167,6 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     selectionSignature = coordinates.map(getTerrainTileKey).join(',');
     tileset.update(coordinates, 10000);
     return {ready: tileset.waitForIdle().then(() => {updateLayers();}), destroy() {
-        if (disposed) return; disposed = true; abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); destroyCard(); deck.finalize(); root.remove();
+        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); destroyCard(); deck.finalize(); root.remove();
     }};
 }

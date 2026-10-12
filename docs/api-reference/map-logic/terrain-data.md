@@ -81,9 +81,18 @@ finite-difference slopes in spherical coordinates. Overlaps and unbalanced edge
 footprints reject. Source bounds must stay
 inside the EPSG:3857 world and share a datum.
 
+For repeated display changes, call `prepareGlobeTerrainMesh(grid, {resolution,
+neighbors})` once, then `scaleGlobeTerrainMesh(template, exaggeration)` on zoom or
+slider updates. Preparation snapshots physical samples, slopes, spherical frames,
+no-data holes and stitched topology. The opaque handle exposes `vertexCount` and
+`triangleCount`; source changes require a new template. Scaling returns detached
+buffers, so changing one result cannot corrupt subsequent results. It performs no
+source sampling or topology reconstruction. `buildGlobeTerrainMesh` remains the
+one-shot convenience API using the same pipeline.
+
 `getGlobeTerrainExaggeration(globeScreenRatio, maximum = 100)` supplies the display
 policy: maxima above 1 apply while the globe fits, with a smooth logarithmic fade
-to 1× when the apparent diameter reaches four shorter viewport dimensions. It
+to 0× when the apparent diameter reaches two shorter viewport dimensions. It
 accepts maxima in `[0, 1000]`; zero keeps displacement flat at every zoom, and
 subphysical values remain fixed rather than fading upward. Physical source heights
 are unchanged. This helper has no deck.gl, camera or GPU dependency.
