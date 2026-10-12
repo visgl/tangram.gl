@@ -8,6 +8,12 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- Terrain query collections add nearest-tile identities, finite trimmed sightlines,
+  geographic elevation brackets and Mercator point-clearance constraints. Globe
+  terrain exposes admitted-geometry probes and a pinned-target visibility inspector;
+  no-data remains unknown rather than certified visible. Existing MapView target
+  following uses the shared probe boundary. This is not continuous collision or draping.
+
 - Terrain picking indexes can be warmed in cancellable cooperative chunks. The
   globe display stage warms them before publication when current-plus-staged
   acceleration fits, reports deferred warming, and keeps exact lazy/linear fallback.

@@ -525,8 +525,57 @@ exclude caller data, JavaScript objects, construction scratch and GPU storage.
 The package also exports `pickTerrainAt(hostFrame, pixel, surface, options?)` for
 hosts without a renderer. This API neither loads/renders DEMs nor associates
 triangles with worker feature IDs. It does not infer terrain from rendered meshes,
-substitute a flat plane in holes, or implement terrain occlusion. CPU-projected
+substitute a flat plane in holes, or automatically hide occluded labels. CPU-projected
 OrthographicView terrain is not supported by this geographic surface contract.
+
+### Terrain collections, sightlines and clearance
+
+`TerrainSurfaceCollection(projection, [{id, surface}, ...])` snapshots tile membership
+without copying geometry or owning resources. IDs must be unique and nonempty;
+all surfaces must share the projection. `intersectRay` returns the nearest hit with
+`surfaceId`, clips farther surfaces, and resolves equal-distance ties in original
+membership order. It also implements `TerrainSurface`, so renderer/HostFrame screen
+queries can route across a collection without a new camera adapter.
+Hosts must also supply compatible vertical datums; these queries do not infer a
+geoid conversion or reconcile mismatched elevation sources.
+
+`intersectSegment(start, end, {startInset = 0, endInset = 0})` queries a finite
+content-space line of sight. Insets trim self-intersections in **mesh units**:
+EPSG:3857 meters or radius-256 globe common units, not universally physical meters.
+Distances remain measured from the original start. Coincident endpoints or a fully
+trimmed segment return `null`. A miss means no loaded triangle blocks this segment;
+unloaded tiles and no-data holes prevent any claim of certified visibility.
+
+`sampleTerrainElevation(surface, [longitude, latitude], probe)` casts geographic
+down between explicit `minimumAltitude` and `maximumAltitude` values in meters.
+The bracket must enclose **displayed** relief; hits still return physical source
+meters in `coordinate[2]`. An optional `anchorLongitude` selects an unwrapped
+Mercator world copy. Latitudes outside the projection domain return `null`, and
+globe brackets crossing the center reject instead of sampling the far hemisphere.
+`TerrainMeshSurface.getBounds()` returns detached conservative XYZ bounds for
+choosing brackets without exposing query buffers.
+
+```ts
+import {TerrainSurfaceCollection, resolveTerrainClearance} from '@vis.gl/tangram-renderer/core';
+
+const terrain = new TerrainSurfaceCollection('web-mercator', loadedSurfaces);
+const resolved = resolveTerrainClearance(terrain, [longitude, latitude, altitude], 2, {
+  minimumAltitude: -12000,
+  maximumAltitude: 50000
+});
+if (resolved) {
+  // Update a FirstPersonView/host position only when resolved.adjusted is true.
+  altitude = resolved.coordinate[2];
+}
+```
+
+`resolveTerrainClearance` supports Mercator frames only. It raises a point below
+the displayed top surface plus meter clearance, never lowers one already above it,
+and separately returns `physicalElevation`. A miss returns `null`; the host should
+hold its previous height or apply its own missing-data policy. This is a point-floor
+constraint, not swept-volume collision, wall collision, continuous path safety,
+gravity, or a built-in FirstPerson controller. No depth-buffer or label-visibility
+state is changed by these CPU queries.
 
 ## TypeScript contracts
 

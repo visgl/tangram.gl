@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {projectGeographicPosition, PROJECTION_CONSTANTS} from '@vis.gl/tangram-renderer/core';
+import {TerrainSurfaceCollection, sampleTerrainElevation, PROJECTION_CONSTANTS} from '@vis.gl/tangram-renderer/core';
 import type {LoadedTerrain} from './load-terrain';
 
 /** Sample the highest loaded top triangle at a geographic anchor, excluding visual skirts. */
@@ -10,14 +10,19 @@ export function sampleTerrainAnchor(tiles: Iterable<LoadedTerrain>, coordinate: 
     if (!coordinate.every(Number.isFinite) || Math.abs(coordinate[1]) > 90 || !Number.isFinite(clearance) || clearance < 0) throw new Error('Invalid terrain anchor or physical clearance');
     if (Math.abs(coordinate[1]) > PROJECTION_CONSTANTS.maxMercatorLatitude) return null;
     const longitude = ((coordinate[0] + 180) % 360 + 360) % 360 - 180;
-    const projected = projectGeographicPosition([longitude, coordinate[1], 0], 'web-mercator');
-    let elevation: number | null = null;
+    const entries: {id: string; surface: LoadedTerrain['surface']}[] = [];
+    let minimum = Infinity, maximum = -Infinity;
     for (const tile of tiles) {
         const bounds = tile.mesh.header?.boundingBox;
         // Avoid constructing query indexes for every visible tile on each camera move.
         if (!bounds || !Number.isFinite(bounds[1][2]) || longitude < bounds[0][0] || longitude > bounds[1][0] || coordinate[1] < bounds[0][1] || coordinate[1] > bounds[1][1]) continue;
-        const hit = tile.surface.intersectRay({origin: [projected[0], projected[1], bounds[1][2] + 1], direction: [0, 0, -1]});
-        if (hit && (elevation === null || hit.position[2] > elevation)) elevation = hit.position[2];
+        const actual = tile.surface.getBounds();
+        if (!actual) continue;
+        minimum = Math.min(minimum, actual.minimum[2]); maximum = Math.max(maximum, actual.maximum[2]);
+        entries.push({id: String(entries.length), surface: tile.surface});
     }
-    return elevation === null ? null : elevation + clearance;
+    if (!entries.length) return null;
+    const collection = new TerrainSurfaceCollection('web-mercator', entries);
+    const hit = sampleTerrainElevation(collection, [longitude, coordinate[1]], {minimumAltitude: minimum - 1, maximumAltitude: maximum + 1});
+    return hit ? hit.position[2] + clearance : null;
 }

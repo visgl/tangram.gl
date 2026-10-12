@@ -115,6 +115,11 @@ export class TriangleQueryIndex {
     /** Exact allocated acceleration storage, including pending warming; zero before allocation or in linear mode. */
     get hierarchyBytes(): number {return this.preparing ? this.requiredHierarchyBytes : (this.order?.byteLength ?? 0) + (this.bounds?.byteLength ?? 0) + (this.topology?.byteLength ?? 0);}
 
+    /** Detached conservative geometry bounds, including unreferenced finite vertices; null for an empty vertex buffer. */
+    getBounds(): {minimum: [number, number, number]; maximum: [number, number, number]} | null {
+        return this.positions.length ? {minimum: [...this.minimum], maximum: [...this.maximum]} : null;
+    }
+
     /** Warm acceleration in bounded scanning/partition chunks; closing the iterator discards partial storage. */
     *prepareHierarchySteps(): Generator<void, void, void> {
         if (this.order || this.preparing || !this.hierarchyAllowed || !this.triangleCount) return;

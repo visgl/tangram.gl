@@ -49,6 +49,8 @@ Construction scratch, JavaScript objects and caller buffers are not included.
 original vertex index without exposing mutable backing storage.
 `getVertexIndex(triangleIndex, vertex)` reads just that identity without allocating
 coordinate arrays; both accessors reject invalid triangle/vertex offsets.
+`getBounds()` returns detached conservative XYZ bounds (including unreferenced
+vertices), or `null` for empty geometry; it does not build acceleration.
 
 ## Cooperative warming
 

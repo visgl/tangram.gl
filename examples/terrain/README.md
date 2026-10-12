@@ -91,4 +91,12 @@ Transient worker, query and GPU memory are not included in that byte limit.
 Globe jobs return physical grids only, without unused adaptive Mercator meshes.
 The decoder panel separates retained grid/mesh bytes and reports worker creations,
 warm transports and decode/round-trip elapsed time; these are not frame-rate metrics.
-No polar-cap data, temporal height morphing, basemap draping or immersive terrain.
+The globe inspector pins a geographic click target, re-samples admitted terrain
+through relief/LOD changes, and tests a finite camera sightline against the same
+triangles. Idle frames skip repeated queries; no target coverage reports unknown,
+and no blocker means only that loaded triangles supplied none. Clear the target
+from the info card. These are CPU visibility primitives, not automatic label occlusion.
+Mercator target following uses reusable renderer collection/elevation probes;
+`resolveTerrainClearance` supplies a point-floor contract for future FirstPerson hosts,
+not continuous/swept collision. No polar-cap data, temporal height morphing,
+basemap draping or immersive terrain.

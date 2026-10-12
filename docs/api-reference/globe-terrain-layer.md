@@ -170,6 +170,29 @@ per vertex. It snapshots those values so exaggerated geometry can be queried
 through `pickTerrainAt` and existing `HostFrame` eye routing without changing
 the renderer's deck-independent camera contract.
 
+## Geographic probes and finite sightlines
+
+`sampleElevation([longitude, latitude])` radially queries the **admitted** display
+generation, even after a replacement is rejected. Conservative owned XYZ bounds
+bracket exaggerated relief; returned `coordinate[2]` remains physical source
+meters. The hit position follows the exact displayed triangles, including chord
+error, and is suitable as a current sightline target. Missing data returns `null`.
+
+`intersectTerrainSegment(start, end, {startInset = 0, endInset = 0})` returns the
+nearest loaded blocker, or `null`. Endpoints, inset distances and returned hit
+distances use radius-256 globe common coordinates. `surfaceId` is a generation-local
+surface index, not a provider tile ID. Queries share the admitted meshes, face
+culling and warmed/bounded indexes used by picking; they allocate no new geometry.
+`queryMs` includes the most recent probe/segment query as well as screen picking.
+
+The globe example pins a geographic target when clicked. Rotation and new admitted
+terrain re-sample that target and test the camera-to-target segment with a small
+endpoint trim. The card reports blockers or **visibility unknown** when the target
+is not loaded. A miss reports only that loaded geometry supplied no blocker—not
+that the Earth, missing terrain or other layers are transparent. Idle frames reuse
+the result; clear-target, device changes and teardown preserve ownership boundaries.
+This inspector does not yet hide labels, drape a basemap or implement avatar collision.
+
 ## Memory admission and diagnostics
 
 `maxDisplayBytes` defaults to 128 MiB and accepts a non-negative integer.
@@ -190,7 +213,7 @@ replacement keeps the previous generation's hierarchy policy too.
 
 `getStatistics()` returns detached admitted `tileCount` and `exaggeration`,
 `displayBytes`, `queryIndexBytes`, `error`,
-`updateMs` and `queryMs`. Timings include synchronous CPU update/picking work and
+`updateMs` and `queryMs`. Timings include synchronous CPU update/query work and
 lazy hierarchy construction, not GPU time or frame rate. Display accounting is
 56 bytes per vertex plus 24 bytes per triangle. Source grids, prepared templates,
 temporary scaling/sorting arrays, JavaScript objects, external retained layers and
