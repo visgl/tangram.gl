@@ -72,6 +72,27 @@ test.each([0, 1, 2])('cooperative partitioning agrees with linear queries on shu
     }
 });
 
+test.each([1, 8, 64])('non-planar cooperative queries match exact linear clipping and acceptance with leaf size %s', leafSize => {
+    let seed = 197;
+    /** Fixed small conformance corpus, not an expensive or nondeterministic fuzz lane. */
+    const random = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 2 ** 32);
+    const positions = Array.from({length: 65 * 9}, () => random() * 20 - 10), indices = Array.from({length: 65 * 3}, (_, index) => index);
+    const index = new TriangleQueryIndex(positions, indices, leafSize, {lazy: true});
+    const linear = new TriangleQueryIndex(positions, indices, leafSize, {maxHierarchyBytes: 0});
+    for (const step of index.prepareHierarchySteps()) {void step;}
+    let hits = 0;
+    for (let sample = 0; sample < 100; sample++) {
+        const origin: [number, number, number] = [random() * 40 - 20, random() * 40 - 20, random() * 40 - 20];
+        const direction: [number, number, number] = [random() * 2 - 1, random() * 2 - 1, random() * 2 - 1];
+        const limit = sample % 2 ? random() * 50 : Infinity;
+        const accept = sample % 3 ? undefined : (hit: {triangleIndex: number}) => hit.triangleIndex % 5 === 1;
+        const expected = linear.queryRay(origin, direction, limit, accept).hit;
+        expect(index.queryRay(origin, direction, limit, accept).hit).toEqual(expected);
+        if (expected) hits++;
+    }
+    expect(hits).toBeGreaterThan(0);
+});
+
 test('surface warming preserves physical height queries during every cooperative stage', () => {
     const {positions, indices} = stackedTriangles(129);
     const surface = new TerrainMeshSurface({projection: 'web-mercator', positions, indices, physicalHeights: positions.filter((_, offset) => offset % 3 === 2).map(() => 123)});

@@ -112,7 +112,7 @@ export class TriangleQueryIndex {
     /** Exact currently retained backing arrays, excluding JavaScript objects and construction scratch. */
     get arrayBytes(): number {return this.geometryBytes + this.hierarchyBytes;}
 
-    /** Exact allocated acceleration storage; zero before a lazy query or in linear mode. */
+    /** Exact allocated acceleration storage, including pending warming; zero before allocation or in linear mode. */
     get hierarchyBytes(): number {return this.preparing ? this.requiredHierarchyBytes : (this.order?.byteLength ?? 0) + (this.bounds?.byteLength ?? 0) + (this.topology?.byteLength ?? 0);}
 
     /** Warm acceleration in bounded scanning/partition chunks; closing the iterator discards partial storage. */
