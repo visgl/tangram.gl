@@ -33,7 +33,9 @@ Immutable `TerrainHeightGrid[]` in absolute EPSG:3857 meters with physical heigh
 explicit validity, registration and one shared vertical datum. Use non-overlapping
 tiles with balanced 2:1 edge neighbors; matching edges average heights, including the
 antimeridian. Cells touching missing samples are omitted, not bridged. Do not
-mutate grids in place: replace the data array after changing source samples.
+mutate grids in place: replace each changed grid object and the data array after
+changing source samples. Grid identity is the preparation-cache key; replacing
+only the array does not invalidate unchanged grid objects.
 Validity is checked over each cell's complete interpolation footprint, so source
 holes smaller than the display mesh remain holes, including touching neighbors.
 All tiles use the same `meshResolution`. Coarse boundary triangles include the

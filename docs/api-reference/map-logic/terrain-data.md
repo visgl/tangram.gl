@@ -85,7 +85,9 @@ For repeated display changes, call `prepareGlobeTerrainMesh(grid, {resolution,
 neighbors})` once, then `scaleGlobeTerrainMesh(template, exaggeration)` on zoom or
 slider updates. Preparation snapshots physical samples, slopes, spherical frames,
 no-data holes and stitched topology. The opaque handle exposes `vertexCount` and
-`triangleCount`; source changes require a new template. Scaling returns detached
+`triangleCount`; source changes require a new template. Handles belong to the
+module instance that prepared them and cannot be serialized or transferred to a
+worker. Scaling returns detached
 buffers, so changing one result cannot corrupt subsequent results. It performs no
 source sampling or topology reconstruction. `buildGlobeTerrainMesh` remains the
 one-shot convenience API using the same pipeline.
