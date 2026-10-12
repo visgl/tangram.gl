@@ -52,6 +52,24 @@ staged template buffers; admission failure reports a manual-retry error.
 `mountGlobeTerrainExample` accepts `preparationBudgetMs`, `maxPreparedBytes` and
 `meshResolution` (uniform cells per tile axis, integer 2–256, default 64).
 The diagnostics show pending tiles, reuse, bytes and CPU-slice elapsed times.
+The mount also uses `GlobeTerrainDisplayPreparation` from the opt-in terrain entry
+to rescale packed vertices and construct matching query surfaces before publishing.
+`displayBudgetMs` sets its independent 4 ms default slice target; it runs during
+navigation so the latest attenuation/slider request can progress without blocking
+the camera callback. Geometry can briefly lag the requested multiplier while a
+complete replacement is prepared. The info card distinguishes requested and admitted
+relief and reports pending display work, retention, slices and elapsed time.
+
+Only one template-to-display handoff runs at a time: further template preparation
+waits while display work is pending. Source acquisition and camera updates
+continue. A display commit schedules one follow-up to consume the latest cached source
+selection. Failed unchanged requests do not create an automatic retry loop; a new
+source snapshot or effective multiplier is a new request. Retry is explicit;
+changing immutable mount budgets requires remounting. GPU switches keep the same CPU
+display controller/snapshot, and unmount closes both preparation stages.
+Snapshots held by the display stage can retain older template/source generations;
+that cross-owner retention is outside the topology controller's own reported budget.
+Neither stage claims a whole-pipeline memory cap.
 
 The layer separately admits current plus replacement display/query geometry under
 a 128 MiB retained-array cap. Failure keeps the previous generation visible and
@@ -65,7 +83,9 @@ elapsed time after rendering or selection, without scheduling another frame.
 This is not a hard frame-time or peak-memory cap: an indivisible chunk can overrun
 its target. Source grids, scratch arrays, the candidate before admission,
 display/query buffers, query indexes and GPU uploads are outside this controller's
-byte/slice limits. Display scaling still runs synchronously in the layer. The
+byte/slice limits. The ordinary layer path still scales synchronously; the globe mount
+uses `preparedDisplay` to avoid that work during layer updates. Per-tile query copies,
+final typed-array copies and lazy picking-index construction remain indivisible. The
 prepared snapshots are separate from the source-cache budget below and are
 released on unmount; GPU switches keep the current CPU snapshot warm.
 

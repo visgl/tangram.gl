@@ -4,8 +4,8 @@
 
 import {Deck, _GlobeView as GlobeView, type GlobeViewState} from '@deck.gl/core';
 import {webgpuAdapter} from '@luma.gl/webgpu';
-import {GlobeTerrainLayer, getGlobeScreenRatio} from '@vis.gl/tangram-layers/experimental/terrain';
-import {GlobeTerrainPreparation, getGlobeTerrainExaggeration, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation, getGlobeScreenRatio, type GlobeTerrainDisplaySnapshot} from '@vis.gl/tangram-layers/experimental/terrain';
+import {GlobeTerrainPreparation, getGlobeTerrainExaggeration, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainTileset} from './terrain-tileset';
 import {getTerrainTileBounds, getTerrainTileKey} from './tile-selection';
@@ -28,6 +28,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     source?: TerrainImageSource;
     /** Cooperative preparation slice target; default 4 ms, not a hard frame-time guarantee. */
     preparationBudgetMs?: number;
+    /** Cooperative display rescaling/query-copy slice target; default 4 ms, including during navigation. */
+    displayBudgetMs?: number;
     /** Current plus staged prepared-template retention; default 96 MiB, excluding scratch/display/query/GPU buffers. */
     maxPreparedBytes?: number;
     /** Current plus replacement display/query geometry typed-array cap; default 128 MiB. */
@@ -44,11 +46,14 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     if (source.minZoom > 0 || source.maxZoom < 2) throw new Error('Global terrain preview requires source zooms 0–2');
     const preparationBudget = options.preparationBudgetMs ?? 4;
     if (!Number.isFinite(preparationBudget) || preparationBudget <= 0) throw new Error('Preparation slice target must be positive');
+    const displayBudget = options.displayBudgetMs ?? 4;
+    if (!Number.isFinite(displayBudget) || displayBudget <= 0) throw new Error('Display slice target must be positive');
     const meshResolution = options.meshResolution ?? 64;
     if (!Number.isSafeInteger(meshResolution) || meshResolution < 2 || meshResolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
     const preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
     const maxDisplayBytes = options.maxDisplayBytes ?? 128 * 1024 * 1024, maxQueryIndexBytes = options.maxQueryIndexBytes ?? 64 * 1024 * 1024;
     for (const limit of [maxDisplayBytes, maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
+    const displayPreparation = new GlobeTerrainDisplayPreparation({maxDisplayBytes, maxQueryIndexBytes});
     const parameters = new URLSearchParams(options.parameters);
     const rawExaggeration = parameters.get('exaggeration');
     const requested = rawExaggeration?.trim() ? Number(rawExaggeration) : 100;
@@ -65,7 +70,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
       <button data-example="retry" type="button">Retry failed tiles</button>
       <output data-example="terrain-hit" aria-live="polite">Click terrain for physical elevation</output>
-      <p class="hint">Drag to rotate; scroll/pinch to zoom. Exaggerated relief fades to flat over one apparent-diameter doubling; explicit 1× stays physical. Detail preparation yields between CPU chunks and pauses during navigation. Completed stitched generations swap together.</p>
+      <p class="hint">Drag to rotate; scroll/pinch to zoom. Exaggerated relief fades to flat over one apparent-diameter doubling; explicit 1× stays physical. Detail preparation pauses during navigation; display rescaling yields in separate CPU slices. The requested multiplier can briefly lead admitted relief. Complete drawing and picking generations swap together.</p>
       <p class="hint">Adaptive globe terrain: global fallback stays warm while visible regions refine, bounded to 96 leaf tiles and 256 MiB of retained source/decoded arrays. Coarse/fine edges are stitched. This is not basemap draping or a certified pixel-error guarantee. Polar regions outside ±85.05° and no-data areas have no terrain. Elevations retain the source datum; displayed mountains are exaggerated, returned meters are not.</p>
       <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a></aside>
       <div class="canvas-toolbar"><div class="canvas-device-tabs" role="tablist" aria-label="Rendering device">
@@ -101,7 +106,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     let tileset: TerrainTileset<TerrainGridData> | undefined;
     const decoder = new TerrainDecoderPool(workerUrl.href);
     let grids: TerrainHeightGrid[] = [];
-    let displayedSnapshot: GlobeTerrainPreparationSnapshot | undefined;
+    let displayedSnapshot: GlobeTerrainDisplaySnapshot | undefined;
     const zoomByGrid = new WeakMap<TerrainHeightGrid, number>();
     let detail: GlobeTerrainDetail | undefined, selectionSignature = '', detailCameraSignature = '';
     const abort = new AbortController();
@@ -113,7 +118,9 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     function updateDisplayStatus(): void {
         if (disposed || !layer) return;
         const statistics = layer.getStatistics();
-        element('display-status').textContent = `Admitted: ${statistics.tileCount} tiles · ${statistics.exaggeration.toFixed(1)}× displayed · display/query geometry ${(statistics.displayBytes / 1000000).toFixed(1)} MB · picking index ${(statistics.queryIndexBytes / 1000000).toFixed(1)} MB · last update ${statistics.updateMs.toFixed(1)} ms · last pick ${statistics.queryMs.toFixed(1)} ms${statistics.error ? ` · ${statistics.error}` : ''} · excludes GPU/transient allocations`;
+        const work = displayPreparation.getStatistics();
+        const text = `Admitted: ${statistics.tileCount} tiles · ${statistics.exaggeration.toFixed(1)}× displayed · display/query geometry ${(statistics.displayBytes / 1000000).toFixed(1)} MB · picking index ${(statistics.queryIndexBytes / 1000000).toFixed(1)} MB · display preparation ${work.pending} pending · ${(work.retainedBytes / 1000000).toFixed(1)} / ${(work.byteLimit / 1000000).toFixed(1)} MB retained · ${(work.requiredPeakBytes / 1000000).toFixed(1)} MB preflight · ${work.slices} slices / ${work.workMs.toFixed(1)} ms elapsed / longest ${work.maxSliceMs.toFixed(1)} ms · last update ${statistics.updateMs.toFixed(1)} ms · last pick ${statistics.queryMs.toFixed(1)} ms${statistics.error || work.error ? ` · ${statistics.error ?? work.error}` : ''} · excludes GPU/transient allocations`;
+        const target = element('display-status'); if (target.textContent !== text) target.textContent = text;
     }
     /** Create one owned device, with a controlled GlobeView. */
     function createDeck(): Deck<GlobeView> {
@@ -152,25 +159,34 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         const drawable = tileset.getDrawableTiles();
         const nextGrids = drawable.flatMap(tile => tile.data ? [tile.data.grid] : []);
         for (const tile of drawable) if (tile.data) zoomByGrid.set(tile.data.grid, tile.coordinate.zoom);
-        preparation.request(nextGrids, meshResolution);
-        if (detailTimer === undefined) preparation.advance(preparationBudget);
-        const snapshot = preparation.getSnapshot();
+        // Keep only one template→display handoff in flight; warm source acquisition can continue.
+        if (!displayPreparation.isPending()) {
+            preparation.request(nextGrids, meshResolution);
+            if (detailTimer === undefined) preparation.advance(preparationBudget);
+        }
+        const terrain = preparation.getSnapshot();
+        const previousDisplayError = displayPreparation.getStatistics().error;
+        const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
+        if (terrain) displayPreparation.request(terrain, effective);
+        const displayCommitted = displayPreparation.advance(displayBudget);
+        const snapshot = displayPreparation.getSnapshot();
         const dataChanged = displayedSnapshot !== snapshot;
-        if (dataChanged) {displayedSnapshot = snapshot; grids = [...(snapshot?.grids ?? [])];}
+        if (dataChanged) {displayedSnapshot = snapshot; grids = [...(snapshot?.terrain.grids ?? [])];}
         const currentExaggeration = Number(exaggeration.value);
         if (!layer || dataChanged || displayedMaximum !== currentExaggeration || displayedWireframe !== wireframe.checked) {
-            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot, meshResolution, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked, maxDisplayBytes, maxQueryIndexBytes});
+            layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot?.terrain, preparedDisplay: snapshot, meshResolution, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked, maxDisplayBytes, maxQueryIndexBytes});
             displayedMaximum = currentExaggeration; displayedWireframe = wireframe.checked;
         }
         deck.setProps({layers: [layer]});
+        updateDisplayStatus();
         const statistics = tileset.getStatistics();
         element('decoder-status').textContent = formatTerrainDecoderStatus(decoder.getStatistics(), statistics);
         const prepared = preparation.getStatistics();
         element('preparation-status').textContent = `Preparation: ${prepared.pending} pending · ${(prepared.retainedBytes / 1000000).toFixed(1)} / ${(prepared.byteLimit / 1000000).toFixed(1)} MB templates · ${prepared.prepared} new / ${prepared.reused} reused · ${prepared.slices} slices · ${prepared.workMs.toFixed(1)} ms CPU elapsed · longest ${prepared.maxSliceMs.toFixed(1)} ms${prepared.error ? ` · ${prepared.error} — retry available` : ''}`;
-        const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
         const highest = Math.max(0, ...grids.map(grid => zoomByGrid.get(grid) ?? 0));
         status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${grids.length} tiles prepared · z${highest} detail · ${effective.toFixed(1)}× requested · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(0)} MB cached${statistics.active || statistics.queued ? ` · ${statistics.active} active / ${statistics.queued} queued` : ''}${detail.limited ? ' · detail budget/source limit' : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
-        if (preparation.isPending() && detailTimer === undefined) schedule();
+        const displayErrorChanged = previousDisplayError !== displayPreparation.getStatistics().error;
+        if (displayCommitted || displayErrorChanged || displayPreparation.isPending() || preparation.isPending() && detailTimer === undefined) schedule();
     }
     tileset = new TerrainTileset<TerrainGridData>({minZoom: 1, maxZoom: source.maxZoom, hierarchical: true, maxResidentBytes: 256 * 1024 * 1024, maxCachedTiles: 48, maxCachedBytes: 64 * 1024 * 1024, fetch: (tile, signal) => source.fetchTile(tile, signal),
         decode: (bytes, tile, _error, signal) => decoder.decodeGrid(bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), signal, source.noData), onChange: schedule});
@@ -187,7 +203,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     detailControl.addEventListener('change', () => {
         parameters.set('detail', detailControl.value); options.onParametersChange?.(new URLSearchParams(parameters)); clearTimeout(detailTimer); detailTimer = undefined; detailCameraSignature = ''; schedule();
     }, {signal: abort.signal});
-    element('retry').addEventListener('click', () => {tileset?.retry(); preparation.retry(); schedule();}, {signal: abort.signal});
+    element('retry').addEventListener('click', () => {tileset?.retry(); preparation.retry(); displayPreparation.retry(); schedule();}, {signal: abort.signal});
     element('fullscreen').addEventListener('click', () => {if (document.fullscreenElement === root) void document.exitFullscreen(); else void root.requestFullscreen().catch(error => {status.textContent = `Fullscreen unavailable: ${error.message}`;});}, {signal: abort.signal});
     /** Preserve source/cache ownership when switching GPU devices. */
     function updateTabs(): void {
@@ -204,6 +220,6 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     selectionSignature = coordinates.map(getTerrainTileKey).join(',');
     tileset.update(coordinates, 10000);
     return {ready: tileset.waitForIdle().then(() => {updateLayers();}), destroy() {
-        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); preparation.destroy(); destroyCard(); deck.finalize(); layer = undefined; displayedSnapshot = undefined; grids = []; detail = undefined; root.remove();
+        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); preparation.destroy(); displayPreparation.destroy(); destroyCard(); deck.finalize(); layer = undefined; displayedSnapshot = undefined; grids = []; detail = undefined; root.remove();
     }};
 }

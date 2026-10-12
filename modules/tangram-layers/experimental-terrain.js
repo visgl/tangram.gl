@@ -2,4 +2,4 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-export {GlobeTerrainLayer, getGlobeScreenRatio} from './src/experimental/terrain.ts';
+export {GlobeTerrainLayer, getGlobeScreenRatio, GlobeTerrainDisplayPreparation} from './src/experimental/terrain.ts';

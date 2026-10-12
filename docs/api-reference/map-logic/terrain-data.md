@@ -127,6 +127,13 @@ stitched neighborhoods are never published. `getPreparedGlobeTerrainTemplate(sna
 grid)` resolves a template by exact source identity and rejects forged handles.
 `prepareGlobeTerrainMeshSteps(grid, options)` exposes the lower-level generator;
 consume its return value or close it to abandon unfinished work.
+`assertGlobeTerrainPreparationSnapshot(snapshot)` verifies a completed library
+handle, including an empty generation. `scaleGlobeTerrainMeshSteps(template,
+effectiveExaggeration)` yields every 128 vertices while producing the same packed
+positions, colors, indices and physical heights as `scaleGlobeTerrainMesh`.
+It does not resample or restitch; final typed-array copies are indivisible.
+The optional layer-side [display controller](../globe-terrain-layer.md#prepareddisplay-optional)
+combines this generator with atomic query snapshots and geometry admission.
 
 The constructor limits unique **retained template buffers across current and
 staged generations**, default 96 MiB. Admission failure discards staged work and

@@ -3,8 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
-import {GlobeTerrainPreparation, getPreparedGlobeTerrainTemplate} from '../src/map-logic/globe-terrain-preparation';
-import {prepareGlobeTerrainMesh, prepareGlobeTerrainMeshSteps, scaleGlobeTerrainMesh} from '../src/map-logic/globe-terrain';
+import {GlobeTerrainPreparation, getPreparedGlobeTerrainTemplate, assertGlobeTerrainPreparationSnapshot} from '../src/map-logic/globe-terrain-preparation';
+import {prepareGlobeTerrainMesh, prepareGlobeTerrainMeshSteps, scaleGlobeTerrainMesh, scaleGlobeTerrainMeshSteps} from '../src/map-logic/globe-terrain';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
 
 /** Tiny immutable physical grid; neighboring fixtures use matching square extents. */
@@ -32,6 +32,24 @@ test.each([false, true])('cooperative chunks match synchronous physical geometry
     const template = prepareGlobeTerrainMesh(source, {resolution: 4, neighbors: [neighbor]});
     for (const exaggeration of [0, 1, 100]) expect(scaleGlobeTerrainMesh(result.value, exaggeration)).toEqual(scaleGlobeTerrainMesh(template, exaggeration));
     expect(template.byteLength).toBe(template.vertexCount * 68 + template.triangleCount * 12);
+});
+
+test.each([false, true])('cooperative display scaling preserves exact packed arrays and physical holes (%s)', holes => {
+    const source = grid(); if (holes) {source.valid[5] = 0; source.heights[5] = NaN;}
+    const template = prepareGlobeTerrainMesh(source, {resolution: 16});
+    for (const exaggeration of [0, 0.5, 1, 7.3, 100]) {
+        const steps = scaleGlobeTerrainMeshSteps(template, exaggeration);
+        let result = steps.next(), yields = 0;
+        while (!result.done) {yields++; result = steps.next();}
+        expect(yields).toBeGreaterThanOrEqual(2);
+        expect(result.value).toEqual(scaleGlobeTerrainMesh(template, exaggeration));
+        result.value.indices.fill(0); expect(scaleGlobeTerrainMesh(template, exaggeration).indices.some(value => value > 0)).toBe(true);
+    }
+    expect(() => scaleGlobeTerrainMeshSteps(template, -1).next()).toThrow('Invalid');
+    expect(() => scaleGlobeTerrainMeshSteps({vertexCount: 0, triangleCount: 0, byteLength: 0}).next()).toThrow('template');
+    expect(() => assertGlobeTerrainPreparationSnapshot({grids: [], resolution: 4, byteLength: 0})).toThrow('completed snapshot');
+    const empty = new GlobeTerrainPreparation(); empty.request([], 4); finish(empty);
+    expect(() => assertGlobeTerrainPreparationSnapshot(empty.getSnapshot()!)).not.toThrow();
 });
 
 test('initial and replacement generations publish atomically; obsolete work and immutable requests stay isolated', () => {

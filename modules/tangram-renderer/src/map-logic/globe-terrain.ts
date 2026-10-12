@@ -262,6 +262,14 @@ export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: 
 
 /** Rebuild detached display/query buffers without resampling or restitching the immutable template. */
 export function scaleGlobeTerrainMesh(template: GlobeTerrainMeshTemplate, exaggeration = 1): GlobeTerrainMesh {
+    const steps = scaleGlobeTerrainMeshSteps(template, exaggeration);
+    let result = steps.next();
+    while (!result.done) result = steps.next();
+    return result.value;
+}
+
+/** Cooperatively rescale identical packed vertices/lighting; yields every 128 vertices without resampling. */
+export function* scaleGlobeTerrainMeshSteps(template: GlobeTerrainMeshTemplate, exaggeration = 1): Generator<void, GlobeTerrainMesh, void> {
     getGlobeTerrainExaggeration(0, exaggeration);
     const prepared = terrainTemplates.get(template);
     if (!prepared) throw new Error('Globe terrain template must come from prepareGlobeTerrainMesh');
@@ -288,6 +296,7 @@ export function scaleGlobeTerrainMesh(template: GlobeTerrainMeshTemplate, exagge
         colors[offset] = (height > 2500 ? 0.9 : height <= 0 ? 0.12 : 0.36) * light;
         colors[offset + 1] = (height > 2500 ? 0.92 : height <= 0 ? 0.3 : 0.58) * light;
         colors[offset + 2] = (height > 2500 ? 0.96 : height <= 0 ? 0.48 : 0.34) * light;
+        if (index % 128 === 127) yield;
     }
     return {geographicPositions, positions, physicalHeights: prepared.physicalHeights.slice(), indices: prepared.indices.slice(), colors};
 }
