@@ -75,6 +75,17 @@ test.each(['position', 'width', 'cpu-projection'])('style initialization rejects
     expect(() => style.init({terrain: normalizeTerrainDraping({grids: []}), config: {scene: {cpu_projection: block === 'cpu-projection'}}})).toThrow(/does not support/);
 });
 
+test.each(['raster', 'polygons'])('query retention admits only explicit ground raster styles, not %s geometry', async geometry => {
+    const input = request(), style = Object.create(Style);
+    const data = {meshes: {ground: {variant: {}, vertex_data: {vertex_count: 3, end: vi.fn(), vertex_buffer: input.vertices, element_buffer: input.indices}}}};
+    style.name = 'ground'; style.tile_data = {fixture: data}; style.terrain = normalizeTerrainDraping({grids: [grid()], querySurfaceStyles: ['ground']});
+    style.vertexLayoutForMeshVariant = () => layout; style.baseStyle = () => geometry;
+    style.buildRasterTextures = vi.fn(async (_tile: unknown, result: unknown) => result);
+    const completed = style.endData({id: 'fixture', min: {x: 0, y: 0}, coords: {z: 16}, style_z: 16});
+    if (geometry === 'polygons') await expect(completed).rejects.toThrow(/ground raster/);
+    else expect(await completed).toMatchObject({meshes: {ground: {terrain_surface: {indices: input.indices}}}});
+});
+
 test('draw and selection passes share the mesh clock across portable and classic uniform paths', () => {
     const scene = Object.create(Scene.prototype);
     const mesh = {variant: {terrain: true, blend_order: 0, mesh_order: 0}, geometry_count: 2};
