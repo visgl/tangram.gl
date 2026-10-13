@@ -9,6 +9,7 @@ import VBOMesh from '../src/gl/vbo_mesh';
 import VertexLayout from '../src/gl/vertex_layout';
 import type {MeshContext} from '../src/gl/mesh-types';
 import TileManager from '../src/tile/tile_manager';
+import Task, {type TaskRecord} from '../src/utils/task';
 
 const context = document.createElement('canvas').getContext('webgl2');
 
@@ -123,4 +124,18 @@ test('generation publication refreshes draw/proxy ownership without pumping sour
     manager.publishTerrainDisplay();
     expect(manager.updateProxyTiles).toHaveBeenCalledOnce(); expect(manager.updateGlobeFallbackTiles).toHaveBeenCalledOnce(); expect(manager.updateRenderableTiles).toHaveBeenCalledOnce();
     expect(manager.style_manager.updateActiveStyles).toHaveBeenCalledWith([]); expect(manager.style_manager.updateActiveBlendOrders).toHaveBeenCalledWith([]);
+});
+
+test('cooperative label work keeps a host renderer advancing even before staged geometry becomes drawable', async () => {
+    const scene = Scene.create({}), redraw = vi.spyOn(scene, 'requestRedraw');
+    const task: TaskRecord<void> = {run: vi.fn(() => true)};
+    const completion = Task.add(task);
+    try {
+        scene.processTasks(); expect(redraw).toHaveBeenCalledOnce();
+        await Task.finish(task, undefined); await completion;
+        scene.processTasks(); expect(redraw).toHaveBeenCalledOnce();
+    }
+    finally {
+        Task.remove(task); scene.destroy();
+    }
 });

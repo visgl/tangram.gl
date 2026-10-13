@@ -642,6 +642,9 @@ export default class Scene {
     processTasks () {
         Task.setState({ user_moving_view: this.view.user_input_active });
         Task.processAll();
+        // Host loops may stop when no mesh is currently visible. Cooperative
+        // label work must still receive its next bounded slice to finish a stage.
+        if (Task.queue.length) this.requestRedraw();
     }
 
     // Setup the render loop
