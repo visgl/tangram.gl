@@ -104,7 +104,7 @@ test('query membership preserves the admitted clock, proxy visibility, fallback 
     Object.assign(ground, {variant: {terrainTransitionDuration: 200, terrainStatistics: {vertices: 3, triangles: 1, suppressedTriangles: 0, meshBytes: 12, preparationMs: 1, detailLimited: false}}});
     Object.assign(owner, {fallback_for: new Map([['child', [0, -4096, 4096, 0]]])}); owner.meshes = {ground: [ground], other: [ignored]};
     owner.beginTerrainStage(); if (!owner.terrainStage) throw new Error('Missing stage'); owner.terrainStage.labels = {staged: [staged]};
-    const manager = Object.create(TileManager.prototype); manager.tiles = {owner}; manager.renderable_tiles = [owner];
+    const manager = Object.create(TileManager.prototype); Object.defineProperty(manager, 'tiles', {value: {owner}}); manager.renderable_tiles = [owner];
     const entries = manager.getDrapedTerrainQueryEntries(200);
     expect(entries).toHaveLength(1); expect(entries[0].mesh).toBe(query); expect(entries[0].blend).toBe(0.5);
     const halfWorld = Math.PI * 6378137; expect(entries[0].clips).toEqual([[-halfWorld, -halfWorld, halfWorld, halfWorld]]);
@@ -119,7 +119,7 @@ test('query membership preserves the admitted clock, proxy visibility, fallback 
 test('generation publication refreshes draw/proxy ownership without pumping source loads', () => {
     const manager = Object.create(TileManager.prototype); manager.renderable_tiles = [];
     manager.updateProxyTiles = vi.fn(); manager.updateGlobeFallbackTiles = vi.fn(); manager.updateRenderableTiles = vi.fn();
-    manager.style_manager = {updateActiveStyles: vi.fn(), updateActiveBlendOrders: vi.fn()};
+    manager.scene = {style_manager: {updateActiveStyles: vi.fn(), updateActiveBlendOrders: vi.fn()}};
     manager.publishTerrainDisplay();
     expect(manager.updateProxyTiles).toHaveBeenCalledOnce(); expect(manager.updateGlobeFallbackTiles).toHaveBeenCalledOnce(); expect(manager.updateRenderableTiles).toHaveBeenCalledOnce();
     expect(manager.style_manager.updateActiveStyles).toHaveBeenCalledWith([]); expect(manager.style_manager.updateActiveBlendOrders).toHaveBeenCalledWith([]);
