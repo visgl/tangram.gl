@@ -1298,6 +1298,14 @@ export default class Scene {
                 }
             }
 
+            if (this.terrainTransaction) {
+                const selections = new Set(Array.from(this.selection_views.values(), state => state.selection));
+                if (this.selection) selections.add(this.selection);
+                for (const selection of selections) selection.invalidateReadback();
+                this.last_selection_render = -1;
+                for (const state of this.selection_views.values()) state.lastRender = -1;
+            }
+
             // Update config (in case JS objects were manipulated directly)
             this.syncConfigToWorker({ serialize_funcs });
             this.resetWorkerFeatureSelection(sources);
