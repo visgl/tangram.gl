@@ -27,7 +27,7 @@ const Collision = {
     },
 
     /** Initialize a batch before registering/submitting its contributing styles. */
-    startTile (tile: string, { apply_repeat_groups = true, return_hidden = false }: {
+    startTile (tile: string | number, { apply_repeat_groups = true, return_hidden = false }: {
         apply_repeat_groups?: boolean; return_hidden?: boolean
     } = {}): void {
         let state: CollisionTileState = this.tiles[tile] = {
@@ -52,14 +52,15 @@ const Collision = {
     },
 
     /** Drop all collision state for a completed or abandoned tile. */
-    resetTile (tile: string): void {
-        delete this.tiles[tile];
+    resetTile (tile: string | number | undefined): void {
+        delete this.tiles[String(tile)];
     },
 
     /** Resolve pending consumers before removing an abandoned batch. */
-    abortTile (tile: string): void {
-        if (this.tiles[tile] && this.tiles[tile].resolve) {
-            this.tiles[tile].resolve([]);
+    abortTile (tile: string | number | undefined): void {
+        const key = String(tile);
+        if (this.tiles[key] && this.tiles[key].resolve) {
+            this.tiles[key].resolve([]);
         }
         this.resetTile(tile);
     },

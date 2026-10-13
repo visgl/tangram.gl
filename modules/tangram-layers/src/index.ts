@@ -19,6 +19,14 @@ const BaseTangramLayer = createTangramLayerClass({Layer, ClassicWebGLRenderer, R
  * luma.gl device and render pass.
  */
 class TangramLayer extends BaseTangramLayer {
+  /** Preserve deck.gl's complete public context rather than only the bridge capabilities. */
+  declare context: Layer<TangramLayerProps>['context'];
+  /** Public layer properties retain deck's resolved defaults. */
+  declare props: Layer<TangramLayerProps>['props'];
+  /** Preserve deck's state update signature through the injected base class. */
+  declare setState: Layer<TangramLayerProps>['setState'];
+  /** Keep deck's public state surface while the internal adapter checks its own record. */
+  declare state: Layer<TangramLayerProps>['state'];
   /** Stable deck.gl metadata for the typed public subclass. */
   static componentName = 'TangramLayer';
   /** Compatibility name for integrations using deck.gl's historical metadata. */

@@ -67,6 +67,10 @@ export type {MeshProjectionStatistics} from './procedures/mesh-projector';
 export type {ProjectionExecutionOptions, ProjectionExecutionStatistics} from './procedures/projection-batch-executor.js';
 
 export declare class Scene {
+  /** Normalized animation policy read by host-driven layer integrations. */
+  config: {scene?: {animated?: boolean}} | null;
+  /** Run a synchronous operation inside the renderer's existing shared WebGL state scope. */
+  withWebGLContext<Value>(operation: () => Value): Value;
   static create(config: SceneDefinition, options?: RendererOptions): Scene;
   subscribe(listeners: SceneListeners): void;
   unsubscribe(listeners: SceneListeners): void;

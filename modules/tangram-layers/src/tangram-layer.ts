@@ -2,8 +2,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-// @ts-nocheck
-
 import WebMercatorViewAdapter from './web_mercator_view_adapter.js';
 import FirstPersonViewAdapter from './first_person_view_adapter.js';
 import GlobeViewAdapter from './globe_view_adapter.js';
@@ -15,6 +13,8 @@ import type {ProjectionEngine, ProjectionExecutionOptions} from '@vis.gl/tangram
 import type {LayerProps} from '@deck.gl/core';
 import type {SceneDefinition, FeatureSelectionOptions, FeatureSelectionResult} from '@vis.gl/tangram-renderer/core';
 import type {TerrainSurface, TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
+import type {RendererOptions, RenderOptions, HostTileResourceOptions} from '@vis.gl/tangram-renderer/core';
+import type {TangramRecord, PendingTangramRecord, TangramRendererFactory, TangramLayerViewport, TangramLayerContext, TangramBridgeScene} from './tangram-layer-lifecycle';
 
 /** Tangram-specific properties in addition to ordinary deck.gl layer properties. */
 export type TangramLayerProps = LayerProps & {
@@ -28,6 +28,27 @@ export type TangramLayerProps = LayerProps & {
   projectionEngine?: ProjectionEngine;
   /** Immutable host kernel chunking policy; changing it recreates the scene, like changing the engine. */
   projectionEngineExecution?: ProjectionExecutionOptions;
+  /** Base URL used by imported scenes and assets. */
+  sceneBasePath?: string | null;
+  /** Optional Nextzen source key injected on load. */
+  apiKey?: string | null;
+  /** Conservative globe visibility settings. */
+  globeMaxElevation?: number;
+  globeVisibleBounds?: readonly [number, number, number, number];
+  globePreloadZoom?: number;
+  /** Shared styled mesh-resource and decoded-acquisition limits. */
+  tileResources?: HostTileResourceOptions;
+  maxConcurrentTileLoadsPerWorker?: number | null;
+  /** Bounded first-person ground/slab footprint. */
+  firstPersonMaxGroundExtent?: number;
+  firstPersonElevationRange?: readonly [number, number];
+  /** Scene and attribution lifecycle callbacks, resolved by deck defaults. */
+  onSceneLoad?: (scene: TangramBridgeScene) => void;
+  onSceneError?: (error: Error, scene: TangramBridgeScene) => void;
+  onAttributionChange?: (credits: string[], scene: TangramBridgeScene) => void;
+  /** Optional CPU-projected subclass's existing callback and projection policy. */
+  projectedProjection?: import('@vis.gl/tangram-renderer/core').ProjectedBasemapOptions;
+  onProjectionChange?: (projection: import('@vis.gl/tangram-renderer/core').ProjectedBasemapOptions) => void;
   /** Remaining existing Tangram bridge properties. */
   [property: string]: unknown;
 };
@@ -47,7 +68,7 @@ const VIEW_EPSILON = 1e-7;
  * @param {string|null|undefined} apiKey Nextzen API key.
  * @returns {boolean} `true` when at least one source was updated.
  */
-export function injectNextzenApiKey(config, apiKey) {
+export function injectNextzenApiKey(config: {sources?: Record<string, {url?: unknown; url_params?: Record<string, unknown>} | null>} | null | undefined, apiKey?: string | null) {
   if (!apiKey || !config || !config.sources) {
     return false;
   }
@@ -73,7 +94,7 @@ export function injectNextzenApiKey(config, apiKey) {
  * @param {object} viewport deck.gl WebMercatorViewport.
  * @returns {{view: Float64Array, projection: Float32Array, position: number[]}}
  */
-export function getExternalCameraFrame(viewport): {view: Float64Array; projection: Float32Array; position: [number, number, number]} {
+export function getExternalCameraFrame(viewport: Parameters<typeof WebMercatorViewAdapter.getCameraFrame>[0]): {view: Float64Array; projection: Float32Array; position: [number, number, number]} {
   return WebMercatorViewAdapter.getCameraFrame(viewport);
 }
 
@@ -99,13 +120,23 @@ export function getGlobeViewFrame(viewport: GlobeViewport, options: GlobeViewAda
  * @param {object} dependencies.Renderer Legacy alias for ClassicWebGLRenderer.
  * @returns {typeof import('@deck.gl/core').Layer} TangramLayer class.
  */
-export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}, viewAdapter?: TangramHostViewAdapter) {
+export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}: {Layer: abstract new (...properties: Partial<TangramLayerProps>[]) => object; ClassicWebGLRenderer?: TangramRendererFactory; Renderer?: TangramRendererFactory}, viewAdapter?: TangramHostViewAdapter) {
   const rendererClass = ClassicWebGLRenderer || Renderer;
   if (!Layer || !rendererClass) {
     throw new Error('createTangramLayerClass requires Layer and ClassicWebGLRenderer');
   }
 
   class TangramLayer extends Layer {
+    /** Inherited host capabilities are supplied by the injected deck superclass. */
+    declare props: Partial<TangramLayerProps>;
+    declare context: TangramLayerContext;
+    declare state: {tangramRecord?: TangramRecord | null};
+    declare setState: (state: Record<string, unknown>) => void;
+    declare setNeedsRedraw: () => void;
+    declare raiseError: (error: Error, message: string) => void;
+    /** Existing deck metadata assigned below without changing constructor output. */
+    declare static layerName: string;
+    declare static defaultProps: Record<string, unknown>;
     /** Forward deck.gl's property objects without changing its constructor semantics. */
     constructor(...properties: Partial<TangramLayerProps>[]) {
       super(...properties);
@@ -115,7 +146,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       this.setState({tangramRecord: null});
     }
 
-    updateState({props}) {
+    updateState({props}: {props: Partial<TangramLayerProps>}) {
       let record = this.state.tangramRecord;
       const shouldCreateScene =
         !record ||
@@ -161,7 +192,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       }
     }
 
-    draw({renderPass} = {}) {
+    draw({renderPass}: {renderPass?: import('@luma.gl/core').RenderPass} = {}) {
       const record = this.state.tangramRecord;
       if (!record || record.disposed) {
         return;
@@ -174,7 +205,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       }
 
       const renderTangram = () => {
-        const update_options = {force: true};
+        const update_options: RenderOptions = {force: true};
         renderPass = renderPass || this.context.renderPass;
         if (renderPass) {
           update_options.renderPass = renderPass;
@@ -199,7 +230,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       };
 
       if (record.device.type === 'webgl') {
-        record.scene.withWebGLContext(renderTangram);
+        record.scene.withWebGLContext!(renderTangram);
       } else {
         renderTangram();
       }
@@ -242,7 +273,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       return Boolean(record && record.loaded && !record.loadFailed && !record.disposed);
     }
 
-    _createTangramRecord(props) {
+    _createTangramRecord(props: Partial<TangramLayerProps>) {
       if (!props.scene) {
         this._raiseBridgeError(new Error('scene is required'));
         return null;
@@ -267,9 +298,9 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         return null;
       }
 
-      let gl = null;
+      let gl: TangramRecord['gl'] = null;
       if (device.type === 'webgl') {
-        gl = device.handle;
+        gl = device.handle as TangramRecord['gl']; // Device type is WebGL; the existing handle/canvas guard follows.
         if (
           !gl ||
           typeof device.pushState !== 'function' ||
@@ -286,7 +317,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         }
       }
 
-      const record = {
+      const record: PendingTangramRecord = {
         owner: this,
         renderer: null,
         scene: null,
@@ -317,7 +348,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
 
       let renderer;
       try {
-        const renderer_options = {
+        const renderer_options: RendererOptions & {requestRedraw: () => void} = {
           device,
           canvas: deckCanvas,
           projectionEngine: record.projectionEngine,
@@ -335,34 +366,37 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
         };
         if (gl) {
           renderer_options.webGLContext = gl;
-          renderer_options.webGLContextScope = (callback) =>
+          renderer_options.webGLContextScope = (callback: () => unknown) =>
             this._withDeviceState(record, callback);
         }
-        renderer = rendererClass.create(props.scene, renderer_options);
+        renderer = rendererClass!.create!(props.scene, renderer_options);
       } catch (error) {
         this._raiseBridgeError(normalizeError(error));
         return null;
       }
       record.renderer = renderer;
       record.scene = renderer.scene;
+      // These two factory-assigned fields establish the live phase; the callback
+      // owner remains the exact same object created before factory invocation.
+      const liveRecord = record as TangramRecord;
 
       renderer.subscribe({
         load: (message) => {
           injectNextzenApiKey(message.config, record.apiKey);
         },
-        update: () => this._updateAttributions(record),
+        update: () => this._updateAttributions(liveRecord),
         error: (message) =>
-          this._reportSceneError(record, normalizeError(message), message.type !== 'scene_import')
+          this._reportSceneError(liveRecord, normalizeError(message), message.type !== 'scene_import')
       });
 
-      this._synchronizeTangramScene(record);
+      this._synchronizeTangramScene(liveRecord);
       record.loadPromise = Promise.resolve()
         .then(() => {
           if (record.disposed) {
             return null;
           }
-          return renderer.load(props.scene, {
-            base_path: props.sceneBasePath,
+          return renderer.load(props.scene!, { // Creation already rejected missing scene input; this closure preserves that identity.
+            base_path: props.sceneBasePath as string | undefined,
             blocking: false
           });
         })
@@ -370,29 +404,29 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
           if (!record.disposed) {
             record.loaded = true;
             record.owner.setNeedsRedraw && record.owner.setNeedsRedraw();
-            record.owner.props.onSceneLoad(record.scene);
-            this._updateAttributions(record);
+            record.owner.props.onSceneLoad!(liveRecord.scene);
+            this._updateAttributions(liveRecord);
           }
           return result;
         })
         .catch((error) => {
           if (!record.disposed) {
             record.loadFailed = true;
-            this._reportSceneError(record, normalizeError(error));
+            this._reportSceneError(liveRecord, normalizeError(error));
           }
         })
         .finally(() => {
           record.loadSettled = true;
           if (record.disposed) {
-            this._destroyTangramRecord(record);
+            this._destroyTangramRecord(liveRecord);
           }
         });
 
-      return record;
+      return liveRecord;
     }
 
     /** Refresh credits after source recreation; ignore stale metadata and disposed layers. */
-    _updateAttributions(record) {
+    _updateAttributions(record: TangramRecord) {
       if (record.disposed || typeof record.renderer.getAttributions !== 'function') return;
       const generation = record.attributionGeneration = (record.attributionGeneration || 0) + 1;
       Promise.resolve().then(() => record.disposed ? undefined : record.renderer.getAttributions()).then(credits => {
@@ -406,10 +440,10 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       });
     }
 
-    _synchronizeTangramScene(record) {
+    _synchronizeTangramScene(record: TangramRecord) {
       const viewport = this.context.viewport;
-      const viewports = this.context.deck.getViewports
-        ? this.context.deck.getViewports()
+      const viewports = this.context.deck!.getViewports
+        ? this.context.deck!.getViewports()
         : [viewport];
       if (viewAdapter) {
         try {
@@ -421,7 +455,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
           record.lastViewportError = null;
           record.reportedViewportError = null;
         } catch (error) {
-          record.lastViewportError = error.message;
+          record.lastViewportError = (error as Error).message;
           this._raiseViewportError(record, normalizeError(error));
         }
         return;
@@ -456,7 +490,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       record.renderer.setFrame({...frame, tileResources: this.props.tileResources ?? undefined});
     }
 
-    _canRender(record, props) {
+    _canRender(record: TangramRecord, props: Partial<TangramLayerProps>) {
       return (
         props.visible !== false &&
         props.opacity !== 0 &&
@@ -466,7 +500,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       );
     }
 
-    _raiseViewportError(record, error) {
+    _raiseViewportError(record: TangramRecord, error: Error) {
       if (record.reportedViewportError === error.message) {
         return;
       }
@@ -474,7 +508,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       this._raiseBridgeError(error);
     }
 
-    _reportSceneError(record, error, isFatal = true) {
+    _reportSceneError(record: TangramRecord, error: Error, isFatal = true) {
       if (record.disposed || record.lastSceneError === error.message) {
         return;
       }
@@ -482,15 +516,15 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       if (isFatal) {
         record.loadFailed = true;
       }
-      record.owner.props.onSceneError(error, record.scene);
+      record.owner.props.onSceneError!(error, record.scene);
       record.owner.raiseError(error, 'TangramLayer scene');
     }
 
-    _raiseBridgeError(error) {
+    _raiseBridgeError(error: Error) {
       this.raiseError(error, 'TangramLayer bridge');
     }
 
-    _disposeTangramRecord(record) {
+    _disposeTangramRecord(record: TangramRecord | null | undefined) {
       if (!record || record.disposed) {
         return;
       }
@@ -500,33 +534,33 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
       }
     }
 
-    _destroyTangramRecord(record) {
+    _destroyTangramRecord(record: TangramRecord) {
       if (!record.destroyed) {
         record.destroyed = true;
         record.renderer.destroy();
       }
     }
 
-    _withDeviceState(record, callback) {
+    _withDeviceState<Value>(record: PendingTangramRecord, callback: () => Value): Value {
       if (record.webglScopeDepth > 0) {
         return callback();
       }
 
       const {device, gl} = record;
-      const lumaState = gl.lumaState;
+      const lumaState = gl!.lumaState;
       const hasTrackedProgram = Boolean(lumaState && 'program' in lumaState);
       const previousProgram = hasTrackedProgram
-        ? lumaState.program
-        : gl.getParameter(gl.CURRENT_PROGRAM);
+        ? lumaState!.program
+        : gl!.getParameter(gl!.CURRENT_PROGRAM);
 
       record.webglScopeDepth++;
-      device.pushState();
+      device.pushState!();
       try {
         return callback();
       } finally {
         try {
-          device.popState();
-          gl.useProgram(previousProgram);
+          device.popState!();
+          gl!.useProgram(previousProgram);
         } finally {
           record.webglScopeDepth--;
         }
@@ -558,7 +592,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
   return TangramLayer;
 }
 
-function validateViewport(viewport, viewports, globeOptions = {}, firstPersonOptions = {}) {
+function validateViewport(viewport: TangramLayerViewport, viewports: readonly TangramLayerViewport[], globeOptions: GlobeViewAdapterOptions = {}, firstPersonOptions: FirstPersonViewAdapterOptions = {}): Error | null {
   if (viewports.length !== 1) {
     return new Error('only one deck.gl viewport is supported');
   }
@@ -598,22 +632,22 @@ function validateViewport(viewport, viewports, globeOptions = {}, firstPersonOpt
       WebMercatorViewAdapter.getCameraFrame(viewport);
     }
   } catch (error) {
-    return error;
+    return error as Error;
   }
   return null;
 }
 
-function getMapViewFrame(viewport, {width, height}) {
+function getMapViewFrame(viewport: FirstPersonViewport, {width, height}: {width: number; height: number}) {
   return WebMercatorViewAdapter.getFrame(viewport, {width, height});
 }
 
-function isFirstPersonViewport(viewport) {
+function isFirstPersonViewport(viewport: TangramLayerViewport): boolean {
   return Boolean(
     viewport && viewport.constructor && viewport.constructor.displayName === 'FirstPersonViewport'
   );
 }
 
-function isGlobeViewport(viewport) {
+function isGlobeViewport(viewport: TangramLayerViewport): viewport is TangramLayerViewport & GlobeViewport {
   return Boolean(
     viewport &&
       (viewport.constructor?.displayName === 'GlobeViewport' ||
@@ -621,15 +655,16 @@ function isGlobeViewport(viewport) {
   );
 }
 
-function normalizeError(value) {
+function normalizeError(value: unknown): Error {
+  const fields = value as {error?: unknown; message?: string} | null | undefined;
   if (value instanceof Error) {
     return value;
   }
-  if (value && value.error instanceof Error) {
-    return value.error;
+  if (value && fields!.error instanceof Error) {
+    return fields!.error;
   }
-  if (value && value.message) {
-    return new Error(value.message);
+  if (value && fields!.message) {
+    return new Error(fields!.message);
   }
   return new Error(String(value));
 }

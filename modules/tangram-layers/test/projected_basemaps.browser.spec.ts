@@ -6,6 +6,7 @@ import {afterEach, expect, test, vi} from 'vitest';
 import {OrthographicView, WebMercatorViewport} from '@deck.gl/core';
 import {HostFrame} from '@vis.gl/tangram-renderer/core';
 import {createProjectedBasemapScene, getProjectedViewFrame, ProjectedBasemapLayer} from '../src/experimental/projected-basemaps';
+import {createContextFixture, createRecordFixture, createRendererFixture} from './fixtures/lifecycle';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -85,13 +86,15 @@ test('raster imagery cannot opt into source-feature selection', () => {
 test('projected feature queries use the current state owner and request a redraw without activating deck picking', async () => {
     const layer = new ProjectedBasemapLayer({id: 'query', scene: {}});
     const result = {feature: {properties: {name: 'City'}}, changed: true};
-    const renderer = {getFeatureAt: vi.fn().mockResolvedValue(result)};
-    const owner = {setNeedsRedraw: vi.fn()};
-    layer.state = {tangramRecord: {renderer, owner, disposed: false, loadFailed: false}};
+    const renderer = createRendererFixture({getFeatureAt: vi.fn().mockResolvedValue(result)});
+    const owner = new ProjectedBasemapLayer({id: 'current-owner', scene: {}});
+    owner.setNeedsRedraw = vi.fn();
+    const record = createRecordFixture(owner, {renderer, disposed: false, loadFailed: false});
+    layer.state = {tangramRecord: record};
     expect(await layer.getFeatureAt({x: 20, y: 40}, {radius: 6})).toEqual(result);
     expect(renderer.getFeatureAt).toHaveBeenCalledWith({x: 20, y: 40}, {radius: 6});
     expect(owner.setNeedsRedraw).toHaveBeenCalledOnce();
-    layer.state.tangramRecord.disposed = true;
+    record.disposed = true;
     expect(await layer.getFeatureAt({x: 20, y: 40})).toBeUndefined();
     expect(renderer.getFeatureAt).toHaveBeenCalledOnce();
     layer.state = {};
@@ -154,8 +157,8 @@ test('projection-only property updates are deduplicated, restore the authored de
     vi.spyOn(Object.getPrototypeOf(ProjectedBasemapLayer.prototype), 'updateState').mockImplementation(() => {});
     const onProjectionChange = vi.fn();
     const layer = new ProjectedBasemapLayer({id: 'warm', scene, onProjectionChange});
-    const record = {sceneSource: scene, owner: layer, disposed: false, loadFailed: false,
-        loadPromise: Promise.resolve(), renderer: {setProjectedBasemapProjection: vi.fn().mockResolvedValue(undefined)}};
+    const record = createRecordFixture(layer, {sceneSource: scene, disposed: false, loadFailed: false,
+        loadPromise: Promise.resolve(), renderer: createRendererFixture({setProjectedBasemapProjection: vi.fn().mockResolvedValue(undefined)})});
     layer.state = {tangramRecord: record};
     vi.spyOn(layer, 'setNeedsRedraw').mockImplementation(() => {});
     layer.updateState({props: {projectedProjection: {type: 'albers'}}});
@@ -164,7 +167,7 @@ test('projection-only property updates are deduplicated, restore the authored de
     expect(record.renderer.setProjectedBasemapProjection).toHaveBeenCalledOnce();
     layer.updateState({props: {}});
     await vi.waitFor(() => expect(onProjectionChange).toHaveBeenCalledTimes(2));
-    expect(record.renderer.setProjectedBasemapProjection.mock.calls[1][0].type).toBe('equal-earth');
+    expect(vi.mocked(record.renderer.setProjectedBasemapProjection).mock.calls[1][0].type).toBe('equal-earth');
     record.disposed = true;
     layer.updateState({props: {projectedProjection: {type: 'mercator'}}});
     await Promise.resolve();
@@ -175,9 +178,9 @@ test('failed projection updates report errors and allow a correction without rep
     const scene = createProjectedBasemapScene({sources: {}, layers: {}}, {type: 'equal-earth'}, 'https://example.test/projection.js');
     vi.spyOn(Object.getPrototypeOf(ProjectedBasemapLayer.prototype), 'updateState').mockImplementation(() => {});
     const layer = new ProjectedBasemapLayer({id: 'warm', scene});
-    const record = {sceneSource: scene, owner: layer, disposed: false, loadFailed: false,
-        loadPromise: Promise.resolve(), renderer: {setProjectedBasemapProjection: vi.fn().mockRejectedValueOnce(new Error('build failure'))
-            .mockResolvedValue(undefined)}};
+    const record = createRecordFixture(layer, {sceneSource: scene, disposed: false, loadFailed: false,
+        loadPromise: Promise.resolve(), renderer: createRendererFixture({setProjectedBasemapProjection: vi.fn().mockRejectedValueOnce(new Error('build failure'))
+            .mockResolvedValue(undefined)})});
     layer.state = {tangramRecord: record};
     const report = vi.spyOn(layer, '_reportSceneError').mockImplementation(() => {});
     vi.spyOn(layer, 'setNeedsRedraw').mockImplementation(() => {});
@@ -222,11 +225,11 @@ test('candidate limits reject over-budget frames and resource/style errors befor
     const layer = new ProjectedBasemapLayer({id: 'budget', scene, projectedTileZoom: 2, projectedStyleZoom: 5,
         projectedMaxTiles: 16, tileResources: {maxCachedTiles: 0}});
     const viewport = createViewport();
-    layer.context = {viewport, deck: {getViewports: () => [viewport]}};
+    layer.context = createContextFixture({viewport, deck: {getViewports: () => [viewport]}});
     layer.raiseError = vi.fn();
     const setFrame = vi.fn();
-    const record = {renderer: {setFrame}, deckCanvas: {clientWidth: 0, clientHeight: 0},
-        lastViewportError: null, reportedViewportError: null};
+    const record = createRecordFixture(layer, {renderer: createRendererFixture({setFrame}), deckCanvas: document.createElement('canvas'),
+        lastViewportError: null, reportedViewportError: null});
     layer._synchronizeTangramScene(record);
     expect(new HostFrame(setFrame.mock.calls[0][0])).toMatchObject({tileZoom: 2,
         geographicAnchor: {zoom: 5}, tileResources: {maxCachedTiles: 0}});
@@ -314,11 +317,11 @@ test.each(['equal-earth', 'albers', 'equirectangular', 'mercator', 'web-mercator
     const layer = new ProjectedBasemapLayer({id: 'fixture', scene, onSceneError});
     const viewport = createViewport();
     let viewports = [viewport];
-    layer.context = {viewport, deck: {getViewports: () => viewports}};
+    layer.context = createContextFixture({viewport, deck: {getViewports: () => viewports}});
     layer.raiseError = vi.fn();
     const setFrame = vi.fn();
-    const record = {renderer: {setFrame}, deckCanvas: {clientWidth: 0, clientHeight: 0},
-        lastViewportError: null, reportedViewportError: null};
+    const record = createRecordFixture(layer, {renderer: createRendererFixture({setFrame}), deckCanvas: document.createElement('canvas'),
+        lastViewportError: null, reportedViewportError: null});
     layer._synchronizeTangramScene(record);
     expect(setFrame).toHaveBeenCalledOnce();
     expect(new HostFrame(setFrame.mock.calls[0][0]).projection).toEqual({type: 'projected',

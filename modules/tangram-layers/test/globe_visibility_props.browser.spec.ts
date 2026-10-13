@@ -6,6 +6,7 @@ import {Matrix4} from '@math.gl/core';
 import {FirstPersonViewport} from '@deck.gl/core';
 import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
+import {createContextFixture, createRecordFixture, createRendererFixture} from './fixtures/lifecycle';
 
 test('updates globe visibility props without recreating the scene and reports invalid heights', () => {
   class BaseLayer {}
@@ -25,9 +26,9 @@ test('updates globe visibility props without recreating the scene and reports in
   layer.raiseError = raiseError;
   layer.props = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
     globeMaxElevation: 3000, globeVisibleBounds: [-180, -85, 180, 85], onSceneError: vi.fn()};
-  layer.context = {viewport, deck: {getViewports: () => [viewport]}};
-  const record = {renderer: {setFrame}, deckCanvas: document.createElement('canvas'),
-    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null};
+  layer.context = createContextFixture({viewport, deck: {getViewports: () => [viewport]}});
+  const record = createRecordFixture(layer, {renderer: createRendererFixture({setFrame}), deckCanvas: document.createElement('canvas'),
+    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null});
   layer.state = {tangramRecord: record};
   layer._synchronizeTangramScene(record);
   expect(raiseError).not.toHaveBeenCalled();
@@ -59,9 +60,9 @@ test('updates first-person extent without recreating the scene and reports inval
   layer.raiseError = raiseError;
   layer.props = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
     firstPersonMaxGroundExtent: 1000, onSceneError: vi.fn()};
-  layer.context = {viewport, deck: {getViewports: () => [viewport]}};
-  const record = {renderer: {setFrame}, deckCanvas: document.createElement('canvas'),
-    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null};
+  layer.context = createContextFixture({viewport, deck: {getViewports: () => [viewport]}});
+  const record = createRecordFixture(layer, {renderer: createRendererFixture({setFrame}), deckCanvas: document.createElement('canvas'),
+    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null});
   layer.state = {tangramRecord: record};
   layer._synchronizeTangramScene(record);
   const before = setFrame.mock.calls.at(-1)?.[0].projection.visibleBounds;
@@ -91,9 +92,9 @@ test('updates first-person elevation candidates without recreating the scene or 
   layer.raiseError = vi.fn();
   layer.props = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
     firstPersonElevationRange: [0, 0], onSceneError: vi.fn()};
-  layer.context = {viewport, deck: {getViewports: () => [viewport]}};
-  const record = {renderer: {setFrame}, deckCanvas: document.createElement('canvas'),
-    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null};
+  layer.context = createContextFixture({viewport, deck: {getViewports: () => [viewport]}});
+  const record = createRecordFixture(layer, {renderer: createRendererFixture({setFrame}), deckCanvas: document.createElement('canvas'),
+    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null});
   layer.state = {tangramRecord: record};
   layer._synchronizeTangramScene(record);
   const before = setFrame.mock.calls.at(-1)?.[0];
@@ -110,5 +111,5 @@ test('updates first-person elevation candidates without recreating the scene or 
   layer.props = {...layer.props, firstPersonElevationRange: [1500, 0]};
   layer._synchronizeTangramScene(record);
   expect(setFrame).toHaveBeenCalledTimes(frames);
-  expect(layer.raiseError.mock.calls.at(-1)?.[0].message).toMatch(/Elevation range/);
+  expect(vi.mocked(layer.raiseError).mock.calls.at(-1)?.[0].message).toMatch(/Elevation range/);
 });

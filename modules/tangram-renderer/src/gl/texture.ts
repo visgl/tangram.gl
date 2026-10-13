@@ -27,7 +27,7 @@ export default class Texture {
     /** Placeholder sampler used by untextured mesh variants. */
     declare static default: string;
     /** Dimensions available to line styles in either execution thread. */
-    declare static textures: Record<string, {width: number; height: number}>;
+    declare static textures: Record<string, {width: number; height: number; release?: () => void}>;
     /** Synchronize named texture dimensions from the main thread to a worker. */
     declare static syncTexturesToWorker: (names: string[]) => Promise<Record<string, {width: number; height: number}>>;
 

@@ -5,6 +5,7 @@
 import {FirstPersonViewport, WebMercatorViewport, _GlobeViewport as GlobeViewport} from '@deck.gl/core';
 import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
+import {createContextFixture, createRecordFixture, createRendererFixture, getLiveRecord} from './fixtures/lifecycle';
 import {WebXRPresentation} from '../src/experimental/webxr/presentation';
 import {WebXRMapView, WebXRGlobeView, WebXRFirstPersonView} from '../src/experimental/webxr/views';
 
@@ -23,9 +24,9 @@ test.each([
   layer.raiseError = vi.fn();
   layer.props = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
     tileResources: {maxConcurrentBuilds: 1}, onSceneError: vi.fn()};
-  layer.context = {viewport, deck: {getViewports: () => [viewport]}};
-  const record = {renderer: {setFrame}, deckCanvas: document.createElement('canvas'),
-    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null};
+  layer.context = createContextFixture({viewport, deck: {getViewports: () => [viewport]}});
+  const record = createRecordFixture(layer, {renderer: createRendererFixture({setFrame}), deckCanvas: document.createElement('canvas'),
+    sceneSource: 'scene.yaml', sceneBasePath: null, apiKey: null});
   layer.state = {tangramRecord: record};
   for (const tileResources of [{maxConcurrentBuilds: 1}, {maxCachedTiles: 0}, undefined]) {
     layer.props = {...layer.props, tileResources};
@@ -41,7 +42,7 @@ test.each([
 test('worker load capacity is passed at renderer creation and changes replace the immutable worker pool', async () => {
   class BaseLayer {}
   const createRenderer = vi.fn((_scene: unknown, _options: Record<string, unknown>) =>
-    ({scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined), destroy: vi.fn()}));
+    createRendererFixture({scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined), destroy: vi.fn()}));
   const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create: createRenderer}, Renderer: undefined});
   const layer = new Layer();
   const synchronize = vi.spyOn(layer, '_synchronizeTangramScene').mockImplementation(() => {});
@@ -50,19 +51,17 @@ test('worker load capacity is passed at renderer creation and changes replace th
   layer.props = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
     maxConcurrentTileLoadsPerWorker: 2, onSceneLoad: vi.fn(), onSceneError: vi.fn()};
   layer.state = {tangramRecord: null};
-  const device = {type: 'webgpu', createBuffer: vi.fn(), createShader: vi.fn(), createTexture: vi.fn(),
-    createRenderPipeline: vi.fn(), createVertexArray: vi.fn()};
-  layer.context = {device, deck: {getCanvas: () => document.createElement('canvas')}};
+  layer.context = createContextFixture({deck: {getCanvas: () => document.createElement('canvas')}});
   try {
     layer.updateState({props: layer.props});
-    const first = layer.state.tangramRecord;
+    const first = getLiveRecord(layer);
     await first.loadPromise;
     expect(createRenderer.mock.calls[0][1].maxConcurrentTileLoadsPerWorker).toBe(2);
     layer.updateState({props: layer.props});
     expect(layer.state.tangramRecord).toBe(first);
     layer.props = {...layer.props, maxConcurrentTileLoadsPerWorker: null};
     layer.updateState({props: layer.props});
-    const second = layer.state.tangramRecord;
+    const second = getLiveRecord(layer);
     await second.loadPromise;
     expect(first.disposed).toBe(true);
     expect(createRenderer.mock.calls[1][1].maxConcurrentTileLoadsPerWorker).toBeUndefined();

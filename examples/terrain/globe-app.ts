@@ -215,7 +215,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
             const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
             basemap = new BasemapLayer({id: 'globe-draped-basemap', scene: basemapScene, terrain: terrainInput,
                 terrainExaggeration: effective, globeMaxElevation: 12000 * Math.max(1, effective), tileBuffer: 0, globePreloadZoom: 2,
-                maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentTileBuilds: 2},
+                maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentBuilds: 2},
                 onAttributionChange: (credits: string[]) => {if (!disposed) updateAttribution(creditValue, credits);},
                 onSceneError: (error: unknown) => {if (!disposed) {basemapError = String(error); element('draping-status').textContent = basemapError;}}});
             deck.setProps({layers: [basemap]});

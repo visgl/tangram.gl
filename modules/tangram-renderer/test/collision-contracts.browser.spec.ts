@@ -29,6 +29,18 @@ afterEach(() => {
 });
 
 describe('typed collision batching', () => {
+    test('numeric worker identities alias their serialized string keys and abort drains pending work', async () => {
+        Collision.startTile(42);
+        Collision.addStyle('waiting', '42');
+        Collision.addStyle('late', '42');
+        const pending = Collision.collide([createObject()], 'waiting', '42');
+        Collision.abortTile(42);
+        await expect(pending).resolves.toEqual([]);
+        expect(Collision.tiles['42']).toBeUndefined();
+        Collision.abortTile(undefined);
+        Collision.resetTile(undefined);
+    });
+
     test('waits for every registered style and preserves per-style payload and identity', async () => {
         Collision.startTile('batch', {apply_repeat_groups: false});
         Collision.addStyle('roads', 'batch');

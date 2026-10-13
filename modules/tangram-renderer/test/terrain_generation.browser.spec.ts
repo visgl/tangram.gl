@@ -15,7 +15,7 @@ const context = document.createElement('canvas').getContext('webgl2');
 
 /** Tile/resource identity remains real; only GPU allocation is replaced for lifecycle assertions. */
 function tile() {
-    return new Tile({coords: {x: 0, y: 0, z: 0}, style_z: 0, source: {name: 'ground', id: 0, tiled: true, max_zoom: 14, zooms: [0]}, workers: [{}], view: {}});
+    return new Tile({coords: {x: 0, y: 0, z: 0}, style_z: 0, source: {name: 'ground', id: 0, tiled: true, max_zoom: 14, zooms: [0]}, workers: [{postMessage: vi.fn(), addEventListener: vi.fn()}], view: {}});
 }
 /** Real tiny GPU owners exercise buffer cleanup as well as the tile lifecycle. */
 function mesh() {

@@ -9,6 +9,8 @@ import type {LayerTree, LayerLeaf} from './layer';
 export type SceneLayerDefinition = Record<string, unknown>;
 /** Extensible evaluated draw properties for built-in and custom styles. */
 export interface LayerDrawGroup extends Record<string, unknown> {
+    /** Resolved style registry name, when it differs from the draw-group name. */
+    style?: string;
     visible?: boolean;
     key?: string;
     layers?: string[];

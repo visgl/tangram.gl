@@ -103,6 +103,14 @@ files are tracked in `scripts/typescript-suppression-allowlist.json`; remove
 entries as files become checked, never add suppressions to bypass errors.
 Internal contracts are not automatically public API exports.
 
+The main-thread `Tile` and ordinary deck-layer lifecycles are now checked.
+Their internal contracts distinguish decoded features (including null geometry),
+transferred worker batches, uploaded mesh owners, and pending/live renderer records.
+Seven lifecycle files remain on the suppression allowlist; the tile manager,
+scene/worker, shader program, texture and base/point styles still need checked
+ownership contracts. Removing a directive means checking the complete module,
+not replacing it with unchecked property bags or widening assertions.
+
 Keep authored values `unknown` until normalized. Distinguish source data,
 style/build identities, worker payloads and GPU descriptors. Use `declare`
 for inherited/prototype class fields so annotations do not create shadowing

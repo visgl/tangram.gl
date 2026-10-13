@@ -273,7 +273,7 @@ export class ProjectedBasemapLayer extends BaseProjectedBasemapLayer {
         onProjectionChange: {type: 'function', value: () => {}}};
 
     /** Keep the ordinary scene lifecycle, then queue an opt-in projection-only update after loading. */
-    updateState(parameters: {props: {projectedProjection?: ProjectedBasemapOptions}}): void {
+    updateState(parameters: {props: Partial<import('../tangram-layer').TangramLayerProps>}): void {
         super.updateState(parameters);
         const record = this.state.tangramRecord;
         if (!record) return;
@@ -286,7 +286,7 @@ export class ProjectedBasemapLayer extends BaseProjectedBasemapLayer {
             if (record.disposed || record.loadFailed || record.projectedProjectionKey !== key) return;
             await record.renderer.setProjectedBasemapProjection(projection);
             if (!record.disposed && record.projectedProjectionKey === key) {
-                record.owner.props.onProjectionChange(projection);
+                record.owner.props.onProjectionChange!(projection);
                 record.owner.setNeedsRedraw();
             }
         }).catch(error => {
