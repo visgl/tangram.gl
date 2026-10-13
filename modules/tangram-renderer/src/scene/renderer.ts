@@ -106,6 +106,8 @@ export default class Renderer {
     private terrainUpdating = false;
     /** Query ownership follows the last submitted draw, not a worker commit before the next frame. */
     private terrainSurfaceSnapshot: DrapedTerrainSurfaceSnapshot | null = null;
+    /** Old draw buffers remain live while the worker field is staged, even with explicit previousGrids: []. */
+    private terrainDisplayMinimumHeight = 0;
     /** Prevent queued mesh updates from acting on a released scene. */
     private destroyed = false;
 
@@ -122,6 +124,7 @@ export default class Renderer {
             disableRenderLoop: true,
             cameraMode: 'external'
         }));
+        this.terrainDisplayMinimumHeight = this.scene.terrain?.minimumHeight ?? 0;
         this.host_frame = null;
         this.active_render_view_id = null;
     }
@@ -170,6 +173,7 @@ export default class Renderer {
             this.terrainUpdating = true;
             try {
                 await this.scene.rebuild({preserveTileCache: true, preserveTime: true});
+                this.terrainDisplayMinimumHeight = terrain.minimumHeight;
                 this.terrainFailed = false;
                 if (!this.destroyed) this.scene.requestRedraw();
             } catch (error) {
@@ -198,7 +202,7 @@ export default class Renderer {
     setTerrainExaggeration(value: number): void {
         if (this.destroyed || !this.scene.terrain) throw new Error('Terrain requires a live enabled renderer');
         if (!Number.isFinite(value) || value < 0 || value > 1000) throw new Error('Terrain exaggeration must be in [0, 1000]');
-        if (this.scene.terrain.minimumHeight * value <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
+        if (Math.min(this.scene.terrain.minimumHeight, this.terrainDisplayMinimumHeight) * value <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
         if (this.scene.terrainExaggeration !== value) {this.scene.terrainExaggeration = value; this.scene.requestRedraw();}
     }
 

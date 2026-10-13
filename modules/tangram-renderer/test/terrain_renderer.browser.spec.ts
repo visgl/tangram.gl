@@ -93,3 +93,14 @@ test('feature queries wait for terrain worker selection tables, then route throu
     expect(select).toHaveBeenCalledOnce();
     expect(renderer.getDrapedTerrainSurface()).toBeNull(); renderer.destroy();
 });
+
+test('GPU-only relief changes protect the old displayed field while an explicit no-morph replacement is staged', async () => {
+    const renderer = Renderer.create({}, {terrain: {grids: [field(-10000)]}});
+    let finish: () => void = () => {};
+    vi.spyOn(renderer.scene, 'rebuild').mockImplementation(() => new Promise<void>(resolve => {finish = resolve;}));
+    const update = renderer.setTerrain({grids: [field(0)], previousGrids: []}); await Promise.resolve();
+    expect(renderer.scene.terrain?.minimumHeight).toBe(0);
+    expect(() => renderer.setTerrainExaggeration(1000)).toThrow(/invert/);
+    finish(); await update;
+    expect(() => renderer.setTerrainExaggeration(1000)).not.toThrow(); renderer.destroy();
+});
