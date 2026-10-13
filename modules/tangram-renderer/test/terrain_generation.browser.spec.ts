@@ -7,6 +7,7 @@ import Tile from '../src/tile/tile';
 import Scene from '../src/scene/scene';
 import VBOMesh from '../src/gl/vbo_mesh';
 import VertexLayout from '../src/gl/vertex_layout';
+import type {MeshContext} from '../src/gl/mesh-types';
 
 const context = document.createElement('canvas').getContext('webgl2');
 
@@ -17,7 +18,12 @@ function tile() {
 /** Real tiny GPU owners exercise buffer cleanup as well as the tile lifecycle. */
 function mesh() {
     if (!context) throw new Error('Missing WebGL 2 fixture context');
-    const mesh = new VBOMesh(context, new Uint8Array(12), new Uint16Array(), new VertexLayout([{name: 'a_position', size: 3, type: 5126}]));
+    const bufferContext: MeshContext = {STATIC_DRAW: context.STATIC_DRAW, ARRAY_BUFFER: context.ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER: context.ELEMENT_ARRAY_BUFFER,
+        createBuffer: context.createBuffer.bind(context), bindBuffer: context.bindBuffer.bind(context), bufferData: context.bufferData.bind(context),
+        drawElements: context.drawElements.bind(context), drawArrays: context.drawArrays.bind(context), deleteBuffer: context.deleteBuffer.bind(context),
+        getExtension: context.getExtension.bind(context), enableVertexAttribArray: context.enableVertexAttribArray.bind(context),
+        disableVertexAttribArray: context.disableVertexAttribArray.bind(context), vertexAttribPointer: context.vertexAttribPointer.bind(context)};
+    const mesh = new VBOMesh(bufferContext, new Uint8Array(12), new Uint16Array(), new VertexLayout([{name: 'a_position', size: 3, type: 5126}]));
     vi.spyOn(mesh, 'destroy'); return mesh;
 }
 

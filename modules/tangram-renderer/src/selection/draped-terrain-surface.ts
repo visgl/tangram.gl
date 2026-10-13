@@ -118,12 +118,13 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
 
     /** Detached snapshot-local CPU query costs; excludes other retained host snapshots and GPU/transient storage. */
     getStatistics(): {inputBytes: number; projectedBytes: number; preparedMeshes: number; projectionBuilds: number; preparationMs: number; queryMs: number} {
-        return this.queryOwners.reduce((statistics, owner) => {
+        const statistics = {inputBytes: this.inputBytes, projectedBytes: 0, preparedMeshes: 0, projectionBuilds: 0, preparationMs: 0, queryMs: 0};
+        for (const owner of this.queryOwners) {
             statistics.projectedBytes += owner.surface?.getStatistics().geometryBytes ?? 0;
             statistics.preparedMeshes += Number(owner.surface !== undefined);
             statistics.projectionBuilds += owner.projectionBuilds;
             statistics.preparationMs += owner.preparationMs; statistics.queryMs += owner.queryMs;
-            return statistics;
-        }, {inputBytes: this.inputBytes, projectedBytes: 0, preparedMeshes: 0, projectionBuilds: 0, preparationMs: 0, queryMs: 0});
+        }
+        return statistics;
     }
 }
