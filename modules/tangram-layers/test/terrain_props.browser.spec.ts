@@ -4,7 +4,7 @@
 
 import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
-import {DrapedTerrainSurfaceSnapshot} from '../../tangram-renderer/src/selection/draped-terrain-surface';
+import {DrapedTerrainSurfaceSnapshot} from '@vis.gl/tangram-renderer/core';
 import {createContextFixture, createRecordFixture, createRendererFixture, getLiveRecord} from './fixtures/lifecycle';
 
 test('ground surface and implicit picking delegate only to a live loaded record', () => {
