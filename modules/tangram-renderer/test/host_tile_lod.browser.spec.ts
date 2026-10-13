@@ -19,6 +19,7 @@ test('native view readiness distinguishes absent CSS dimensions, geographic cent
     const view = renderer.scene.view;
     try {
         expect(view.ready()).toBe(false);
+        expect(view.getTileTraversalState()).toEqual({eyes: []});
         view.size.css.width = 400; expect(view.ready()).toBe(false);
         view.size.css.height = 300; expect(view.ready()).toBe(false);
         renderer.setFrame(new HostFrame({viewport: {width: 400, height: 300},
