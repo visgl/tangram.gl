@@ -5,13 +5,14 @@
 import {WebMercatorViewport} from '@deck.gl/core';
 import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
+import {createRendererFixture, createContextFixture} from './fixtures/lifecycle';
 
 /** Lightweight renderer boundary: no network, workers, or GPU allocation. */
 function createHarness() {
   class BaseLayer {}
-  const renderer = {scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined),
+  const renderer = createRendererFixture({scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined),
     destroy: vi.fn(), setFrame: vi.fn(), getTerrainAt: vi.fn().mockReturnValue({coordinate: [0, 0, 100], renderViewId: 'right'}),
-    getFeatureAt: vi.fn().mockResolvedValue({feature: {id: 7}, renderViewId: 'right'})};
+    getFeatureAt: vi.fn().mockResolvedValue({feature: {id: 7}, renderViewId: 'right'})});
   const create = vi.fn((_source: unknown, _options: {requestRedraw: () => void}) => renderer);
   const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create}, Renderer: undefined});
   const layer = new Layer();
@@ -21,9 +22,8 @@ function createHarness() {
   layer.setNeedsRedraw = vi.fn();
   const canvas = document.createElement('canvas');
   const viewport = new WebMercatorViewport({width: 800, height: 400, latitude: 40, longitude: -74, zoom: 14});
-  const device = {type: 'webgpu', createBuffer: vi.fn(), createShader: vi.fn(), createTexture: vi.fn(),
-    createRenderPipeline: vi.fn(), createVertexArray: vi.fn()};
-  layer.context = {device, viewport, deck: {getCanvas: () => canvas, getViewports: () => [viewport]}};
+  layer.context = createContextFixture({viewport, deck: {getCanvas: () => canvas, getViewports: () => [viewport]}});
+  const device = layer.context.device;
   return {layer, renderer, create, canvas, device};
 }
 
@@ -49,7 +49,7 @@ test('terrain queries forward the supplied surface and eye policy without alloca
   const {layer, renderer} = createHarness();
   const surface = {projection: 'web-mercator' as const, intersectRay: vi.fn()};
   const uninitialized = createHarness().layer;
-  uninitialized.state = undefined;
+  Reflect.set(uninitialized, 'state', undefined); // Exercise a deliberately uninitialized runtime instance.
   expect(uninitialized.getTerrainAt({x: 50, y: 20}, surface)).toBeNull();
   expect(layer.getTerrainAt({x: 50, y: 20}, surface)).toBeNull();
   const record = layer._createTangramRecord(layer.props);
@@ -71,13 +71,13 @@ test('terrain queries forward the supplied surface and eye policy without alloca
 test.each(['scene', 'canvas', 'device', 'pipeline', 'webgl-state', 'webgl-canvas'] as const)
   ('rejects missing or mismatched %s before allocating a renderer', missing => {
     const {layer, create, canvas, device} = createHarness();
-    if (missing === 'scene') layer.props.scene = null;
-    if (missing === 'canvas') layer.context.deck.getCanvas = () => null;
-    if (missing === 'device') layer.context.device = null;
-    if (missing === 'pipeline') layer.context.device = {...device, createRenderPipeline: undefined};
-    if (missing === 'webgl-state') layer.context.device = {...device, type: 'webgl', handle: {canvas}};
-    if (missing === 'webgl-canvas') layer.context.device = {...device, type: 'webgl',
-      handle: {canvas: document.createElement('canvas')}, pushState: vi.fn(), popState: vi.fn()};
+    if (missing === 'scene') Reflect.set(layer.props, 'scene', null);
+    if (missing === 'canvas') layer.context.deck!.getCanvas = () => null;
+    if (missing === 'device') Reflect.set(layer.context, 'device', null);
+    if (missing === 'pipeline') Reflect.set(layer.context, 'device', {...device, createRenderPipeline: undefined});
+    if (missing === 'webgl-state') Reflect.set(layer.context, 'device', {...device, type: 'webgl', handle: {canvas}});
+    if (missing === 'webgl-canvas') Reflect.set(layer.context, 'device', {...device, type: 'webgl',
+      handle: {canvas: document.createElement('canvas')}, pushState: vi.fn(), popState: vi.fn()});
     expect(layer._createTangramRecord(layer.props)).toBeNull();
     expect(layer.raiseError).toHaveBeenCalledTimes(1);
     expect(create).not.toHaveBeenCalled();

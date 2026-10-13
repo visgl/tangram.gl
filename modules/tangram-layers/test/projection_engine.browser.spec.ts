@@ -7,20 +7,19 @@ import {createProjectionEngine} from '@math.gl/projection/core';
 import createTangramLayerClass from '../src/tangram-layer';
 import Renderer from '../../tangram-renderer/src/scene/renderer';
 import WorkerBroker from '../../tangram-renderer/src/utils/worker_broker';
+import {createRendererFixture, createContextFixture, getLiveRecord} from './fixtures/lifecycle';
 
 test('engine and execution policy identities are forwarded, retained and replaced or omitted explicitly', async () => {
     class BaseLayer {}
     const createRenderer = vi.fn((_scene: unknown, _options: Record<string, unknown>) =>
-        ({scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined), destroy: vi.fn()}));
+        createRendererFixture({scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined), destroy: vi.fn()}));
     const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create: createRenderer}, Renderer: undefined});
     const layer = new Layer();
     const synchronize = vi.spyOn(layer, '_synchronizeTangramScene').mockImplementation(() => {});
     layer.raiseError = vi.fn();
     layer.state = {tangramRecord: null};
     layer.setState = (state: Record<string, unknown>) => {Object.assign(layer.state, state);};
-    const device = {type: 'webgpu', createBuffer: vi.fn(), createShader: vi.fn(), createTexture: vi.fn(),
-        createRenderPipeline: vi.fn(), createVertexArray: vi.fn()};
-    layer.context = {device, deck: {getCanvas: () => document.createElement('canvas')}};
+    layer.context = createContextFixture({deck: {getCanvas: () => document.createElement('canvas')}});
     const properties = {scene: 'scene.yaml', sceneBasePath: null, apiKey: null,
         onSceneLoad: vi.fn(), onSceneError: vi.fn()};
     try {
@@ -37,7 +36,7 @@ test('engine and execution policy identities are forwarded, retained and replace
             layer.props = {...properties, projectionEngine, projectionEngineExecution};
             const previous = layer.state.tangramRecord;
             layer.updateState({props: layer.props});
-            const record = layer.state.tangramRecord;
+            const record = getLiveRecord(layer);
             await record.loadPromise;
             expect(createRenderer.mock.calls.at(-1)?.[1].projectionEngine).toBe(projectionEngine);
             expect(createRenderer.mock.calls.at(-1)?.[1].projectionEngineExecution).toBe(projectionEngineExecution);

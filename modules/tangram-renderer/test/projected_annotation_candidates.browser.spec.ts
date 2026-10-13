@@ -71,12 +71,14 @@ test.each([
     {name: 'CPU projected', screen_space_labels: false, cpu_projection: {type: 'equal-earth'}, retained: 2},
     {name: 'classic', screen_space_labels: false, cpu_projection: undefined, retained: 1}
 ])('$name tile construction preserves the appropriate repeat candidates', async ({screen_space_labels, cpu_projection, retained}) => {
-    const tile = {id: 'repeat-candidates', source_data: {}, debug: {}};
+    const tile = {id: 'repeat-candidates', key: 'fixture', source: 'fixture', source_data: {}, debug: {},
+        style_z: 0, meters_per_pixel: 1, meters_per_pixel_sq: 1, units_per_meter_overzoom: 1};
     // Keep the real tile/collision policy but avoid worker transport and geometry allocation.
     const buildGroups = vi.spyOn(Tile, 'buildStyleGroups').mockImplementation(() => {});
     try {
         Tile.buildGeometry(tile, {scene_id: 'fixture', layers: {}, global: {}, styles: {
-            labels: {screen_space_labels, cpu_projection, hasDataForTile: () => false}
+            labels: {name: 'labels', screen_space_labels, cpu_projection, hasDataForTile: () => false,
+                preprocess: group => group, addFeature: vi.fn(), endData: vi.fn(), makeMesh: vi.fn()}
         }});
         Collision.addStyle('labels', tile.id);
         const candidates: CollisionObject[] = [0, 1].map(priority => ({label: {

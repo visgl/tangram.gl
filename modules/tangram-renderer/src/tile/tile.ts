@@ -3,8 +3,6 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
-
 import log from '../utils/log';
 import Utils from '../utils/utils';
 import mergeObjects from '../utils/merge';
@@ -20,11 +18,69 @@ import Texture from '../gl/texture';
 import {getTileSourceRequest, updateTileSourceRequest} from '../sources/tile_source_state';
 
 import {Matrix4} from '@math.gl/core';
+import type {TileCoordinate, TileCoordinates, TileSource, TileReference} from './tile_id';
+import type {BrokerMethod, BrokerWorker} from '../utils/worker-types';
+import type {Meters} from '../utils/geo';
+import type UniformBuffer from '../gl/uniform_buffer';
+import type {TileDebug, TileBuildStyle, TileStylePayload, TileBuildProgress, WorkerBuildTile, LayerDebugCounts, TileBuildLayer, DecodedTileFeature} from './tile-build-types';
+import type {StyleFeature} from '../styles/property-types';
+
+/** Source identity and retention policy consumed by tile ownership. */
+interface TileSourcePolicy extends TileSource {
+    id: number;
+    tiled?: boolean;
+    preserve_tiles_within_zoom?: number;
+    max_zoom?: number;
+}
 
 let id = 0; // unique tile id
 let build_id = 0; // id tracking order in which tiles were build
 
 export default class Tile {
+    /** Constructor-owned source metadata. */
+    declare source: TileSourcePolicy;
+    /** Host view identity; geometry construction does not inspect it. */
+    declare view: unknown;
+    /** Actual normalized source coordinates. */
+    declare coords: TileCoordinate;
+    /** Style detail independent of source zoom. */
+    declare style_z: number;
+    /** Overzoom conversion factors. */
+    declare overzoom: number;
+    declare overzoom2: number;
+    /** Absolute Mercator tile origin, extent and bounds. */
+    declare min: Meters;
+    declare max: Meters;
+    declare span: Meters;
+    declare bounds: {sw: Meters; ne: Meters};
+    /** Style-unit conversion factors copied to the worker. */
+    declare meters_per_pixel: number;
+    declare meters_per_pixel_sq: number;
+    declare units_per_pixel: number;
+    declare units_per_meter_overzoom: number;
+    declare preserve_tiles_within_zoom?: number;
+    /** Selected worker and its pool offset; destruction clears the worker reference. */
+    declare worker: BrokerWorker | null;
+    declare worker_id: number;
+    /** Residency, loading and proxy state. */
+    declare valid: boolean;
+    declare loaded: boolean;
+    declare labeled: boolean;
+    declare fade_in: boolean;
+    declare proxy_for: Tile[] | null;
+    declare proxied_as: 'child' | 'parent' | null;
+    declare proxy_level: number;
+    declare proxy_order_offset: number;
+    declare fallback_for?: Map<string, readonly [number, number, number, number]>;
+    /** Uploaded style names for the in-progress generation. */
+    declare new_mesh_styles: string[];
+    declare mesh_data?: Record<string, TileStylePayload>;
+    /** Last upload order and worker error/debug reply. */
+    declare build_id: number;
+    declare error: string | null;
+    declare debug: TileDebug;
+    /** Cached child coordinates, retained for classic compatibility. */
+    declare static coord_children: Record<string, Record<string, TileReference[]>>;
     /** Worker-visible tile identity. */
     declare id: number;
     /** Source/style-normalized cache key. */
@@ -54,7 +110,7 @@ export default class Tile {
         coords: object with {x, y, z} properties identifying tile coordinate location
         worker: web worker to handle tile construction
     */
-    constructor({ coords, style_z, source, workers, view }) {
+    constructor({ coords, style_z, source, workers, view }: {coords: TileCoordinates; style_z: number; source: TileSourcePolicy; workers: BrokerWorker[]; view: unknown}) {
         this.id = id++;
         this.view = view;
         this.source = source;
@@ -76,7 +132,7 @@ export default class Tile {
 
         this.style_z = style_z; // zoom level to be used for styling
         this.coords = TileID.normalizedCoord(coords, this.source);
-        this.key = TileID.key(this.coords, this.source, this.style_z);
+        this.key = TileID.key(this.coords, this.source, this.style_z)!; // The manager validates the normalized key before constructing a tile.
         this.overzoom = Math.max(this.style_z - this.coords.z, 0); // number of levels of overzooming
         this.overzoom2 = Math.pow(2, this.overzoom);
         this.min = Geo.metersForTile(this.coords);
@@ -142,7 +198,7 @@ export default class Tile {
     }
 
     // Find the appropriate worker thread for this tile
-    setWorker (workers) {
+    setWorker (workers: BrokerWorker[]) {
         if (this.source.tiled) {
             // Pin tile to a worker thread based on its coordinates
             this.worker_id = Math.abs(this.coords.x + this.coords.y + this.coords.z) % workers.length;
@@ -156,11 +212,11 @@ export default class Tile {
         this.worker = workers[this.worker_id];
     }
 
-    workerMessage (...message) {
-        return WorkerBroker.postMessage(this.worker, ...message);
+    workerMessage (method: BrokerMethod, ...message: unknown[]) {
+        return WorkerBroker.postMessage(this.worker!, method, ...message); // Calls precede destroy(), which clears the worker.
     }
 
-    build(generation, { fade_in = true } = {}) {
+    build(generation: number, { fade_in = true } = {}) {
         this.generation = generation;
         this.fade_in = fade_in;
         if (!this.loaded) {
@@ -176,7 +232,7 @@ export default class Tile {
         Static method because the worker only has object representations of tile data, there is no
         tile instance created yet.
     */
-    static cancel(tile) {
+    static cancel(tile: import('../sources/tile_source_state').TileDataContext & {canceled?: boolean; id?: string | number; key?: string; mesh_data?: Record<string, TileStylePayload>} | null | undefined) {
         if (tile) {
             tile.canceled = true;
             const request = getTileSourceRequest(tile);
@@ -192,7 +248,7 @@ export default class Tile {
 
     // Process geometry for tile - called by web worker
     // Returns a set of tile keys that should be sent to the main thread (so that we can minimize data exchange between worker and main thread)
-    static buildGeometry (tile, { scene_id, layers, styles, global }) {
+    static buildGeometry (tile: WorkerBuildTile, { scene_id, layers, styles, global }: {scene_id: number | string; layers: Record<string, TileBuildLayer>; styles: Record<string, TileBuildStyle>; global: unknown}) {
         let data = tile.source_data;
 
         tile.debug.building = +new Date();
@@ -230,7 +286,7 @@ export default class Tile {
 
                 for (let f = 0; f < geom.features.length; f++) {
                     let feature = geom.features[f];
-                    if (feature.geometry == null) {
+                    if (!hasFeatureGeometry(feature)) {
                         continue; // skip features w/o geometry (valid GeoJSON)
                     }
 
@@ -250,7 +306,7 @@ export default class Tile {
                         let group = draw_groups[group_name];
 
                         // Add to style
-                        let style_name = group.style || group_name;
+                        let style_name = group!.style || group_name;
                         let style = styles[style_name];
 
                         if (!style) {
@@ -258,7 +314,7 @@ export default class Tile {
                             continue;
                         }
 
-                        group = style.preprocess(group);
+                        group = style.preprocess(group!);
                         if (group == null || group.visible === false) {
                             continue;
                         }
@@ -276,13 +332,13 @@ export default class Tile {
 
         // Send styles back to main thread as they finish building, in two groups: collision vs. non-collision
         let tile_styles = this.stylesForTile(tile, styles).map(s => styles[s]);
-        Tile.buildStyleGroups(tile, tile_styles, scene_id, style => style.collision ? 'collision' : 'non-collision');
+            Tile.buildStyleGroups(tile, tile_styles, scene_id, style => style.collision ? 'collision' : 'non-collision');
         // Tile.buildStyleGroups(tile, tile_styles, scene_id, style => style.name); // call for each style
         // Tile.buildStyleGroups(tile, tile_styles, scene_id, style => 'styles'); // all styles in single call (previous behavior)
     }
 
-    static stylesForTile (tile, styles) {
-        let tile_styles = [];
+    static stylesForTile (tile: WorkerBuildTile, styles: Record<string, TileBuildStyle>) {
+        let tile_styles: string[] = [];
         for (let s in styles) {
             if (styles[s].hasDataForTile(tile)) {
                 tile_styles.push(s);
@@ -292,12 +348,12 @@ export default class Tile {
     }
 
     // Build styles (grouped by the provided function) and send back to main thread as they finish building
-    static buildStyleGroups(tile, styles, scene_id, group_by) {
+    static buildStyleGroups(tile: WorkerBuildTile, styles: TileBuildStyle[], scene_id: number | string, group_by: (style: TileBuildStyle) => string) {
         // Group the styles; each group will be sent to the main thread when the styles in the group finish building.
-        const groups = styles.reduce((groups, style) => {
+        const groups = styles.reduce<Record<string, TileBuildStyle[] | null>>((groups, style) => {
             const group = group_by(style);
             groups[group] = groups[group] || [];
-            groups[group].push(style);
+            groups[group]!.push(style);
             return groups;
         }, {});
 
@@ -312,16 +368,16 @@ export default class Tile {
         }
 
         // Build each group of styles
-        const progress = {};
+        const progress: TileBuildProgress = {};
         for (const group_name in groups) {
             Tile.buildStyleGroup({ group_name, groups, tile, progress, scene_id });
         }
     }
 
     // Build a single group of styles
-    static async buildStyleGroup({ group_name, groups, tile, progress, scene_id }) {
-        const group = groups[group_name];
-        const mesh_data = {};
+    static async buildStyleGroup({ group_name, groups, tile, progress, scene_id }: {group_name: string; groups: Record<string, TileBuildStyle[] | null>; tile: WorkerBuildTile; progress: TileBuildProgress; scene_id: number | string}) {
+        const group = groups[group_name]!;
+        const mesh_data: Record<string, TileStylePayload> = {};
         try {
             // For each group, build all styles in the group
             await Promise.all(group.map(async (style) => {
@@ -333,7 +389,7 @@ export default class Tile {
                 } catch (error) {
                     // Drain sibling styles before transferring the failed batch,
                     // including any texture references they have acquired.
-                    progress.error = progress.error || ((error && error.stack) || String(error));
+                    progress.error = progress.error || ((error && (error as {stack?: string}).stack) || String(error)) as string;
                 }
             }));
 
@@ -356,9 +412,9 @@ export default class Tile {
             }
         }
         catch (e) {
-            log('error', `Error for style group '${group_name}' for tile ${tile.key}`, (e && e.stack) || e);
+            log('error', `Error for style group '${group_name}' for tile ${tile.key}`, (e && (e as {stack?: string}).stack) || e);
             WorkerBroker.postMessage(`TileManager_${scene_id}.buildTileError`,
-                WorkerBroker.withTransferables({ ...Tile.slice(tile), mesh_data, error: (e && e.stack) || String(e) }));
+                WorkerBroker.withTransferables({ ...Tile.slice(tile), mesh_data, error: (e && (e as {stack?: string}).stack) || String(e) }));
         }
     }
 
@@ -368,8 +424,8 @@ export default class Tile {
             layer: source layer name
             geom: GeoJSON FeatureCollection
     */
-    static getDataForSource (source_data, source_config, scene_layer_name) {
-        var layers = [];
+    static getDataForSource (source_data: WorkerBuildTile['source_data'], source_config: TileBuildLayer['config_data'], scene_layer_name: string) {
+        var layers: {layer?: string; geom: {features: DecodedTileFeature[]} | undefined}[] = [];
 
         if (source_config != null && source_data != null && source_data.layers != null) {
             // If source wildcard is specified, combine all source layers
@@ -383,7 +439,7 @@ export default class Tile {
                 }
 
                 for (const layer in source_data.layers) {
-                    layers.push({ layer, geom: source_data.layers[layer] });
+                    layers.push({ layer, geom: source_data.layers![layer] });
                 }
             }
             // If no source layer specified, and a default data source layer exists
@@ -409,7 +465,7 @@ export default class Tile {
             // If multiple source layers are specified by name, combine them
             else if (Array.isArray(source_config.layer)) {
                 source_config.layer.forEach(layer => {
-                    layers.push({ layer, geom: source_data.layers[layer] });
+                    layers.push({ layer, geom: source_data.layers![layer] });
                 });
             }
         }
@@ -446,7 +502,7 @@ export default class Tile {
     }
 
     /** Upload incrementally without replacing any currently admitted terrain draw owners. */
-    buildMeshes(styles, progress) {
+    buildMeshes(styles: Record<string, TileBuildStyle>, progress: TileBuildProgress) {
         const stage = this.terrainStage;
         if (!stage) return this.buildMeshBatch(styles, progress);
         const meshes = this.meshes, labels = this.pending_label_meshes, previousStyles = this.new_mesh_styles;
@@ -466,7 +522,7 @@ export default class Tile {
         }
     }
 
-    buildMeshBatch(styles, progress) {
+    buildMeshBatch(styles: Record<string, TileBuildStyle>, progress: TileBuildProgress) {
         if (this.error) {
             return;
         }
@@ -480,7 +536,7 @@ export default class Tile {
         }
 
         // Create VBOs
-        let meshes = {}; // new data to be added to tile
+        let meshes: Record<string, VBOMesh[]> = {}; // new data to be added to tile
         let mesh_data = this.mesh_data;
         if (mesh_data) {
             for (let s in mesh_data) {
@@ -514,8 +570,8 @@ export default class Tile {
                             mesh.variant.mesh_order = meshes[s].length - 1; // assign default variant render order
                         }
 
-                        this.debug.buffer_size += mesh.buffer_size;
-                        this.debug.geometry_count += mesh.geometry_count;
+                        this.debug.buffer_size! += mesh.buffer_size;
+                        this.debug.geometry_count! += mesh.geometry_count;
                     }
                 }
 
@@ -559,7 +615,7 @@ export default class Tile {
             }
             this.new_mesh_styles = [];
 
-            this.debug.geometry_ratio = (this.debug.geometry_count / this.debug.feature_count).toFixed(1);
+            this.debug.geometry_ratio = (this.debug.geometry_count! / this.debug.feature_count!).toFixed(1);
         }
         this.printDebug(progress);
     }
@@ -590,7 +646,7 @@ export default class Tile {
         Frees resources that would have been transferred to the tile object.
         Static method because the tile object no longer exists (the tile data returned by the worker is passed instead).
     */
-    static abortBuild (tile) {
+    static abortBuild (tile: {id?: string | number; key?: string; mesh_data?: Record<string, TileStylePayload>}) {
         Task.removeForTile(tile.id);
         Collision.abortTile(tile.id);
 
@@ -603,7 +659,7 @@ export default class Tile {
                         let texture = Texture.textures[t];
                         if (texture) {
                             log('trace', `releasing texture ${t} for tile ${tile.key}`);
-                            texture.release();
+                            texture.release!(); // Main-thread entries own release(); worker metadata does not.
                         }
                     });
                 }
@@ -612,7 +668,7 @@ export default class Tile {
     }
 
     // Set as a proxy tile for another tile
-    setProxyFor (tile) {
+    setProxyFor (tile?: Tile | null) {
         if (tile) {
             this.visible = true;
             this.proxy_for = this.proxy_for || [];
@@ -635,12 +691,12 @@ export default class Tile {
     // Proxy tiles only need to render a specific style if any of the tiles they are proxying *for*
     // haven't finished loading that style yet. If all proxied tiles *have* data for that style, then it's
     // safe to hide the proxy tile's version.
-    shouldProxyForStyle (style) {
+    shouldProxyForStyle (style: string) {
         return !this.proxy_for || this.proxy_for.some(t => t.meshes[style] == null);
     }
 
     // Update model matrix and tile uniforms
-    setupProgram ({ model, model32 }, program, uniform_buffer) {
+    setupProgram ({ model, model32 }: {model: Float64Array; model32: Float32Array}, program: {uniform(type: string, name: string, value: number | boolean | number[] | Float32Array): unknown}, uniform_buffer?: UniformBuffer) {
         // Model - transform tile space into world space (meters, absolute mercator position)
         this.matrix4.identity().translate([this.min.x, this.min.y, 0])
             .scale([this.span.x / Geo.tile_scale, this.span.y / Geo.tile_scale, 1])
@@ -671,7 +727,7 @@ export default class Tile {
     // Includes a minimum set of pre-defined keys for load state, debug. etc.
     // We use this to send a subset of the tile back to the main thread, to minimize unnecessary data transfer
     // (e.g. very large items like feature geometry are not needed on the main thread)
-    static slice (tile, keys?: string[]) {
+    static slice (tile: Pick<WorkerBuildTile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'> | Tile, keys?: string[]) {
         let keep = [
             'id',
             'key',
@@ -686,16 +742,16 @@ export default class Tile {
         }
 
         // Build the tile subset
-        var tile_subset = {};
+        var tile_subset: Record<string, unknown> = {};
         for (let k=0; k < keep.length; k++) {
             const key = keep[k];
-            tile_subset[key] = tile[key];
+            tile_subset[key] = Reflect.get(tile, key); // Requested extension keys are wire-envelope properties, not statically known Tile members.
         }
 
         return tile_subset;
     }
 
-    merge (other) {
+    merge (other: Pick<WorkerBuildTile, 'mesh_data' | 'debug'> & {loading: boolean; loaded: boolean; generation: number | null; error: string | null}) {
         this.loading = other.loading;
         this.loaded = other.loaded;
         this.generation = other.generation;
@@ -705,9 +761,9 @@ export default class Tile {
         return this;
     }
 
-    printDebug (progress) {
+    printDebug (progress: TileBuildProgress) {
         const exclude = ['layers'];
-        let copy = {};
+        let copy: Record<string, unknown> = {};
         for (let key in this.debug) {
             if (exclude.indexOf(key) === -1) {
                 copy[key] = this.debug[key];
@@ -721,26 +777,31 @@ export default class Tile {
 
 Tile.coord_children = {}; // only allocate children coordinates once per coordinate
 
+/** Preserve the legacy null-geometry guard while narrowing decoded GeoJSON for style evaluation. */
+function hasFeatureGeometry(feature: DecodedTileFeature): feature is StyleFeature {
+    return feature.geometry != null;
+}
+
 // Sum up layer feature/geometry stats from a set of tiles
-export function debugSumLayerStats(tiles) {
-    let list = {}, tree = {};
+export function debugSumLayerStats(tiles: readonly Pick<Tile, 'debug'>[]) {
+    let list: Record<string, LayerDebugCounts> = {}, tree: Record<string, LayerDebugCounts> = {};
 
     tiles.filter(tile => tile.debug.layers).forEach(tile => {
         // layer list
-        Object.keys(tile.debug.layers.list).forEach(layer => {
-            let counts = tile.debug.layers.list[layer];
+        Object.keys(tile.debug.layers!.list).forEach(layer => {
+            let counts = tile.debug.layers!.list[layer];
             addLayerDebugEntry(list, layer, counts.features, counts.geoms, counts.styles, counts.base);
         });
 
         // layer tree
-        addDebugLayers(tile.debug.layers.tree, tree);
+        addDebugLayers(tile.debug.layers!.tree, tree);
     });
 
     return { list, tree };
 }
 
 // build debug stats layer tree
-function addDebugLayers (node, tree) {
+function addDebugLayers (node: Record<string, LayerDebugCounts>, tree: Record<string, LayerDebugCounts>) {
     for (let layer in node) {
         let counts = node[layer];
         addLayerDebugEntry(tree, layer, counts.features, counts.geoms, counts.styles, counts.base);

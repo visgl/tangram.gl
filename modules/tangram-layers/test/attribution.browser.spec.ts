@@ -6,6 +6,7 @@ import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
 import Scene from '../../tangram-renderer/src/scene/scene';
 import type {SceneListeners} from '../../tangram-renderer/src/types';
+import {createRecordFixture, createRendererFixture, createContextFixture} from './fixtures/lifecycle';
 
 /** Flush the adapter's source-recreation and metadata completion microtasks. */
 async function flushCredits() {
@@ -23,7 +24,7 @@ test('the newest metadata result goes to the current layer owner; disposed resul
     let finishOld: (credits: string[]) => void = () => {};
     const old = new Promise<string[]>(resolve => {finishOld = resolve;});
     const getAttributions = vi.fn().mockReturnValueOnce(old).mockResolvedValueOnce(['© New provider']);
-    const record = {owner: layer, renderer: {getAttributions}, scene, disposed: false};
+    const record = createRecordFixture(layer, {renderer: createRendererFixture({getAttributions}), scene, disposed: false});
     layer._updateAttributions(record);
     await flushCredits();
     layer._updateAttributions(record);
@@ -45,8 +46,8 @@ test('credit failures report a nonfatal scene error instead of silently hiding p
     const layer = new Layer();
     layer.props = {onSceneError: vi.fn()};
     layer.raiseError = vi.fn();
-    const record = {owner: layer, renderer: {getAttributions: vi.fn().mockRejectedValue(new Error('Metadata failure'))},
-        scene: {}, disposed: false, loadFailed: false};
+    const record = createRecordFixture(layer, {renderer: createRendererFixture({getAttributions: vi.fn().mockRejectedValue(new Error('Metadata failure'))}),
+        scene: {}, disposed: false, loadFailed: false});
     layer._updateAttributions(record);
     await flushCredits();
     expect(layer.props.onSceneError).toHaveBeenCalledTimes(1);
@@ -60,21 +61,18 @@ test('an existing source replacement reaches the layer attribution callback thro
     scene.createDataSources();
     const rebuild = vi.spyOn(scene, 'rebuild').mockResolvedValue(undefined);
     try {
-        const renderer = {
+        const renderer = createRendererFixture({
             scene,
             subscribe: (listeners: SceneListeners) => scene.subscribe(listeners),
             load: () => Promise.resolve(),
             getAttributions: () => scene.getAttributions()
-        };
+        });
         class BaseLayer {}
         const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create: () => renderer}, Renderer: undefined});
         const layer = new Layer();
         const onAttributionChange = vi.fn();
         layer.props = {...Layer.defaultProps, scene: {sources: {basemap: source}}, onAttributionChange};
-        layer.context = {deck: {getCanvas: () => document.createElement('canvas')}, device: {
-            type: 'webgpu', createBuffer: vi.fn(), createShader: vi.fn(), createTexture: vi.fn(),
-            createRenderPipeline: vi.fn(), createVertexArray: vi.fn()
-        }};
+        layer.context = createContextFixture({deck: {getCanvas: () => document.createElement('canvas')}});
         const synchronize = vi.spyOn(layer, '_synchronizeTangramScene').mockImplementation(() => {});
         try {
             const record = layer._createTangramRecord(layer.props);

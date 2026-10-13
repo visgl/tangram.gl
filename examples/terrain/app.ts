@@ -259,7 +259,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
         terrain = {grids, transitionDuration: 200, maxSegmentLength: 250, querySurfaceStyles: ['ground']};
       }
       activeBasemap = new BasemapLayer({id: 'draped-basemap', scene: basemapScene, terrain, terrainExaggeration: 1, tileBuffer: 1,
-        maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentTileBuilds: 2},
+        maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentBuilds: 2},
         firstPersonMaxGroundExtent: 20000,
         firstPersonElevationRange: [0, 10000],
         onAttributionChange: (credits: string[]) => {if (!disposed) updateAttribution(creditValue, credits);},

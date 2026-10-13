@@ -15,6 +15,10 @@ import {notifyGPUResourceDisposal} from '../gpu/resource_lifecycle';
 
 // A single mesh/VBO, described by a vertex layout, that can be drawn with one or more programs
 export default class VBOMesh  {
+    /** Worker variant policy attached by the tile uploader without changing constructor ownership. */
+    declare variant: import('../tile/tile-build-types').TileMeshVariant;
+    /** Optional worker annotation ranges attached during upload. */
+    declare labels?: Record<string, import('../labels/main-pass-types').MeshLabel>;
     /** Exact ground query channels transferred with the final worker draw mesh. */
     terrainQueryMesh?: import('../selection/draped-terrain-surface').DrapedTerrainQueryMesh;
     /** One admitted terrain generation's shared transition origin. */
