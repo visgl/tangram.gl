@@ -129,6 +129,21 @@ function createClassicContext(): WebGLRenderingContext {
     return context;
 }
 
+test('classic raw pixels and DOM uploads preserve filtering and reject incomplete images at the typed boundary', () => {
+    const context = createClassicContext(), canvas = document.createElement('canvas');
+    canvas.width = 2; canvas.height = 2;
+    const texture = Texture.create(context, '__classic_upload', {width: 2, height: 2, data: new Uint8Array(16), filtering: 'nearest'});
+    try {
+        expect(texture.loaded).toBe(true); expect(texture.texture_resource).toBeNull();
+        expect(context.getTexParameter(context.TEXTURE_2D, context.TEXTURE_MIN_FILTER)).toBe(context.NEAREST);
+        texture.setElement(canvas, {filtering: 'linear'});
+        expect(texture.filtering).toBe('linear'); expect(texture.width).toBe(2);
+        const image = document.createElement('img'); Object.defineProperty(image, 'complete', {value: false});
+        expect(() => texture.update(image)).toThrow('finish loading');
+        expect(context.getError()).toBe(context.NO_ERROR);
+    } finally {texture.destroy({force: true}); context.getExtension('WEBGL_lose_context')?.loseContext();}
+});
+
 test('classic context creation preserves experimental fallback, sizing and numeric identity', () => {
     const context = createClassicContext(), canvas = document.createElement('canvas');
     canvas.style.width = '30px'; canvas.style.height = '20px';
