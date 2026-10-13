@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 export {ClassicWebGLRenderer as Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from '@vis.gl/tangram-renderer';
+export {DrapedTerrainSurfaceSnapshot} from './selection/draped-terrain-surface';
 export type {TerrainDrapingOptions, TerrainDrapingStatistics} from './procedures/terrain-draping';
 export type {FeatureSelectionResult, FeatureSelectionOptions} from '@vis.gl/tangram-renderer';
 export {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt} from './selection/terrain_surface';

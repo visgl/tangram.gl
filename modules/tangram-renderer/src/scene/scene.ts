@@ -54,6 +54,10 @@ export default class Scene {
     declare terrainExaggeration: number;
     /** Monotonic timestamp shared by color, collision and every submitted eye. */
     declare terrainFrameTime: number | undefined;
+    /** Terrain-only worker rebuilds stage mesh owners until every batch has completed. */
+    declare terrainTransaction: boolean | undefined;
+    /** Last terrain draw generation admitted after complete worker replacement. */
+    declare terrainDisplayGeneration: number | undefined;
     /** Whether scene resources and workers are ready for queries/draws. */
     declare initialized: boolean;
     /** Active selection owner; loading clears this while a Renderer may retain its frame. */
@@ -638,6 +642,9 @@ export default class Scene {
     processTasks () {
         Task.setState({ user_moving_view: this.view.user_input_active });
         Task.processAll();
+        // Host loops may stop when no mesh is currently visible. Cooperative
+        // label work must still receive its next bounded slice to finish a stage.
+        if (Task.queue.length) this.requestRedraw();
     }
 
     // Setup the render loop
@@ -1002,7 +1009,7 @@ export default class Scene {
                     if (mesh.variant.terrain) {
                         const now = this.terrainFrameTime ?? performance.now();
                         mesh.terrainVisibleAt ??= now;
-                        const duration = this.terrain?.transitionDuration ?? 0;
+                        const duration = mesh.variant.terrainTransitionDuration ?? this.terrain?.transitionDuration ?? 0;
                         const blend = duration ? Math.max(0, Math.min(1, (now - mesh.terrainVisibleAt) / duration)) : 1;
                         mesh.terrainBlend = blend;
                         const uniforms = {u_terrain_blend: blend, u_terrain_exaggeration: this.terrainExaggeration};
@@ -1277,6 +1284,8 @@ export default class Scene {
 
             // Track tile build state
             this.building = { resolve, reject, initial };
+            this.terrainTransaction = Boolean(this.terrain && preserveTileCache && preserveTime);
+            if (this.terrainTransaction) this.tile_manager.forEachTile(tile => tile.beginTerrainStage());
 
             // Profiling
             if (profile) {
@@ -1290,6 +1299,14 @@ export default class Scene {
                 for (let style in this.styles) {
                     this.styles[style].setGeneration(this.generation);
                 }
+            }
+
+            if (this.terrainTransaction) {
+                const selections = new Set(Array.from(this.selection_views.values(), state => state.selection));
+                if (this.selection) selections.add(this.selection);
+                for (const selection of selections) selection.invalidateReadback();
+                this.last_selection_render = -1;
+                for (const state of this.selection_views.values()) state.lastRender = -1;
             }
 
             // Update config (in case JS objects were manipulated directly)
@@ -1328,6 +1345,14 @@ export default class Scene {
 
         if (this.building) {
             log('info', 'Scene: build geometry finished');
+            if (this.terrainTransaction) {
+                const time = performance.now();
+                this.tile_manager.forEachTile(tile => {if (this.building.error) tile.discardTerrainStage(); else tile.commitTerrainStage(time);});
+                if (!this.building.error) this.terrainDisplayGeneration = this.generation;
+                this.terrainTransaction = false;
+                this.tile_manager.publishTerrainDisplay();
+                this.requestRedraw();
+            }
             if (this.building.error) {
                 this.building.reject(this.building.error);
             } else if (this.building.resolve) {

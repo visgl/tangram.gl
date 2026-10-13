@@ -38,6 +38,36 @@ test('device readback looks up the unchanged RGB/worker key and releases its sta
   fixture.selection.destroy();
 });
 
+test.each([false, true])('generation replacement ignores obsolete GPU pixels/errors and retries queued requests (error=%s)', async rejected => {
+  const fixture = createSelection();
+  let finish: (bytes: Uint8Array<ArrayBuffer>) => void = () => {};
+  let fail: (error: Error) => void = () => {};
+  fixture.staging.readAsync.mockImplementationOnce(() => new Promise((resolve, reject) => {finish = resolve; fail = reject;}));
+  const pending = fixture.selection.getFeatureAt({x: 0.5, y: 0.5}, {radius: undefined});
+  fixture.selection.read();
+  const oldRead = fixture.selection.readDeviceRequests();
+  fixture.selection.invalidateReadback();
+  expect(fixture.selection.read_delay_timer).toBeNull();
+  if (rejected) fail(new Error('old mapping')); else finish(new Uint8Array([7, 0, 0, 0]));
+  await oldRead;
+  expect(fixture.lookup).not.toHaveBeenCalled(); expect(fixture.selection.hasPendingRequests()).toBe(true);
+  await fixture.selection.readDeviceRequests();
+  expect(await pending).toMatchObject({feature: {name: 'building'}});
+  expect(fixture.staging.destroy).toHaveBeenCalledTimes(2); fixture.selection.destroy();
+});
+
+test('a new selection lock during asynchronous mapping preserves the request for the next completed pass', async () => {
+  const fixture = createSelection();
+  let finish: (bytes: Uint8Array<ArrayBuffer>) => void = () => {};
+  fixture.staging.readAsync.mockImplementationOnce(() => new Promise(resolve => {finish = resolve;}));
+  const pending = fixture.selection.getFeatureAt({x: 0.5, y: 0.5}, {radius: undefined});
+  const reading = fixture.selection.readDeviceRequests(); fixture.selection._lock_fn = () => true;
+  finish(new Uint8Array([7, 0, 0, 0])); await reading;
+  expect(fixture.lookup).not.toHaveBeenCalled(); fixture.selection._lock_fn = () => false;
+  await fixture.selection.readDeviceRequests(); await pending;
+  expect(fixture.lookup).toHaveBeenCalledOnce(); fixture.selection.destroy();
+});
+
 test.each([255, 3])('background/reserved or absent worker %s resolves without hanging', async workerId => {
   const fixture = createSelection(new Uint8Array([7, 0, 0, workerId]));
   const pending = fixture.selection.getFeatureAt({x: 0.5, y: 0.5}, {radius: undefined});

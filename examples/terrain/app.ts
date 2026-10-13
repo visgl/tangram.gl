@@ -19,6 +19,7 @@ import {selectTerrainDetail} from './terrain-detail';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';
 import {createDrapedBasemap} from './draped-basemap';
 import type {SceneDefinition, TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
+import {TerrainSurfaceCollection} from '@vis.gl/tangram-renderer/core';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 /** One mounted example owns its canvas, controls, workers and GPU resources. */
@@ -87,7 +88,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     follow.checked = true; clearance.value = '20';
     element<HTMLButtonElement>('land-eye').hidden = false;
     element('navigation-hint').textContent = 'Drag to look; Shift-drag to move sideways/up; arrow keys to walk; scroll to move forward. Focus the canvas for keyboard controls.';
-    element('limitations').textContent = 'A bounded local tile window follows the actual eye, including XY meter offsets. Source detail is fixed by the detail selector, not a certified horizon/error policy. Loaded top triangles constrain the point eye; missing endpoint data holds its previous height. No avatar volume, walls, tunnels or gravity. Draped basemaps use bilinear DEM samples, while physical queries use adaptive top triangles; they are not an exact identical surface.';
+    element('limitations').textContent = 'A bounded local tile window follows the actual eye, including XY meter offsets. Source detail is fixed by the detail selector, not a certified horizon/error policy. Draped ground drawing, picking and clearance share the admitted triangle surface and morph clock. Missing heights hold the eye. No avatar volume, walls, tunnels or gravity.';
   }
   attribution.replaceChildren(document.createTextNode('Elevation: '));
   source.credits.forEach((credit, index) => {
@@ -134,17 +135,21 @@ export function mountTerrainExample(host: HTMLElement, options: {
   function schedule(): void {
     if (!disposed && !animationFrame) animationFrame = requestAnimationFrame(() => {animationFrame = 0; updateSelection(); updateLayers();});
   }
+  /** While draping is enabled, an unavailable ground display is a hole, not permission to query another mesh. */
+  function displayedSurface() {
+    return draping.checked ? activeBasemap?.getDrapedTerrainSurface() ?? new TerrainSurfaceCollection('web-mercator', []) : undefined;
+  }
   /** Follow a MapView target or clamp a FirstPerson point eye, never a swept avatar volume. */
   function updateAnchor(): boolean {
     if (!follow.checked) {anchorAvailable = false; return false;}
     if (firstPerson) {
-      const result = constrainTerrainEye(camera, [...geometry.values()].map(tile => tile.mesh.loaded), Number(clearance.value), camera.position[2]);
+      const result = constrainTerrainEye(camera, [...geometry.values()].map(tile => tile.mesh.loaded), Number(clearance.value), camera.position[2], displayedSurface());
       anchorAvailable = result.available;
       if (result.state.position[2] === camera.position[2]) return false;
       camera = {...camera, position: result.state.position};
       return true;
     }
-    const height = sampleTerrainAnchor([...geometry.values()].map(tile => tile.mesh.loaded), [camera.longitude, camera.latitude], Number(clearance.value));
+    const height = sampleTerrainAnchor([...geometry.values()].map(tile => tile.mesh.loaded), [camera.longitude, camera.latitude], Number(clearance.value), displayedSurface());
     anchorAvailable = height !== null;
     if (height === null || Math.abs((camera.position?.[2] ?? 0) - height) < 1e-4) return false;
     camera = {...camera, position: [camera.position?.[0] ?? 0, camera.position?.[1] ?? 0, height]};
@@ -162,7 +167,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
         const position = viewState.position ?? camera.position;
         camera = {...camera, ...viewState, longitude: viewState.longitude ?? camera.longitude, latitude: viewState.latitude ?? camera.latitude, position: [position[0], position[1], position[2]]};
         if (firstPerson && follow.checked) {
-          const result = constrainTerrainMotion(previousCamera, camera, [...geometry.values()].map(tile => tile.mesh.loaded), Number(clearance.value));
+          const result = constrainTerrainMotion(previousCamera, camera, [...geometry.values()].map(tile => tile.mesh.loaded), Number(clearance.value), displayedSurface());
           camera = {...camera, position: result.state.position}; anchorAvailable = result.available;
           camera.longitude = result.state.longitude; camera.latitude = result.state.latitude;
           if (result.blocked) selection.textContent = result.available ? 'Movement blocked by loaded terrain; looking remains enabled' : 'Waiting for loaded terrain; eye translation held';
@@ -173,16 +178,24 @@ export function mountTerrainExample(host: HTMLElement, options: {
       deviceProps: deviceType === 'webgpu' ? {type: 'webgpu', adapters: [webgpuAdapter]} : {type: 'webgl'},
       effects: [new LightingEffect({ambient: new AmbientLight({intensity: 1}), sun: new DirectionalLight({direction: [-1, -2, -3], intensity: 2})})],
       onAfterRender: () => {
-        if (disposed || generation !== deckGeneration || performance.now() - lastDrapingStatus < 250) return;
+        if (disposed || generation !== deckGeneration) return;
+        if (draping.checked && follow.checked && updateAnchor()) {deck.setProps({viewState: camera}); schedule();}
+        if (performance.now() - lastDrapingStatus < 250) return;
         lastDrapingStatus = performance.now();
         const statistics = activeBasemap?.getTerrainDrapingStatistics();
-        element('draping-status').textContent = draping.checked && statistics ? `Basemap: ${statistics.meshes} meshes · ${statistics.vertices} vertices · ${(statistics.gridBytes / 1000000).toFixed(1)} MB grid copies · ${(statistics.meshBytes / 1000000).toFixed(1)} MB completed meshes · slowest worker mesh ${statistics.maximumPreparationMs.toFixed(1)} ms${basemapError ? ` · ${basemapError}` : ''}` : basemapError;
+        const query = activeBasemap?.getDrapedTerrainSurface()?.getStatistics();
+        element('draping-status').textContent = draping.checked && statistics ? `Basemap: ${statistics.meshes} meshes · ${statistics.vertices} vertices · ${(statistics.gridBytes / 1000000).toFixed(1)} MB grid copies · ${(statistics.meshBytes / 1000000).toFixed(1)} MB draw / ${(statistics.queryBytes / 1000000).toFixed(1)} MB query inputs / ${(statistics.stagedMeshBytes / 1000000).toFixed(1)} MB staged · slowest worker ${statistics.maximumPreparationMs.toFixed(1)} ms${query ? ` · frame queries ${(query.projectedBytes / 1000000).toFixed(1)} MB / ${query.projectionBuilds} projection builds / ${query.queryMs.toFixed(1)} ms traversal` : ''}${basemapError ? ` · ${basemapError}` : ''}` : basemapError;
       },
       onError: exception => {if (!disposed && generation === deckGeneration) status.textContent = `Rendering error: ${exception.message}`;},
       onClick: information => {
         if (disposed || generation !== deckGeneration) return;
         const viewport = information.viewport || deck.getViewports()[0];
         let nearest: TerrainScreenHit | null = null;
+        if (draping.checked) {
+          const hit = activeBasemap?.getTerrainAt({x: information.x, y: information.y});
+          selection.textContent = hit ? `${hit.coordinate[0].toFixed(5)}, ${hit.coordinate[1].toFixed(5)} — ${hit.coordinate[2].toFixed(1)} m (displayed ground)` : 'Outside the admitted draped ground';
+          return;
+        }
         for (const tile of geometry.values()) {
           const hit = tile.query.pick(viewport, [information.x, information.y]);
           if (hit && (!nearest || hit.rayParameter < nearest.rayParameter)) nearest = hit;
@@ -219,7 +232,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     const visible = new Set(drawable.map(tile => tile.key));
     for (const key of geometry.keys()) if (!visible.has(key)) geometry.delete(key);
     const layers: (TerrainLayer | InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer>)[] = [];
-    activeBasemap = undefined;
+    if (!draping.checked) activeBasemap = undefined;
     let triangles = 0;
     for (const tile of drawable) {
       if (!tile.data) continue;
@@ -243,7 +256,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
       const next = drawable.flatMap(tile => tile.data ? [`${tile.key}:${payloadId(tile.bytes ?? tile.data.grid)}`] : []).sort().join(',');
       if (next !== fieldSignature) {
         fieldSignature = next;
-        terrain = {grids, transitionDuration: 200, maxSegmentLength: 250};
+        terrain = {grids, transitionDuration: 200, maxSegmentLength: 250, querySurfaceStyles: ['ground']};
       }
       activeBasemap = new BasemapLayer({id: 'draped-basemap', scene: basemapScene, terrain, terrainExaggeration: 1, tileBuffer: 1,
         maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentTileBuilds: 2},
@@ -280,7 +293,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
   element('land-eye').addEventListener('click', () => {
     if (!firstPerson) return;
     const coordinate = getTerrainEyeCoordinate(camera);
-    const height = sampleTerrainAnchor([...geometry.values()].map(tile => tile.mesh.loaded), [coordinate[0], coordinate[1]], Number(clearance.value));
+    const height = sampleTerrainAnchor([...geometry.values()].map(tile => tile.mesh.loaded), [coordinate[0], coordinate[1]], Number(clearance.value), displayedSurface());
     if (height === null) {selection.textContent = 'No loaded top triangle under the eye; height held'; return;}
     camera = {...camera, position: [camera.position[0], camera.position[1], height]};
     freeAnchorHeight = height; deck.setProps({viewState: camera}); schedule();

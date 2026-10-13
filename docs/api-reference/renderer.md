@@ -483,7 +483,9 @@ the preferred portable path, without a luma.gl engine dependency.
 
 ### `getTerrainAt(pixel, surface, options?)`
 
-Synchronously intersects one screen ray with a host-supplied `TerrainSurface`.
+Synchronously intersects one screen ray with a host-supplied `TerrainSurface`,
+or the last submitted draped ground when `surface` is omitted and ground query
+styles were enabled. Without either surface it returns `null`.
 The same active-eye, `renderViewId`, and canvas-coordinate routing as `getFeatureAt`
 applies. The ray is clipped to the camera's near/far planes. A miss returns `null`;
 unknown eyes, non-finite pixels, a nonzero `radius`, projection mismatches, and
@@ -610,11 +612,26 @@ all current/previous grids must use one datum and non-overlapping footprints.
   additional rejection if negative elevation would invert the globe radius.
   Default is 1. It changes only uniforms, never physical DEM data.
 - `getTerrainDrapingStatistics()` returns a detached resident-output summary,
-  including vertices, triangles, bytes, holes and worker preparation cost.
+  including vertices, triangles, draw/query/staged bytes, holes and worker preparation cost.
+- `getDrapedTerrainSurface(): DrapedTerrainSurfaceSnapshot | null` captures the last
+  submitted ground draw. Enable `querySurfaceStyles` for ground raster styles.
+  The snapshot exposes `generation`, `frameTime`, `exaggeration`, `inputBytes` and
+  `displayKey`; it implements `TerrainSurfaceCollection` for rays, sightlines and
+  geographic probes. A retained snapshot does not change with later frames.
+  `snapshot.getStatistics()` reports input/projected bytes, prepared mesh count,
+  projection builds and snapshot-local preparation/traversal times. Cache hits do
+  not count as projection builds; these measurements are not full-frame or GPU costs.
+- `getTerrainAt(pixel)` uses that ground display when no explicit surface is supplied.
+  Positions include visual exaggeration; returned coordinate heights remain physical.
 
 Defaults: 250 m requested Mercator edge target, 131072 additional vertices and
 16 MiB completed output per mesh, 32 MiB owned grid arrays per scene/worker copy,
-and 200 ms morph duration. These caps exclude scratch, clones and GPU allocations.
+and 200 ms morph duration. Optional query inputs are limited to 8 MiB per mesh;
+`maxStagedMeshBytes` defaults to 64 MiB for additional replacement draw/query buffers.
+`setTerrain` admits complete batches together with one transition origin; feature
+queries wait for worker selection tables to be replaced. These caps exclude scratch,
+clones, lazy query copies, textures and GPU overhead. Spatial mixed-LOD edge conformity
+is not implied by coordinated replacement.
 See [terrain integration](../developer-guide/terrain.md#worker-side-basemap-draping)
 for precision, missing-data, query-surface and projection restrictions.
 

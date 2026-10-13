@@ -15,6 +15,10 @@ import {notifyGPUResourceDisposal} from '../gpu/resource_lifecycle';
 
 // A single mesh/VBO, described by a vertex layout, that can be drawn with one or more programs
 export default class VBOMesh  {
+    /** Exact ground query channels transferred with the final worker draw mesh. */
+    terrainQueryMesh?: import('../selection/draped-terrain-surface').DrapedTerrainQueryMesh;
+    /** One admitted terrain generation's shared transition origin. */
+    terrainVisibleAt?: number;
     /** Next automatically assigned mesh identifier. */
     declare static id: number;
     declare gl: MeshContext | null;
@@ -258,6 +262,7 @@ export default class VBOMesh  {
     }
 
     destroy(): boolean {
+        this.terrainQueryMesh = undefined;
         if (!this.valid) {
             return false;
         }

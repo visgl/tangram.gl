@@ -21,6 +21,7 @@ import {pickTerrainAt} from '../selection/terrain_surface';
 import type {TerrainSurface, TerrainSurfaceHit} from '../selection/terrain_surface';
 import {normalizeTerrainDraping, type TerrainDrapingOptions, type TerrainDrapingSnapshot} from '../procedures/terrain-draping';
 import {PROJECTION_CONSTANTS} from './projection_math';
+import {DrapedTerrainSurfaceSnapshot, type DrapedTerrainQueryEntry} from '../selection/draped-terrain-surface';
 
 
 interface FrameOptions {renderViewId?: string}
@@ -33,13 +34,16 @@ interface RendererScene {
     terrainExaggeration: number;
     /** One shared morph timestamp for all eyes and collision in this frame. */
     terrainFrameTime?: number;
+    /** Last atomically admitted mesh generation, independent of pending worker configuration. */
+    terrainDisplayGeneration?: number;
     /** Schedule a viewport-local feature query for a subsequent render. */
     getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number; renderViewId?: string; width?: number; height?: number}): Promise<FeatureSelectionResult | undefined>;
     /** Switch only selection ownership; shared workers/features remain unchanged. */
     setFeatureSelectionView?(id: string, retainedIds: readonly string[]): void;
     /** Shared source/style tile ownership across every eye. */
     tile_manager: {getResourceStatistics(): TileResourceStatistics; updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void;
-        getTerrainDrapingStatistics(terrain?: TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics};
+        getTerrainDrapingStatistics(terrain?: TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics;
+        getDrapedTerrainQueryEntries(time: number): DrapedTerrainQueryEntry[]};
     view: View;
     config: {animated?: boolean; scene?: {cpu_projection?: unknown}} | null;
     animated: boolean;
@@ -98,6 +102,12 @@ export default class Renderer {
     private terrainRevision = 0;
     /** A failed recovery cannot expose a mixture of incompatible worker generations. */
     private terrainFailed = false;
+    /** Old display feature IDs cannot be queried while workers replace their selection tables. */
+    private terrainUpdating = false;
+    /** Query ownership follows the last submitted draw, not a worker commit before the next frame. */
+    private terrainSurfaceSnapshot: DrapedTerrainSurfaceSnapshot | null = null;
+    /** Old draw buffers remain live while the worker field is staged, even with explicit previousGrids: []. */
+    private terrainDisplayMinimumHeight = 0;
     /** Prevent queued mesh updates from acting on a released scene. */
     private destroyed = false;
 
@@ -114,6 +124,7 @@ export default class Renderer {
             disableRenderLoop: true,
             cameraMode: 'external'
         }));
+        this.terrainDisplayMinimumHeight = this.scene.terrain?.minimumHeight ?? 0;
         this.host_frame = null;
         this.active_render_view_id = null;
     }
@@ -127,6 +138,7 @@ export default class Renderer {
     }
 
     load(config: SceneDefinition | null = null, options: SceneLoadOptions = {}): unknown {
+        this.terrainSurfaceSnapshot = null;
         return this.scene.load(config, options);
     }
 
@@ -158,8 +170,10 @@ export default class Renderer {
             }
             if (terrain.minimumHeight * this.scene.terrainExaggeration <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
             this.scene.terrain = terrain;
+            this.terrainUpdating = true;
             try {
                 await this.scene.rebuild({preserveTileCache: true, preserveTime: true});
+                this.terrainDisplayMinimumHeight = terrain.minimumHeight;
                 this.terrainFailed = false;
                 if (!this.destroyed) this.scene.requestRedraw();
             } catch (error) {
@@ -176,6 +190,8 @@ export default class Renderer {
                     }
                 }
                 throw error;
+            } finally {
+                this.terrainUpdating = false;
             }
         });
         this.terrainUpdate = update.catch(() => {});
@@ -186,7 +202,7 @@ export default class Renderer {
     setTerrainExaggeration(value: number): void {
         if (this.destroyed || !this.scene.terrain) throw new Error('Terrain requires a live enabled renderer');
         if (!Number.isFinite(value) || value < 0 || value > 1000) throw new Error('Terrain exaggeration must be in [0, 1000]');
-        if (this.scene.terrain.minimumHeight * value <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
+        if (Math.min(this.scene.terrain.minimumHeight, this.terrainDisplayMinimumHeight) * value <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
         if (this.scene.terrainExaggeration !== value) {this.scene.terrainExaggeration = value; this.scene.requestRedraw();}
     }
 
@@ -233,6 +249,8 @@ export default class Renderer {
      */
     getFeatureAt(pixel: {x: number; y: number}, options: FeatureSelectionOptions = {}): Promise<FeatureSelectionResult | undefined> {
         if (this.destroyed) return Promise.reject(new Error('Cannot query a destroyed renderer'));
+        if (this.terrainUpdating) return this.terrainUpdate.then(() => this.getFeatureAt(pixel, options));
+        if (this.terrainFailed) return Promise.reject(new Error('Terrain generation requires a successful correction'));
         if (![pixel.x, pixel.y, options.radius ?? 0].every(Number.isFinite) || (options.radius ?? 0) < 0) {
             return Promise.reject(new Error('Selection coordinates and non-negative radius must be finite'));
         }
@@ -252,11 +270,17 @@ export default class Renderer {
         return resolved ? pending.then(result => result && {...result, pixel: {...pixel}, renderViewId: resolved.view.id}) : pending;
     }
 
-    /** Query a host-supplied terrain mesh without substituting a flat surface on a miss. */
-    getTerrainAt(pixel: {x: number; y: number}, surface: TerrainSurface, options: FeatureSelectionOptions = {}): TerrainSurfaceHit | null {
+    /** Capture exact admitted ground triangles at the last submitted stereo frame time. */
+    getDrapedTerrainSurface(): DrapedTerrainSurfaceSnapshot | null {
+        return this.destroyed || this.terrainFailed ? null : this.terrainSurfaceSnapshot;
+    }
+
+    /** Query supplied terrain, or the exact admitted draped ground; never substitute a flat surface. */
+    getTerrainAt(pixel: {x: number; y: number}, surface?: TerrainSurface, options: FeatureSelectionOptions = {}): TerrainSurfaceHit | null {
         if (this.destroyed) throw new Error('Cannot query a destroyed renderer');
         if (!this.host_frame) throw new Error('Terrain selection requires a HostFrame');
-        return pickTerrainAt(this.host_frame, pixel, surface, options, this.active_render_view_id ?? undefined);
+        const resolved = surface ?? this.getDrapedTerrainSurface();
+        return resolved ? pickTerrainAt(this.host_frame, pixel, resolved, options, this.active_render_view_id ?? undefined) : null;
     }
 
     /** Resolve source capabilities without publishing archive handles or changing source policy. */
@@ -357,6 +381,11 @@ export default class Renderer {
             this.scene.tile_manager.updateProjectedLabels(this.host_frame, this.gpuBackend?.device.type !== 'webgpu');
         }
         const rendered = this.scene.updateScene({ renderPass });
+        if (rendered && this.scene.terrain && this.host_frame && this.host_frame.projection.type !== 'projected') {
+            const time = this.scene.terrainFrameTime ?? performance.now();
+            const entries = this.scene.tile_manager.getDrapedTerrainQueryEntries(time);
+            this.terrainSurfaceSnapshot = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0, time, this.scene.terrainExaggeration);
+        }
         if (this.submittedViews.size === 0) {
             this.scene.processTasks();
         }
@@ -372,6 +401,7 @@ export default class Renderer {
     destroy() {
         this.destroyed = true;
         this.pendingTerrain = undefined;
+        this.terrainSurfaceSnapshot = null;
         this.terrainRevision++;
         try {
             return this.scene.destroy();

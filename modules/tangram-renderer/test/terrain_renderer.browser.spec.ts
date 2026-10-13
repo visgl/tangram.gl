@@ -5,6 +5,7 @@
 import {expect, test, vi} from 'vitest';
 import Renderer from '../src/scene/renderer';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
+import {Matrix4} from '@math.gl/core';
 
 /** Physical fields small enough to exercise generation policy without GPU fixtures. */
 function field(height: number, verticalDatum: TerrainHeightGrid['verticalDatum'] = 'orthometric'): TerrainHeightGrid {
@@ -80,4 +81,43 @@ test('an active terrain rebuild drains before the latest pending snapshot is adm
     expect(rebuild).toHaveBeenCalledOnce(); finish(); await Promise.all([first, second, third]);
     expect(rebuild).toHaveBeenCalledTimes(2); expect(renderer.scene.terrain?.maxSegmentLength).toBe(200);
     renderer.destroy();
+});
+
+test('feature queries wait for terrain worker selection tables, then route through the corrected generation', async () => {
+    const renderer = Renderer.create({}, {terrain: {grids: []}});
+    let finish: () => void = () => {};
+    vi.spyOn(renderer.scene, 'rebuild').mockImplementation(() => new Promise<void>(resolve => {finish = resolve;}));
+    const select = vi.spyOn(renderer.scene, 'getFeatureAt').mockResolvedValue(undefined);
+    const update = renderer.setTerrain({grids: [field(20)]}); await Promise.resolve();
+    const query = renderer.getFeatureAt({x: 1, y: 2}); expect(select).not.toHaveBeenCalled();
+    finish(); await update; await query;
+    expect(select).toHaveBeenCalledOnce();
+    expect(renderer.getDrapedTerrainSurface()).toBeNull(); renderer.destroy();
+});
+
+test('GPU-only relief changes protect the old displayed field while an explicit no-morph replacement is staged', async () => {
+    const renderer = Renderer.create({}, {terrain: {grids: [field(-10000)]}});
+    let finish: () => void = () => {};
+    vi.spyOn(renderer.scene, 'rebuild').mockImplementation(() => new Promise<void>(resolve => {finish = resolve;}));
+    const update = renderer.setTerrain({grids: [field(0)], previousGrids: []}); await Promise.resolve();
+    expect(renderer.scene.terrain?.minimumHeight).toBe(0);
+    expect(() => renderer.setTerrainExaggeration(1000)).toThrow(/invert/);
+    finish(); await update;
+    expect(() => renderer.setTerrainExaggeration(1000)).not.toThrow(); renderer.destroy();
+});
+
+test('surface snapshots follow submitted frames, not pending config or skipped draws', () => {
+    const renderer = Renderer.create({}, {terrain: {grids: []}});
+    Object.assign(renderer.scene, {setFeatureSelectionView: vi.fn()});
+    const draw = vi.spyOn(renderer.scene, 'updateScene').mockReturnValue(true);
+    vi.spyOn(renderer.scene, 'processTasks').mockImplementation(() => {});
+    vi.spyOn(renderer.scene.tile_manager, 'updateProjectedLabels').mockImplementation(() => {});
+    vi.spyOn(renderer.scene.tile_manager, 'getDrapedTerrainQueryEntries').mockReturnValue([]);
+    const frame: import('../src/types').HostFrameOptions = {viewport: {width: 100, height: 100}, geographicAnchor: {longitude: 0, latitude: 0, zoom: 16},
+        projection: {type: 'web-mercator'}, renderViews: [{id: 'eye', viewport: {width: 100, height: 100}, camera: {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 100]}}]};
+    expect(renderer.getDrapedTerrainSurface()).toBeNull(); renderer.render({frame});
+    const first = renderer.getDrapedTerrainSurface(); expect(first?.exaggeration).toBe(1);
+    renderer.setTerrainExaggeration(2); draw.mockReturnValue(false); renderer.render(); expect(renderer.getDrapedTerrainSurface()).toBe(first);
+    draw.mockReturnValue(true); renderer.render(); expect(renderer.getDrapedTerrainSurface()?.exaggeration).toBe(2);
+    renderer.destroy(); expect(renderer.getDrapedTerrainSurface()).toBeNull();
 });

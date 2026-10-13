@@ -15,6 +15,9 @@ import {formatTerrainDecoderStatus} from './decoder-status';
 import type {TerrainGridData} from './terrain-payload';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';
 import type {TerrainExample} from './app';
+import {createDrapedBasemap} from './draped-basemap';
+import {sampleTerrainElevation, type SceneDefinition, type TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
+import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 /** Mount bounded global terrain with ordinary GlobeView navigation and physical-meter picking. */
 export function mountGlobeTerrainExample(host: HTMLElement, options: {
@@ -38,6 +41,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     maxQueryIndexBytes?: number;
     /** Uniform curved cells per tile axis, integer [2, 256]; defaults to 64. */
     meshResolution?: number;
+    /** Offline host scene, or false to use only the original elevation preview. */
+    basemap?: SceneDefinition | false;
 }): TerrainExample {
     const workerUrl = new URL(options.workerUrl, location.href);
     if (workerUrl.origin !== location.origin) throw new Error('Terrain worker must be same-origin');
@@ -50,10 +55,10 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     if (!Number.isFinite(displayBudget) || displayBudget <= 0) throw new Error('Display slice target must be positive');
     const meshResolution = options.meshResolution ?? 64;
     if (!Number.isSafeInteger(meshResolution) || meshResolution < 2 || meshResolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
-    const preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
+    let preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
     const maxDisplayBytes = options.maxDisplayBytes ?? 128 * 1024 * 1024, maxQueryIndexBytes = options.maxQueryIndexBytes ?? 64 * 1024 * 1024;
     for (const limit of [maxDisplayBytes, maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
-    const displayPreparation = new GlobeTerrainDisplayPreparation({maxDisplayBytes, maxQueryIndexBytes});
+    let displayPreparation = new GlobeTerrainDisplayPreparation({maxDisplayBytes, maxQueryIndexBytes});
     const parameters = new URLSearchParams(options.parameters);
     const rawExaggeration = parameters.get('exaggeration');
     const requested = rawExaggeration?.trim() ? Number(rawExaggeration) : 100;
@@ -68,12 +73,14 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
       <label class="control"><span>Maximum globe exaggeration</span><input data-example="exaggeration" type="range" min="0" max="200" step="1"><output data-example="exaggeration-value"></output></label>
       <label class="control"><span>Terrain detail</span><select data-example="detail"><option value="128">High</option><option value="256">Balanced</option><option value="512">Fast</option></select></label>
       <label class="control checkbox-control"><input data-example="wireframe" type="checkbox"> Wireframe</label>
+      <label class="control checkbox-control"><input data-example="draping" type="checkbox"> Draped OpenFreeMap basemap</label>
+      <p data-example="draping-status" class="hint"></p>
       <button data-example="retry" type="button">Retry failed tiles</button>
       <output data-example="terrain-hit" aria-live="polite">Click terrain for physical elevation</output>
       <output data-example="terrain-visibility" aria-live="polite">Click terrain to pin a sightline target</output>
       <button data-example="clear-target" type="button">Clear pinned target</button>
       <p class="hint">Drag to rotate; scroll/pinch to zoom. Exaggerated relief fades to flat over one apparent-diameter doubling; explicit 1× stays physical. Detail preparation pauses during navigation; display rescaling yields in separate CPU slices. The requested multiplier can briefly lead admitted relief. Complete drawing and picking generations swap together.</p>
-      <p class="hint">Adaptive globe terrain: global fallback stays warm while visible regions refine, bounded to 96 leaf tiles and 256 MiB of retained source/decoded arrays. Coarse/fine edges are stitched. This is not basemap draping or a certified pixel-error guarantee. Polar regions outside ±85.05° and no-data areas have no terrain. Elevations retain the source datum; displayed mountains are exaggerated, returned meters are not.</p>
+      <p class="hint">Adaptive globe terrain: global fallback stays warm while visible regions refine, bounded to 96 leaf tiles and 256 MiB of retained source/decoded arrays. Draped ground drawing and picking use the same worker triangles and transition clock. The separate wireframe preview remains available. Source detail is not a certified pixel-error guarantee. Polar regions outside ±85.05° and no-data areas have no terrain. Elevations retain the source datum; displayed mountains are exaggerated, returned meters are not.</p>
       <a href="https://github.com/visgl/tangram.gl/tree/master/examples/terrain" target="_blank" rel="noopener noreferrer">Source</a></aside>
       <div class="canvas-toolbar"><div class="canvas-device-tabs" role="tablist" aria-label="Rendering device">
       <button data-device-type="webgpu" type="button" role="tab">WebGPU</button><button data-device-type="webgl" type="button" role="tab">WebGL</button></div>
@@ -87,6 +94,12 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     };
     const container = element<HTMLDivElement>('map'), status = element('status'), output = element('terrain-hit');
     const exaggeration = element<HTMLInputElement>('exaggeration'), wireframe = element<HTMLInputElement>('wireframe');
+    const draping = element<HTMLInputElement>('draping'); draping.checked = options.basemap !== false; draping.disabled = options.basemap === false; wireframe.disabled = draping.checked;
+    const basemapScene = options.basemap || createDrapedBasemap();
+    let BasemapLayer: typeof import('@vis.gl/tangram-layers').TangramLayer | undefined;
+    let basemap: InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer> | undefined;
+    let terrainInput: TerrainDrapingOptions = {grids: [], querySurfaceStyles: ['ground']};
+    let basemapError = '';
     const detailControl = element<HTMLSelectElement>('detail'); detailControl.value = String(targetPixels);
     exaggeration.value = String(maximum);
     const exaggerationValue = element<HTMLOutputElement>('exaggeration-value');
@@ -97,6 +110,9 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         if (index) attribution.append(document.createTextNode(' · '));
         const link = document.createElement('a'); link.textContent = credit.label; link.href = credit.url; link.rel = 'noopener noreferrer'; attribution.append(link);
     });
+    const basemapCredits = document.createElement('span'); basemapCredits.append(document.createTextNode(' · Basemap: '));
+    const creditValue = document.createElement('span'); basemapCredits.append(creditValue); attribution.append(basemapCredits); basemapCredits.hidden = !draping.checked;
+    updateAttribution(creditValue, getConfiguredAttributions(basemapScene));
     // deck.gl changes GlobeView to Mercator above zoom 12; this layer stays spherical.
     let camera: GlobeViewState = {longitude: 80, latitude: 25, zoom: 1, maxZoom: 12};
     let device = parameters.get('device') === 'webgl' ? 'webgl' : navigator.gpu ? 'webgpu' : 'webgl';
@@ -129,17 +145,18 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     }
     /** Re-sample the pinned geographic target only when camera or admitted geometry changes, never every idle frame. */
     function updatePinnedStatus(): void {
-        if (disposed || !layer || !pinnedCoordinate) return;
+        if (disposed || !pinnedCoordinate || !layer && !basemap) return;
         const viewport = deck.getViewports()[0];
         if (!viewport || viewport.projectionMode !== 2) return;
-        const signature = [...pinnedCoordinate, ...viewport.viewProjectionMatrix].join(',');
-        if (pinnedSignature === signature && pinnedLayer === layer && pinnedSurfaces === layer.state?.surfaces) return;
-        pinnedSignature = signature; pinnedLayer = layer; pinnedSurfaces = layer.state?.surfaces;
-        const target = layer.sampleElevation(pinnedCoordinate);
+        const surface = draping.checked ? basemap?.getDrapedTerrainSurface() : null;
+        const signature = `${[...pinnedCoordinate, ...viewport.viewProjectionMatrix].join(',')}/${surface?.displayKey ?? 'preview'}`;
+        if (pinnedSignature === signature && pinnedLayer === layer && pinnedSurfaces === layer?.state?.surfaces) return;
+        pinnedSignature = signature; pinnedLayer = layer; pinnedSurfaces = layer?.state?.surfaces;
+        const target = draping.checked ? surface && sampleTerrainElevation(surface, pinnedCoordinate, {minimumAltitude: -12000, maximumAltitude: 10000000}) : layer?.sampleElevation(pinnedCoordinate);
         let text = 'Pinned target is outside loaded terrain; visibility unknown';
         if (target) {
             const camera = viewport.cameraPosition;
-            const blocker = layer.intersectTerrainSegment([camera[0], camera[1], camera[2]], target.position, {startInset: 1e-7, endInset: 1e-4});
+            const blocker = surface ? surface.intersectSegment([camera[0], camera[1], camera[2]], target.position, {startInset: 1e-7, endInset: 1e-4}) : layer?.intersectTerrainSegment([camera[0], camera[1], camera[2]], target.position, {startInset: 1e-7, endInset: 1e-4});
             text = `Pinned ${pinnedCoordinate[0].toFixed(4)}, ${pinnedCoordinate[1].toFixed(4)} · ${target.coordinate[2].toFixed(1)} physical m · ${blocker ? 'blocked by loaded terrain' : 'no blocker in loaded terrain (not certified visibility)'}`;
         }
         const output = element('terrain-visibility'); if (output.textContent !== text) output.textContent = text;
@@ -162,12 +179,16 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
             onClick: information => {
                 if (disposed || generation !== deckGeneration) return;
                 const viewport = information.viewport ?? deck.getViewports()[0];
-                const hit = viewport && layer?.pickTerrain(viewport, [information.x, information.y]);
+                const hit = draping.checked ? basemap?.getTerrainAt({x: information.x, y: information.y}) : viewport && layer?.pickTerrain(viewport, [information.x, information.y]);
                 output.textContent = hit ? `${hit.coordinate[0].toFixed(4)}, ${hit.coordinate[1].toFixed(4)} — ${hit.coordinate[2].toFixed(1)} physical m` : 'Outside loaded terrain';
                 pinnedCoordinate = hit ? [hit.coordinate[0], hit.coordinate[1]] : undefined; pinnedSignature = '';
                 element('terrain-visibility').textContent = 'Click terrain to pin a sightline target';
                 updatePinnedStatus(); updateDisplayStatus();
-            }, onAfterRender: () => {if (generation === deckGeneration) {updatePinnedStatus(); updateDisplayStatus();}}, onLoad: () => {if (!disposed && generation === deckGeneration) {deckReady = true; schedule();}}});
+            }, onAfterRender: () => {if (generation === deckGeneration) {updatePinnedStatus(); updateDisplayStatus();
+                const statistics = basemap?.getTerrainDrapingStatistics();
+                const query = basemap?.getDrapedTerrainSurface()?.getStatistics();
+                if (draping.checked && statistics) element('draping-status').textContent = `Basemap: ${statistics.meshes} meshes · ${(statistics.meshBytes / 1000000).toFixed(1)} MB draw / ${(statistics.queryBytes / 1000000).toFixed(1)} MB query / ${(statistics.stagedMeshBytes / 1000000).toFixed(1)} MB staged · slowest worker ${statistics.maximumPreparationMs.toFixed(1)} ms${query ? ` · frame queries ${(query.projectedBytes / 1000000).toFixed(1)} MB / ${query.projectionBuilds} projection builds / ${query.queryMs.toFixed(1)} ms traversal` : ''}${basemapError ? ` · ${basemapError}` : ''}`;
+            }}, onLoad: () => {if (!disposed && generation === deckGeneration) {deckReady = true; schedule();}}});
     }
     let deck = createDeck();
     /** Refine visible data with hysteresis, retaining complete stitched parent fallback and warm sources. */
@@ -185,6 +206,27 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         const drawable = tileset.getDrawableTiles();
         const nextGrids = drawable.flatMap(tile => tile.data ? [tile.data.grid] : []);
         for (const tile of drawable) if (tile.data) zoomByGrid.set(tile.data.grid, tile.coordinate.zoom);
+        if (draping.checked && BasemapLayer) {
+            grids = nextGrids;
+            if (nextGrids.length !== terrainInput.grids.length || nextGrids.some((grid, index) => grid !== terrainInput.grids[index])) {
+                terrainInput = {grids, querySurfaceStyles: ['ground'], transitionDuration: 200, maxSegmentLength: 100000,
+                    maxGridBytes: 256 * 1024 * 1024, maxStagedMeshBytes: 128 * 1024 * 1024};
+            }
+            const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
+            basemap = new BasemapLayer({id: 'globe-draped-basemap', scene: basemapScene, terrain: terrainInput,
+                terrainExaggeration: effective, globeMaxElevation: 12000 * Math.max(1, effective), tileBuffer: 0, globePreloadZoom: 2,
+                maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentTileBuilds: 2},
+                onAttributionChange: (credits: string[]) => {if (!disposed) updateAttribution(creditValue, credits);},
+                onSceneError: (error: unknown) => {if (!disposed) {basemapError = String(error); element('draping-status').textContent = basemapError;}}});
+            deck.setProps({layers: [basemap]});
+            const statistics = tileset.getStatistics();
+            element('decoder-status').textContent = formatTerrainDecoderStatus(decoder.getStatistics(), statistics);
+            element('preparation-status').textContent = 'Worker-owned basemap topology; separate elevation-preview preparation is paused';
+            element('display-status').textContent = 'Exaggeration is GPU-only; exact ground queries are prepared lazily and reused while displacement is unchanged';
+            const highest = Math.max(0, ...grids.map(grid => zoomByGrid.get(grid) ?? 0));
+            status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${grids.length} loaded grids · z${highest} detail · ${effective.toFixed(1)}× relief · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(0)} MB cached${statistics.active || statistics.queued ? ` · ${statistics.active} active / ${statistics.queued} queued` : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
+            return;
+        }
         // Keep only one template→display handoff in flight; warm source acquisition can continue.
         if (!displayPreparation.isPending()) {
             preparation.request(nextGrids, meshResolution);
@@ -203,6 +245,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
             layer = new GlobeTerrainLayer({id: 'globe-terrain', data: grids, preparedTerrain: snapshot?.terrain, preparedDisplay: snapshot, meshResolution, globeTerrainExaggeration: currentExaggeration, wireframe: wireframe.checked, maxDisplayBytes, maxQueryIndexBytes});
             displayedMaximum = currentExaggeration; displayedWireframe = wireframe.checked;
         }
+        basemap = undefined;
         deck.setProps({layers: [layer]});
         updateDisplayStatus();
         const statistics = tileset.getStatistics();
@@ -226,6 +269,17 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         parameters.set('exaggeration', String(value)); options.onParametersChange?.(new URLSearchParams(parameters)); schedule();
     }, {signal: abort.signal});
     wireframe.addEventListener('change', schedule, {signal: abort.signal});
+    draping.addEventListener('change', () => {
+        wireframe.disabled = draping.checked; basemapCredits.hidden = !draping.checked; pinnedSignature = '';
+        if (draping.checked) {
+            // Release unused preview/query generations instead of keeping two complete terrain pipelines resident.
+            preparation.destroy(); displayPreparation.destroy();
+            preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
+            displayPreparation = new GlobeTerrainDisplayPreparation({maxDisplayBytes, maxQueryIndexBytes});
+            displayedSnapshot = undefined; layer = undefined; pinnedLayer = undefined; pinnedSurfaces = undefined;
+        }
+        schedule();
+    }, {signal: abort.signal});
     detailControl.addEventListener('change', () => {
         parameters.set('detail', detailControl.value); options.onParametersChange?.(new URLSearchParams(parameters)); clearTimeout(detailTimer); detailTimer = undefined; detailCameraSignature = ''; schedule();
     }, {signal: abort.signal});
@@ -246,7 +300,10 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const coordinates = Array.from({length: 16}, (_, index) => ({zoom: 2, column: index % 4, row: Math.floor(index / 4)}));
     selectionSignature = coordinates.map(getTerrainTileKey).join(',');
     tileset.update(coordinates, 10000);
-    return {ready: tileset.waitForIdle().then(() => {updateLayers();}), destroy() {
-        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); preparation.destroy(); displayPreparation.destroy(); destroyCard(); deck.finalize(); layer = undefined; displayedSnapshot = undefined; pinnedLayer = undefined; pinnedSurfaces = undefined; pinnedCoordinate = undefined; grids = []; detail = undefined; root.remove();
+    const basemapReady = options.basemap === false ? Promise.resolve() : import('@vis.gl/tangram-layers').then(module => {
+        if (!disposed) {BasemapLayer = module.TangramLayer; schedule();}
+    }).catch(error => {if (!disposed) {draping.checked = false; basemapCredits.hidden = true; wireframe.disabled = false; basemapError = String(error); element('draping-status').textContent = basemapError; schedule();}});
+    return {ready: Promise.all([tileset.waitForIdle(), basemapReady]).then(() => {updateLayers();}), destroy() {
+        if (disposed) return; disposed = true; clearTimeout(detailTimer); abort.abort(); observer.disconnect(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); preparation.destroy(); displayPreparation.destroy(); destroyCard(); deck.finalize(); layer = undefined; basemap = undefined; terrainInput = {grids: []}; displayedSnapshot = undefined; pinnedLayer = undefined; pinnedSurfaces = undefined; pinnedCoordinate = undefined; grids = []; detail = undefined; root.remove();
     }};
 }

@@ -10,6 +10,7 @@ import {createRasterScene, createScene} from './scene';
 import {Matrix4} from '@math.gl/core';
 import {Deck, MapView} from '@deck.gl/core';
 import {TangramLayer} from '@vis.gl/tangram-layers';
+import {sampleTerrainElevation} from '@vis.gl/tangram-renderer/core';
 
 const harnesses: RenderingHarness[] = [];
 const decks: Deck<MapView>[] = [];
@@ -78,6 +79,44 @@ test('packaged raster UVs survive worker refinement and displacement', async () 
     await harness.renderer.setTerrain(terrain(200)); await harness.settle();
     expect(changedPixels(first, await harness.pixels())).toBeGreaterThan(100);
     expect(harness.errors).toEqual([]);
+}, 45000);
+
+test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s draped ground picking uses the exact admitted draw topology across replacement and exaggeration', async kind => {
+    const harness = new RenderingHarness(kind); harnesses.push(harness);
+    harness.terrain = {...terrain(100, kind === 'globe'), querySurfaceStyles: ['raster']};
+    const base = createRasterScene();
+    await harness.initialize({...base, layers: {basemap: {...base.layers.basemap, draw: {raster: {...base.layers.basemap.draw.raster, z: 40}}}}}); await harness.settle();
+    expect(coloredPixels(await harness.pixels())).toBeGreaterThan(50);
+    const snapshot = harness.renderer.getDrapedTerrainSurface();
+    if (!snapshot) throw new Error('Expected an admitted draped ground snapshot');
+    const before = sampleTerrainElevation(snapshot, [0, 0], {minimumAltitude: -1000, maximumAltitude: 1000});
+    expect(before?.coordinate[2]).toBeCloseTo(140, 4);
+    const source = await harness.renderer.getTileSourceStatistics();
+    await harness.renderer.setTerrain({...terrain(200, kind === 'globe'), querySurfaceStyles: ['raster']}); await harness.settle();
+    harness.renderer.setTerrainExaggeration(2); await harness.settle();
+    const next = harness.renderer.getDrapedTerrainSurface();
+    if (!next) throw new Error('Expected a replacement ground snapshot');
+    expect(sampleTerrainElevation(next, [0, 0], {minimumAltitude: -1000, maximumAltitude: 1000})?.coordinate[2]).toBeCloseTo(240, 4);
+    expect(sampleTerrainElevation(snapshot, [0, 0], {minimumAltitude: -1000, maximumAltitude: 1000})?.coordinate[2]).toBeCloseTo(140, 4);
+    expect(await harness.renderer.getTileSourceStatistics()).toEqual(source);
+    expect(harness.renderer.getTerrainDrapingStatistics().queryBytes).toBeGreaterThan(0);
+    expect(harness.renderer.getTerrainDrapingStatistics().stagedMeshBytes).toBe(0);
+}, 45000);
+
+test('either stereo eye routes ground picking through the same physical snapshot', async () => {
+    const harness = new RenderingHarness('perspective', 'stereo-preview'); harnesses.push(harness);
+    harness.terrain = {...terrain(100), querySurfaceStyles: ['raster']};
+    await harness.initialize(createRasterScene()); await harness.settle();
+    const frame = harness.presentation.createFrame({width: 512, height: 320});
+    for (const view of frame.renderViews) {
+        const viewport = view.deckViewport;
+        if (!viewport) throw new Error('Expected stereo viewport');
+        if (!view.viewport) throw new Error('Expected stereo render rectangle');
+        const pixel = viewport.project([0, 0, 100]);
+        const hit = harness.renderer.getTerrainAt({x: pixel[0] + (view.viewport.x ?? 0), y: pixel[1] + (view.viewport.y ?? 0)}, undefined, {coordinateSpace: 'canvas'});
+        expect(hit?.coordinate[2]).toBeCloseTo(100, 3); expect(hit?.renderViewId).toBe(view.id);
+        expect(harness.renderer.getTerrainAt({x: pixel[0], y: pixel[1]}, undefined, {renderViewId: view.id})?.renderViewId).toBe(view.id);
+    }
 }, 45000);
 
 test.each(['perspective', 'globe'] as const)('%s draping follows both mocked immersive room-space cameras', async kind => {

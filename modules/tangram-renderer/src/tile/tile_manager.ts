@@ -12,6 +12,7 @@ import Geo from '../utils/geo';
 import mainThreadLabelCollisionPass from '../labels/main_pass';
 import {layoutProjectedAnnotations} from '../labels/projected-pass';
 import {hasTerrainTileCoverage} from '../procedures/terrain-draping';
+import type {DrapedTerrainQueryEntry} from '../selection/draped-terrain-surface';
 import type HostFrame from '../scene/host_frame';
 import log from '../utils/log';
 import WorkerBroker from '../utils/worker_broker';
@@ -230,7 +231,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
 
     /** Summarize resident worker output, separate from source caches, GPU and transient allocations. */
     getTerrainDrapingStatistics(terrain?: import('../procedures/terrain-draping').TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics {
-        const result = {enabled: Boolean(terrain), gridBytes: terrain?.byteLength ?? 0, meshes: 0, vertices: 0, triangles: 0, suppressedTriangles: 0, meshBytes: 0, maximumPreparationMs: 0, detailLimitedMeshes: 0};
+        const result = {enabled: Boolean(terrain), gridBytes: terrain?.byteLength ?? 0, meshes: 0, vertices: 0, triangles: 0, suppressedTriangles: 0, meshBytes: 0, maximumPreparationMs: 0, detailLimitedMeshes: 0, queryBytes: 0, stagedMeshBytes: this.getStagedTerrainBytes()};
         for (const tile of Object.values(this.tiles)) for (const parts of Object.values(tile.meshes || {})) for (const mesh of parts) {
             const stats = mesh.variant?.terrainStatistics;
             if (!mesh.valid || !stats) continue;
@@ -238,8 +239,44 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
             result.suppressedTriangles += stats.suppressedTriangles; result.meshBytes += stats.meshBytes;
             result.maximumPreparationMs = Math.max(result.maximumPreparationMs, stats.preparationMs);
             result.detailLimitedMeshes += Number(stats.detailLimited);
+            const query = mesh.terrainQueryMesh;
+            if (query) result.queryBytes += query.positions.byteLength + query.heights.byteLength + query.indices.byteLength;
         }
         return result;
+    }
+
+    /** Additional staged draw/query typed arrays; does not estimate textures or driver/GPU overhead. */
+    getStagedTerrainBytes(): number {
+        let bytes = 0;
+        for (const tile of Object.values(this.tiles)) if (tile.terrainStage) for (const meshes of [tile.terrainStage.meshes, tile.terrainStage.labels ?? {}]) for (const parts of Object.values(meshes)) for (const mesh of parts) {
+            const query = mesh.terrainQueryMesh;
+            bytes += mesh.buffer_size + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+        }
+        return bytes;
+    }
+
+    /** Refresh draw membership after a commit without starting another worker batch inside queue settlement. */
+    publishTerrainDisplay(): void {
+        this.updateProxyTiles(); this.updateGlobeFallbackTiles(); this.updateRenderableTiles();
+        this.style_manager.updateActiveStyles(this.renderable_tiles);
+        this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
+    }
+
+    /** Ground query membership and fallback clipping follow the same admitted owners as the draw pass. */
+    getDrapedTerrainQueryEntries(time: number): DrapedTerrainQueryEntry[] {
+        const entries: DrapedTerrainQueryEntry[] = [];
+        for (const tile of this.renderable_tiles) for (const [style, parts] of Object.entries(tile.meshes)) {
+            if (!tile.shouldProxyForStyle(style)) continue;
+            for (const mesh of parts) {
+                if (!mesh.valid || !mesh.terrainQueryMesh) continue;
+                const duration = mesh.variant.terrainTransitionDuration ?? 0;
+                const blend = mesh.terrainVisibleAt === undefined || !duration ? 1 : Math.max(0, Math.min(1, (time - mesh.terrainVisibleAt) / duration));
+                const scale = tile.span.x / 4096;
+                const clips = tile.fallback_for ? Array.from(tile.fallback_for.values(), bounds => [tile.min.x + bounds[0] * scale, tile.min.y + bounds[1] * scale, tile.min.x + bounds[2] * scale, tile.min.y + bounds[3] * scale]) : undefined;
+                entries.push({id: `${tile.key}/${style}/${mesh.id}`, mesh: mesh.terrainQueryMesh, blend, clips});
+            }
+        }
+        return entries;
     }
 
     updateLabels () {
@@ -487,6 +524,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
 
     // Start tile build process
     buildTile(tile, options) {
+        if (this.scene.terrainTransaction && !tile.terrainStage) tile.beginTerrainStage();
         this.tileBuildStart(tile.key);
         this.updateVisibility(tile);
         const generation = this.scene.generation;
@@ -505,6 +543,16 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
 
     // Called on main thread when a web worker completes processing for a single tile (initial load, or rebuild)
     buildTileStylesCompleted({ tile, progress }) {
+        if (this.scene.terrainTransaction && tile.generation === this.scene.generation && this.tiles[tile.key]?.id === tile.id) {
+            let incoming = 0;
+            for (const data of Object.values(tile.mesh_data ?? {})) for (const mesh of Object.values(data.meshes ?? {})) {
+                const query = mesh.terrain_surface;
+                incoming += (mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements?.byteLength ?? 0) + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+            }
+            if (this.getStagedTerrainBytes() + incoming > this.scene.terrain.maxStagedMeshBytes) {
+                this.buildTileError({...tile, error: new Error('Terrain staged mesh-byte budget exceeded')}); return;
+            }
+        }
         // Removed this tile during load?
         if (this.tiles[tile.key] == null) {
             log('trace', `discarded tile ${tile.key} in TileManager.buildTileStylesCompleted because previously removed`);
@@ -532,10 +580,17 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
             }
 
             if (progress.done) {
-                tile.built = true;
+                if (tile.terrainStage) tile.terrainStage.done = true;
+                else tile.built = true;
             }
 
-            this.scene.withWebGLContext(() => tile.buildMeshes(this.scene.styles, progress));
+            const batch = tile.mesh_data;
+            try {this.scene.withWebGLContext(() => tile.buildMeshes(this.scene.styles, progress));}
+            catch (error) {
+                if (!this.scene.terrainTransaction) throw error;
+                delete tile.mesh_data;
+                this.buildTileError({...Tile.slice(tile), mesh_data: batch, error}); return;
+            }
             this.updateTileStates();
             this.scene.requestRedraw();
         }
@@ -560,6 +615,13 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         // Record the failure before releasing work: the last release may settle
         // the scene rebuild synchronously. Stale generations never reach here.
         this.scene.tileManagerBuildError?.(tile.error);
+        if (this.scene.terrainTransaction) {
+            current.discardTerrainStage();
+            current.loading = false;
+            Tile.abortBuild(tile);
+            this.tileBuildStop(tile.key, `${tile.id}/${tile.generation}`);
+            return;
+        }
         const ownedMeshData = current.mesh_data;
         current.destroy();
         this.forgetTile(tile.key);

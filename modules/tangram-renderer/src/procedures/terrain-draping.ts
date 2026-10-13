@@ -7,6 +7,8 @@ import type {TerrainHeightGrid} from '../map-logic/terrain-data';
 import {PROJECTION_CONSTANTS} from '../scene/projection_math';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import VertexLayout from '../gl/vertex_layout';
+import type {DrapedTerrainQueryMesh} from '../selection/draped-terrain-surface';
+import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 
 /** Opt-in physical-height basemap displacement, independent of deck, providers and GPU ownership. */
 export interface TerrainDrapingOptions {
@@ -24,6 +26,12 @@ export interface TerrainDrapingOptions {
     maxGridBytes?: number;
     /** Height and slope interpolation duration per newly displayed mesh, default 200 ms. */
     transitionDuration?: number;
+    /** Ground style names whose exact final triangles are retained for physical queries; default empty. */
+    querySurfaceStyles?: readonly string[];
+    /** Retained query channels per mesh, default 8 MiB; separate from completed draw bytes. */
+    maxQueryMeshBytes?: number;
+    /** Additional staged draw/query buffers across a replacement generation; default 64 MiB, excluding GPU overhead. */
+    maxStagedMeshBytes?: number;
 }
 
 /** Validated, detached physical input; typed-array contents are immutable by contract. */
@@ -74,6 +82,10 @@ export interface TerrainDrapingStatistics {
     maximumPreparationMs: number;
     /** Resident meshes constrained by the per-tile detail floor. */
     detailLimitedMeshes: number;
+    /** Retained exact ground topology and height channels, excluding lazy projected query copies. */
+    queryBytes: number;
+    /** New draw/query buffers waiting for all worker batches to complete. */
+    stagedMeshBytes: number;
 }
 
 /** Validate and snapshot terrain before changing a scene or rebuilding workers. */
@@ -83,9 +95,14 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     const vertices = options.maxAdditionalVertices ?? 131072;
     const meshBytes = options.maxMeshBytes ?? 16 * 1024 * 1024;
     const duration = options.transitionDuration ?? 200;
+    const querySurfaceStyles = options.querySurfaceStyles ?? [];
+    const maxQueryMeshBytes = options.maxQueryMeshBytes ?? 8 * 1024 * 1024;
+    const maxStagedMeshBytes = options.maxStagedMeshBytes ?? 64 * 1024 * 1024;
     if (!Number.isSafeInteger(maximum) || maximum < 0 || !Number.isFinite(segment) || segment < 1 ||
         !Number.isSafeInteger(vertices) || vertices < 0 || vertices > 262144 || !Number.isSafeInteger(meshBytes) || meshBytes < 0 ||
-        !Number.isFinite(duration) || duration < 0 || duration > 5000) throw new Error('Invalid terrain draping limits');
+        !Number.isFinite(duration) || duration < 0 || duration > 5000 ||
+        ![maxQueryMeshBytes, maxStagedMeshBytes].every(value => Number.isSafeInteger(value) && value >= 0) ||
+        querySurfaceStyles.some(name => typeof name !== 'string' || !name.length) || new Set(querySurfaceStyles).size !== querySurfaceStyles.length) throw new Error('Invalid terrain draping limits');
     const previous = options.previousGrids ?? [];
     let bytes = 0;
     let minimumHeight = 0;
@@ -110,7 +127,29 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     if (minimumHeight <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain height would invert the globe radius');
     const copy = (grids: readonly TerrainHeightGrid[]): TerrainHeightGrid[] => grids.map(grid => ({...grid, bounds: [...grid.bounds], heights: Float32Array.from(grid.heights), valid: Uint8Array.from(grid.valid)}));
     return {grids: copy(options.grids), previousGrids: copy(previous), maxSegmentLength: segment, maxAdditionalVertices: vertices,
-        maxGridBytes: maximum, maxMeshBytes: meshBytes, transitionDuration: duration, byteLength: bytes, minimumHeight};
+        maxGridBytes: maximum, maxMeshBytes: meshBytes, transitionDuration: duration, byteLength: bytes, minimumHeight,
+        querySurfaceStyles: [...querySurfaceStyles], maxQueryMeshBytes, maxStagedMeshBytes};
+}
+
+/** Retain only the final draw's ground channels and topology, never reconstruct another DEM mesh. */
+export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uint16Array | Uint32Array, layout: VertexLayout,
+    origin: readonly [number, number], tileZoom: number, byteLimit: number): DrapedTerrainQueryMesh {
+    const count = vertices.byteLength / layout.stride;
+    if (!Number.isInteger(count) || count * 32 + indices.byteLength > byteLimit) throw new Error('Terrain query mesh-byte budget exceeded');
+    const positions = new Float64Array(count * 3), heights = new Float32Array(count * 2);
+    const data = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
+    const scale = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** tileZoom);
+    for (let vertex = 0; vertex < count; vertex++) {
+        const position = vertex * layout.stride + layout.offset.a_position;
+        positions.set([origin[0] + data.getFloat32(position, true) * scale, origin[1] + data.getFloat32(position + 4, true) * scale, data.getFloat32(position + 8, true) / PACKED_HEIGHT_SCALE], vertex * 3);
+        heights.set([data.getFloat32(vertex * layout.stride + layout.offset.a_terrain, true), data.getFloat32(vertex * layout.stride + layout.offset.a_terrain_previous, true)], vertex * 2);
+    }
+    const bounds: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const vertex of indices) {
+        bounds[0] = Math.min(bounds[0], positions[vertex * 3]); bounds[1] = Math.min(bounds[1], positions[vertex * 3 + 1]);
+        bounds[2] = Math.max(bounds[2], positions[vertex * 3]); bounds[3] = Math.max(bounds[3], positions[vertex * 3 + 1]);
+    }
+    return {positions, heights, indices: indices.slice(), bounds};
 }
 
 const layouts = new WeakMap<VertexLayout, VertexLayout>();

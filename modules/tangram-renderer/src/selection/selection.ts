@@ -16,6 +16,8 @@ import type {SelectionContext, SelectionEntry, SelectionPoint, SelectionReply, S
 
 /** Selection readback and worker lookup lifecycle, independent of the scene's render backend. */
 export default class FeatureSelection {
+    /** Invalidates asynchronous GPU pixels when worker feature tables move to another generation. */
+    private readbackRevision = 0;
     /** Legacy GL handle, absent for device-only selection. */
     declare gl: WebGLRenderingContext | null;
     /** Worker lookup endpoints indexed by the alpha-byte worker identifier. */
@@ -235,6 +237,14 @@ export default class FeatureSelection {
         }
     }
 
+    /** Keep unsent promises queued, but prevent old GPU pixels from looking up newly assigned feature keys. */
+    invalidateReadback(): void {
+        this.readbackRevision++;
+        if (this.read_delay_timer !== null) clearTimeout(this.read_delay_timer);
+        this.read_delay_timer = null;
+        for (const request of Object.values(this.requests)) if (!request.sent) request.reading = false;
+    }
+
     // Read pending results from the selection buffer. Called after rendering to selection buffer.
     /** Schedule readback after rendering, respecting the external lock. */
     read(): void {
@@ -366,10 +376,13 @@ export default class FeatureSelection {
             if (this.locked) return;
             if (this.destroyed || this.requests[request.id] !== request || request.sent || request.reading) continue;
             request.reading = true;
+            const revision = this.readbackRevision;
             try {
                 const texture = this.framebuffer!.colorAttachments[0].texture;
                 const {pixels, width, height} = await readSelectionPixels(this.device!, texture, request.point, request.radius);
+                if (revision !== this.readbackRevision) return;
                 if (this.destroyed || this.requests[request.id] !== request) continue;
+                if (this.locked) {request.reading = false; return;}
                 const hit = findSelectionKey(pixels, width, height);
                 if (hit && hit.workerId !== 255 && this.workers[hit.workerId]) {
                     request.sent = true;
@@ -380,6 +393,7 @@ export default class FeatureSelection {
                     this.finishRead({id: request.id});
                 }
             } catch (error) {
+                if (revision !== this.readbackRevision) return;
                 if (this.requests[request.id] === request) {
                     request.reject(error);
                     delete this.requests[request.id];

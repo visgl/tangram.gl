@@ -39,6 +39,12 @@ export default class Tile {
     declare built: boolean;
     /** GPU mesh ownership by style. */
     declare meshes: Record<string, VBOMesh[]>;
+    /** Admitted-generation annotations awaiting screen collision. */
+    declare pending_label_meshes: Record<string, VBOMesh[]> | null;
+    /** Replacement GPU owners kept out of the display until the worker generation drains. */
+    terrainStage?: {meshes: Record<string, VBOMesh[]>; labels: Record<string, VBOMesh[]> | null; styles: string[]; done?: boolean};
+    /** Upload owners created in one staged batch, including allocations not yet attached to a style. */
+    private terrainUploadOwners?: VBOMesh[];
     matrix4 = new Matrix4();
 
     /**
@@ -93,6 +99,7 @@ export default class Tile {
 
     // Free resources owned by tile
     freeResources () {
+        this.discardTerrainStage();
         for (let m in this.meshes) {
             this.meshes[m].forEach(m => m.destroy());
         }
@@ -414,7 +421,52 @@ export default class Tile {
        Called on main thread when a web worker completes processing
        for a single tile.
     */
+    /** Begin an isolated mesh generation; the existing display remains owned by this tile. */
+    beginTerrainStage(): void {
+        this.discardTerrainStage();
+        this.terrainStage = {meshes: {}, labels: null, styles: []};
+    }
+
+    /** Release only staged replacement buffers after cancellation, removal or failure. */
+    discardTerrainStage(): void {
+        const stage = this.terrainStage;
+        this.terrainStage = undefined;
+        if (stage) for (const meshes of [stage.meshes, stage.labels ?? {}]) for (const parts of Object.values(meshes)) for (const mesh of parts) mesh.destroy();
+    }
+
+    /** Publish complete draw owners together, with one shared transition origin for every tile. */
+    commitTerrainStage(time: number): void {
+        const stage = this.terrainStage;
+        if (!stage) return;
+        this.terrainStage = undefined;
+        this.freeResources();
+        this.meshes = stage.meshes; this.pending_label_meshes = stage.labels; this.new_mesh_styles = stage.styles;
+        if (stage.done) this.built = true;
+        for (const meshes of [stage.meshes, stage.labels ?? {}]) for (const parts of Object.values(meshes)) for (const mesh of parts) mesh.terrainVisibleAt = time;
+    }
+
+    /** Upload incrementally without replacing any currently admitted terrain draw owners. */
     buildMeshes(styles, progress) {
+        const stage = this.terrainStage;
+        if (!stage) return this.buildMeshBatch(styles, progress);
+        const meshes = this.meshes, labels = this.pending_label_meshes, previousStyles = this.new_mesh_styles;
+        this.meshes = stage.meshes; this.pending_label_meshes = stage.labels; this.new_mesh_styles = stage.styles;
+        this.terrainUploadOwners = [];
+        try {this.buildMeshBatch(styles, progress);}
+        catch (error) {
+            // The rejected raw batch still owns its transferred texture references.
+            // Release new buffers here; TileManager aborts those references exactly once.
+            for (const mesh of this.terrainUploadOwners) {mesh.textures = undefined; mesh.destroy();}
+            throw error;
+        }
+        finally {
+            this.terrainUploadOwners = undefined;
+            stage.meshes = this.meshes; stage.labels = this.pending_label_meshes; stage.styles = this.new_mesh_styles;
+            this.meshes = meshes; this.pending_label_meshes = labels; this.new_mesh_styles = previousStyles;
+        }
+    }
+
+    buildMeshBatch(styles, progress) {
         if (this.error) {
             return;
         }
@@ -452,8 +504,10 @@ export default class Tile {
                         }
 
                         let mesh = styles[s].makeMesh(mesh_variant.vertex_data, mesh_variant.vertex_elements, mesh_options);
+                        this.terrainUploadOwners?.push(mesh);
                         mesh.variant = mesh_options.variant;
                         mesh.labels = mesh_variant.labels;
+                        mesh.terrainQueryMesh = mesh_variant.terrain_surface;
                         meshes[s] = meshes[s] || [];
                         meshes[s].push(mesh);
                         if (mesh.variant.mesh_order == null) {

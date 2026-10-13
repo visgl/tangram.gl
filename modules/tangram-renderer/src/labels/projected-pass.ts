@@ -142,7 +142,8 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
             if (offset.a_terrain !== undefined) {
                 if (data.getFloat32(base + offset.a_terrain + 12, true) < 0.5) return null;
                 mesh.terrainVisibleAt ??= terrainTime;
-                const blend = transitionDuration ? Math.max(0, Math.min(1, (terrainTime - mesh.terrainVisibleAt) / transitionDuration)) : 1;
+                const duration = mesh.variant?.terrainTransitionDuration ?? transitionDuration;
+                const blend = duration ? Math.max(0, Math.min(1, (terrainTime - mesh.terrainVisibleAt) / duration)) : 1;
                 const current = data.getFloat32(base + offset.a_terrain, true);
                 const previous = data.getFloat32(base + offset.a_terrain_previous, true);
                 anchor[2] += (previous + (current - previous) * blend) * terrainExaggeration;
