@@ -1225,7 +1225,7 @@ ShaderProgram.updateProgram = function (gl, program, vertex_shader_source, fragm
             ${fragment_shader_source}`);
 
         ShaderProgram.releaseProgram(gl, program);
-        throw Object.assign(new Error(message.message), { type: 'program' });
+        throw Object.assign(new Error(String(message)), { type: 'program' });
     }
 
     if (!use_shader_resources) {
@@ -1253,7 +1253,7 @@ ShaderProgram.createShader = function (gl, source, stype) {
         let type = (stype === gl.VERTEX_SHADER ? 'vertex' : 'fragment');
         let message = gl.getShaderInfoLog(shader);
         let errors = parseShaderErrors(message);
-        throw Object.assign(new Error(message ?? ''), { type, errors });
+        throw Object.assign(new Error(String(message)), { type, errors });
     }
 
     ShaderProgram.shaders_by_source[key] = shader; // cache by exact source
