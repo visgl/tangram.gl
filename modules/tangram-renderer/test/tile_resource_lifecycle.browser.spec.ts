@@ -113,6 +113,22 @@ test('destroyed managers cannot admit new tile ownership', () => {
     expect(manager.hasTile(owner.key)).toBe(false);
 });
 
+test('global preload admission keeps supported geometry sources and excludes filtered or non-geometry sources', () => {
+    const {manager, scene} = createManager();
+    const excluded = new NetworkTileSource({id: 2, name: 'excluded', url: 'data:application/json,{}', max_zoom: 2});
+    const nonGeometry = new NetworkTileSource({id: 3, name: 'nonGeometry', url: 'data:application/json,{}', max_zoom: 2});
+    excluded.builds_geometry_tiles = true; nonGeometry.builds_geometry_tiles = false;
+    vi.spyOn(excluded, 'includesTile').mockReturnValue(false);
+    scene.sources = {...scene.sources, excluded, nonGeometry};
+    vi.spyOn(scene.view, 'findVisibleTileCoordinates').mockReturnValue([]);
+    vi.spyOn(scene.view, 'findPreloadedTileCoordinates').mockReturnValue([TileID.coord({x: 0, y: 0, z: 0})]);
+    try {
+        manager.updateTilesForView();
+        expect([...manager.preloaded_keys]).toEqual(['fixture/0/0/0/2']);
+        expect(excluded.includesTile).toHaveBeenCalledWith(expect.objectContaining({z: 0}), 2);
+    } finally {manager.destroy();}
+});
+
 test('source-normalized deduplication, partial replies, completion and removal share one worker budget', () => {
     const {manager, scene, workerMessage} = createManager();
     try {

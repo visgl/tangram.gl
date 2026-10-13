@@ -70,8 +70,8 @@ export default class ShaderProgram {
     declare id: number;
     declare name: string | undefined;
     declare vertex_source: string;
-    declare computed_vertex_source: string | null;
-    declare computed_fragment_source: string | null;
+    declare computed_vertex_source: string | null | undefined;
+    declare computed_fragment_source: string | null | undefined;
     declare compiled: boolean;
     declare compiling: boolean;
     declare error: unknown;

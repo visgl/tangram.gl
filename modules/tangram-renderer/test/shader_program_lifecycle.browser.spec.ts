@@ -4,6 +4,7 @@
 
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import ShaderProgram from '../src/gl/shader_program';
+import VertexLayout from '../src/gl/vertex_layout';
 
 let context: WebGL2RenderingContext;
 const programs: ShaderProgram[] = [];
@@ -79,6 +80,46 @@ test('portable rejection preserves primitive failure identity without touching a
     expect(failure).toBe('fixture shader rejection'); expect(program.error).toBe(failure);
     expect(program.compiling).toBe(false); expect(program.program).toBeNull();
     expect(program.attribute('a_position')).toBeUndefined();
+});
+
+test('classic context and raw program allocation guards fail explicitly before acquiring invalid owners', () => {
+    const opaque = new ShaderProgram({}, vertexSource, 'void main() {}');
+    expect(opaque.source('vertex')).toBeUndefined();
+    expect(() => opaque.destroy()).toThrow(/Classic shaders require/);
+    const allocationContext = new Proxy(context, {get(target, property) {
+        if (property === 'createProgram') return () => null;
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+    }});
+    expect(() => ShaderProgram.updateProgram(allocationContext, null, vertexSource,
+        'precision highp float; void main() { gl_FragColor = vec4(1.0); }')).toThrow(/program allocation failed/);
+});
+
+test('checked attribute lookup drives dynamic and static bindings and skips an uncompiled program', () => {
+    const program = new ShaderProgram(context,
+        'attribute vec4 a_position; attribute vec4 a_color; varying vec4 color; void main() {gl_Position = a_position; color = a_color;}',
+        'varying vec4 color; void main() {gl_FragColor = color;}', {glsl_version: 300});
+    programs.push(program); program.compile();
+    const layout = new VertexLayout([{name: 'a_position', size: 4, type: context.FLOAT},
+        {name: 'a_color', size: 4, type: context.FLOAT, static: [1, 0, 0, 1]}]);
+    const attributes = {enableVertexAttribArray: context.enableVertexAttribArray.bind(context),
+        disableVertexAttribArray: context.disableVertexAttribArray.bind(context), vertexAttribPointer: context.vertexAttribPointer.bind(context),
+        vertexAttrib4fv: context.vertexAttrib4fv.bind(context)};
+    const buffer = context.createBuffer();
+    if (!buffer) throw new Error('Fixture requires a vertex buffer');
+    VertexLayout.enabled_attribs = {};
+    try {
+        context.bindBuffer(context.ARRAY_BUFFER, buffer); context.bufferData(context.ARRAY_BUFFER, new Float32Array(4), context.STATIC_DRAW);
+        layout.enableDynamicAttributes(attributes, program); layout.enableStaticAttributes(attributes, program);
+        const position = program.attribute('a_position'), color = program.attribute('a_color');
+        if (!position || !color) throw new Error('Fixture requires both active attributes');
+        expect(context.getVertexAttrib(position.location, context.VERTEX_ATTRIB_ARRAY_ENABLED)).toBe(true);
+        expect(Array.from(context.getVertexAttrib(color.location, context.CURRENT_VERTEX_ATTRIB))).toEqual([1, 0, 0, 1]);
+        const inactive = new ShaderProgram(context, '', '');
+        layout.enableDynamicAttributes(attributes, inactive); layout.enableStaticAttributes(attributes, inactive);
+        expect(context.getVertexAttrib(position.location, context.VERTEX_ATTRIB_ARRAY_ENABLED)).toBe(false);
+        expect(context.getError()).toBe(context.NO_ERROR);
+    } finally {context.deleteBuffer(buffer); VertexLayout.enabled_attribs = {};}
 });
 
 /** Compile a minimal real program through the same legacy path as the classic map. */

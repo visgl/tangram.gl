@@ -14,6 +14,21 @@ import Geo from '../src/utils/geo';
 
 afterEach(() => vi.restoreAllMocks());
 
+test('native view readiness distinguishes absent CSS dimensions, geographic center, and zoom', () => {
+    const renderer = new Renderer({});
+    const view = renderer.scene.view;
+    try {
+        expect(view.ready()).toBe(false);
+        view.size.css.width = 400; expect(view.ready()).toBe(false);
+        view.size.css.height = 300; expect(view.ready()).toBe(false);
+        renderer.setFrame(new HostFrame({viewport: {width: 400, height: 300},
+            geographicAnchor: {longitude: 0, latitude: 0, zoom: 2},
+            renderViews: [{camera: {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 0]}}]}));
+        expect(view.ready()).toBe(true);
+        view.zoom = null; expect(view.ready()).toBe(false);
+    } finally {renderer.destroy();}
+});
+
 test.each([256, 512])('%i-pixel sources hide cached ancestors on data-only LOD transitions', tileSize => {
     const renderer = new Renderer({});
     const scene = renderer.scene;
