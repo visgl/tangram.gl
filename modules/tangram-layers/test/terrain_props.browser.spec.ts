@@ -5,6 +5,22 @@
 import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
 
+test('ground surface and implicit picking delegate only to a live loaded record', () => {
+    class BaseLayer {}
+    const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {}, Renderer: undefined});
+    const layer = new Layer(), snapshot = {generation: 4};
+    const renderer = {getDrapedTerrainSurface: vi.fn(() => snapshot), getTerrainAt: vi.fn(() => null)};
+    expect(layer.getDrapedTerrainSurface()).toBeNull();
+    layer.state = {tangramRecord: null}; expect(layer.getDrapedTerrainSurface()).toBeNull();
+    const record = {renderer, loaded: false, disposed: false, loadFailed: false}; layer.state.tangramRecord = record;
+    expect(layer.getDrapedTerrainSurface()).toBeNull(); record.loaded = true; record.loadFailed = true;
+    expect(layer.getDrapedTerrainSurface()).toBeNull(); record.loadFailed = false; record.disposed = true;
+    expect(layer.getDrapedTerrainSurface()).toBeNull(); record.disposed = false;
+    expect(layer.getDrapedTerrainSurface()).toBe(snapshot); expect(renderer.getDrapedTerrainSurface).toHaveBeenCalledOnce();
+    expect(layer.getTerrainAt({x: 1, y: 2})).toBeNull();
+    expect(renderer.getTerrainAt).toHaveBeenCalledWith({x: 1, y: 2}, undefined, {});
+});
+
 test('terrain props rebuild the existing renderer, while enabling/disabling replaces attribute layouts', async () => {
     class BaseLayer {}
     const createRenderer = vi.fn(() => ({scene: {}, subscribe: vi.fn(), load: vi.fn(async () => undefined), destroy: vi.fn(),
