@@ -8,6 +8,7 @@ import {PROJECTION_CONSTANTS} from '../scene/projection_math';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import VertexLayout from '../gl/vertex_layout';
 import type {DrapedTerrainQueryMesh} from '../selection/draped-terrain-surface';
+import {summarizeDrapedTerrainBounds} from '../map-logic/draped-terrain-bounds';
 import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 
 /** Opt-in physical-height basemap displacement, independent of deck, providers and GPU ownership. */
@@ -162,7 +163,8 @@ export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uin
         bounds[0] = Math.min(bounds[0], positions[vertex * 3]); bounds[1] = Math.min(bounds[1], positions[vertex * 3 + 1]);
         bounds[2] = Math.max(bounds[2], positions[vertex * 3]); bounds[3] = Math.max(bounds[3], positions[vertex * 3 + 1]);
     }
-    return {positions, heights, indices: indices.slice(), bounds};
+    const mesh = {positions, heights, indices: indices.slice(), bounds};
+    return {...mesh, boundsSummary: summarizeDrapedTerrainBounds(mesh)};
 }
 
 const layouts = new WeakMap<VertexLayout, VertexLayout>();

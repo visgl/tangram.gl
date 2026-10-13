@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {TerrainMeshSurface, TerrainSurfaceCollection, type TerrainSurface, type TerrainSurfaceEntry} from './terrain_surface';
-import {getGeographicProjectionProcedure} from '../scene/projection_math';
+import {TerrainMeshSurface, TerrainSurfaceCollection, type TerrainSurface, type TerrainSurfaceEntry, type TerrainSurfaceBounds} from './terrain_surface';
+import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS} from '../scene/projection_math';
 import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import log from '../utils/log';
+import {summarizeDrapedTerrainBounds, type DrapedTerrainBoundsSummary} from '../map-logic/draped-terrain-bounds';
 
 /** Measured CPU costs for one immutable terrain display, excluding other retained snapshots. */
 export interface DrapedTerrainQueryStatistics {
@@ -42,6 +43,41 @@ export interface DrapedTerrainQueryMesh {
     indices: Uint16Array | Uint32Array;
     /** Indexed XY footprint used to avoid allocating query geometry for unrelated vertical probes. */
     bounds: readonly [number, number, number, number];
+    /** Worker-computed immutable extrema, avoiding vertex scans and projected allocations during the first host probe. */
+    boundsSummary?: DrapedTerrainBoundsSummary;
+}
+
+/** Conservative display envelope without allocating any per-vertex projected query buffers. */
+function getDisplayBounds(mesh: DrapedTerrainQueryMesh, projection: TerrainSurface['projection'], exaggeration: number,
+    clips?: readonly (readonly number[])[]): TerrainSurfaceBounds | null {
+    if (!mesh.indices.length || clips?.length === 0) return null;
+    const summary = summarizeDrapedTerrainBounds(mesh);
+    const low = summary.offsets[0] + summary.heights[0] * exaggeration;
+    const high = summary.offsets[1] + summary.heights[1] * exaggeration;
+    let minimum: [number, number, number], maximum: [number, number, number];
+    if (projection === 'web-mercator') {
+        minimum = [mesh.bounds[0], mesh.bounds[1], low]; maximum = [mesh.bounds[2], mesh.bounds[3], high];
+        if (clips) {
+            minimum[0] = Math.max(minimum[0], Math.min(...clips.map(clip => clip[0])));
+            minimum[1] = Math.max(minimum[1], Math.min(...clips.map(clip => clip[1])));
+            maximum[0] = Math.min(maximum[0], Math.max(...clips.map(clip => clip[2])));
+            maximum[1] = Math.min(maximum[1], Math.max(...clips.map(clip => clip[3])));
+            if (minimum[0] > maximum[0] || minimum[1] > maximum[1]) return null;
+        }
+    } else {
+        const radii = [low, high].map(height => PROJECTION_CONSTANTS.globeRadius * (1 + height / PROJECTION_CONSTANTS.earthRadius));
+        minimum = [0, 0, 0]; maximum = [0, 0, 0];
+        for (const axis of [0, 1, 2]) {
+            const products = radii.flatMap(radius => [summary.directions.minimum[axis] * radius, summary.directions.maximum[axis] * radius]);
+            minimum[axis] = Math.min(...products); maximum[axis] = Math.max(...products);
+        }
+    }
+    // Round outward: multiplication/division order differs from exact projected vertices.
+    for (const axis of [0, 1, 2]) {
+        const margin = Math.max(1, Math.abs(minimum[axis]), Math.abs(maximum[axis])) * 1e-12;
+        minimum[axis] -= margin; maximum[axis] += margin;
+    }
+    return {minimum, maximum};
 }
 
 /** One admitted draw owner; callers never include pending worker generations. */
@@ -144,7 +180,8 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                 return owner.surface;
             }};
             queryOwners.push(owner);
-            return {id: entry.id, surface: {projection, intersectRay(ray, maximum) {
+            return {id: entry.id, surface: {projection, getBounds() {return getDisplayBounds(mesh, projection, exaggeration, clips);}, intersectRay(ray, maximum) {
+                if (clips?.length === 0 || !mesh.indices.length) return null;
                 if (projection === 'web-mercator' && !intersectsFootprint(ray, maximum, mesh.bounds)) return null;
                 const surface = owner.prepare();
                 const started = performance.now();

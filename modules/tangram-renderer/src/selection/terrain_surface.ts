@@ -7,6 +7,15 @@ import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import type HostFrame from '../scene/host_frame';
 import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS} from '../scene/projection_math';
 import type {FeatureSelectionOptions} from '../types';
+import {intersectRayBounds} from '@math.gl/culling/queries';
+
+/** Detached conservative content-space bounds; null means the surface has no admitted triangles. */
+export interface TerrainSurfaceBounds {
+    /** Closed lower corner in the same units as query rays. */
+    minimum: [number, number, number];
+    /** Closed upper corner in the same units as query rays. */
+    maximum: [number, number, number];
+}
 
 /** A ray in the same absolute content coordinates as the supplied terrain. */
 export interface TerrainRay {
@@ -42,6 +51,8 @@ export interface TerrainSurface {
     readonly projection: 'web-mercator' | 'globe';
     /** Return the nearest two-sided hit within the finite camera segment, or null. */
     intersectRay(ray: TerrainRay, maxDistance?: number): TerrainSurfaceHit | null;
+    /** Optional cheap bounds for near-first collection queries; must contain every accepted triangle. */
+    getBounds?(): TerrainSurfaceBounds | null;
 }
 
 /** One stable caller-owned surface identity; collections snapshot membership, not geometry. */
@@ -91,10 +102,21 @@ export class TerrainSurfaceCollection implements TerrainSurface {
         if (maxDistance < 0 || Number.isNaN(maxDistance)) throw new Error('Terrain ray distance must be non-negative');
         const length = Math.hypot(...ray.direction);
         if (ray.origin.length !== 3 || ray.direction.length !== 3 || !ray.origin.every(Number.isFinite) || !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0) return null;
-        let nearest: TerrainCollectionHit | null = null;
-        for (const entry of this.entries) {
+        const direction = ray.direction.map(component => component / length);
+        const candidates = this.entries.flatMap((entry, index) => {
+            if (!entry.surface.getBounds) return [{entry, index, distance: 0}];
+            const bounds = entry.surface.getBounds();
+            if (!bounds) return [];
+            const distance = intersectRayBounds(ray.origin, direction, bounds.minimum, bounds.maximum, maxDistance);
+            return distance === null ? [] : [{entry, index, distance}];
+        }).sort((first, second) => first.distance - second.distance || first.index - second.index);
+        let nearest: TerrainCollectionHit | null = null, nearestIndex = Infinity;
+        for (const {entry, index, distance} of candidates) {
+            if (distance > (nearest?.distance ?? maxDistance)) break;
             const hit = entry.surface.intersectRay(ray, nearest?.distance ?? maxDistance);
-            if (hit && (!nearest || hit.distance < nearest.distance)) nearest = {...hit, surfaceId: entry.id};
+            if (hit && (!nearest || hit.distance < nearest.distance || hit.distance === nearest.distance && index < nearestIndex)) {
+                nearest = {...hit, surfaceId: entry.id}; nearestIndex = index;
+            }
         }
         return nearest;
     }

@@ -21,7 +21,7 @@ import type {
 export type {FeatureSelectionResult, FeatureSelectionOptions} from './types.js';
 export {DrapedTerrainSurfaceSnapshot} from './selection/draped-terrain-surface';
 export {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt} from './selection/terrain_surface';
-export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions, TerrainMeshStatistics, TerrainSurfaceEntry, TerrainCollectionHit, TerrainElevationProbe} from './selection/terrain_surface';
+export type {TerrainSurface, TerrainSurfaceBounds, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions, TerrainMeshStatistics, TerrainSurfaceEntry, TerrainCollectionHit, TerrainElevationProbe} from './selection/terrain_surface';
 export type {
   TangramGPUBackend,
   TangramGPUSceneOptions,

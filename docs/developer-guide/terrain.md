@@ -426,6 +426,16 @@ Hermetic tests cover CPU boundaries, replacement/recovery, draped vector/raster
 output, stereo picking and mocked immersive room cameras on WebGL 2 and WebGPU.
 Native headset validation remains a manual gate.
 
+Ground queries use worker-computed extrema of the actual indexed vertices before
+allocating projected geometry. Conservative bounds include authored offsets,
+both DEM morph endpoints and current relief, including long globe chords and
+unwrapped antimeridian coordinates. Collections query nearer bounds first and
+skip owners beyond an accepted hit; equal-distance ties retain membership order.
+Mercator fallback clips narrow the XY envelope; globe clips retain the full chord
+envelope rather than incorrectly treating a curved rectangle as planar bounds.
+Custom surfaces can provide optional `getBounds()` or keep the unbounded exact
+query path. Bounds are an acceleration hint, not an occlusion/coverage guarantee.
+
 Ground queries project only candidate meshes lazily. Settled displacement reuses
 the immutable projected query owner; changing the blend or relief makes a new owner.
 Morph queries use exact linear triangle traversal, avoiding new per-frame BVHs.
@@ -438,7 +448,10 @@ Initial lazy projection/copies are synchronous and outside that scheduling targe
 `snapshot.getStatistics()` separates projected bytes, reserved/completed indexes,
 preparation failures and CPU work. `getTerrainDrapingStatistics().annotationQueries`
 reports the internal collision surface separately from retained host snapshots.
-Mercator footprint admission skips unrelated meshes for vertical probes. Profiling
+Bounds admission skips unrelated Mercator and globe owners. Compatibility payloads
+without a worker summary pay one cached indexed-vertex scan; ordinary worker
+payloads carry their summary. These small scalar metadata records are outside the
+typed-array byte counters. Profiling
 must still include these projection/copy and traversal costs: they are not a hard
 frame-time guarantee. The globe draping mode skips the separate elevation preview's
 template/display preparation and changes exaggeration through GPU uniforms only.
