@@ -6,6 +6,7 @@ import {expect, test, vi} from 'vitest';
 import Texture, {type TextureInfo, type TextureOptions, type TextureResource} from '../src/gl/texture';
 import Context from '../src/gl/context';
 import type {TangramTextureOptions} from '../src/gpu/tangram_gpu_backend';
+import WorkerBroker from '../src/utils/worker_broker';
 
 /** A portable resource needs disposal, never a raw WebGL handle. */
 function createResource(): TextureResource & {destroyed: boolean; readonly handle: never} {
@@ -87,4 +88,73 @@ test('context scopes preserve generic callback results, identities and exception
     expect(Context.withContext(null, () => values)).toBe(values);
     expect(() => Context.withContext(configured, () => {throw new Error('callback failure');})).toThrow('callback failure');
     expect(entered).toEqual(['scope', 'scope']); expect(Context.hasContextScope(null)).toBe(false);
+});
+
+test('worker texture replies preserve only detached metadata, with null and malformed records rejected', async () => {
+    const metadata: TextureInfo = {name: '__worker_reply', width: 2, height: 2, density: 1, valid: true,
+        texcoords: {}, sizes: {}, css_sizes: {}, aspects: {}};
+    const postMessage = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([metadata, null, 42, {},
+        {...metadata, name: 1}, {...metadata, width: 'bad'}, {...metadata, height: 'bad'},
+        {...metadata, density: 'bad'}, {...metadata, valid: 'bad'}, {...metadata, sizes: null}]);
+    try {
+        const table = await Texture.syncTexturesToWorker([metadata.name]);
+        expect(table[metadata.name]).toBe(metadata);
+        expect(postMessage).toHaveBeenCalledWith('Texture.getInfo', [metadata.name]);
+        expect(await Texture.getInfo(metadata.name)).toMatchObject(metadata);
+        postMessage.mockResolvedValue(null);
+        expect(await Texture.syncTexturesToWorker(null)).toBe(table);
+    } finally {postMessage.mockRestore(); delete Texture.textures[metadata.name];}
+});
+
+/** Chromium provides the canonical legacy context; no live assets or GPU draws are needed here. */
+function createClassicContext(): WebGLRenderingContext {
+    const canvas = document.createElement('canvas'), context = canvas.getContext('webgl');
+    if (!context) throw new Error('Chromium WebGL fixture is unavailable');
+    return context;
+}
+
+test('classic context creation preserves experimental fallback, sizing and numeric identity', () => {
+    const context = createClassicContext(), canvas = document.createElement('canvas');
+    canvas.style.width = '30px'; canvas.style.height = '20px';
+    const getContext = vi.spyOn(canvas, 'getContext').mockImplementation(type => type === 'experimental-webgl' ? context : null);
+    const resize = vi.spyOn(Context, 'resize');
+    try {
+        expect(Context.getContext(canvas, {device_pixel_ratio: 2})).toBe(context);
+        expect(getContext.mock.calls.map(call => call[0])).toEqual(['webgl', 'experimental-webgl']);
+        expect(resize).toHaveBeenCalledWith(context, 30, 20, 2);
+        expect(context.canvas.width).toBe(60); expect(context.canvas.height).toBe(40);
+        expect(Context.hasContextScope(context)).toBe(false);
+    } finally {getContext.mockRestore(); resize.mockRestore(); context.getExtension('WEBGL_lose_context')?.loseContext();}
+});
+
+test('unsupported and non-WebGL context results reject explicitly without resizing another canvas', () => {
+    const canvas = document.createElement('canvas'), wrongContext = document.createElement('canvas').getContext('2d');
+    const getContext = vi.spyOn(canvas, 'getContext').mockReturnValue(null);
+    try {
+        expect(() => Context.getContext(canvas)).toThrow("Couldn't create WebGL context");
+        getContext.mockReturnValue(wrongContext);
+        expect(() => Context.getContext(canvas)).toThrow("Couldn't create WebGL context");
+    } finally {getContext.mockRestore();}
+});
+
+test('fullscreen contexts attach their canvas and retain resize hooks without taking device ownership', () => {
+    const context = createClassicContext(), originalCanvas = context.canvas;
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context);
+    const addListener = vi.spyOn(window, 'addEventListener'), resize = vi.spyOn(Context, 'resize');
+    let inserted: HTMLCanvasElement | undefined;
+    try {
+        expect(Context.getContext()).toBe(context);
+        const candidate = getContext.mock.contexts[0];
+        if (!(candidate instanceof HTMLCanvasElement)) throw new Error('Fullscreen fixture did not create a canvas');
+        inserted = candidate;
+        expect(inserted.style).toMatchObject({position: 'absolute', top: '0px', left: '0px', zIndex: '-1'});
+        expect(inserted.isConnected).toBe(true);
+        expect(resize).toHaveBeenCalledWith(context, window.innerWidth, window.innerHeight, undefined);
+        window.dispatchEvent(new Event('resize')); expect(resize).toHaveBeenCalledTimes(2);
+        expect(context.canvas).toBe(originalCanvas);
+    } finally {
+        for (const [event, listener] of addListener.mock.calls) if (String(event) === 'resize') window.removeEventListener('resize', listener);
+        inserted?.remove(); getContext.mockRestore(); addListener.mockRestore(); resize.mockRestore();
+        context.getExtension('WEBGL_lose_context')?.loseContext();
+    }
 });
