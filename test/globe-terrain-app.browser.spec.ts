@@ -9,6 +9,12 @@ import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 import {lngLatToWorld} from '@math.gl/web-mercator';
 
 const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, decoderDestroy: vi.fn(), selectDetail: vi.fn(), construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]})), elevation: vi.fn((): {coordinate: number[]; position: [number, number, number]} | null => ({coordinate: [80, 25, 1234], position: [0, -256, 0]})), blocker: vi.fn((_start: readonly [number, number, number], _end: readonly [number, number, number], _options?: {startInset?: number; endInset?: number}): {distance: number} | null => null)}));
+const basemapMocks = vi.hoisted(() => ({construct: vi.fn<(props: import('@vis.gl/tangram-layers').TangramLayerProps) => void>(), surface: vi.fn(() => null), pick: vi.fn(() => ({coordinate: [80, 25, 456]}))}));
+vi.mock('@vis.gl/tangram-layers', () => ({TangramLayer: class {
+    constructor(props: import('@vis.gl/tangram-layers').TangramLayerProps) {basemapMocks.construct(props);}
+    getDrapedTerrainSurface = basemapMocks.surface; getTerrainAt = basemapMocks.pick;
+    getTerrainDrapingStatistics = () => ({meshes: 16, meshBytes: 1000, queryBytes: 1000, stagedMeshBytes: 0, maximumPreparationMs: 1});
+}}));
 vi.mock('../examples/terrain/globe-detail', async original => {
     const module = await original<typeof import('../examples/terrain/globe-detail')>();
     return {...module, selectGlobeTerrainDetail: (...parameters: Parameters<typeof module.selectGlobeTerrainDetail>) => {mocks.selectDetail(...parameters); return module.selectGlobeTerrainDetail(...parameters);}};
@@ -38,7 +44,7 @@ vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
 }}));
 /** Small topology tests host lifecycle, not exhaustive tessellation; high-resolution geometry is covered in the owning module/GPU tests. */
 function mountTestGlobeTerrainExample(host: HTMLElement, options: Parameters<typeof mountGlobeTerrainExample>[1]): ReturnType<typeof mountGlobeTerrainExample> {
-    return mountGlobeTerrainExample(host, {preparationBudgetMs: 1000, displayBudgetMs: 1000, meshResolution: 4, ...options});
+    return mountGlobeTerrainExample(host, {basemap: false, preparationBudgetMs: 1000, displayBudgetMs: 1000, meshResolution: 4, ...options});
 }
 
 const hosts: HTMLElement[] = [], instances: ReturnType<typeof mountGlobeTerrainExample>[] = [];
@@ -304,5 +310,30 @@ test('zoom streams higher-detail globe tiles and retains global fallback across 
     expect(fetch.mock.calls.length).toBe(warm);
     mocks.viewportZoom = 1; properties.onViewStateChange({viewState: {longitude: 80, latitude: 25, zoom: 1}});
     await expect.poll(() => host.querySelector('[data-example="status"]')?.textContent).toContain('z2 detail');
+    expect(fetch.mock.calls.length).toBe(warm);
+});
+
+test('styled globe draping preserves field identity during GPU-only relief changes and skips duplicate preview preparation', async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, basemap: {sources: {}}, parameters: new URLSearchParams('device=webgl')}); instances.push(instance);
+    await instance.ready;
+    await expect.poll(() => basemapMocks.construct.mock.lastCall?.[0].terrain?.grids.length).toBeGreaterThan(0);
+    const field = basemapMocks.construct.mock.lastCall?.[0].terrain;
+    const warm = fetch.mock.calls.length, previewCalls = mocks.layers.mock.calls.length;
+    const slider = host.querySelector<HTMLInputElement>('[data-example="exaggeration"]');
+    if (!slider) throw new Error('Missing exaggeration slider'); slider.value = '25'; slider.dispatchEvent(new Event('input'));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    expect(basemapMocks.construct.mock.lastCall?.[0].terrain).toBe(field);
+    expect(basemapMocks.construct.mock.lastCall?.[0].terrainExaggeration).toBe(25);
+    expect(mocks.layers.mock.calls.length).toBe(previewCalls); expect(fetch.mock.calls.length).toBe(warm);
+    expect(host.querySelector('[data-example="preparation-status"]')?.textContent).toContain('paused');
+    const properties = mocks.construct.mock.calls[0][0];
+    if (!properties || typeof properties !== 'object' || !('onClick' in properties) || typeof properties.onClick !== 'function') throw new Error('Missing picking callback');
+    properties.onClick({x: 100, y: 100});
+    expect(basemapMocks.pick).toHaveBeenCalledWith({x: 100, y: 100});
+    expect(host.querySelector('[data-example="terrain-hit"]')?.textContent).toContain('456.0');
+    host.querySelector<HTMLButtonElement>('[data-device-type="webgpu"]')?.click();
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(fetch.mock.calls.length).toBe(warm);
 });

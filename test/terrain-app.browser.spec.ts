@@ -24,7 +24,7 @@ vi.mock('@deck.gl/core', async importOriginal => ({
     MapView: class {}, FirstPersonView: class {}, LightingEffect: class {}, AmbientLight: class {}, DirectionalLight: class {}
 }));
 vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
-vi.mock('@vis.gl/tangram-layers', () => ({TangramLayer: class {constructor(properties: unknown) {mocks.basemap(properties);}}}));
+vi.mock('@vis.gl/tangram-layers', () => ({TangramLayer: class {constructor(properties: unknown) {mocks.basemap(properties);} getDrapedTerrainSurface() {return null;} getTerrainAt() {return null;}}}));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
 vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
     decodeMesh = mocks.parse;
@@ -99,7 +99,7 @@ test('FirstPerson navigation uses the offset eye, clamps loaded floors, holds mi
     mocks.anchor.mockReturnValue(120);
     properties.onViewStateChange({viewState: {longitude: 0.5, latitude: 0.5, position: [1000, 2000, 50], bearing: 45, pitch: 15}});
     expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: expect.objectContaining({position: [1000, 2000, 120]})});
-    expect(mocks.anchor).toHaveBeenLastCalledWith(expect.any(Array), [expect.closeTo(0.50898, 4), expect.closeTo(0.51796, 4)], 20);
+    expect(mocks.anchor).toHaveBeenLastCalledWith(expect.any(Array), [expect.closeTo(0.50898, 4), expect.closeTo(0.51796, 4)], 20, undefined);
     mocks.anchor.mockReturnValue(null);
     properties.onViewStateChange({viewState: {longitude: 0.5, latitude: 0.5, position: [1200, 2200, 25]}});
     expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: expect.objectContaining({position: [1200, 2200, 120]})});
@@ -136,7 +136,7 @@ test('terrain following updates one controlled target, holds missing elevations 
     const follow = host.querySelector<HTMLInputElement>('[data-example="follow-terrain"]')!;
     follow.checked = true; follow.dispatchEvent(new Event('change'));
     expect(mocks.setProps).toHaveBeenLastCalledWith({viewState: expect.objectContaining({position: [0, 0, 1484]})});
-    expect(mocks.anchor).toHaveBeenLastCalledWith(expect.any(Array), expect.any(Array), 250);
+    expect(mocks.anchor).toHaveBeenLastCalledWith(expect.any(Array), expect.any(Array), 250, undefined);
     mocks.anchor.mockReturnValue(null);
     const properties = mocks.construct.mock.calls[0][0];
     if (!properties || typeof properties !== 'object' || !('onViewStateChange' in properties) || typeof properties.onViewStateChange !== 'function') throw new Error('Missing navigation handler');

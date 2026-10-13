@@ -450,7 +450,8 @@ cache; toggling draping recreates shader/layout resources.
 
 `terrainExaggeration` is a finite `[0, 1000]` multiplier, default **1**. It affects
 only GPU displacement, with additional rejection if negative heights would
-invert the globe. It does not change host terrain query surfaces or source data.
+invert the globe. It changes the layer's next draped ground snapshot, but never
+physical source heights or separately supplied host terrain surfaces.
 `layer.getTerrainDrapingStatistics()` reports resident preparation cost, or
 `undefined` without a live renderer. Configure conservative
 `firstPersonElevationRange` / `globeMaxElevation` for displaced content; the
@@ -459,7 +460,8 @@ height field does not automatically expand view-selection bounds.
 See [terrain integration](../developer-guide/terrain.md#worker-side-basemap-draping)
 for worker refinement, temporal morphing and missing-data behavior. CPU-projected
 basemaps and custom position/width blocks are currently unsupported. Roads use a local
-tangent-plane width correction; host terrain picking remains a separate surface.
+tangent-plane width correction. `terrain.querySurfaceStyles` optionally retains
+the final ground raster triangles for matching physical queries.
 
 ### Inherited presentation properties
 
@@ -538,13 +540,17 @@ independent per-eye GPU targets are also available directly through
 This does not perform spatial ray/terrain picking.
 
 For a synchronous terrain intersection use `layer.getTerrainAt({x, y}, surface, options)`
-with an explicit [`TerrainSurface`](./renderer.md#getterrainatpixel-surface-options).
+with an explicit [`TerrainSurface`](./renderer.md#getterrainatpixel-surface-options),
+or omit `surface` to query the last admitted draped ground. Configure
+`terrain.querySurfaceStyles: ['ground']` for the ground raster style. Capture
+`layer.getDrapedTerrainSurface()` for geographic elevation/clearance probes using
+the same final topology, temporal blend and physical heights as drawing.
 It returns the nearest triangle's geographic coordinate, normal and eye, or `null`
 for a miss or an uninitialized, loading, failed or disposed layer. Once loaded,
 the renderer requires a submitted frame. Canvas/eye routing is identical to the feature
 query; terrain queries do not need subsequent draws. Terrain must use the current
 Mercator or Globe coordinate convention and camera clipping. This does not load
-or render terrain, infer a surface from scene geometry, or provide deck.gl picking.
+or render terrain by itself, infer ground from buildings or roads, or provide deck.gl picking.
 
 ## Source
 

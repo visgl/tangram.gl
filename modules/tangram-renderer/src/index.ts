@@ -102,3 +102,4 @@ export type {
 
 export default Tangram;
 export type {TerrainDrapingOptions, TerrainDrapingStatistics} from './procedures/terrain-draping';
+export {DrapedTerrainSurfaceSnapshot} from './selection/draped-terrain-surface';

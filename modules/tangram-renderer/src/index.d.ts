@@ -19,6 +19,7 @@ import type {
   Viewport
 } from './types.js';
 export type {FeatureSelectionResult, FeatureSelectionOptions} from './types.js';
+export {DrapedTerrainSurfaceSnapshot} from './selection/draped-terrain-surface';
 export {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt} from './selection/terrain_surface';
 export type {TerrainSurface, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions, TerrainMeshStatistics, TerrainSurfaceEntry, TerrainCollectionHit, TerrainElevationProbe} from './selection/terrain_surface';
 export type {
@@ -91,7 +92,7 @@ export declare class Scene {
 
 export declare class ClassicWebGLRenderer {
   /** Synchronous nearest hit on an explicit host-owned terrain mesh, in the selected eye. */
-  getTerrainAt(pixel: {x: number; y: number}, surface: import('./selection/terrain_surface').TerrainSurface,
+  getTerrainAt(pixel: {x: number; y: number}, surface?: import('./selection/terrain_surface').TerrainSurface,
     options?: import('./types').FeatureSelectionOptions): import('./selection/terrain_surface').TerrainSurfaceHit | null;
   /** Async interactive-draw selection in active-view CSS pixels; host rendering must continue. */
   getFeatureAt(pixel: {x: number; y: number}, options?: import('./types').FeatureSelectionOptions): Promise<import('./types').FeatureSelectionResult | undefined>;
@@ -101,6 +102,8 @@ export declare class ClassicWebGLRenderer {
   setTerrain(options: import('./procedures/terrain-draping').TerrainDrapingOptions): Promise<void>;
   /** Adjust visual relief without resampling or rebuilding worker geometry. */
   setTerrainExaggeration(value: number): void;
+  /** Exact admitted ground draw topology, temporal blend and physical query channels. */
+  getDrapedTerrainSurface(): import('./selection/draped-terrain-surface').DrapedTerrainSurfaceSnapshot | null;
     /** Resident worker preparation cost, excluding GPU and transient copies. */
     getTerrainDrapingStatistics(): import('./procedures/terrain-draping').TerrainDrapingStatistics;
   constructor(config: SceneDefinition, options?: RendererOptions);

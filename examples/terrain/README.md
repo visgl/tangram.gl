@@ -118,5 +118,12 @@ and no blocker means only that loaded triangles supplied none. Clear the target
 from the info card. These are CPU visibility primitives, not automatic label occlusion.
 Mercator target following uses reusable renderer collection/elevation probes;
 `resolveTerrainClearance` supplies a point-floor contract for FirstPerson hosts,
-not continuous/swept collision. No polar-cap data, temporal height morphing,
-basemap draping or immersive terrain.
+not continuous/swept collision. Draped mode now uses the renderer's exact final
+ground triangles for picking, finite sightlines and Mercator clearance. Field updates
+publish complete mesh batches with one transition clock; retained snapshots keep
+their original physical heights. Globe draping avoids the separate preview's CPU
+preparation and changes relief through GPU uniforms only. Source bytes remain warm
+through relief, mode and device changes. Query/staged typed-array caps are reported
+separately; scratch, lazy projected query copies, textures and GPU overhead are not
+included. Spatial mixed-LOD edge conformity, polar data and native immersive terrain
+validation remain deferred.

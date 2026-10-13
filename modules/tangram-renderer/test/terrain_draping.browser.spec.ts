@@ -7,7 +7,7 @@ import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import {layoutProjectedAnnotations} from '../src/labels/projected-pass';
 import type {LabelMesh, LabelTile} from '../src/labels/main-pass-types';
-import {normalizeTerrainDraping, drapeTerrainMesh, getTerrainVertexLayout, hasTerrainTileCoverage, type TerrainDrapingOptions} from '../src/procedures/terrain-draping';
+import {normalizeTerrainDraping, drapeTerrainMesh, getTerrainVertexLayout, hasTerrainTileCoverage, extractDrapedTerrainQueryMesh, type TerrainDrapingOptions} from '../src/procedures/terrain-draping';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
 import VertexLayout from '../src/gl/vertex_layout';
 import {PROJECTION_CONSTANTS} from '../src/scene/projection_math';
@@ -105,7 +105,7 @@ test('resident preparation statistics count valid worker outputs without countin
     const manager = Object.create(TileManager.prototype);
     const statistics = {vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, preparationMs: 5, detailLimited: true};
     manager.tileset = {tileRecords: {first: {meshes: {ground: [{valid: true, variant: {terrainStatistics: statistics}}, {valid: false, variant: {terrainStatistics: statistics}}, {valid: true, variant: {}}]}}, empty: {}}};
-    expect(manager.getTerrainDrapingStatistics(normalizeTerrainDraping({grids: [grid()]}))).toEqual({enabled: true, gridBytes: 45, meshes: 1, vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, maximumPreparationMs: 5, detailLimitedMeshes: 1});
+    expect(manager.getTerrainDrapingStatistics(normalizeTerrainDraping({grids: [grid()]}))).toEqual({enabled: true, gridBytes: 45, meshes: 1, vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, maximumPreparationMs: 5, detailLimitedMeshes: 1, queryBytes: 0, stagedMeshBytes: 0});
     manager.tileset = {tileRecords: {}};
     expect(manager.getTerrainDrapingStatistics()).toMatchObject({enabled: false, gridBytes: 0, meshes: 0});
 });
@@ -125,9 +125,20 @@ test('snapshots detach input arrays and retain explicit datum, masks and byte bu
 test.each([
     {maxGridBytes: -1}, {maxGridBytes: 1.5}, {maxSegmentLength: NaN}, {maxSegmentLength: 0},
     {maxAdditionalVertices: -1}, {maxAdditionalVertices: 262145}, {maxMeshBytes: -1},
-    {transitionDuration: -1}, {transitionDuration: Infinity}, {transitionDuration: 5001}
+    {transitionDuration: -1}, {transitionDuration: Infinity}, {transitionDuration: 5001},
+    {maxQueryMeshBytes: -1}, {maxStagedMeshBytes: 1.5}, {querySurfaceStyles: ['']}, {querySurfaceStyles: ['ground', 'ground']}
 ])('rejects malformed policy %j before admission', policy => {
     expect(() => normalizeTerrainDraping({grids: [grid()], ...policy})).toThrow(/limits/);
+});
+
+test('exact query extraction retains final topology, physical channels, authored height and budget accounting', () => {
+    const input = request({grids: [grid(100)], previousGrids: [grid(50)]});
+    const result = drapeTerrainMesh(input), outputLayout = getTerrainVertexLayout(layout);
+    const query = extractDrapedTerrainQueryMesh(result.vertices, result.indices, outputLayout, input.origin, input.tileZoom, 100000);
+    expect(query.indices).toEqual(result.indices); expect(query.indices).not.toBe(result.indices);
+    expect(query.positions[2]).toBe(40); expect([...query.heights.slice(0, 2)]).toEqual([100, 50]);
+    expect(query.bounds[0]).toBeCloseTo(-100 * meters); expect(query.bounds[3]).toBeCloseTo(100 * meters);
+    expect(() => extractDrapedTerrainQueryMesh(result.vertices, result.indices, outputLayout, input.origin, input.tileZoom, 1)).toThrow(/query mesh-byte/);
 });
 
 test('rejects grid shape, coordinates, masks, datum and nonfinite valid heights', () => {

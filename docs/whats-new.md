@@ -8,10 +8,17 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- Terrain ground drawing, physical queries and camera clearance can share the final
+  worker triangles and temporal heights. Terrain field replacements stage complete
+  mesh generations and start their morphs together; feature queries wait for worker
+  selection tables. The globe terrain reference now offers styled OpenFreeMap draping
+  with GPU-only relief changes, avoiding duplicate elevation-preview preparation.
+  Separate query/staged-buffer limits and diagnostics accompany this experimental path.
+
 - Experimental worker-side basemap draping adds physical heights and slope normals
   to polygons, extruded walls, roads, rasters and point/text anchors on WebGL 2 and
   WebGPU. Renderer/layer grid updates retain vector caches and animation time;
-  per-mesh height morphing, GPU-only exaggeration, preparation diagnostics and
+  coordinated height morphing, GPU-only exaggeration, preparation diagnostics and
   conservative no-data admission accompany the Map/FirstPerson examples.
   Stereo selection and mocked immersive cameras use the same displacement path.
   FirstPerson navigation also guards finite eye segments against loaded ridges.

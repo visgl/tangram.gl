@@ -37,9 +37,11 @@ unloaded areas are not certified safe. Picking uses the actual
 Map/FirstPerson projection and canvas-relative viewport offsets, including split
 views, while returning unexaggerated top-triangle height rather than skirt height.
 
-The [Globe terrain example](/tangram.gl/examples/deck-globe-terrain) uses the separate
-[experimental GlobeTerrainLayer](../api-reference/globe-terrain-layer.md). It resamples
-physical height grids into curved spherical triangles, with a configurable maximum
+The [Globe terrain example](/tangram.gl/examples/deck-globe-terrain) now defaults to
+the same draped OpenFreeMap ground and styled features as the Mercator reference.
+Uncheck **Draped OpenFreeMap basemap** for the separate
+[GlobeTerrainLayer elevation preview](../api-reference/globe-terrain-layer.md).
+The preview resamples physical grids into curved spherical triangles, with a configurable maximum
 `globeTerrainExaggeration` of 100 by default. As the apparent globe diameter grows
 from one to two viewport diameters, exaggerated relief smoothly attenuates to flat.
 Explicit 1× keeps physical-scale relief; zero and subphysical settings stay fixed.
@@ -140,10 +142,10 @@ The source cap excludes in-flight worker temporaries, render/query meshes and GP
 resources. The display and hierarchy caps above cover their retained CPU arrays,
 not temporary decode/scaling/sorting allocations, JavaScript objects, external
 snapshots or GPU resources.
-The footprint estimate is not a certified curvature/height-error bound, and height
-changes at sibling replacement are not temporally morphed. The example still does
-not implement polar terrain or terrain-aware basemap draping in this separate
-globe elevation preview. Worker-side basemap displacement and mocked stereo/XR
+The footprint estimate is not a certified curvature/height-error bound. The separate
+elevation preview does not temporally morph sibling replacement. Styled draping
+uses the renderer's coordinated generation replacement below; it does not claim
+fully conforming curved coarse/fine boundary geometry. Worker-side displacement and mocked stereo/XR
 conformance are described below; native headset validation remains deferred. Missing
 samples remain holes. Source datum is preserved, not converted to ellipsoidal height.
 
@@ -369,20 +371,39 @@ Do not mutate grids in place; keep option identities stable until data changes.
 `transitionDuration` defaults to 200 ms. Newly admitted meshes blend height and
 slope from the last admitted field, or explicit `previousGrids`; missing previous
 samples start at their current height, not sea level. Color, collision and both
-eyes share a frame clock. Replacement is per mesh, not a global atomic generation
-or a mixed-LOD seam guarantee. `terrainExaggeration` defaults to 1 and is GPU-only:
+eyes share a frame clock. `setTerrain` uploads replacements into an isolated stage;
+all tile batches must finish before the draw owners swap together. Every replacement
+mesh and label receives the same transition origin. Failure discards the entire
+stage, then restores worker configuration. This removes asynchronous per-tile
+transition starts, but is not a spatial mixed-LOD tessellation/seam guarantee.
+`terrainExaggeration` defaults to 1 and is GPU-only:
 it does not refetch tiles, resample grids or rebuild topology.
 
 Missing DEM footprints and invalid bilinear neighborhoods suppress triangles.
 Conservative footprint/mask checks can remove extra triangles near holes; they
-never fill a hole with a zero-height surface. DEM sampling and the examples'
-adaptive physical query triangles are **different approximations**. Feature
-selection follows displaced styled geometry; `getTerrainAt` still requires an
-explicit host surface and does not infer this draped surface or its temporal morph.
+never fill a hole with a zero-height surface. Use `querySurfaceStyles: ['ground']`
+to retain the **final ground raster draw triangles**, including current/previous
+heights. Polygon buildings, roads and annotations are not ground query owners.
+`renderer.getDrapedTerrainSurface()` (also on `TangramLayer`) captures the last
+submitted ground display: generation, frame clock, exaggeration and immutable
+membership. `getTerrainAt(pixel)` queries it when no explicit surface is supplied.
+Physical returned heights remain unexaggerated; hit positions follow displayed
+relief. Globe fallback queries use the same clip rectangles as drawing.
+
+The Map, FirstPerson and Globe examples use this surface for picking; Mercator
+clearance and finite-eye guards also use it when draping is enabled. They never
+fall back to a different adaptive mesh on a missing-ground query. Retained snapshots
+continue to describe their original frame after subsequent replacement or relief
+changes. The host must supply new frames to advance morphing; a query does not
+advance the clock. Arbitrary retained host snapshots are outside renderer budgets.
 
 Default limits are 96 grids per generation, 32 MiB current/previous grid arrays
 per scene/worker copy, 131072 additional vertices and 16 MiB completed output per
-mesh. Terrain-enabled XY and ribbon attributes are promoted to floats before
+mesh. Optional ground query channels have a separate 8 MiB per-mesh cap. Replacement
+draw/query buffers share a 64 MiB staged-generation cap, checked before GPU upload.
+`getTerrainDrapingStatistics()` separates `meshBytes`, `queryBytes` and
+`stagedMeshBytes`; these are completed-buffer counts, not whole-pipeline peaks.
+Terrain-enabled XY and ribbon attributes are promoted to floats before
 refinement; feature IDs, UVs and annotation shapes retain their original channels.
 A 1/64-tile edge floor bounds detail independently of DEM resolution; budgets fail
 explicitly rather than publishing truncated topology. Refinement, mask-prefix
@@ -394,6 +415,18 @@ masked triangles, detail-limited meshes and slowest worker preparation.
 Hermetic tests cover CPU boundaries, replacement/recovery, draped vector/raster
 output, stereo picking and mocked immersive room cameras on WebGL 2 and WebGPU.
 Native headset validation remains a manual gate.
+
+Ground queries project only candidate meshes lazily. Settled displacement reuses
+the immutable projected query owner; changing the blend or relief makes a new owner.
+Morph queries use exact linear triangle traversal, avoiding new per-frame BVHs.
+Mercator footprint admission skips unrelated meshes for vertical probes. Profiling
+must still include these projection/copy and traversal costs: they are not a hard
+frame-time guarantee. The globe draping mode skips the separate elevation preview's
+template/display preparation and changes exaggeration through GPU uniforms only.
+Its global current/previous grid-copy cap is explicitly 256 MiB per scene/worker
+and its additional staged draw/query cap is 128 MiB. These are separate from the
+256 MiB downloaded/decoded source cache: worker copies multiply retained data.
+Local examples retain the smaller renderer defaults.
 
 ## Bounded phase acceptance and deferred work
 

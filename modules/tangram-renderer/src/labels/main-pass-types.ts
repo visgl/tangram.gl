@@ -19,6 +19,8 @@ export interface LabelMesh {
     terrainVisibleAt?: number;
     /** Last submitted height blend, for non-terrain callers and diagnostics. */
     terrainBlend?: number;
+    /** Captured worker generation's duration; a pending field must not retime admitted labels. */
+    variant?: {terrainTransitionDuration?: number};
     valid: boolean;
     labels?: Record<string, MeshLabel>;
     vertex_layout: {offset: Record<string, number>; stride: number};

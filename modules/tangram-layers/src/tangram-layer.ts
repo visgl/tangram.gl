@@ -219,10 +219,16 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer},
     }
 
     /** Intersect the actual rendered eye with a host-owned terrain mesh in content coordinates. */
-    getTerrainAt(pixel: {x: number; y: number}, surface: TerrainSurface, options: FeatureSelectionOptions = {}): TerrainSurfaceHit | null {
+    getTerrainAt(pixel: {x: number; y: number}, surface?: TerrainSurface, options: FeatureSelectionOptions = {}): TerrainSurfaceHit | null {
       const record = this.state && this.state.tangramRecord;
       if (!record || record.disposed || record.loadFailed || !record.loaded) return null;
       return record.renderer.getTerrainAt(pixel, surface, options);
+    }
+
+    /** Exact admitted ground triangles at the last frame, including temporal relief and globe projection. */
+    getDrapedTerrainSurface(): import('@vis.gl/tangram-renderer/core').DrapedTerrainSurfaceSnapshot | null {
+      const record = this.state?.tangramRecord;
+      return record && !record.disposed && record.loaded && !record.loadFailed ? record.renderer.getDrapedTerrainSurface() : null;
     }
 
     /** Resident worker preparation costs; GPU, source and scratch allocations are separate. */

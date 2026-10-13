@@ -81,3 +81,15 @@ test('an active terrain rebuild drains before the latest pending snapshot is adm
     expect(rebuild).toHaveBeenCalledTimes(2); expect(renderer.scene.terrain?.maxSegmentLength).toBe(200);
     renderer.destroy();
 });
+
+test('feature queries wait for terrain worker selection tables, then route through the corrected generation', async () => {
+    const renderer = Renderer.create({}, {terrain: {grids: []}});
+    let finish: () => void = () => {};
+    vi.spyOn(renderer.scene, 'rebuild').mockImplementation(() => new Promise<void>(resolve => {finish = resolve;}));
+    const select = vi.spyOn(renderer.scene, 'getFeatureAt').mockResolvedValue(undefined);
+    const update = renderer.setTerrain({grids: [field(20)]}); await Promise.resolve();
+    const query = renderer.getFeatureAt({x: 1, y: 2}); expect(select).not.toHaveBeenCalled();
+    finish(); await update; await query;
+    expect(select).toHaveBeenCalledOnce();
+    expect(renderer.getDrapedTerrainSurface()).toBeNull(); renderer.destroy();
+});

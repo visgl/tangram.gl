@@ -216,14 +216,15 @@ export class TerrainMeshSurface implements TerrainSurface {
     /** Detached conservative mesh bounds; no mutable geometry or acceleration buffers escape. */
     getBounds(): {minimum: [number, number, number]; maximum: [number, number, number]} | null {return this.queryIndex.getBounds();}
 
-    /** Two-sided indexed math.gl queries; distance is normalized to the surface's coordinate units. */
-    intersectRay(ray: TerrainRay, maxDistance = Infinity): TerrainSurfaceHit | null {
+    /** Indexed queries; an optional display clip rejects candidates before nearest-hit selection. */
+    intersectRay(ray: TerrainRay, maxDistance = Infinity, acceptPosition?: (position: readonly [number, number, number]) => boolean): TerrainSurfaceHit | null {
         if (maxDistance < 0 || Number.isNaN(maxDistance)) throw new Error('Terrain ray distance must be non-negative');
         const length = Math.hypot(...ray.direction);
         if (ray.origin.length !== 3 || ray.direction.length !== 3 || !ray.origin.every(Number.isFinite) ||
             !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0 || !this.queryIndex.triangleCount) return null;
         const direction: [number, number, number] = [ray.direction[0] / length, ray.direction[1] / length, ray.direction[2] / length];
         const hit = this.queryIndex.queryRay(ray.origin, direction, maxDistance, candidate => {
+            if (acceptPosition && !acceptPosition([ray.origin[0] + direction[0] * candidate.parameter, ray.origin[1] + direction[1] * candidate.parameter, ray.origin[2] + direction[2] * candidate.parameter])) return false;
             if (this.projection === 'globe' && Math.hypot(ray.origin[0] + direction[0] * candidate.parameter,
                 ray.origin[1] + direction[1] * candidate.parameter, ray.origin[2] + direction[2] * candidate.parameter) === 0) return false;
             if (!this.cullBackfaces) return true;

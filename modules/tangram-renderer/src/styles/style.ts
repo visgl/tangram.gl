@@ -23,7 +23,7 @@ import mergeObjects from '../utils/merge';
 import Thread from '../utils/thread';
 import WorkerBroker from '../utils/worker_broker';
 import makeWireframeForTriangleElementData from '../builders/wireframe';
-import {drapeTerrainMesh, getTerrainVertexLayout} from '../procedures/terrain-draping';
+import {drapeTerrainMesh, getTerrainVertexLayout, extractDrapedTerrainQueryMesh} from '../procedures/terrain-draping';
 import debugSettings from '../utils/debug_settings';
 import Geo from '../utils/geo';
 import {normalizeProjectedBasemapOptions, projectTileMesh, validateProjectedLights} from '../procedures/mesh-projector';
@@ -197,8 +197,12 @@ export var Style = {
                         const stride = getTerrainVertexLayout(originalLayout).stride;
                         for (const label of Object.values(mesh.labels)) label.ranges = label.ranges.map(([offset, count]) => [offset / originalLayout.stride * stride, count]);
                     }
-                    mesh.variant = {...mesh.variant, terrain: true, terrainStatistics: draped.statistics};
+                    mesh.variant = {...mesh.variant, terrain: true, terrainStatistics: draped.statistics, terrainTransitionDuration: this.terrain.transitionDuration};
                     if (!draped.indices.length) {delete tile_data.meshes[variant]; continue;}
+                    if (this.terrain.querySurfaceStyles.includes(this.name)) {
+                        if (this.baseStyle() !== 'raster') throw new Error('Terrain query surfaces require a ground raster style');
+                        mesh.terrain_surface = extractDrapedTerrainQueryMesh(draped.vertices, draped.indices, getTerrainVertexLayout(originalLayout), [tile.min.x, tile.min.y], tile.coords.z, this.terrain.maxQueryMeshBytes);
+                    }
                 }
                 if (this.cpu_projection) {
                     if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(this.baseStyle())) throw new Error('CPU projection requires ground meshes or screen-facing annotations');
