@@ -335,22 +335,20 @@ export default class Texture {
 
     // Sets the texture to track a element (canvas/image)
     setElement(element: string | TextureElement, options: TextureOptions = {}) {
-        let el = element;
+        const originalElement = element;
 
         // a string element is interpeted as a CSS selector
-        if (typeof element === 'string') {
-            element = document.querySelector<TextureElement>(element) ?? '';
-        }
+        const resolvedElement = typeof element === 'string' ? document.querySelector(element) : element;
 
-        if (element instanceof HTMLCanvasElement ||
-            element instanceof HTMLImageElement ||
-            element instanceof HTMLVideoElement) {
-            this.update(element, options);
+        if (resolvedElement instanceof HTMLCanvasElement ||
+            resolvedElement instanceof HTMLImageElement ||
+            resolvedElement instanceof HTMLVideoElement) {
+            this.update(resolvedElement, options);
             this.setFiltering(options);
         }
         else {
             this.loaded = false;
-            let msg = `the 'element' parameter (\`element: ${JSON.stringify(el)}\`) must be a CSS `;
+            let msg = `the 'element' parameter (\`element: ${JSON.stringify(originalElement)}\`) must be a CSS `;
             msg += 'selector string, or a <canvas>, <image> or <video> object';
             log('warn', `Texture '${this.name}': ${msg}`, options);
             Texture.trigger('warning', { message: `Failed to load texture because ${msg}`, texture: options });

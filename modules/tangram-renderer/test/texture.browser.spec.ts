@@ -8,8 +8,8 @@ import Context from '../src/gl/context';
 import type {TangramTextureOptions} from '../src/gpu/tangram_gpu_backend';
 
 /** A portable resource needs disposal, never a raw WebGL handle. */
-function createResource(): TextureResource & {destroyed: boolean} {
-    return {destroyed: false, destroy() {this.destroyed = true;}};
+function createResource(): TextureResource & {destroyed: boolean; readonly handle: never} {
+    return {destroyed: false, get handle(): never {throw new Error('Portable texture handles must stay opaque');}, destroy() {this.destroyed = true;}};
 }
 
 test('texture factory preserves placeholder/upload order and retires each replaced owner', async () => {
@@ -48,6 +48,8 @@ test('detached worker metadata supports dimensions/sprites without pretending to
     try {
         expect(await Texture.getInfo(metadata.name)).toMatchObject(metadata);
         expect(await Texture.getInfo([metadata.name, '__missing'])).toEqual([expect.objectContaining(metadata), null]);
+        expect(await Texture.getInfo('')).toEqual(expect.arrayContaining([expect.objectContaining(metadata)]));
+        expect(await Texture.getInfo(['', metadata.name])).toEqual([expect.arrayContaining([expect.objectContaining(metadata)]), expect.objectContaining(metadata)]);
         expect(Texture.getSpriteInfo(metadata.name, 'icon')).toEqual({size: [8, 4], css_size: [4, 2], aspect: 2, texcoords: [0, 0, 1, 1]});
         expect(() => {Texture.retain(metadata.name); Texture.release(metadata.name); Texture.destroy({});}).not.toThrow();
         expect(Texture.textures[metadata.name]).toBe(metadata);
