@@ -195,6 +195,30 @@ test('selection submits late non-selectable depth before every annotation ID', (
     expect(scene.renderStyle.mock.calls[1]).toEqual(['labels', 'selection_program', 0, null, null]);
 });
 
+test.each([false, true])('legacy translucent passes mirror luma state and restore after failure=%s', fail => {
+    const scene = Object.create(Scene.prototype), state = {depthCompare: 'less', blend: true};
+    scene.portable_rendering = false; scene.clearFrame = vi.fn();
+    scene.styles = {glass: {name: 'glass', blend: 'translucent'}};
+    scene.style_manager = {getActiveBlendOrders: () => [{blend_order: 10, styles: ['glass']}]};
+    scene.setRenderState = vi.fn(() => {scene.mesh_render_state = state;});
+    scene.gl = {colorMask: vi.fn(), depthFunc: vi.fn(), enable: vi.fn(), disable: vi.fn(), clearStencil: vi.fn(),
+        clear: vi.fn(), stencilFunc: vi.fn(), stencilOp: vi.fn(), EQUAL: 514, LESS: 513, STENCIL_TEST: 2960,
+        STENCIL_BUFFER_BIT: 1024, ZERO: 0, KEEP: 7680, INCR: 7682};
+    const draws: object[] = [];
+    scene.renderStyle = vi.fn(() => {
+        draws.push(scene.mesh_render_state);
+        if (fail && draws.length === 2) throw new Error('color fixture');
+        return 1;
+    });
+    if (fail) expect(() => scene.renderPass('program')).toThrow('color fixture');
+    else expect(scene.renderPass('program')).toBe(1);
+    expect(draws).toEqual([{...state, colorMask: 0}, {...state, colorMask: 15, depthCompare: 'equal'}]);
+    expect(scene.mesh_render_state).toBe(state);
+    expect(scene.gl.colorMask).toHaveBeenLastCalledWith(true, true, true, true);
+    expect(scene.gl.depthFunc).toHaveBeenLastCalledWith(513);
+    expect(scene.gl.disable).toHaveBeenLastCalledWith(2960);
+});
+
 test('resident preparation statistics count valid worker outputs without counting flat or disposed meshes', () => {
     const manager = Object.create(TileManager.prototype);
     const statistics = {vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, preparationMs: 5, detailLimited: true};

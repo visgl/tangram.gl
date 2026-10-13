@@ -847,12 +847,18 @@ export default class Scene {
 
                 const blend = allow_blend && style.blend;
                 if (blend === 'translucent') {
+                    const translucent_state = this.mesh_render_state;
+                    try {
                     // Depth pre-pass for translucency
                     this.gl.colorMask(false, false, false, false);
+                    // Resource-backed WebGL draws reapply luma pipeline parameters;
+                    // raw GL changes alone cannot control their depth/color passes.
+                    this.mesh_render_state = {...translucent_state, colorMask: 0};
                     this.renderStyle(style.name, program_key, blend_order, null, renderPass);
 
                     this.gl.colorMask(true, true, true, true);
                     this.gl.depthFunc(this.gl.EQUAL);
+                    this.mesh_render_state = {...translucent_state, colorMask: 15, depthCompare: 'equal'};
 
                     // Stencil buffer mask prevents overlap/flicker from compounding alpha of overlapping polys
                     this.gl.enable(this.gl.STENCIL_TEST);
@@ -865,8 +871,12 @@ export default class Scene {
                     count += this.renderStyle(style.name, program_key, blend_order, null, renderPass);
 
                     // Disable translucency-specific settings
+                    } finally {
+                    this.mesh_render_state = translucent_state;
+                    this.gl.colorMask(true, true, true, true);
                     this.gl.disable(this.gl.STENCIL_TEST);
                     this.gl.depthFunc(this.gl.LESS);
+                    }
                 }
                 else if (blend !== 'opaque' && style.stencil_proxy_tiles === true) {
                     // Mask proxy tiles to with stencil buffer to avoid overlap/flicker from compounding alpha
