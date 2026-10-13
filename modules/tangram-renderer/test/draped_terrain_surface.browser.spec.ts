@@ -42,6 +42,84 @@ test('query preparation cancellation and allocation failure retain exact linear 
     } finally {warm.mockRestore();}
 });
 
+test('unqueried and farther membership cannot reserve the nearest ground acceleration budget', () => {
+    const farther = ground(), nearer = ground(), unrelated = ground();
+    for (let vertex = 0; vertex < nearer.positions.length / 3; vertex++) nearer.positions[vertex * 3 + 2] += 100;
+    for (let vertex = 0; vertex < unrelated.positions.length / 3; vertex++) unrelated.positions[vertex * 3] += 1000;
+    unrelated.bounds = [990, -10, 1010, 10];
+    const required = TriangleQueryIndex.getRequiredHierarchyBytes(1);
+    const snapshot = new DrapedTerrainSurfaceSnapshot('web-mercator', [
+        {id: 'unrelated-first', mesh: unrelated, blend: 1}, {id: 'farther-first', mesh: farther, blend: 1},
+        {id: 'nearer-last', mesh: nearer, blend: 1}
+    ], 0, 0, 1, required);
+    expect(snapshot.reservedQueryIndexBytes).toBe(0);
+    expect(snapshot.intersectRay({origin: [0, -1, 500], direction: [0, 0, -1]})?.surfaceId).toBe('nearer-last');
+    for (const _step of snapshot.prepareQueryIndexSteps()) { /* nearest demanded owner only */ }
+    expect(snapshot.getStatistics()).toMatchObject({reservedQueryIndexBytes: required, queryIndexBytes: required, preparedMeshes: 1});
+    // A later distinct ray still picks exactly when no index budget remains.
+    expect(snapshot.intersectRay({origin: [1000, -1, 500], direction: [0, 0, -1]})?.surfaceId).toBe('unrelated-first');
+    for (const _step of snapshot.prepareQueryIndexSteps()) { /* exact fallback has no hierarchy */ }
+    expect(snapshot.getStatistics()).toMatchObject({reservedQueryIndexBytes: required, queryIndexBytes: required, preparedMeshes: 2});
+});
+
+test('cooperative warming shares slices across demanded owners and cancels every partial iterator', () => {
+    const left = ground(), right = ground();
+    for (let vertex = 0; vertex < right.positions.length / 3; vertex++) right.positions[vertex * 3] += 100;
+    right.bounds = [90, -10, 110, 10];
+    const snapshot = new DrapedTerrainSurfaceSnapshot('web-mercator', [
+        {id: 'left', mesh: left, blend: 1}, {id: 'right', mesh: right, blend: 1}
+    ], 0, 0, 1);
+    const first = snapshot.intersectRay({origin: [0, -1, 500], direction: [0, 0, -1]});
+    const second = snapshot.intersectRay({origin: [100, -1, 500], direction: [0, 0, -1]});
+    const calls: TerrainMeshSurface[] = [], closed: TerrainMeshSurface[] = [];
+    const prepare = vi.spyOn(TerrainMeshSurface.prototype, 'prepareQueryIndexSteps').mockImplementation(function* (this: TerrainMeshSurface) {
+        try {for (let slice = 0; slice < 3; slice++) {calls.push(this); yield;}}
+        finally {closed.push(this);}
+    });
+    try {
+        const steps = snapshot.prepareQueryIndexSteps();
+        steps.next(); steps.next(); steps.next();
+        expect(calls[0]).not.toBe(calls[1]); expect(calls[2]).toBe(calls[0]);
+        steps.return(); expect(new Set(closed).size).toBe(2);
+        expect(snapshot.getStatistics().preparationFailures).toBe(0);
+        expect(snapshot.intersectRay({origin: [0, -1, 500], direction: [0, 0, -1]})).toEqual(first);
+        expect(snapshot.intersectRay({origin: [100, -1, 500], direction: [0, 0, -1]})).toEqual(second);
+    } finally {prepare.mockRestore();}
+});
+
+test('immutable display bounds are evaluated once across repeated probes without changing exact hits', () => {
+    const mesh = ground(), summary = summarizeDrapedTerrainBounds(mesh);
+    let summaryReads = 0;
+    Object.defineProperty(mesh, 'boundsSummary', {get() {summaryReads++; return summary;}});
+    const snapshot = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'ground', mesh, blend: 1}], 0, 0, 1);
+    expect(summaryReads).toBe(0);
+    const ray = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};
+    const expected = snapshot.intersectRay(ray);
+    for (let query = 0; query < 10; query++) expect(snapshot.intersectRay(ray)).toEqual(expected);
+    expect(summaryReads).toBe(1);
+    expect(snapshot.getStatistics()).toMatchObject({preparedMeshes: 1, projectionBuilds: 1});
+});
+
+test('one failed warming owner never prevents another demanded owner from completing its index', () => {
+    const left = ground(), right = ground();
+    for (let vertex = 0; vertex < right.positions.length / 3; vertex++) right.positions[vertex * 3] += 100;
+    right.bounds = [90, -10, 110, 10];
+    const snapshot = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'left', mesh: left, blend: 1}, {id: 'right', mesh: right, blend: 1}], 0, 0, 1);
+    const leftRay = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};
+    const rightRay = {origin: [100, -1, 500] as const, direction: [0, 0, -1] as const};
+    const leftHit = snapshot.intersectRay(leftRay), rightHit = snapshot.intersectRay(rightRay);
+    const original = TerrainMeshSurface.prototype.prepareQueryIndexSteps;
+    const prepare = vi.spyOn(TerrainMeshSurface.prototype, 'prepareQueryIndexSteps').mockImplementation(function* (this: TerrainMeshSurface) {
+        if ((this.getBounds()?.minimum[0] ?? Infinity) < 50) {yield; throw new Error('one owner fixture');}
+        yield* original.call(this);
+    });
+    try {
+        for (const _step of snapshot.prepareQueryIndexSteps()) { /* failure is owner-local */ }
+        expect(snapshot.getStatistics()).toMatchObject({preparationFailures: 1, queryIndexBytes: TriangleQueryIndex.getRequiredHierarchyBytes(1)});
+        expect(snapshot.intersectRay(leftRay)).toEqual(leftHit); expect(snapshot.intersectRay(rightRay)).toEqual(rightHit);
+    } finally {prepare.mockRestore();}
+});
+
 test('visibility identity changes with mesh replacement or fallback clips, but not frame timestamps', () => {
     const mesh = ground();
     const capture = (time: number, next = mesh, clips?: readonly (readonly [number, number, number, number])[]) =>

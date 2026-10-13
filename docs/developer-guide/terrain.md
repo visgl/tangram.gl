@@ -442,7 +442,14 @@ Morph queries use exact linear triangle traversal, avoiding new per-frame BVHs.
 Settled queried owners are warmed cooperatively once per logical frame. The
 default `maxQueryIndexBytes` is 16 MiB per snapshot and
 `queryPreparationBudgetMs` is a 2 ms scheduling target (range 0–20; zero disables
-warming). Shared clip leases reserve an index only once. Insufficient budget or
+warming). Reservations follow first bounds-admitted query demand, not display
+membership order. Entries skipped by bounds or nearest-hit pruning reserve nothing.
+An admitted reservation lasts for that snapshot; later queries use exact linear
+traversal if the remaining budget is insufficient. Shared
+clip leases reserve an index only once. Cooperative warming rotates between
+demanded owners after each slice; cancellation releases every incomplete index.
+Conservative display bounds are cached per immutable entry, without projecting
+its vertices. Insufficient budget or
 failed acceleration retains exact linear queries; it never removes terrain.
 Initial lazy projection/copies are synchronous and outside that scheduling target.
 `snapshot.getStatistics()` separates projected bytes, reserved/completed indexes,
