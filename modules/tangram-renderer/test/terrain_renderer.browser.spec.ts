@@ -28,6 +28,7 @@ test('query warming advances once per shared stereo frame and releases partial w
         renderViews: ['left', 'right'].map((id, index) => ({id, viewport: {x: index * 100, width: 100, height: 100},
             camera: {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 100]}}))});
     const draw = (renderViewId: string) => renderer.render({frame, renderViewId});
+    let destroyed = false;
     try {
         draw('left'); draw('right'); expect(preparation).not.toHaveBeenCalled();
         draw('left'); expect(preparation).toHaveBeenCalledOnce(); expect(redraw).toHaveBeenCalled();
@@ -36,8 +37,8 @@ test('query warming advances once per shared stereo frame and releases partial w
         expect(renderer.getTerrainDrapingStatistics().annotationQueries).toMatchObject({inputBytes: 0, queryIndexBytes: 0});
         renderer.load({}); expect(released).toHaveBeenCalledOnce();
         draw('left'); draw('right'); draw('left'); expect(preparation).toHaveBeenCalledTimes(2);
-        renderer.destroy(); expect(released).toHaveBeenCalledTimes(2);
-    } finally {clock.mockRestore(); preparation.mockRestore(); renderer.destroy();}
+        destroyed = true; renderer.destroy(); expect(released).toHaveBeenCalledTimes(2);
+    } finally {clock.mockRestore(); preparation.mockRestore(); if (!destroyed) renderer.destroy();}
 });
 
 /** Physical fields small enough to exercise generation policy without GPU fixtures. */
