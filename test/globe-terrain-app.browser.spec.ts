@@ -326,6 +326,7 @@ test('styled globe draping preserves field identity during GPU-only relief chang
     await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
     expect(basemapMocks.construct.mock.lastCall?.[0].terrain).toBe(field);
     expect(basemapMocks.construct.mock.lastCall?.[0].terrainExaggeration).toBe(25);
+    expect(basemapMocks.construct.mock.lastCall?.[0].globeMaxElevation).toBe(300000);
     expect(mocks.layers.mock.calls.length).toBe(previewCalls); expect(fetch.mock.calls.length).toBe(warm);
     expect(host.querySelector('[data-example="preparation-status"]')?.textContent).toContain('paused');
     const properties = mocks.construct.mock.calls[0][0];
