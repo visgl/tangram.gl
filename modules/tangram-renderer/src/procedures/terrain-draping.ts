@@ -32,6 +32,12 @@ export interface TerrainDrapingOptions {
     maxQueryMeshBytes?: number;
     /** Additional staged draw/query buffers across a replacement generation; default 64 MiB, excluding GPU overhead. */
     maxStagedMeshBytes?: number;
+    /** Aggregate acceleration reservation for the current draped query snapshot; default 16 MiB. */
+    maxQueryIndexBytes?: number;
+    /** Cooperative query-index warming target per host frame in milliseconds; default 2. */
+    queryPreparationBudgetMs?: number;
+    /** Test annotation fragments against rendered terrain and omit fully blocked collision candidates; default false. */
+    occludeAnnotations?: boolean;
 }
 
 /** Validated, detached physical input; typed-array contents are immutable by contract. */
@@ -86,6 +92,8 @@ export interface TerrainDrapingStatistics {
     queryBytes: number;
     /** New draw/query buffers waiting for all worker batches to complete. */
     stagedMeshBytes: number;
+    /** Snapshot-local annotation query costs; excludes separately retained host snapshots. */
+    annotationQueries?: import('../selection/draped-terrain-surface').DrapedTerrainQueryStatistics;
 }
 
 /** Validate and snapshot terrain before changing a scene or rebuilding workers. */
@@ -98,10 +106,15 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     const querySurfaceStyles = options.querySurfaceStyles ?? [];
     const maxQueryMeshBytes = options.maxQueryMeshBytes ?? 8 * 1024 * 1024;
     const maxStagedMeshBytes = options.maxStagedMeshBytes ?? 64 * 1024 * 1024;
+    const maxQueryIndexBytes = options.maxQueryIndexBytes ?? 16 * 1024 * 1024;
+    const queryPreparationBudgetMs = options.queryPreparationBudgetMs ?? 2;
+    const occludeAnnotations = options.occludeAnnotations ?? false;
     if (!Number.isSafeInteger(maximum) || maximum < 0 || !Number.isFinite(segment) || segment < 1 ||
         !Number.isSafeInteger(vertices) || vertices < 0 || vertices > 262144 || !Number.isSafeInteger(meshBytes) || meshBytes < 0 ||
         !Number.isFinite(duration) || duration < 0 || duration > 5000 ||
-        ![maxQueryMeshBytes, maxStagedMeshBytes].every(value => Number.isSafeInteger(value) && value >= 0) ||
+        ![maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes].every(value => Number.isSafeInteger(value) && value >= 0) ||
+        !Number.isFinite(queryPreparationBudgetMs) || queryPreparationBudgetMs < 0 || queryPreparationBudgetMs > 20 ||
+        typeof occludeAnnotations !== 'boolean' ||
         querySurfaceStyles.some(name => typeof name !== 'string' || !name.length) || new Set(querySurfaceStyles).size !== querySurfaceStyles.length) throw new Error('Invalid terrain draping limits');
     const previous = options.previousGrids ?? [];
     let bytes = 0;
@@ -128,7 +141,7 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     const copy = (grids: readonly TerrainHeightGrid[]): TerrainHeightGrid[] => grids.map(grid => ({...grid, bounds: [...grid.bounds], heights: Float32Array.from(grid.heights), valid: Uint8Array.from(grid.valid)}));
     return {grids: copy(options.grids), previousGrids: copy(previous), maxSegmentLength: segment, maxAdditionalVertices: vertices,
         maxGridBytes: maximum, maxMeshBytes: meshBytes, transitionDuration: duration, byteLength: bytes, minimumHeight,
-        querySurfaceStyles: [...querySurfaceStyles], maxQueryMeshBytes, maxStagedMeshBytes};
+        querySurfaceStyles: [...querySurfaceStyles], maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, queryPreparationBudgetMs, occludeAnnotations};
 }
 
 /** Retain only the final draw's ground channels and topology, never reconstruct another DEM mesh. */
@@ -211,7 +224,7 @@ export function drapeTerrainMesh(options: {
     if (!Number.isInteger(options.tileZoom) || options.tileZoom < 0 || options.tileZoom > 30 || !origin.every(Number.isFinite)) throw new Error('Invalid terrain draping tile');
     const styleZoom = options.styleZoom ?? options.tileZoom;
     if (!Number.isFinite(styleZoom) || styleZoom < 0 || styleZoom > 30) throw new Error('Invalid terrain draping style zoom');
-    const ribbonScale = 2 ** Math.max(0, options.tileZoom - styleZoom);
+    const ribbonScale = 2 ** (options.tileZoom - styleZoom);
     const metersPerUnit = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** options.tileZoom);
     const positionOffset = layout.offset.a_position;
     const positionAttribute = layout.attribs.find(attribute => attribute.name === 'a_position');
@@ -232,11 +245,22 @@ export function drapeTerrainMesh(options: {
     const outputLayout = getTerrainVertexLayout(layout);
     const baseLayout = getTerrainBaseLayout(layout);
     const extrusionOffset = layout.offset.a_extrude;
+    // Match the built-in ribbon at its authored style zoom (zoom_delta = 0).
+    // Other zoom fractions retain the shader's local tangent correction.
+    const getNominalOffset = (vertex: DataView, axis: number): number => {
+        if (extrusionOffset === undefined) return 0;
+        const widthScale = positionAttribute.size > 2 ? vertex.getFloat32(baseLayout.offset.a_position + 8, true) / 1024 : 0;
+        const offsetScaleOffset = baseLayout.offset.a_z_and_offset_scale;
+        const offsetWidthScale = offsetScaleOffset === undefined ? 0 : vertex.getInt16(offsetScaleOffset + 2, true) / 1024;
+        const extrusion = vertex.getFloat32(baseLayout.offset.a_extrude + axis * 4, true) * (1 + widthScale);
+        const offset = baseLayout.offset.a_offset === undefined ? 0 : vertex.getFloat32(baseLayout.offset.a_offset + axis * 4, true) * (1 - Math.max(0, -offsetWidthScale));
+        return (extrusion + offset) * ribbonScale;
+    };
     // Ribbon topology is not its collapsed centerline. Keep dynamic extrusion
     // attributes intact while using their nominal corners for refinement.
     const readPosition = (vertex: DataView): [number, number] => [
-        vertex.getFloat32(baseLayout.offset.a_position, true) + (extrusionOffset === undefined ? 0 : vertex.getFloat32(baseLayout.offset.a_extrude, true) * ribbonScale),
-        vertex.getFloat32(baseLayout.offset.a_position + 4, true) + (extrusionOffset === undefined ? 0 : vertex.getFloat32(baseLayout.offset.a_extrude + 4, true) * ribbonScale)
+        vertex.getFloat32(baseLayout.offset.a_position, true) + getNominalOffset(vertex, 0),
+        vertex.getFloat32(baseLayout.offset.a_position + 4, true) + getNominalOffset(vertex, 1)
     ];
     const bounds = [Infinity, Infinity, -Infinity, -Infinity];
     const source = new DataView(options.vertices.buffer, options.vertices.byteOffset, options.vertices.byteLength);
@@ -280,6 +304,8 @@ export function drapeTerrainMesh(options: {
         vertices.set(refined.vertices.subarray(index * baseLayout.stride, (index + 1) * baseLayout.stride), index * outputLayout.stride);
         const coordinate: [number, number] = [origin[0] + input.getFloat32(baseLayout.offset.a_position, true) * metersPerUnit, origin[1] + input.getFloat32(baseLayout.offset.a_position + 4, true) * metersPerUnit];
         coordinates.push(coordinate);
+        const nominalOffset: [number, number] = [getNominalOffset(input, 0), getNominalOffset(input, 1)];
+        const sampleCoordinate: [number, number] = [coordinate[0] + nominalOffset[0] * metersPerUnit, coordinate[1] + nominalOffset[1] * metersPerUnit];
         if (extrusionOffset !== undefined) {
             const offset = baseLayout.offset.a_offset;
             const extrude = baseLayout.offset.a_extrude;
@@ -287,20 +313,23 @@ export function drapeTerrainMesh(options: {
             const vertical = 2 * ribbonScale * (Math.abs(input.getFloat32(extrude + 4, true)) + (offset === undefined ? 0 : Math.abs(input.getFloat32(offset + 4, true)))) * metersPerUnit;
             ribbonBounds.push([[coordinate[0] - horizontal, coordinate[1] - vertical], [coordinate[0] + horizontal, coordinate[1] + vertical]]);
         }
-        const current = sampleTerrainNeighborhood(terrain.grids, coordinate);
+        const current = sampleTerrainNeighborhood(terrain.grids, sampleCoordinate);
         valid[index] = Number(current !== null);
-        const previousSample = sampleTerrainNeighborhood(terrain.previousGrids, coordinate);
+        const previousSample = sampleTerrainNeighborhood(terrain.previousGrids, sampleCoordinate);
         const previous = previousSample ?? current;
-        const latitudeCosine = 1 / Math.cosh(coordinate[1] / PROJECTION_CONSTANTS.mercatorRadius);
+        const latitudeCosine = 1 / Math.cosh(sampleCoordinate[1] / PROJECTION_CONSTANTS.mercatorRadius);
         for (const [grids, height, attribute] of [[terrain.grids, current, 'a_terrain'], [previousSample === null ? terrain.grids : terrain.previousGrids, previous, 'a_terrain_previous']] as const) {
             const slope = [0, 1].map(axis => {
-                const negative: [number, number] = [...coordinate], positive: [number, number] = [...coordinate];
+                const negative: [number, number] = [...sampleCoordinate], positive: [number, number] = [...sampleCoordinate];
                 negative[axis] -= cell; positive[axis] += cell;
                 const before = sampleTerrainNeighborhood(grids, negative), after = sampleTerrainNeighborhood(grids, positive);
                 return height === null ? 0 : before !== null && after !== null ? (after - before) / (2 * cell * latitudeCosine) : after !== null ? (after - height) / (cell * latitudeCosine) : before !== null ? (height - before) / (cell * latitudeCosine) : 0;
             });
             const offset = index * outputLayout.stride + outputLayout.offset[attribute];
-            [height ?? 0, slope[0], slope[1], Number(height !== null)].forEach((value, component) => {
+            // Ribbon triangles already passed validity admission. Their unused
+            // fourth channels carry the exact nominal corner (current X/previous Y),
+            // avoiding another attribute slot on devices limited to 16 attributes.
+            [height ?? 0, slope[0], slope[1], extrusionOffset === undefined ? Number(height !== null) : nominalOffset[attribute === 'a_terrain' ? 0 : 1]].forEach((value, component) => {
                 if (!Number.isFinite(Math.fround(value))) throw new Error('Terrain draping sample exceeds packed range');
                 view.setFloat32(offset + component * 4, value, true);
             });

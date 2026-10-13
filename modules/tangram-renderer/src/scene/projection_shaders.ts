@@ -16,15 +16,19 @@ float tangramTerrainHeight() {
     return mix(a_terrain_previous.x, a_terrain.x, u_terrain_blend) * u_terrain_exaggeration;
 }
 float tangramTerrainRibbonOffset(vec2 local_offset, vec2 local_position) {
-    float northing = u_tile_origin.y + local_position.y * u_model[1][1];
+    vec2 nominal_offset = vec2(a_terrain.w, a_terrain_previous.w);
+    float northing = u_tile_origin.y + (local_position.y + nominal_offset.y) * u_model[1][1];
     float latitude_cosine = 2. / (exp(northing / 6378137.) + exp(-northing / 6378137.));
     vec2 slope = mix(a_terrain_previous.yz, a_terrain.yz, u_terrain_blend) * u_terrain_exaggeration;
-    return dot(slope, local_offset * vec2(u_model[0][0], u_model[1][1]) * latitude_cosine);
+    return dot(slope, (local_offset - nominal_offset) * vec2(u_model[0][0], u_model[1][1]) * latitude_cosine);
 }
 vec3 tangramTerrainNormal(vec3 normal) {
     vec2 slope = mix(a_terrain_previous.yz, a_terrain.yz, u_terrain_blend) * u_terrain_exaggeration;
     if (u_projection_mode != 1) {
         float northing = u_tile_origin.y + a_position.y * u_model[1][1];
+        #ifdef TANGRAM_EXTRUDE_LINES
+            northing += a_terrain_previous.w * u_model[1][1];
+        #endif
         float latitude_cosine = 2. / (exp(northing / 6378137.) + exp(-northing / 6378137.));
         // Planar normals are subsequently transformed by the tile normal matrix;
         // globe normals instead consume ENU directly. Do not apply tile scale twice.
@@ -41,10 +45,11 @@ fn tangramTerrainHeight(current: vec4<f32>, previous: vec4<f32>) -> f32 {
     return mix(previous.x, current.x, TangramTile.u_terrain_blend) * TangramTile.u_terrain_exaggeration;
 }
 fn tangramTerrainRibbonOffset(local_offset: vec2<f32>, local_position: vec2<f32>, current: vec4<f32>, previous: vec4<f32>) -> f32 {
-    let northing = TangramTile.u_tile_origin.y + local_position.y * TangramTile.u_model[1][1];
+    let nominal_offset = vec2<f32>(current.w, previous.w);
+    let northing = TangramTile.u_tile_origin.y + (local_position.y + nominal_offset.y) * TangramTile.u_model[1][1];
     let latitude_cosine = 2.0 / (exp(northing / 6378137.0) + exp(-northing / 6378137.0));
     let slope = mix(previous.yz, current.yz, TangramTile.u_terrain_blend) * TangramTile.u_terrain_exaggeration;
-    return dot(slope, local_offset * vec2<f32>(TangramTile.u_model[0][0], TangramTile.u_model[1][1]) * latitude_cosine);
+    return dot(slope, (local_offset - nominal_offset) * vec2<f32>(TangramTile.u_model[0][0], TangramTile.u_model[1][1]) * latitude_cosine);
 }
 fn tangramTerrainNormal(normal: vec3<f32>, current: vec4<f32>, previous: vec4<f32>, local_position: vec2<f32>) -> vec3<f32> {
     var slope = mix(previous.yz, current.yz, TangramTile.u_terrain_blend) * TangramTile.u_terrain_exaggeration;

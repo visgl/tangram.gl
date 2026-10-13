@@ -112,6 +112,113 @@ test('draw and selection passes share the mesh clock across portable and classic
     expect(uniform).toHaveBeenLastCalledWith('1f', 'u_terrain_exaggeration', 2);
 });
 
+test('selection depth-only fallback restores state even when opaque non-selectable geometry fails', () => {
+    const scene = Object.create(Scene.prototype);
+    const state = {depthCompare: 'less', colorMask: 15};
+    scene.mesh_render_state = state; scene.portable_rendering = false;
+    scene.gl = {colorMask: vi.fn(), depthFunc: vi.fn(), LESS: 513};
+    scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    scene.styles = {ground: {selection: false, blend: 'opaque', baseStyle: () => 'raster'}};
+    scene.tile_manager = {getRenderableTiles: () => {throw new Error('draw fixture');}};
+    expect(() => scene.renderSelectionDepthPrepass([{blend_order: 0, styles: ['ground']}], null)).toThrow('draw fixture');
+    expect(scene.mesh_render_state).toBe(state);
+    expect(scene.gl.colorMask.mock.calls).toEqual([[false, false, false, false], [true, true, true, true]]);
+});
+
+test('point/text depth policy changes independently of blend mode and restores ground writes', () => {
+    const scene = Object.create(Scene.prototype);
+    scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    scene.style_manager = {getActiveBlendOrders: () => [{blend_order: 0, styles: ['ground', 'labels', 'ground']}]};
+    scene.styles = {ground: {name: 'ground', selection: true, blend: 'opaque', baseStyle: () => 'raster'},
+        labels: {name: 'labels', blend: 'opaque', baseStyle: () => 'points'}};
+    scene.setRenderState = vi.fn((state: {depth_test: boolean; depth_write: boolean}) => {
+        scene.mesh_render_state = {depthCompare: 'less', depthWriteEnabled: state.depth_write};
+    });
+    scene.renderStyle = vi.fn(() => 1);
+    expect(scene.renderPortablePass('selection_program', {allow_blend: false, renderPass: null})).toBe(3);
+    expect(scene.setRenderState).toHaveBeenCalledTimes(3);
+    expect(scene.setRenderState.mock.calls[1][0]).toMatchObject({depth_test: true, depth_write: false});
+    expect(scene.mesh_render_state).toMatchObject({depthWriteEnabled: true, depthCompare: 'less'});
+});
+
+test('legacy color/selection depth policy restores LESS after non-writing annotation styles', () => {
+    const scene = Object.create(Scene.prototype);
+    scene.portable_rendering = false; scene.clearFrame = vi.fn();
+    scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    scene.gl = {depthFunc: vi.fn(), LESS: 513, LEQUAL: 515};
+    scene.style_manager = {getActiveBlendOrders: () => [{blend_order: 0, styles: ['ground', 'labels', 'ground']}]};
+    scene.styles = {ground: {name: 'ground', selection: true, blend: 'opaque', baseStyle: () => 'raster'},
+        labels: {name: 'labels', blend: 'opaque', baseStyle: () => 'text'}};
+    scene.setRenderState = vi.fn(() => {scene.mesh_render_state = {depthCompare: 'less'};});
+    scene.renderStyle = vi.fn(() => 1);
+    expect(scene.renderPass('selection_program', {allow_blend: false})).toBe(3);
+    expect(scene.gl.depthFunc.mock.calls).toEqual([[513], [515], [513]]);
+    expect(scene.setRenderState.mock.calls[1][0]).toMatchObject({depth_test: true, depth_write: false});
+});
+
+test('depth-only draws keep selection pending until their attachment-specific pipeline is ready', () => {
+    const scene = Object.create(Scene.prototype);
+    const state = {colorMask: 15, depthCompare: 'less-equal'};
+    scene.portable_rendering = true; scene.mesh_render_state = state;
+    scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    const render = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    scene.styles = {ground: {name: 'ground', blend: 'opaque', selection: false, baseStyle: () => 'raster', render}};
+    const mesh = {variant: {blend_order: 5, mesh_order: 0}, geometry_count: 1};
+    scene.tile_manager = {getRenderableTiles: () => [{meshes: {ground: [mesh]}, shouldProxyForStyle: () => true}]};
+    scene.setupStyle = vi.fn(() => ({})); scene.view = {projection: {type: 'web-mercator'}, setupTile: vi.fn()};
+    scene.setRenderState = vi.fn(() => {scene.mesh_render_state = {blend: false};});
+    scene.requestRedraw = vi.fn();
+    const orders = [{blend_order: 5, styles: ['ground']}];
+    scene.renderSelectionDepthPrepass(orders, null);
+    expect(scene.selection_render_pending).toBe(true);
+    expect(scene.requestRedraw).toHaveBeenCalledOnce();
+    expect(render.mock.calls[0][1].renderState).toMatchObject({colorMask: 0, blend: false, depthWriteEnabled: true});
+    expect(scene.mesh_render_state).toBe(state);
+    scene.selection_render_pending = false;
+    scene.renderSelectionDepthPrepass(orders, null);
+    expect(scene.selection_render_pending).toBe(false);
+    expect(scene.renderStyle('ground', 'selection_program', 5)).toBe(0);
+    expect(render).toHaveBeenCalledTimes(2);
+});
+
+test('selection submits late non-selectable depth before every annotation ID', () => {
+    const scene = Object.create(Scene.prototype);
+    scene.portable_rendering = true; scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    const orders = [{blend_order: 0, styles: ['labels']}, {blend_order: 5, styles: ['ground']}];
+    scene.style_manager = {getActiveBlendOrders: () => orders};
+    scene.styles = {labels: {name: 'labels', blend: 'opaque', selection: true, baseStyle: () => 'points'},
+        ground: {name: 'ground', blend: 'opaque', selection: false, baseStyle: () => 'raster'}};
+    scene.setRenderState = vi.fn(() => {scene.mesh_render_state = {};});
+    scene.renderStyle = vi.fn(() => 1);
+    scene.renderPortablePass('selection_program', {allow_blend: false, renderPass: null});
+    expect(scene.renderStyle.mock.calls[0]).toEqual(['ground', 'program', 5, null, null, true]);
+    expect(scene.renderStyle.mock.calls[1]).toEqual(['labels', 'selection_program', 0, null, null]);
+});
+
+test.each([false, true])('legacy translucent passes mirror luma state and restore after failure=%s', fail => {
+    const scene = Object.create(Scene.prototype), state = {depthCompare: 'less', blend: true};
+    scene.portable_rendering = false; scene.clearFrame = vi.fn();
+    scene.styles = {glass: {name: 'glass', blend: 'translucent'}};
+    scene.style_manager = {getActiveBlendOrders: () => [{blend_order: 10, styles: ['glass']}]};
+    scene.setRenderState = vi.fn(() => {scene.mesh_render_state = state;});
+    scene.gl = {colorMask: vi.fn(), depthFunc: vi.fn(), enable: vi.fn(), disable: vi.fn(), clearStencil: vi.fn(),
+        clear: vi.fn(), stencilFunc: vi.fn(), stencilOp: vi.fn(), EQUAL: 514, LESS: 513, STENCIL_TEST: 2960,
+        STENCIL_BUFFER_BIT: 1024, ZERO: 0, KEEP: 7680, INCR: 7682};
+    const draws: object[] = [];
+    scene.renderStyle = vi.fn(() => {
+        draws.push(scene.mesh_render_state);
+        if (fail && draws.length === 2) throw new Error('color fixture');
+        return 1;
+    });
+    if (fail) expect(() => scene.renderPass('program')).toThrow('color fixture');
+    else expect(scene.renderPass('program')).toBe(1);
+    expect(draws).toEqual([{...state, colorMask: 0}, {...state, colorMask: 15, depthCompare: 'equal'}]);
+    expect(scene.mesh_render_state).toBe(state);
+    expect(scene.gl.colorMask).toHaveBeenLastCalledWith(true, true, true, true);
+    expect(scene.gl.depthFunc).toHaveBeenLastCalledWith(513);
+    expect(scene.gl.disable).toHaveBeenLastCalledWith(2960);
+});
+
 test('resident preparation statistics count valid worker outputs without counting flat or disposed meshes', () => {
     const manager = Object.create(TileManager.prototype);
     const statistics = {vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, preparationMs: 5, detailLimited: true};
@@ -138,6 +245,7 @@ test.each([
     {maxAdditionalVertices: -1}, {maxAdditionalVertices: 262145}, {maxMeshBytes: -1},
     {transitionDuration: -1}, {transitionDuration: Infinity}, {transitionDuration: 5001},
     {maxQueryMeshBytes: -1}, {maxStagedMeshBytes: 1.5}, {querySurfaceStyles: ['']}, {querySurfaceStyles: ['ground', 'ground']}
+    , {maxQueryIndexBytes: -1}, {maxQueryIndexBytes: 0.5}, {queryPreparationBudgetMs: -1}, {queryPreparationBudgetMs: 21}
 ])('rejects malformed policy %j before admission', policy => {
     expect(() => normalizeTerrainDraping({grids: [grid()], ...policy})).toThrow(/limits/);
 });
@@ -256,6 +364,26 @@ test('dynamic road ribbons cannot extend across missing coverage merely because 
         const extent = 2 * Math.abs(output.getFloat32(index * stride + preparedLayout.offset.a_extrude, true)) * meters;
         expect(center - extent).toBeGreaterThanOrEqual(-20); expect(center + extent).toBeLessThanOrEqual(20);
     }
+});
+
+test.each([16, 18])('road corners sample nonlinear relief and retain nominal offset at style zoom %s', styleZoom => {
+    const packed = new VertexLayout([{name: 'a_position', size: 4, type: 5122}, {name: 'a_extrude', size: 2, type: 5122}, {name: 'a_offset', size: 2, type: 5122}]);
+    const vertices = new Uint8Array(packed.stride * 3), view = new DataView(vertices.buffer);
+    const field = grid(0); field.heights.set([100, 0, 100, 100, 0, 100, 100, 0, 100]);
+    for (let vertex = 0; vertex < 3; vertex++) {
+        view.setInt16(vertex * packed.stride + 2, vertex === 2 ? 100 : 0, true);
+        view.setInt16(vertex * packed.stride + packed.offset.a_extrude, vertex === 0 ? -20 : 20, true);
+        view.setInt16(vertex * packed.stride + packed.offset.a_offset, 10, true);
+    }
+    const terrain = normalizeTerrainDraping({grids: [field], previousGrids: [grid(20)], maxSegmentLength: 1000});
+    const result = drapeTerrainMesh({vertices, indices: new Uint16Array([0, 1, 2]), layout: packed, origin: [0, 0], tileZoom: 16, styleZoom, terrain});
+    const output = getTerrainVertexLayout(packed), data = new DataView(result.vertices.buffer);
+    const corner = (-20 + 10) * 2 ** (16 - styleZoom);
+    expect(data.getFloat32(output.offset.a_terrain, true)).toBeCloseTo(Math.abs(corner * meters), 5);
+    expect(data.getFloat32(output.offset.a_terrain + 12, true)).toBe(corner);
+    expect(data.getFloat32(output.offset.a_terrain_previous, true)).toBe(20);
+    expect(data.getFloat32(output.offset.a_terrain_previous + 12, true)).toBe(0);
+    expect(result.indices).toEqual(new Uint16Array([0, 1, 2]));
 });
 
 test('triangle, packed input and completed-mesh limits fail explicitly without mutating data', () => {

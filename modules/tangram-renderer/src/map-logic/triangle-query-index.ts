@@ -44,10 +44,26 @@ export interface TriangleQueryIndexOptions {
     lazy?: boolean;
     /** Maximum hierarchy typed-array bytes; insufficient space uses exact linear queries. */
     maxHierarchyBytes?: number;
+    /** Never build synchronously from a query; an explicit cooperative iterator warms acceleration. */
+    deferBuild?: boolean;
 }
 
 /** Immutable CPU triangle index; no projection, scene, DOM, GPU or source ownership. */
 export class TriangleQueryIndex {
+    /** Exact packed acceleration bytes for the same balanced partition used by construction. */
+    static getRequiredHierarchyBytes(triangleCount: number, leafSize = 8): number {
+        if (!Number.isSafeInteger(triangleCount) || triangleCount < 0 || triangleCount > 0xffffffff || !Number.isSafeInteger(leafSize) || leafSize < 1 || leafSize > 64) throw new Error('Invalid triangle hierarchy dimensions');
+        const counts = new Map<number, number>();
+        const countNodes = (count: number): number => {
+            if (!count) return 0;
+            if (count <= leafSize) return 1;
+            const cached = counts.get(count);
+            if (cached !== undefined) return cached;
+            const half = Math.floor(count / 2), result = 1 + countNodes(half) + countNodes(count - half);
+            counts.set(count, result); return result;
+        };
+        return triangleCount * 4 + countNodes(triangleCount) * 64;
+    }
     /** Original number of triangles, including degenerates. */
     readonly triangleCount: number;
     /** Exact retained geometry typed-array bytes, independent of lazy acceleration. */
@@ -67,6 +83,8 @@ export class TriangleQueryIndex {
     private readonly leafSize: number;
     private readonly nodeCount: number;
     private readonly hierarchyAllowed: boolean;
+    /** Host-driven warming keeps interactive queries from allocating a synchronous hierarchy. */
+    private readonly deferBuild: boolean;
     private readonly minimum: [number, number, number] = [Infinity, Infinity, Infinity];
     private readonly maximum: [number, number, number] = [-Infinity, -Infinity, -Infinity];
 
@@ -87,20 +105,11 @@ export class TriangleQueryIndex {
         }
         this.triangleCount = indices.length / 3;
         this.leafSize = leafSize;
-        const counts = new Map<number, number>();
-        /** Balanced splitting repeats only logarithmically many distinct subtree sizes. */
-        const countNodes = (count: number): number => {
-            if (!count) return 0;
-            if (count <= leafSize) return 1;
-            const cached = counts.get(count);
-            if (cached !== undefined) return cached;
-            const half = Math.floor(count / 2), result = 1 + countNodes(half) + countNodes(count - half);
-            counts.set(count, result); return result;
-        };
-        this.nodeCount = countNodes(this.triangleCount);
+        this.requiredHierarchyBytes = TriangleQueryIndex.getRequiredHierarchyBytes(this.triangleCount, leafSize);
+        this.nodeCount = (this.requiredHierarchyBytes - this.triangleCount * 4) / 64;
         this.geometryBytes = this.positions.byteLength + this.indices.byteLength;
-        this.requiredHierarchyBytes = this.triangleCount * 4 + this.nodeCount * 64;
         this.hierarchyAllowed = this.requiredHierarchyBytes <= (options.maxHierarchyBytes ?? Infinity);
+        this.deferBuild = options.deferBuild ?? false;
         for (let offset = 0; offset < this.positions.length; offset++) {
             const axis = offset % 3;
             this.minimum[axis] = Math.min(this.minimum[axis], this.positions[offset]);
@@ -154,7 +163,7 @@ export class TriangleQueryIndex {
         const length = Math.hypot(...direction);
         if (origin.length !== 3 || direction.length !== 3 || !origin.every(Number.isFinite) || !direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0 || !this.triangleCount) return result;
         if (intersectRayBounds(origin, direction, this.minimum, this.maximum, maxParameter) === null) return result;
-        if (this.hierarchyAllowed && !this.order && !this.preparing) this.buildHierarchy();
+        if (this.hierarchyAllowed && !this.deferBuild && !this.order && !this.preparing) this.buildHierarchy();
         /** Share hit acceptance and stable tie-breaking across accelerated and allocation-free fallback paths. */
         const testTriangle = (triangleIndex: number): void => {
             result.testedTriangles++;

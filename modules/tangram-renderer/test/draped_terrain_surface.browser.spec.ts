@@ -2,9 +2,54 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {DrapedTerrainSurfaceSnapshot, type DrapedTerrainQueryMesh} from '../src/selection/draped-terrain-surface';
 import {getGeographicProjectionProcedure} from '../src/scene/projection_math';
+import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
+import {TerrainMeshSurface} from '../src/selection/terrain_surface';
+
+test('settled queries stay linear until cooperative warming and obey an aggregate hierarchy budget', () => {
+    const mesh = ground(), required = TriangleQueryIndex.getRequiredHierarchyBytes(1);
+    const ray = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};
+    const snapshot = new DrapedTerrainSurfaceSnapshot('web-mercator', [
+        {id: 'one', mesh, blend: 1}, {id: 'lease', mesh, blend: 1}, {id: 'two', mesh: ground(), blend: 1}
+    ], 0, 0, 1, required);
+    const first = snapshot.intersectRay(ray);
+    expect(snapshot.getStatistics()).toMatchObject({inputBytes: 204, queryIndexBytes: 0, reservedQueryIndexBytes: required});
+    for (const _step of snapshot.prepareQueryIndexSteps()) { /* bounded cooperative work */ }
+    expect(snapshot.getStatistics().queryIndexBytes).toBe(required);
+    expect(snapshot.intersectRay(ray)).toEqual(first);
+    const morph = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'morph', mesh, blend: 0.5}], 0, 0, 1, required);
+    morph.intersectRay(ray);
+    for (const _step of morph.prepareQueryIndexSteps()) { /* no morph hierarchy */ }
+    expect(morph.getStatistics()).toMatchObject({queryIndexBytes: 0, reservedQueryIndexBytes: 0});
+});
+
+test('query preparation cancellation and allocation failure retain exact linear hits without retry loops', () => {
+    const mesh = ground(), ray = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};
+    const snapshot = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'one', mesh, blend: 1}], 0, 0, 1);
+    const hit = snapshot.intersectRay(ray);
+    const warm = vi.spyOn(TerrainMeshSurface.prototype, 'prepareQueryIndexSteps').mockImplementation(function* () {yield; throw new Error('allocation fixture');});
+    try {
+        const cancelled = snapshot.prepareQueryIndexSteps(); cancelled.next(); cancelled.return();
+        expect(snapshot.getStatistics().preparationFailures).toBe(0);
+        for (const _step of snapshot.prepareQueryIndexSteps()) { /* reports failure, never drops geometry */ }
+        expect(snapshot.getStatistics().preparationFailures).toBe(1);
+        expect(snapshot.intersectRay(ray)).toEqual(hit);
+        for (const _step of snapshot.prepareQueryIndexSteps()) { /* no repeated failed allocation */ }
+        expect(warm).toHaveBeenCalledTimes(2);
+    } finally {warm.mockRestore();}
+});
+
+test('visibility identity changes with mesh replacement or fallback clips, but not frame timestamps', () => {
+    const mesh = ground();
+    const capture = (time: number, next = mesh, clips?: readonly (readonly [number, number, number, number])[]) =>
+        new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'reused-owner', mesh: next, blend: 1, clips}], 4, time, 1);
+    expect(capture(1).displayKey).toBe(capture(2).displayKey);
+    expect(capture(1).displayKey).not.toBe(capture(1, ground()).displayKey);
+    expect(capture(1).displayKey).not.toBe(capture(1, mesh, []).displayKey);
+    for (const budget of [-1, 0.5, NaN]) expect(() => new DrapedTerrainSurfaceSnapshot('web-mercator', [], 0, 0, 1, budget)).toThrow(/budget/);
+});
 
 /** Tiny ground topology whose authored Z remains distinct from physical DEM height. */
 function ground(): DrapedTerrainQueryMesh {

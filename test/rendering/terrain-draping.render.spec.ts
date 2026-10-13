@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {afterEach, beforeEach, expect, test} from 'vitest';
+import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {commands} from 'vitest/browser';
 import type {TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
 import {RenderingHarness, coloredPixels, readCanvasPixels, type ViewKind} from './harness';
@@ -17,7 +17,7 @@ const decks: Deck<MapView>[] = [];
 beforeEach(() => commands.startRenderingDiagnostics());
 afterEach(async () => {
     try {expect(await commands.renderingDiagnostics()).toEqual([]);}
-    finally {for (const deck of decks.splice(0)) deck.finalize(); for (const harness of harnesses.splice(0)) harness.destroy();}
+    finally {for (const deck of decks.splice(0)) deck.finalize(); for (const harness of harnesses.splice(0)) harness.destroy(); vi.restoreAllMocks();}
 });
 
 /** Offline planar DEM, intentionally separate from styled vector/raster source data. */
@@ -79,6 +79,54 @@ test('packaged raster UVs survive worker refinement and displacement', async () 
     await harness.renderer.setTerrain(terrain(200)); await harness.settle();
     expect(changedPixels(first, await harness.pixels())).toBeGreaterThan(100);
     expect(harness.errors).toEqual([]);
+}, 45000);
+
+test.each([false, true])('non-interactive ground (later order=%s) occludes annotation color and feature picking in both stereo eyes', async laterOrder => {
+    const harness = new RenderingHarness('perspective', 'stereo-preview'); harnesses.push(harness);
+    // No CPU ground query styles: this exercises depth parity, not a hidden CPU collision mask.
+    harness.terrain = {...terrain(100), occludeAnnotations: true};
+    const base = createRasterScene();
+    const sourceUrl = `data:application/json,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features: [
+        {type: 'Feature', id: 1, properties: {name: 'buried-marker'}, geometry: {type: 'Point', coordinates: [0, 0]}}
+    ]}))}`;
+    // Alpha-one raster output with a translucent blend mode can be ordered after
+    // overlay annotations; ordinary opaque styles always sort first in Tangram.
+    await harness.initialize({...base, sources: {...base.sources, markers: {type: 'GeoJSON', url: sourceUrl}},
+        styles: laterOrder ? {lateGround: {base: 'raster', blend: 'translucent', blend_order: 10}} : {},
+        layers: {...base.layers, basemap: {...base.layers.basemap,
+            draw: {[laterOrder ? 'lateGround' : 'raster']: base.layers.basemap.draw.raster}},
+            markers: {data: {source: 'markers'}, draw: {points: {
+            // Bury the entire screen-facing quad, not just its geographic anchor.
+            // A slightly buried anchor can still have fragments above an inclined ground plane.
+            order: 5, color: '#ff0000', size: '40px', z: -500, collide: false, interactive: true
+        }}}}});
+    const pipelines = vi.spyOn(harness.device, 'createRenderPipeline');
+    await harness.settle();
+    expect(pipelines.mock.calls.some(([options]) => options.id?.includes('points') &&
+        options.parameters?.depthCompare === 'less-equal' && options.parameters.depthWriteEnabled === false)).toBe(true);
+    const countRed = (image: ImageData) => {
+        let count = 0;
+        for (let index = 0; index < image.data.length; index += 4) if (image.data[index] > 180 && image.data[index + 1] < 60 && image.data[index + 2] < 60) count++;
+        return count;
+    };
+    expect(countRed(await harness.pixels())).toBe(0);
+    const frame = harness.presentation.createFrame({width: 512, height: 320});
+    for (const eye of frame.renderViews) {
+        if (!eye.deckViewport) throw new Error('Expected stereo preview viewport');
+        const pixel = eye.deckViewport.project([0, 0, -400]);
+        expect((await harness.pick(pixel[0] + eye.deckViewport.x, pixel[1] + eye.deckViewport.y))?.feature).toBeUndefined();
+    }
+    await harness.renderer.setTerrain({...terrain(100), occludeAnnotations: false}); await harness.settle();
+    if (laterOrder) {
+        // Legacy opt-out preserves the reported mismatch: later alpha-one color
+        // covers the marker, but absent selection depth leaves its ID behind.
+        expect(countRed(await harness.pixels())).toBe(0);
+    } else expect(countRed(await harness.pixels())).toBeGreaterThan(100);
+    for (const eye of frame.renderViews) {
+        if (!eye.deckViewport) throw new Error('Expected stereo preview viewport');
+        const pixel = eye.deckViewport.project([0, 0, -400]);
+        expect(await harness.pick(pixel[0] + eye.deckViewport.x, pixel[1] + eye.deckViewport.y)).toMatchObject({feature: {properties: {name: 'buried-marker'}}});
+    }
 }, 45000);
 
 test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s draped ground picking uses the exact admitted draw topology across replacement and exaggeration', async kind => {

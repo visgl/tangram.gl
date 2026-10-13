@@ -12,6 +12,10 @@ import {areGeographicLabelCopies} from '../map-logic/label-identity';
 import type {GeographicLabelAnchor} from '../map-logic/label-identity';
 import {unionScreenBounds as unionBounds} from '../map-logic/screen-bounds';
 import type {ScreenBounds} from '../map-logic/screen-bounds';
+import type {TerrainSurfaceCollection} from '../selection/terrain_surface';
+
+/** Settled surfaces retain only one eye signature and a bounded set of exact anchor results. */
+const terrainVisibility = new WeakMap<TerrainSurfaceCollection, {eyes: string; results: Map<string, boolean>}>();
 
 type Bounds = ScreenBounds;
 /** One worker identity may have multiple atlas/outline mesh ranges. */
@@ -34,7 +38,7 @@ const eligible = new WeakMap<LabelMesh, Map<MeshLabel, boolean>>();
  * @returns Whether masks changed or pending label meshes were activated.
  */
 export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: HostFrame,
-    {clockwiseRotation = false, terrainExaggeration = 1, terrainTransitionDuration = 0, terrainTime = performance.now()}: {
+    {clockwiseRotation = false, terrainExaggeration = 1, terrainTransitionDuration = 0, terrainTime = performance.now(), terrainSurface}: {
         clockwiseRotation?: boolean;
         /** Same visual relief multiplier used by the terrain vertex shaders. */
         terrainExaggeration?: number;
@@ -42,10 +46,19 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
         terrainTransitionDuration?: number;
         /** Shared monotonic frame time, so both eyes and color agree during morphing. */
         terrainTime?: number;
+        /** Exact ground generation about to draw; missing triangles never certify occlusion. */
+        terrainSurface?: TerrainSurfaceCollection;
     } = {}): boolean {
-    const cameras = frame.renderViews.map(eye => ({eye,
-        matrix: frame.projection.type === 'globe' ? new Matrix4(Array.from(eye.camera.projection)) :
-            new Matrix4(Array.from(eye.camera.projection)).multiplyRight(Array.from(eye.camera.view))}));
+    let terrainCache = terrainSurface && terrainVisibility.get(terrainSurface);
+    const eyeSignature = frame.renderViews.map(view => `${view.id}/${view.camera.position.join(',')}/${Array.from(view.camera.view).join(',')}/${Array.from(view.camera.projection).join(',')}`).join(';');
+    if (terrainSurface && terrainCache?.eyes !== eyeSignature) {
+        terrainCache = {eyes: eyeSignature, results: new Map()}; terrainVisibility.set(terrainSurface, terrainCache);
+    }
+    const cameras = frame.renderViews.map(eye => {
+        const matrix = frame.projection.type === 'globe' ? new Matrix4(Array.from(eye.camera.projection)) :
+            new Matrix4(Array.from(eye.camera.projection)).multiplyRight(Array.from(eye.camera.view));
+        return {eye, matrix, inverse: terrainSurface ? invertFrameMatrix(matrix) : undefined};
+    });
     const candidates = new Map<string, Candidate>();
     for (const tile of tiles) {
         const meshes = {...tile.meshes, ...tile.pending_label_meshes};
@@ -64,7 +77,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
                         const first = label.ranges[0]?.[0];
                         const data = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
                         const height = label.container.label.layout.projected_height ?? (first === undefined ||
-                            mesh.vertex_layout.offset.a_position === undefined ? 0 : mesh.vertex_layout.offset.a_terrain === undefined ? data.getInt16(first + mesh.vertex_layout.offset.a_position + 4, true) : data.getFloat32(first + mesh.vertex_layout.offset.a_position + 8, true));
+                            mesh.vertex_layout.offset.a_position === undefined ? 0 : (mesh.vertex_layout.offset.a_terrain === undefined ? data.getInt16(first + mesh.vertex_layout.offset.a_position + 4, true) : data.getFloat32(first + mesh.vertex_layout.offset.a_position + 8, true)));
                         const layout = label.container.label.layout;
                         candidate = {id, label, tile, parts: [], boxes: new Map(), height,
                             linkedId: String(label.container.linked), collide: layout.projected_collide,
@@ -74,9 +87,9 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
                         candidates.set(id, candidate);
                     }
                     candidate.parts.push({mesh, label});
-                    for (const {eye, matrix} of cameras) {
+                    for (const {eye, matrix, inverse} of cameras) {
                         const box = getScreenBounds(mesh, label, tile, frame, eye.camera.position, matrix,
-                            eye.viewport.width, eye.viewport.height, clockwiseRotation, terrainExaggeration, terrainTransitionDuration, terrainTime);
+                            eye.viewport.width, eye.viewport.height, clockwiseRotation, terrainExaggeration, terrainTransitionDuration, terrainTime, terrainSurface, terrainCache?.results, inverse, eye.id);
                         if (box) candidate.boxes.set(eye.id, unionBounds(candidate.boxes.get(eye.id), box));
                     }
                 }
@@ -114,7 +127,8 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
 /** Reconstruct the shader's rotated pixel quad from retained packed geometry, including atlas ranges. */
 function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, frame: HostFrame,
     eye: readonly number[], matrix: Matrix4, width: number, height: number,
-    clockwiseRotation: boolean, terrainExaggeration: number, transitionDuration: number, terrainTime: number): Bounds | null {
+    clockwiseRotation: boolean, terrainExaggeration: number, transitionDuration: number, terrainTime: number,
+    terrainSurface?: TerrainSurfaceCollection, terrainCache?: Map<string, boolean>, inverse?: Matrix4, eyeId?: string): Bounds | null {
     let eligibility = eligible.get(mesh);
     if (!eligibility) eligible.set(mesh, eligibility = new Map());
     const data = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
@@ -155,6 +169,19 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
         }
         const position = matrix.transform([...anchor, 1]);
         if (position[3] <= 0 || position[2] < -position[3] || position[2] > position[3]) return null;
+        if (terrainSurface && terrainCache && inverse) {
+            const key = `${eyeId}/${eye.join(',')}/${anchor.join(',')}`;
+            let blocked = terrainCache.get(key);
+            if (blocked === undefined) {
+                const inset = terrainSurface.projection === 'globe' ? 0.25 * PROJECTION_CONSTANTS.globeRadius / PROJECTION_CONSTANTS.earthRadius : 0.25;
+                const near = inverse.transform([position[0] / position[3], position[1] / position[3], -1, 1]);
+                const start: [number, number, number] = [near[0] / near[3], near[1] / near[3], near[2] / near[3]];
+                blocked = start.every(Number.isFinite) && terrainSurface.intersectSegment(start, anchor, {startInset: inset, endInset: inset}) !== null;
+                if (terrainCache.size >= 10000) terrainCache.clear();
+                terrainCache.set(key, blocked);
+            }
+            if (blocked) return null;
+        }
         const shape = base + offset.a_shape;
         // Retain the existing GLSL clockwise and WGSL counter-clockwise sprite conventions.
         const angle = data.getInt16(shape + 4, true) / 4096 * (clockwiseRotation ? -1 : 1);
@@ -182,6 +209,12 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
     bounds = [bounds[0] - buffer[0] - 1, bounds[1] - buffer[1] - 1,
         bounds[2] + buffer[0] + 1, bounds[3] + buffer[1] + 1];
     return bounds[2] < 0 || bounds[0] > width || bounds[3] < 0 || bounds[1] > height ? null : bounds;
+}
+
+/** Singular host matrices leave terrain visibility unknown rather than hiding annotations. */
+function invertFrameMatrix(matrix: Matrix4): Matrix4 | undefined {
+    try {return new Matrix4(matrix).invert();}
+    catch {return undefined;}
 }
 
 /** Mirror the production shader's finite eye-to-anchor sphere segment and f32 tolerance. */

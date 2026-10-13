@@ -209,10 +209,10 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     /** Layout annotations before drawing and refresh proxy/style ownership after label swaps. */
-    updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void {
+    updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean, terrainSurface?: import('../selection/terrain_surface').TerrainSurfaceCollection): void {
         const tiles = this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for);
         const pending = tiles.some(tile => tile.pending_label_meshes !== null);
-        const layoutOptions = {clockwiseRotation, terrainExaggeration: this.scene.terrainExaggeration ?? 1,
+        const layoutOptions = {clockwiseRotation, terrainSurface, terrainExaggeration: this.scene.terrainExaggeration ?? 1,
             terrainTime: this.scene.terrainFrameTime,
             terrainTransitionDuration: this.scene.terrain?.transitionDuration ?? 0};
         if (layoutProjectedAnnotations(tiles, frame, layoutOptions)) {
@@ -270,6 +270,8 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
             for (const mesh of parts) {
                 if (!mesh.valid || !mesh.terrainQueryMesh) continue;
                 const duration = mesh.variant.terrainTransitionDuration ?? 0;
+                // Layout and draw must start newly visible ground on the same clock.
+                mesh.terrainVisibleAt ??= time;
                 const blend = mesh.terrainVisibleAt === undefined || !duration ? 1 : Math.max(0, Math.min(1, (time - mesh.terrainVisibleAt) / duration));
                 const scale = tile.span.x / 4096;
                 const clips = tile.fallback_for ? Array.from(tile.fallback_for.values(), bounds => [tile.min.x + bounds[0] * scale, tile.min.y + bounds[1] * scale, tile.min.x + bounds[2] * scale, tile.min.y + bounds[3] * scale]) : undefined;

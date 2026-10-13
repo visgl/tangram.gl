@@ -819,9 +819,11 @@ export default class Scene {
 
         let count = 0; // how many primitives were rendered
         let last_blend; // blend mode active in last render pass
+        let last_annotation_depth;
 
         // Get sorted list of current blend orders, with accompanying list of styles to render for each
         const blend_orders = this.style_manager.getActiveBlendOrders();
+        if (program_key === 'selection_program' && this.terrain?.occludeAnnotations) this.renderSelectionDepthPrepass(blend_orders, renderPass);
         for (const { blend_order, styles } of blend_orders) {
             // Render each style
             for (let s=0; s < styles.length; s++) {
@@ -831,36 +833,49 @@ export default class Scene {
                 }
 
                 // Only update render state when blend mode changes
-                if (style.blend !== last_blend) {
+                const annotation_depth = this.terrain?.occludeAnnotations && ['points', 'text'].includes(style.baseStyle?.());
+                if (style.blend !== last_blend || annotation_depth !== last_annotation_depth) {
                     let state = Object.assign({},
                         Style.render_states[style.blend],       // render state for blend mode
                         { blend: (allow_blend && style.blend) } // enable/disable blending (e.g. no blend for selection)
                     );
+                    if (annotation_depth) {state.depth_test = true; state.depth_write = false;}
                     this.setRenderState(state);
+                    if (annotation_depth && this.mesh_render_state) this.mesh_render_state.depthCompare = 'less-equal';
+                    if (this.terrain?.occludeAnnotations) this.gl.depthFunc(annotation_depth ? this.gl.LEQUAL : this.gl.LESS);
                 }
 
                 const blend = allow_blend && style.blend;
                 if (blend === 'translucent') {
-                    // Depth pre-pass for translucency
-                    this.gl.colorMask(false, false, false, false);
-                    this.renderStyle(style.name, program_key, blend_order, null, renderPass);
+                    const translucentRenderState = this.mesh_render_state;
+                    try {
+                        // Depth pre-pass for translucency
+                        this.gl.colorMask(false, false, false, false);
+                        // Resource-backed WebGL draws reapply luma pipeline parameters;
+                        // raw GL changes alone cannot control their depth/color passes.
+                        this.mesh_render_state = {...translucentRenderState, colorMask: 0};
+                        this.renderStyle(style.name, program_key, blend_order, null, renderPass);
 
-                    this.gl.colorMask(true, true, true, true);
-                    this.gl.depthFunc(this.gl.EQUAL);
+                        this.gl.colorMask(true, true, true, true);
+                        this.gl.depthFunc(this.gl.EQUAL);
+                        this.mesh_render_state = {...translucentRenderState, colorMask: 15, depthCompare: 'equal'};
 
-                    // Stencil buffer mask prevents overlap/flicker from compounding alpha of overlapping polys
-                    this.gl.enable(this.gl.STENCIL_TEST);
-                    this.gl.clearStencil(0);
-                    this.gl.clear(this.gl.STENCIL_BUFFER_BIT);
-                    this.gl.stencilFunc(this.gl.EQUAL, this.gl.ZERO, 0xFF);
-                    this.gl.stencilOp(this.gl.KEEP, this.gl.KEEP, this.gl.INCR);
+                        // Stencil buffer mask prevents overlap/flicker from compounding alpha of overlapping polys
+                        this.gl.enable(this.gl.STENCIL_TEST);
+                        this.gl.clearStencil(0);
+                        this.gl.clear(this.gl.STENCIL_BUFFER_BIT);
+                        this.gl.stencilFunc(this.gl.EQUAL, this.gl.ZERO, 0xFF);
+                        this.gl.stencilOp(this.gl.KEEP, this.gl.KEEP, this.gl.INCR);
 
-                    // Main render pass
-                    count += this.renderStyle(style.name, program_key, blend_order, null, renderPass);
-
-                    // Disable translucency-specific settings
-                    this.gl.disable(this.gl.STENCIL_TEST);
-                    this.gl.depthFunc(this.gl.LESS);
+                        // Main render pass
+                        count += this.renderStyle(style.name, program_key, blend_order, null, renderPass);
+                    } finally {
+                        // Disable translucency-specific settings, also after a failed draw.
+                        this.mesh_render_state = translucentRenderState;
+                        this.gl.colorMask(true, true, true, true);
+                        this.gl.disable(this.gl.STENCIL_TEST);
+                        this.gl.depthFunc(this.gl.LESS);
+                    }
                 }
                 else if (blend !== 'opaque' && style.stencil_proxy_tiles === true) {
                     // Mask proxy tiles to with stencil buffer to avoid overlap/flicker from compounding alpha
@@ -904,6 +919,7 @@ export default class Scene {
                 }
 
                 last_blend = style.blend;
+                last_annotation_depth = annotation_depth;
             }
         }
 
@@ -914,18 +930,24 @@ export default class Scene {
     renderPortablePass(program_key, { allow_blend, renderPass }) {
         let count = 0;
         let last_blend;
+        let last_annotation_depth;
         const blend_orders = this.style_manager.getActiveBlendOrders();
+        if (program_key === 'selection_program' && this.terrain?.occludeAnnotations) this.renderSelectionDepthPrepass(blend_orders, renderPass);
         for (const { blend_order, styles } of blend_orders) {
             for (const style_name of styles) {
                 const style = this.styles[style_name];
                 if (!style) {
                     continue;
                 }
-                if (style.blend !== last_blend) {
+                const annotation_depth = this.terrain?.occludeAnnotations && ['points', 'text'].includes(style.baseStyle?.());
+                if (style.blend !== last_blend || annotation_depth !== last_annotation_depth) {
                     this.setRenderState(Object.assign({}, Style.render_states[style.blend], {
-                        blend: allow_blend && style.blend
+                        blend: allow_blend && style.blend,
+                        ...(annotation_depth ? {depth_test: true, depth_write: false} : {})
                     }));
+                    if (annotation_depth && this.mesh_render_state) this.mesh_render_state.depthCompare = 'less-equal';
                     last_blend = style.blend;
+                    last_annotation_depth = annotation_depth;
                 }
                 count += this.renderStyle(style.name, program_key, blend_order, null, renderPass);
             }
@@ -933,8 +955,35 @@ export default class Scene {
         return count;
     }
 
-    renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null) {
+    /** Whether a non-selectable style contributes color depth but cannot write feature IDs. */
+    isTerrainSelectionOccluder(style: {selection?: boolean; baseStyle?(): string; blend: string} | undefined): boolean {
+        return Boolean(this.terrain?.occludeAnnotations && style && !style.selection &&
+            ['raster', 'polygons', 'lines'].includes(style.baseStyle?.()) && Style.render_states[style.blend]?.depth_write !== false);
+    }
+
+    /** Populate non-selectable scene depth before any IDs; pending pipelines keep selection locked for retry. */
+    renderSelectionDepthPrepass(blend_orders: {blend_order: number; styles: string[]}[], renderPass: import('@luma.gl/core').RenderPass | null): void {
+        const occluders = blend_orders.flatMap(({blend_order, styles}) => styles
+            .filter(name => this.isTerrainSelectionOccluder(this.styles[name])).map(name => ({name, blend_order})));
+        if (!occluders.length) return;
+        const previous = this.mesh_render_state;
+        try {
+            this.setRenderState({depth_test: true, depth_write: true, cull_face: true, blend: false});
+            this.mesh_render_state = {...this.mesh_render_state, colorMask: 0, depthWriteEnabled: true, depthCompare: 'less'};
+            if (!this.portable_rendering) {
+                this.gl.colorMask(false, false, false, false); this.gl.depthFunc(this.gl.LESS);
+            }
+            for (const {name, blend_order} of occluders) this.renderStyle(name, 'program', blend_order, null, renderPass, true);
+        } finally {
+            this.mesh_render_state = previous;
+            if (!this.portable_rendering) this.gl.colorMask(true, true, true, true);
+        }
+    }
+
+    renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null, selectionDepthPass = false) {
         let style = this.styles[style_name];
+        // Already submitted before any IDs. Repeating it later cannot erase covered IDs.
+        if (program_key === 'selection_program' && this.terrain?.occludeAnnotations && this.isTerrainSelectionOccluder(style)) return 0;
         let first_for_style = true; // TODO: allow this state to be passed in (for multilpe blend orders, stencil tests, etc)
         let render_count = 0;
         let program;
@@ -1023,7 +1072,7 @@ export default class Scene {
                         meshRenderer: this.mesh_renderer,
                         renderState: this.mesh_render_state
                     })) {
-                        if (program_key === 'selection_program') this.selection_render_pending = true;
+                        if (program_key === 'selection_program' || selectionDepthPass) this.selection_render_pending = true;
                         this.requestRedraw();
                     }
                     render_count += mesh.geometry_count;

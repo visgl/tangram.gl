@@ -4,6 +4,33 @@
 
 import {TerrainMeshSurface, TerrainSurfaceCollection, type TerrainSurface, type TerrainSurfaceEntry} from './terrain_surface';
 import {getGeographicProjectionProcedure} from '../scene/projection_math';
+import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
+import log from '../utils/log';
+
+/** Measured CPU costs for one immutable terrain display, excluding other retained snapshots. */
+export interface DrapedTerrainQueryStatistics {
+    /** Unique retained physical input bytes. */
+    inputBytes: number;
+    /** Lazily projected geometry bytes. */
+    projectedBytes: number;
+    /** Completed acceleration hierarchy bytes. */
+    queryIndexBytes: number;
+    /** Aggregate permitted hierarchy bytes for this snapshot. */
+    reservedQueryIndexBytes: number;
+    /** Number of queried draw entries, including repeated clip leases. */
+    preparedMeshes: number;
+    /** Projected owners allocated by this snapshot. */
+    projectionBuilds: number;
+    /** Projection and cooperative hierarchy CPU time, excluding suspended time. */
+    preparationMs: number;
+    /** Ray-query CPU time. */
+    queryMs: number;
+    /** Owners whose acceleration failed; their exact linear queries remain available. */
+    preparationFailures: number;
+}
+
+/** Do not retry failed acceleration until a new projected owner is admitted. */
+const failedPreparation = new WeakSet<TerrainMeshSurface>();
 
 /** Worker-owned query channels extracted from the final ground draw topology. */
 export interface DrapedTerrainQueryMesh {
@@ -29,12 +56,21 @@ export interface DrapedTerrainQueryEntry {
     clips?: readonly (readonly [number, number, number, number])[];
 }
 
-const projectedQueries = new WeakMap<DrapedTerrainQueryMesh, {projection: TerrainSurface['projection']; blend: number; exaggeration: number; surface: TerrainMeshSurface}>();
+const projectedQueries = new WeakMap<DrapedTerrainQueryMesh, {projection: TerrainSurface['projection']; blend: number; exaggeration: number; indexLimit: number; surface: TerrainMeshSurface}>();
+/** Geometry identity, not a reusable tile/style name, invalidates cached visibility after ordinary tile rebuilds. */
+const meshIdentities = new WeakMap<DrapedTerrainQueryMesh, number>();
+let nextMeshIdentity = 0;
+/** Stable identity for one immutable worker payload. */
+function getMeshIdentity(mesh: DrapedTerrainQueryMesh): number {
+    let identity = meshIdentities.get(mesh);
+    if (identity === undefined) {identity = nextMeshIdentity++; meshIdentities.set(mesh, identity);}
+    return identity;
+}
 
 /** Reuse one immutable projected query owner while an admitted mesh's displacement remains unchanged. */
-function getProjectedSurface(mesh: DrapedTerrainQueryMesh, projection: TerrainSurface['projection'], blend: number, exaggeration: number): TerrainMeshSurface {
+function getProjectedSurface(mesh: DrapedTerrainQueryMesh, projection: TerrainSurface['projection'], blend: number, exaggeration: number, indexLimit: number): TerrainMeshSurface {
     const cached = projectedQueries.get(mesh);
-    if (cached?.projection === projection && cached.blend === blend && cached.exaggeration === exaggeration) return cached.surface;
+    if (cached?.projection === projection && cached.blend === blend && cached.exaggeration === exaggeration && cached.indexLimit === indexLimit) return cached.surface;
     const positions = new Float64Array(mesh.positions.length), physicalHeights = new Float64Array(mesh.positions.length / 3);
     const mercator = getGeographicProjectionProcedure('web-mercator'), globe = getGeographicProjectionProcedure('globe');
     for (let vertex = 0; vertex < physicalHeights.length; vertex++) {
@@ -45,8 +81,8 @@ function getProjectedSurface(mesh: DrapedTerrainQueryMesh, projection: TerrainSu
         positions.set(projection === 'globe' ? globe.project(mercator.unproject(position)) : position, offset);
     }
     // No per-frame hierarchy allocations during morphing; settled meshes reuse this owner.
-    const surface = new TerrainMeshSurface({projection, positions, indices: mesh.indices, physicalHeights, cullBackfaces: projection === 'globe', maxQueryIndexBytes: 0});
-    projectedQueries.set(mesh, {projection, blend, exaggeration, surface});
+    const surface = new TerrainMeshSurface({projection, positions, indices: mesh.indices, physicalHeights, cullBackfaces: projection === 'globe', maxQueryIndexBytes: indexLimit, deferQueryIndexBuild: true});
+    projectedQueries.set(mesh, {projection, blend, exaggeration, indexLimit, surface});
     return surface;
 }
 
@@ -68,7 +104,7 @@ function intersectsFootprint(ray: import('./terrain_surface').TerrainRay, maximu
 /** Immutable frame-specific surface, matching ground draw topology and temporal displacement. */
 export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
     /** Lazy query owners and measured work for this snapshot, never global renderer/GPU ownership. */
-    private readonly queryOwners: {surface?: TerrainMeshSurface; projectionBuilds: number; preparationMs: number; queryMs: number}[];
+    private readonly queryOwners: {surface?: TerrainMeshSurface; prepare(): TerrainMeshSurface; blend: number; projectionBuilds: number; preparationMs: number; queryMs: number}[];
     /** Scene mesh generation, not source-cache or provider revision. */
     readonly generation: number;
     /** Shared monotonic clock used for both eyes and the corresponding draw. */
@@ -79,29 +115,40 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
     readonly inputBytes: number;
     /** Admitted membership, blend and exaggeration key for skipping repeated settled host probes. */
     readonly displayKey: string;
+    /** Aggregate index reservation for this snapshot, excluding separately retained host snapshots. */
+    readonly reservedQueryIndexBytes: number;
 
     /** Capture displacement without copying/projecting every mesh until it is queried. */
-    constructor(projection: TerrainSurface['projection'], entries: readonly DrapedTerrainQueryEntry[], generation: number, frameTime: number, exaggeration: number) {
+    constructor(projection: TerrainSurface['projection'], entries: readonly DrapedTerrainQueryEntry[], generation: number, frameTime: number, exaggeration: number, maxQueryIndexBytes = 16 * 1024 * 1024) {
         if (!Number.isSafeInteger(generation) || generation < 0 || !Number.isFinite(frameTime) || !Number.isFinite(exaggeration) || exaggeration < 0 || exaggeration > 1000) throw new Error('Invalid terrain surface frame');
+        if (!Number.isSafeInteger(maxQueryIndexBytes) || maxQueryIndexBytes < 0) throw new Error('Invalid terrain query index budget');
         const queryOwners: DrapedTerrainSurfaceSnapshot['queryOwners'] = [];
+        let reservedQueryIndexBytes = 0;
+        const indexLimits = new Map<DrapedTerrainQueryMesh, number>();
         const surfaces: TerrainSurfaceEntry[] = entries.map(entry => {
             if (!Number.isFinite(entry.blend) || entry.blend < 0 || entry.blend > 1) throw new Error('Invalid terrain surface blend');
             const mesh = entry.mesh;
             if (mesh.positions.length % 3 || mesh.heights.length !== mesh.positions.length / 3 * 2) throw new Error('Invalid terrain query channels');
             const blend = entry.blend, clips = entry.clips?.map(bounds => [...bounds]);
+            const required = TriangleQueryIndex.getRequiredHierarchyBytes(mesh.indices.length / 3);
+            const indexLimit = blend !== 1 ? 0 : indexLimits.get(mesh) ?? (required <= maxQueryIndexBytes - reservedQueryIndexBytes ? required : 0);
+            if (blend === 1 && !indexLimits.has(mesh)) {indexLimits.set(mesh, indexLimit); reservedQueryIndexBytes += indexLimit;}
             if (clips?.some(bounds => bounds.length !== 4 || !bounds.every(Number.isFinite) || bounds[0] > bounds[2] || bounds[1] > bounds[3])) throw new Error('Invalid terrain query clip');
-            const owner: DrapedTerrainSurfaceSnapshot['queryOwners'][number] = {projectionBuilds: 0, preparationMs: 0, queryMs: 0};
+            const owner: DrapedTerrainSurfaceSnapshot['queryOwners'][number] = {blend, projectionBuilds: 0, preparationMs: 0, queryMs: 0, prepare() {
+                if (!owner.surface) {
+                    const cached = projectedQueries.get(mesh), started = performance.now();
+                    owner.projectionBuilds = Number(cached?.projection !== projection || cached.blend !== blend || cached.exaggeration !== exaggeration || cached.indexLimit !== indexLimit);
+                    owner.surface = getProjectedSurface(mesh, projection, blend, exaggeration, indexLimit);
+                    owner.preparationMs += performance.now() - started;
+                }
+                return owner.surface;
+            }};
             queryOwners.push(owner);
             return {id: entry.id, surface: {projection, intersectRay(ray, maximum) {
                 if (projection === 'web-mercator' && !intersectsFootprint(ray, maximum, mesh.bounds)) return null;
-                if (!owner.surface) {
-                    const cached = projectedQueries.get(mesh), started = performance.now();
-                    owner.projectionBuilds = Number(cached?.projection !== projection || cached.blend !== blend || cached.exaggeration !== exaggeration);
-                    owner.surface = getProjectedSurface(mesh, projection, blend, exaggeration);
-                    owner.preparationMs += performance.now() - started;
-                }
+                const surface = owner.prepare();
                 const started = performance.now();
-                const hit = owner.surface.intersectRay(ray, maximum, clips ? (_point, triangleIndex, weights) => {
+                const hit = surface.intersectRay(ray, maximum, clips ? (_point, triangleIndex, weights) => {
                     // The draw clips its interpolated tile-position varying, not the inverse
                     // geographic projection of the curved triangle's common-space hit.
                     const position = [0, 1].map(axis => weights.reduce((value, weight, vertex) => value + weight * mesh.positions[mesh.indices[triangleIndex * 3 + vertex] * 3 + axis], 0));
@@ -114,15 +161,46 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
         super(projection, surfaces);
         this.generation = generation; this.frameTime = frameTime; this.exaggeration = exaggeration;
         this.queryOwners = queryOwners;
-        this.inputBytes = entries.reduce((bytes, entry) => bytes + entry.mesh.positions.byteLength + entry.mesh.heights.byteLength + entry.mesh.indices.byteLength, 0);
-        this.displayKey = `${generation}/${exaggeration}/${entries.map(entry => `${entry.id}:${entry.blend}`).join(',')}`;
+        this.reservedQueryIndexBytes = reservedQueryIndexBytes;
+        this.inputBytes = [...new Set(entries.map(entry => entry.mesh))].reduce((bytes, mesh) => bytes + mesh.positions.byteLength + mesh.heights.byteLength + mesh.indices.byteLength, 0);
+        this.displayKey = `${projection}/${generation}/${exaggeration}/${maxQueryIndexBytes}/${entries.map(entry => `${entry.id}:${getMeshIdentity(entry.mesh)}:${entry.blend}:${JSON.stringify(entry.clips)}`).join(',')}`;
+    }
+
+    /** Warm only already-queried settled owners; closing the iterator releases partially built indexes. */
+    *prepareQueryIndexSteps(): Generator<void, void, void> {
+        const warmed = new Set<TerrainMeshSurface>();
+        for (const owner of this.queryOwners) {
+            const surface = owner.surface;
+            if (!surface || owner.blend !== 1 || warmed.has(surface) || failedPreparation.has(surface)) continue;
+            warmed.add(surface);
+            const steps = surface.prepareQueryIndexSteps();
+            try {
+                while (true) {
+                    const started = performance.now();
+                    let done: boolean | undefined;
+                    try {done = steps.next().done;}
+                    finally {owner.preparationMs += performance.now() - started;}
+                    if (done) break;
+                    yield;
+                }
+            } catch (error) {
+                failedPreparation.add(surface);
+                log('warn', 'Terrain query acceleration failed; retaining exact linear queries', error);
+            } finally {steps.return();}
+        }
     }
 
     /** Detached snapshot-local CPU query costs; excludes other retained host snapshots and GPU/transient storage. */
-    getStatistics(): {inputBytes: number; projectedBytes: number; preparedMeshes: number; projectionBuilds: number; preparationMs: number; queryMs: number} {
-        const statistics = {inputBytes: this.inputBytes, projectedBytes: 0, preparedMeshes: 0, projectionBuilds: 0, preparationMs: 0, queryMs: 0};
+    getStatistics(): DrapedTerrainQueryStatistics {
+        const statistics = {inputBytes: this.inputBytes, projectedBytes: 0, queryIndexBytes: 0, reservedQueryIndexBytes: this.reservedQueryIndexBytes, preparedMeshes: 0, projectionBuilds: 0, preparationMs: 0, queryMs: 0, preparationFailures: 0};
+        const counted = new Set<TerrainMeshSurface>();
         for (const owner of this.queryOwners) {
-            statistics.projectedBytes += owner.surface?.getStatistics().geometryBytes ?? 0;
+            if (owner.surface && !counted.has(owner.surface)) {
+                const sizes = owner.surface.getStatistics();
+                statistics.projectedBytes += sizes.geometryBytes; statistics.queryIndexBytes += sizes.queryIndexBytes;
+                statistics.preparationFailures += Number(failedPreparation.has(owner.surface));
+                counted.add(owner.surface);
+            }
             statistics.preparedMeshes += Number(owner.surface !== undefined);
             statistics.projectionBuilds += owner.projectionBuilds;
             statistics.preparationMs += owner.preparationMs; statistics.queryMs += owner.queryMs;

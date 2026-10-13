@@ -176,7 +176,7 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
     output.texcoord.y *= TangramLine.u_v_scale_adjust;
     ${configured ? `
     var local_normal = vec3<f32>(0.0, 0.0, 1.0);
-    ${terrain ? 'local_normal = tangramTerrainNormal(local_normal, attributes.a_terrain, attributes.a_terrain_previous, vec2<f32>(attributes.a_position.xy));' : ''}
+    ${terrain ? 'local_normal = tangramTerrainNormal(local_normal, attributes.a_terrain, attributes.a_terrain_previous, vec2<f32>(attributes.a_position.xy) + vec2<f32>(attributes.a_terrain.w, attributes.a_terrain_previous.w));' : ''}
     var normal = normalize(TangramTile.u_normalMatrix * local_normal);
     if (TangramView.u_projection_mode == 1) {
         normal = tangramGlobeNormal((TangramTile.u_model * local_position).xyz, local_normal);

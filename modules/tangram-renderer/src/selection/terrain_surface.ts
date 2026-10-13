@@ -165,6 +165,8 @@ export interface TerrainMeshOptions {
     cullBackfaces?: boolean;
     /** Lazy hierarchy typed-array limit; exact linear picking is used when acceleration does not fit. */
     maxQueryIndexBytes?: number;
+    /** Keep queries exact and linear until an explicit cooperative warming pass completes. */
+    deferQueryIndexBuild?: boolean;
 }
 
 /** Detached retained-storage diagnostics; no GPU or JavaScript heap estimate is included. */
@@ -194,7 +196,7 @@ export class TerrainMeshSurface implements TerrainSurface {
         if (options.positions.length % 3 || options.indices.length % 3) throw new Error('Terrain requires XYZ positions and triangle indices');
         this.projection = options.projection;
         try {
-            this.queryIndex = new TriangleQueryIndex(options.positions, options.indices, 8, {lazy: true, maxHierarchyBytes: options.maxQueryIndexBytes});
+            this.queryIndex = new TriangleQueryIndex(options.positions, options.indices, 8, {lazy: true, maxHierarchyBytes: options.maxQueryIndexBytes, deferBuild: options.deferQueryIndexBuild});
         } catch (error) {throw new Error(`Terrain mesh: ${error instanceof Error ? error.message : String(error)}`);}
         this.cullBackfaces = options.cullBackfaces ?? false;
         const physicalHeights = options.physicalHeights;
