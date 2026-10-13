@@ -4,6 +4,7 @@
 
 import {expect, test, vi} from 'vitest';
 import {DrapedTerrainSurfaceSnapshot, type DrapedTerrainQueryMesh} from '../src/selection/draped-terrain-surface';
+import {summarizeDrapedTerrainBounds} from '../src/map-logic/draped-terrain-bounds';
 import {getGeographicProjectionProcedure} from '../src/scene/projection_math';
 import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
 import {TerrainMeshSurface} from '../src/selection/terrain_surface';
@@ -121,4 +122,56 @@ test('empty displays and invalid frame contracts fail explicitly without inventi
     for (const blend of [-1, NaN, 2]) expect(() => new DrapedTerrainSurfaceSnapshot('globe', [{id: 'x', mesh, blend}], 0, 0, 1)).toThrow(/blend/);
     expect(() => new DrapedTerrainSurfaceSnapshot('globe', [{id: 'x', mesh: {...mesh, heights: new Float32Array(1)}, blend: 1}], 0, 0, 1)).toThrow(/channels/);
     expect(() => new DrapedTerrainSurfaceSnapshot('globe', [{id: 'x', mesh, blend: 1, clips: [[1, 0, 0, 1]]}], 0, 0, 1)).toThrow(/clip/);
+});
+
+test.each(['web-mercator', 'globe'] as const)('far and unrelated %s ground owners remain unprojected after a nearer hit', projection => {
+    const mercator = getGeographicProjectionProcedure('web-mercator'), globe = getGeographicProjectionProcedure('globe');
+    const near = ground(), far = ground(), unrelated = ground();
+    far.positions = Float64Array.from(far.positions, (value, index) => index % 3 === 2 ? value - 100 : value);
+    const shift = mercator.project([120, 45, 0]);
+    unrelated.positions = Float64Array.from(unrelated.positions, (value, index) => index % 3 === 0 ? value + shift[0] : index % 3 === 1 ? value + shift[1] : value);
+    unrelated.bounds = [shift[0] - 10, shift[1] - 10, shift[0] + 10, shift[1] + 10];
+    for (const mesh of [near, far, unrelated]) mesh.boundsSummary = summarizeDrapedTerrainBounds(mesh);
+    const snapshot = new DrapedTerrainSurfaceSnapshot(projection, [
+        {id: 'far', mesh: far, blend: 1}, {id: 'elsewhere', mesh: unrelated, blend: 1}, {id: 'near', mesh: near, blend: 1}
+    ], 0, 0, 1);
+    const ray = projection === 'globe' ? {origin: globe.project([0, -0.00001, 1000]), direction: [0, 10, 0] as const} :
+        {origin: [0, -1, 1000] as const, direction: [0, 0, -10] as const};
+    expect(snapshot.intersectRay(ray)?.surfaceId).toBe('near');
+    expect(snapshot.getStatistics()).toMatchObject({preparedMeshes: 1, projectionBuilds: 1, projectedBytes: 108});
+    const miss = new DrapedTerrainSurfaceSnapshot(projection, [{id: 'far', mesh: far, blend: 1}], 0, 0, 1);
+    expect(miss.intersectRay(ray, projection === 'globe' ? 0.00001 : 1)).toBeNull(); expect(miss.getStatistics().preparedMeshes).toBe(0);
+});
+
+test.each([[-190, 70], [179, -70], [40, 85]])('globe bounds enclose long chords near %s/%s throughout relief and morph changes', (longitude, latitude) => {
+    const mercator = getGeographicProjectionProcedure('web-mercator'), globe = getGeographicProjectionProcedure('globe');
+    const coordinates: [number, number, number][] = [[longitude - 5, latitude - 5, -30], [longitude + 5, latitude - 5, 40], [longitude, latitude, 5]];
+    const mesh: DrapedTerrainQueryMesh = {positions: Float64Array.from(coordinates.flatMap(point => mercator.project(point))), heights: new Float32Array([500, -100, 100, 300, -50, 700]),
+        indices: new Uint16Array([0, 1, 2]), bounds: [-Infinity, -Infinity, Infinity, Infinity]};
+    mesh.bounds = [Math.min(mesh.positions[0], mesh.positions[3], mesh.positions[6]), Math.min(mesh.positions[1], mesh.positions[4], mesh.positions[7]),
+        Math.max(mesh.positions[0], mesh.positions[3], mesh.positions[6]), Math.max(mesh.positions[1], mesh.positions[4], mesh.positions[7])];
+    mesh.boundsSummary = summarizeDrapedTerrainBounds(mesh);
+    for (const exaggeration of [0, 1, 200]) for (const blend of [0, 0.5, 1]) {
+        const projected = coordinates.flatMap((point, index) => globe.project([point[0], point[1], point[2] +
+            (mesh.heights[index * 2 + 1] + (mesh.heights[index * 2] - mesh.heights[index * 2 + 1]) * blend) * exaggeration]));
+        const reference = new TerrainMeshSurface({projection: 'globe', positions: projected, indices: mesh.indices, cullBackfaces: true});
+        const center = [0, 1, 2].map(axis => (projected[axis] + projected[axis + 3] + projected[axis + 6]) / 3);
+        const ray = {origin: [center[0] * 2, center[1] * 2, center[2] * 2] as [number, number, number], direction: [-center[0], -center[1], -center[2]] as [number, number, number]};
+        const snapshot = new DrapedTerrainSurfaceSnapshot('globe', [{id: 'ground', mesh, blend}], 0, 0, exaggeration);
+        const expected = reference.intersectRay(ray);
+        expect(expected).not.toBeNull(); expect(snapshot.intersectRay(ray)?.distance).toBeCloseTo(expected!.distance, 8);
+    }
+});
+
+test('empty, disjoint or fully clipped owners allocate no projected geometry; unindexed invalid vertices do not affect bounds', () => {
+    const mesh = ground(), ray = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};
+    for (const clips of [[], [[100, 100, 200, 200]]] as const) {
+        const snapshot = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'clipped', mesh, blend: 1, clips}], 0, 0, 1);
+        expect(snapshot.intersectRay(ray)).toBeNull(); expect(snapshot.getStatistics().preparedMeshes).toBe(0);
+    }
+    expect(new DrapedTerrainSurfaceSnapshot('globe', [{id: 'empty', mesh: {...mesh, indices: new Uint16Array()}, blend: 1}], 0, 0, 1).getStatistics().projectionBuilds).toBe(0);
+    const extra = {...mesh, positions: new Float64Array([...mesh.positions, NaN, NaN, NaN]), heights: new Float32Array([...mesh.heights, NaN, NaN])};
+    expect(summarizeDrapedTerrainBounds(extra)).toEqual(summarizeDrapedTerrainBounds(mesh));
+    expect(() => summarizeDrapedTerrainBounds({...mesh, indices: new Uint16Array([0, 1, 9])})).toThrow('index');
+    expect(() => summarizeDrapedTerrainBounds({...mesh, heights: new Float32Array(6).fill(NaN)})).toThrow('channels');
 });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt} from '../src/selection/terrain_surface';
@@ -168,6 +168,23 @@ function terrain() {
     return new TerrainMeshSurface({projection: 'web-mercator',
         positions: [-2, -2, 1, 2, -2, 3, 2, 2, 3, -2, 2, 1], indices: [0, 1, 2, 0, 2, 3]});
 }
+
+test('collection bounds query nearer owners first, skip misses and preserve membership-order equal hits', () => {
+    const high = new TerrainMeshSurface({projection: 'web-mercator', positions: [-2, -2, 4, 2, -2, 4, 0, 2, 4], indices: [0, 1, 2]});
+    const low = terrain(), farQuery = vi.spyOn(low, 'intersectRay'), nearQuery = vi.spyOn(high, 'intersectRay');
+    const ray = {origin: [0, 0, 10], direction: [0, 0, -5]} as const;
+    const collection = new TerrainSurfaceCollection('web-mercator', [{id: 'far-first', surface: low}, {id: 'near', surface: high}]);
+    expect(collection.intersectRay(ray)?.surfaceId).toBe('near'); expect(farQuery).not.toHaveBeenCalled(); expect(nearQuery).toHaveBeenCalledOnce();
+    nearQuery.mockClear(); expect(collection.intersectRay(ray, 5)).toBeNull(); expect(nearQuery).not.toHaveBeenCalled();
+    const exact = high.intersectRay(ray)!;
+    const first = {projection: 'web-mercator' as const, getBounds: () => ({minimum: [-2, -2, 4] as [number, number, number], maximum: [2, 2, 4] as [number, number, number]}), intersectRay: vi.fn(() => exact)};
+    const second = {...first, getBounds: () => ({minimum: [-2, -2, 0] as [number, number, number], maximum: [2, 2, 10] as [number, number, number]}), intersectRay: vi.fn(() => exact)};
+    expect(new TerrainSurfaceCollection('web-mercator', [{id: 'original-first', surface: first}, {id: 'bounds-first', surface: second}]).intersectRay(ray)?.surfaceId).toBe('original-first');
+    const empty = {projection: 'web-mercator' as const, getBounds: () => null, intersectRay: vi.fn(() => exact)};
+    const unbounded = {projection: 'web-mercator' as const, intersectRay: vi.fn(() => exact)};
+    expect(new TerrainSurfaceCollection('web-mercator', [{id: 'empty', surface: empty}, {id: 'custom', surface: unbounded}]).intersectRay(ray)?.surfaceId).toBe('custom');
+    expect(empty.intersectRay).not.toHaveBeenCalled(); expect(unbounded.intersectRay).toHaveBeenCalledOnce();
+});
 
 test('terrain collections snapshot membership, clip farther surfaces and preserve stable identities and ties', () => {
     const low = terrain(), high = new TerrainMeshSurface({projection: 'web-mercator', positions: [-2, -2, 4, 2, -2, 4, 0, 2, 4], indices: [0, 1, 2]});
