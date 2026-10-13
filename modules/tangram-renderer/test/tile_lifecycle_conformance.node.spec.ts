@@ -92,8 +92,10 @@ test('cache limits intentionally differ: loaders counts all decoded bytes; Tangr
 
 test('both hierarchies retain the nearest loaded ancestor while finer content is missing', async () => {
     const source = {name: 'world', id: 1, zooms: [0, 1, 2]}, parentIndex = {x: 0, y: 0, z: 1}, childIndex = {x: 1, y: 1, z: 2};
-    const parent = {source, coords: parentIndex, style_z: 1, key: TileID.key(parentIndex, source, 1), loaded: true};
-    const child = {source, coords: childIndex, style_z: 2, key: TileID.key(childIndex, source, 2), loaded: false};
+    const parentKey = TileID.key(parentIndex, source, 1), childKey = TileID.key(childIndex, source, 2);
+    if (!parentKey || !childKey) throw new Error('Fixture requires valid tile keys');
+    const parent = {source, coords: parentIndex, style_z: 1, key: parentKey, loaded: true};
+    const child = {source, coords: childIndex, style_z: 2, key: childKey, loaded: false};
     const pyramid = new TilePyramid(), loaders = createLoaders();
     try {
         pyramid.addTile(parent); pyramid.addTile(child);

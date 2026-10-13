@@ -4,15 +4,61 @@
 // Copyright (c) 2026 vis.gl contributors
 
 // Texture management
-// @ts-nocheck
 
 import log from '../utils/log';
 import Utils from '../utils/utils';
 import subscribeMixin from '../utils/subscribe';
 import WorkerBroker from '../utils/worker_broker';
 import Context from './context';
+import type {Texture as GPUTexture} from '@luma.gl/core';
+import type {TangramTextureOptions} from '../gpu/tangram_gpu_backend';
+import type {SubscriptionMethods} from '../utils/subscribe';
 
-function isTextureElement(source) {
+/** Browser image sources accepted by the classic texture wrapper. */
+type TextureElement = HTMLCanvasElement | HTMLVideoElement | HTMLImageElement;
+/** Shared raw pixel uploads and DOM sources; names/selectors are resolved by load. */
+type TextureSource = TextureElement | Uint8Array | null;
+/** The wrapper owns disposal only; portable draw binding remains the backend's responsibility. */
+export type TextureResource = Pick<GPUTexture, 'destroy'>;
+/** Named texture options, including worker-safe sprite definitions. */
+export interface TextureOptions {
+    filtering?: 'nearest' | 'linear' | 'mipmap';
+    sprites?: Record<string, [number, number, number, number]>;
+    url?: string;
+    element?: string | TextureElement;
+    data?: number[] | Uint8Array | null;
+    width?: number;
+    height?: number;
+    density?: number;
+    repeat?: boolean;
+    TEXTURE_WRAP_S?: number;
+    TEXTURE_WRAP_T?: number;
+    UNPACK_FLIP_Y_WEBGL?: boolean;
+    UNPACK_PREMULTIPLY_ALPHA_WEBGL?: boolean;
+    textureFactory?: (options: TangramTextureOptions) => TextureResource;
+    skip_create?: boolean;
+}
+/** Structured-clone metadata: workers never acquire GPU resources or live methods. */
+export interface TextureInfo {
+    name: string;
+    width: number;
+    height: number;
+    density: number;
+    css_size?: number[];
+    aspect?: number;
+    sprites?: TextureOptions['sprites'];
+    texcoords: Record<string, number[]>;
+    sizes: Record<string, number[]>;
+    css_sizes: Record<string, number[]>;
+    aspects: Record<string, number>;
+    filtering?: TextureOptions['filtering'];
+    power_of_2?: boolean;
+    valid: boolean;
+}
+/** Legacy bulk requests may recursively expand empty names to the entire registry. */
+export type TextureInfoResult = TextureInfo | null | TextureInfoResult[];
+
+function isTextureElement(source: unknown): source is TextureElement {
     return (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) ||
         (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) ||
         (typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement && source.complete);
@@ -23,20 +69,66 @@ export default class Texture {
     /** Release one mesh-owned reference to a named texture. */
     declare static release: (name: string) => void;
     /** Create or replace a named style texture through the existing registry. */
-    declare static create: (context: unknown, name: string, options: Record<string, unknown>) => Texture;
+    declare static create: (context: object | null, name: string, options?: TextureOptions) => Texture;
     /** Placeholder sampler used by untextured mesh variants. */
     declare static default: string;
     /** Dimensions available to line styles in either execution thread. */
-    declare static textures: Record<string, {width: number; height: number; release?: () => void}>;
+    declare static textures: Record<string, Texture | TextureInfo>;
     /** Synchronize named texture dimensions from the main thread to a worker. */
-    declare static syncTexturesToWorker: (names: string[]) => Promise<Record<string, {width: number; height: number}>>;
+    declare static syncTexturesToWorker: (names?: string[] | null) => Promise<Record<string, Texture | TextureInfo>>;
+    /** Live context resources; detached worker metadata has no GPU ownership. */
+    declare gl: object | null;
+    declare texture_factory: TextureOptions['textureFactory'];
+    declare texture_resource: TextureResource | null;
+    declare texture: TextureResource | WebGLTexture | null;
+    declare valid: boolean;
+    declare name: string;
+    declare retain_count: number;
+    declare config_type: 'url' | 'element' | 'data' | null;
+    declare loading: Promise<Texture> | null;
+    declare loaded: boolean;
+    declare filtering: TextureOptions['filtering'];
+    declare density: number;
+    declare sprites: TextureOptions['sprites'];
+    declare texcoords: TextureInfo['texcoords'];
+    declare sizes: TextureInfo['sizes'];
+    declare css_sizes: TextureInfo['css_sizes'];
+    declare aspects: TextureInfo['aspects'];
+    declare width: number;
+    declare height: number;
+    declare power_of_2: boolean | undefined;
+    declare url: string;
+    /** Existing dynamic static methods, declared without runtime field initialization. */
+    declare static retain: (name: string) => void;
+    declare static destroy: (context: object | null) => void;
+    declare static getSpriteInfo: (name: string, sprite: string) => {size: number[]; css_size: number[]; aspect: number; texcoords: number[]} | undefined;
+    declare static getTexcoordsForSprite: (origin: readonly number[], size: readonly number[], dimensions: readonly number[]) => number[];
+    declare static createFromObject: (context: object | null, textures?: Record<string, TextureOptions>) => Promise<(Texture | null)[]>;
+    declare static createDefault: (context: object | null) => Texture;
+    declare static sliceOptions: (options: TextureOptions) => TextureOptions;
+    declare static changed: (name: string, options: TextureOptions) => boolean;
+    declare static getInfo: typeof getTextureInfo;
+    declare static getMaxTextureSize: (context: object | null) => number;
+    declare static setResourceFactory: (context: object, factory: TextureOptions['textureFactory']) => void;
+    declare static getResourceFactory: (context: object) => TextureOptions['textureFactory'];
+    declare static clearResourceFactory: (context: object) => void;
+    declare static texture_configs: Record<string, string>;
+    declare static resource_factories: WeakMap<object, NonNullable<TextureOptions['textureFactory']>>;
+    declare static boundTexture: Texture['texture'];
+    declare static activeUnit: number | null;
+    declare static resetBindings: () => void;
+    declare static trigger: SubscriptionMethods['trigger'];
+    declare static subscribe: SubscriptionMethods['subscribe'];
+    declare static unsubscribe: SubscriptionMethods['unsubscribe'];
+    declare static unsubscribeAll: SubscriptionMethods['unsubscribeAll'];
+    declare static hasSubscribersFor: SubscriptionMethods['hasSubscribersFor'];
 
-    constructor(gl, name, options = {}) {
+    constructor(gl: object | null, name: string, options: TextureOptions = {}) {
         options = Texture.sliceOptions(options); // exclude any non-texture-specific props
         this.gl = gl;
-        this.texture_factory = options.textureFactory || Texture.getResourceFactory(gl);
+        this.texture_factory = options.textureFactory || (gl && Texture.getResourceFactory(gl)) || undefined;
         this.texture_resource = null;
-        this.texture = this.texture_factory ? null : gl.createTexture();
+        this.texture = this.texture_factory ? null : getClassicTextureContext(gl).createTexture();
         this.valid = Boolean(this.texture_factory || this.texture);
         this.bind();
 
@@ -59,11 +151,12 @@ export default class Texture {
         this.loaded = false; // don't consider loaded when only placeholder data is present
 
         // Destroy previous texture if present
-        if (Texture.textures[this.name]) {
+        const previousTexture = Texture.textures[this.name];
+        if (previousTexture instanceof Texture) {
             // Preserve previous retain count
-            this.retain_count = Texture.textures[this.name].retain_count;
-            Texture.textures[this.name].retain_count = 0; // allow to be freed
-            Texture.textures[this.name].destroy();
+            this.retain_count = previousTexture.retain_count;
+            previousTexture.retain_count = 0; // allow to be freed
+            previousTexture.destroy();
         }
 
         // Cache texture instance and definition
@@ -75,14 +168,14 @@ export default class Texture {
     }
 
     // Destroy a single texture instance
-    destroy(options = {}) {
+    destroy(options: {force?: boolean} = {}) {
         if (this.texture_factory) {
             return this.destroyTexture(options);
         }
         return Context.withContext(this.gl, () => this.destroyTexture(options));
     }
 
-    destroyTexture({ force } = {}) {
+    destroyTexture({ force }: {force?: boolean} = {}) {
         if (this.retain_count > 0 && !force) {
             log('error', `Texture '${this.name}': destroying texture with retain count of '${this.retain_count}'`);
             return;
@@ -96,7 +189,7 @@ export default class Texture {
             this.texture_resource = null;
         }
         else {
-            this.gl.deleteTexture(this.texture);
+            getClassicTextureContext(this.gl).deleteTexture(this.texture);
         }
         this.texture = null;
         if (Texture.textures[this.name] === this) {
@@ -131,19 +224,20 @@ export default class Texture {
             return;
         }
 
+        const gl = getClassicTextureContext(this.gl);
         if (Texture.activeUnit !== unit) {
-            this.gl.activeTexture(this.gl.TEXTURE0 + unit);
+            gl.activeTexture(gl.TEXTURE0 + unit);
             Texture.activeUnit = unit;
             Texture.boundTexture = null; // texture must be re-bound when unit changes
         }
 
         if (Texture.boundTexture !== this.texture) {
-            this.gl.bindTexture(this.gl.TEXTURE_2D, this.texture);
+            gl.bindTexture(gl.TEXTURE_2D, this.texture);
             Texture.boundTexture = this.texture;
         }
     }
 
-    load(options) {
+    load(options?: TextureOptions): Promise<Texture> {
         if (!options) {
             return this.loading || Promise.resolve(this);
         }
@@ -161,13 +255,13 @@ export default class Texture {
         }
 
         this.loading =
-            (this.loading && this.loading.then(() => { this.calculateSprites(); return this; })) ||
+            (this.getLoadingPromise()?.then(() => { this.calculateSprites(); return this; })) ||
             Promise.resolve(this);
         return this.loading;
     }
 
     // Sets texture from an url
-    setUrl(url, options = {}) {
+    setUrl(url: string, options: TextureOptions = {}) {
         if (!this.valid) {
             return;
         }
@@ -185,6 +279,7 @@ export default class Texture {
                         const ctx = canvas.getContext('2d');
                         canvas.width = image.width;
                         canvas.height = image.height;
+                        if (!ctx) throw new Error('Texture canvas requires a 2D context');
                         ctx.drawImage(image, 0, 0);
                         this.setElement(canvas, options);
                     }
@@ -221,7 +316,7 @@ export default class Texture {
     }
 
     // Sets texture to a raw image buffer
-    setData(width, height, data, options = {}) {
+    setData(width: number, height: number, data: TextureOptions['data'], options: TextureOptions = {}) {
         this.width = width;
         this.height = height;
 
@@ -230,7 +325,7 @@ export default class Texture {
             data = new Uint8Array(data);
         }
 
-        this.update(data, options);
+        this.update(data ?? null, options);
         this.setFiltering(options);
 
         this.loaded = true;
@@ -239,12 +334,12 @@ export default class Texture {
     }
 
     // Sets the texture to track a element (canvas/image)
-    setElement(element, options) {
+    setElement(element: string | TextureElement, options: TextureOptions = {}) {
         let el = element;
 
         // a string element is interpeted as a CSS selector
         if (typeof element === 'string') {
-            element = document.querySelector(element);
+            element = document.querySelector<TextureElement>(element) ?? '';
         }
 
         if (element instanceof HTMLCanvasElement ||
@@ -267,7 +362,7 @@ export default class Texture {
     }
 
     // Uploads current image or buffer to the GPU (can be used to update animated textures on the fly)
-    update(source, options = {}) {
+    update(source: TextureSource, options: TextureOptions = {}) {
         if (this.texture_factory) {
             return this.updateTexture(source, options);
         }
@@ -279,7 +374,7 @@ export default class Texture {
         });
     }
 
-    updateTexture(source, options = {}) {
+    updateTexture(source: TextureSource, options: TextureOptions = {}) {
         if (!this.valid) {
             return;
         }
@@ -291,30 +386,32 @@ export default class Texture {
         this.bind();
 
         // Image or Canvas element
+        const gl = getClassicTextureContext(this.gl);
         if (source instanceof HTMLCanvasElement || source instanceof HTMLVideoElement ||
             (source instanceof HTMLImageElement && source.complete)) {
 
             this.width = source.width;
             this.height = source.height;
-            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, (options.UNPACK_FLIP_Y_WEBGL === false ? false : true));
-            this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, options.UNPACK_PREMULTIPLY_ALPHA_WEBGL || false);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, source);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, (options.UNPACK_FLIP_Y_WEBGL === false ? false : true));
+            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, options.UNPACK_PREMULTIPLY_ALPHA_WEBGL || false);
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
         }
         // Raw image buffer
         else {
             // these pixel store params are deprecated for non-DOM element uploads
             // (e.g. when creating texture from raw data)
             // setting them to null avoids a Firefox warning
-            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, null);
-            this.gl.pixelStorei(this.gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, null);
-            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.width, this.height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, source);
+            gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0);
+            gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0);
+            if (source instanceof HTMLImageElement) throw new Error('Texture image must finish loading before upload');
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.width, this.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
         }
 
         Texture.trigger('update', this);
     }
 
     // Replace the injected GPU texture resource because luma.gl texture dimensions are immutable.
-    updateTextureResource(source, options = {}) {
+    updateTextureResource(source: TextureSource, options: TextureOptions = {}) {
         if (isTextureElement(source)) {
             this.width = source.width;
             this.height = source.height;
@@ -324,11 +421,13 @@ export default class Texture {
         const filtering = options.filtering === 'mipmap' && !power_of_2 ?
             'linear' : (options.filtering || this.filtering || 'linear');
 
-        const resource = this.texture_factory({
+        const factory = this.texture_factory;
+        if (!factory) throw new Error('Texture resource update requires a texture factory');
+        const resource = factory({
             id: this.name,
             width: this.width,
             height: this.height,
-            data: source,
+            data: source ?? undefined,
             filtering,
             repeat: options.repeat === true && power_of_2,
             flipY: options.UNPACK_FLIP_Y_WEBGL !== false,
@@ -353,7 +452,7 @@ export default class Texture {
     }
 
     // Determines appropriate filtering mode
-    setFiltering(options = {}) {
+    setFiltering(options: TextureOptions = {}) {
         if (this.texture_factory) {
             return this.updateFiltering(options);
         }
@@ -365,7 +464,7 @@ export default class Texture {
         });
     }
 
-    updateFiltering(options = {}) {
+    updateFiltering(options: TextureOptions = {}) {
         if (!this.valid) {
             return;
         }
@@ -380,7 +479,7 @@ export default class Texture {
             return;
         }
 
-        var gl = this.gl;
+        const gl = getClassicTextureContext(this.gl);
         this.bind();
 
         // For power-of-2 textures, the following presets are available:
@@ -459,6 +558,9 @@ export default class Texture {
         return Math.round(this.width * this.height * 4 * (this.filtering == 'mipmap' ? 1.33 : 1));
     }
 
+    /** Observe asynchronous updates assigned by load helpers without narrowing them to the prior null value. */
+    private getLoadingPromise(): Promise<Texture> | null { return this.loading; }
+
 }
 
 
@@ -469,14 +571,16 @@ Texture.create = function (gl, name, options) {
 };
 
 Texture.retain = function (name) {
-    if (Texture.textures[name]) {
-        Texture.textures[name].retain();
+    const texture = Texture.textures[name];
+    if (texture && 'retain' in texture) {
+        texture.retain();
     }
 };
 
 Texture.release = function (name) {
-    if (Texture.textures[name]) {
-        Texture.textures[name].release();
+    const texture = Texture.textures[name];
+    if (texture && 'release' in texture) {
+        texture.release();
     }
 };
 
@@ -485,7 +589,7 @@ Texture.destroy = function (gl) {
     var textures = Object.keys(Texture.textures);
     textures.forEach(t => {
         var texture = Texture.textures[t];
-        if (texture.gl === gl) {
+        if ('gl' in texture && texture.gl === gl) {
             texture.destroy({ force: true });
         }
     });
@@ -575,7 +679,7 @@ Texture.changed = function (name, config) {
     let texture = Texture.textures[name];
     if (texture) { // cached texture
         // canvas/image-based textures are considered dynamic and always refresh
-        if (texture.config_type === 'element' || config.element != null) {
+        if ('config_type' in texture && texture.config_type === 'element' || config.element != null) {
             return true;
         }
 
@@ -591,7 +695,8 @@ Texture.changed = function (name, config) {
 // Get metadata for a texture by name
 // Returns via promise, in case texture is still loading
 // Can be called on main thread from worker, to sync texture info to worker
-Texture.getInfo = function (name) {
+/** Return one detached metadata record or the requested list, preserving nullable missing names. */
+function getTextureInfo(name?: string | string[] | null): Promise<TextureInfoResult> {
     // Get info for all textures by default
     if (!name) {
         name = Object.keys(Texture.textures);
@@ -606,7 +711,7 @@ Texture.getInfo = function (name) {
     var tex = Texture.textures[name];
     if (tex) {
         // Wait for this texture to finish loading, or return immediately
-        var loading = tex.loading || Promise.resolve(tex);
+        var loading = ('loading' in tex && tex.loading) || Promise.resolve(tex);
         return loading.then(() => {
             // Return a subset of texture info
             // (compatible w/structured cloning, suitable for passing to a worker)
@@ -632,7 +737,8 @@ Texture.getInfo = function (name) {
         // No texture found
         return Promise.resolve(null);
     }
-};
+}
+Texture.getInfo = getTextureInfo;
 
 // Sync texture info to worker
 // Called from worker, gets info on one or more textures info from main thread via remote call, then stores it
@@ -640,9 +746,9 @@ Texture.getInfo = function (name) {
 Texture.syncTexturesToWorker = function (names) {
     return WorkerBroker.postMessage('Texture.getInfo', names).
         then(textures => {
-            if (textures) {
+            if (Array.isArray(textures)) {
                 textures
-                    .filter(x => x) // remove nulls
+                    .filter(isTextureInfo) // remove nulls and validate detached metadata
                     .forEach(t => Texture.textures[t.name] = t);
             }
             return Texture.textures;
@@ -651,7 +757,8 @@ Texture.syncTexturesToWorker = function (names) {
 
 // Report max texture size for a GL context
 Texture.getMaxTextureSize = function (gl) {
-    return gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const context = getClassicTextureContext(gl);
+    return context.getParameter(context.MAX_TEXTURE_SIZE);
 };
 
 // Register an injected GPU texture factory for all textures created against a context.
@@ -682,3 +789,25 @@ Texture.resetBindings = function () {
 
 WorkerBroker.addTarget('Texture', Texture);
 subscribeMixin(Texture);
+
+/** The broker returns unknown; recognize detached metadata, never invent live GPU methods. */
+function isTextureInfo(value: unknown): value is TextureInfo {
+    return typeof value === 'object' && value !== null &&
+        'name' in value && typeof value.name === 'string' &&
+        'width' in value && typeof value.width === 'number' &&
+        'height' in value && typeof value.height === 'number' &&
+        'density' in value && typeof value.density === 'number' &&
+        'valid' in value && typeof value.valid === 'boolean' &&
+        ['texcoords', 'sizes', 'css_sizes', 'aspects'].every(key => typeof Reflect.get(value, key) === 'object' && Reflect.get(value, key) !== null);
+}
+
+/** Portable contexts are opaque/null; only the classic path may require texture GL operations. */
+function getClassicTextureContext(context: object | null): WebGLRenderingContext {
+    if (isClassicTextureContext(context)) return context;
+    throw new Error('Classic textures require a WebGL context');
+}
+/** Narrow the classic texture capability boundary while allowing hermetic structural GL fixtures. */
+function isClassicTextureContext(context: object | null): context is WebGLRenderingContext {
+    return context !== null && 'createTexture' in context && typeof context.createTexture === 'function' &&
+        'texImage2D' in context && typeof context.texImage2D === 'function';
+}

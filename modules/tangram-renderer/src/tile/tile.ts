@@ -659,7 +659,7 @@ export default class Tile {
                         let texture = Texture.textures[t];
                         if (texture) {
                             log('trace', `releasing texture ${t} for tile ${tile.key}`);
-                            texture.release!(); // Main-thread entries own release(); worker metadata does not.
+                            Texture.release(t); // Worker metadata never owns a GPU release method.
                         }
                     });
                 }

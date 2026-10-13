@@ -3,16 +3,18 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-import {TileID} from './tile_id';
+import {TileID, type TileReference} from './tile_id';
 
-type Tile = any;
-type PyramidEntry = {tile?: Tile; descendants: number};
+/** Resident proxy metadata; traversal references never acquire a live tile's methods. */
+type PyramidTile = TileReference & {key: string; loaded: boolean};
+/** Resident owner and count of retained descendants. */
+type PyramidEntry<Tile extends PyramidTile> = {tile?: Tile; descendants: number};
 
-export default class TilePyramid {
-    tiles: Record<string, PyramidEntry>;
+export default class TilePyramid<Tile extends PyramidTile = PyramidTile> {
+    tiles: Record<string, PyramidEntry<Tile>>;
     max_proxy_descendant_depth: number;
     max_proxy_ancestor_depth: number;
-    children_cache: Record<string, any>;
+    children_cache: Record<string, Record<string, TileReference[]>>;
 
     constructor() {
         this.tiles = {};
@@ -27,16 +29,18 @@ export default class TilePyramid {
         this.tiles[tile.key].tile = tile;
 
         // Add to parents
-        while (tile.style_z >= 0) {
-            tile = TileID.parent(tile);
-            if (!tile) {
+        let reference: TileReference = tile;
+        while (reference.style_z >= 0) {
+            const parent = TileID.parent(reference);
+            if (!parent?.key) {
                 return;
             }
 
-            if (!this.tiles[tile.key]) {
-                this.tiles[tile.key] = { descendants: 0 };
+            reference = parent;
+            if (!this.tiles[parent.key]) {
+                this.tiles[parent.key] = { descendants: 0 };
             }
-            this.tiles[tile.key].descendants++;
+            this.tiles[parent.key].descendants++;
         }
     }
 
@@ -51,34 +55,36 @@ export default class TilePyramid {
         }
 
         // Decrement reference count up the tile pyramid
-        while (tile.style_z >= 0) {
-            tile = TileID.parent(tile);
-            if (!tile) {
+        let reference: TileReference = tile;
+        while (reference.style_z >= 0) {
+            const parent = TileID.parent(reference);
+            if (!parent?.key) {
                 return;
             }
 
-            if (this.tiles[tile.key] && this.tiles[tile.key].descendants > 0) {
-                this.tiles[tile.key].descendants--;
-                if (this.tiles[tile.key].descendants === 0 && !this.tiles[tile.key].tile) {
-                    delete this.tiles[tile.key]; // remove whole tile in tree
+            reference = parent;
+            if (this.tiles[parent.key] && this.tiles[parent.key].descendants > 0) {
+                this.tiles[parent.key].descendants--;
+                if (this.tiles[parent.key].descendants === 0 && !this.tiles[parent.key].tile) {
+                    delete this.tiles[parent.key]; // remove whole tile in tree
                 }
             }
         }
     }
 
     // Find the parent tile for a given tile and style zoom level
-    getAncestor (tile: Tile): Tile | undefined {
+    getAncestor (tile: TileReference): Tile | undefined {
         let level = 0;
         while (level < this.max_proxy_ancestor_depth) {
-            tile = TileID.parent(tile);
-            if (!tile) {
+            const parent = TileID.parent(tile);
+            if (!parent?.key) {
                 return;
             }
 
-            if (this.tiles[tile.key] &&
-                this.tiles[tile.key].tile &&
-                this.tiles[tile.key].tile.loaded) {
-                return this.tiles[tile.key].tile;
+            tile = parent;
+            const owner = this.tiles[parent.key]?.tile;
+            if (owner?.loaded) {
+                return owner;
             }
 
             level++;
@@ -86,19 +92,19 @@ export default class TilePyramid {
     }
 
     // Find the descendant tiles for a given tile and style zoom level
-    getDescendants (tile: Tile, level = 0): Tile[] | undefined {
+    getDescendants (tile: TileReference, level = 0): Tile[] {
         const descendants: Tile[] = [];
         if (level < this.max_proxy_descendant_depth) {
-            const tiles: Tile[] = TileID.children(tile, this.children_cache) as Tile[];
+            const tiles = TileID.children(tile, this.children_cache);
             if (!tiles) {
-                return;
+                return descendants;
             }
 
             tiles.forEach(t => {
-                if (this.tiles[t.key]) {
-                    if (this.tiles[t.key].tile &&
-                        this.tiles[t.key].tile.loaded) {
-                        descendants.push(this.tiles[t.key].tile);
+                if (t.key && this.tiles[t.key]) {
+                    const owner = this.tiles[t.key].tile;
+                    if (owner?.loaded) {
+                        descendants.push(owner);
                     }
                     else if (this.tiles[t.key].descendants > 0) { // didn't find any children, try next level
                         descendants.push(...(this.getDescendants(t, level + 1) || []));
