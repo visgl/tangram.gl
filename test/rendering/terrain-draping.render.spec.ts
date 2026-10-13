@@ -110,9 +110,11 @@ test('either stereo eye routes ground picking through the same physical snapshot
     for (const view of frame.renderViews) {
         const viewport = view.deckViewport;
         if (!viewport) throw new Error('Expected stereo viewport');
+        if (!view.viewport) throw new Error('Expected stereo render rectangle');
         const pixel = viewport.project([0, 0, 100]);
-        const hit = harness.renderer.getTerrainAt({x: pixel[0] + viewport.x, y: pixel[1] + viewport.y}, undefined, {coordinateSpace: 'canvas'});
+        const hit = harness.renderer.getTerrainAt({x: pixel[0] + (view.viewport.x ?? 0), y: pixel[1] + (view.viewport.y ?? 0)}, undefined, {coordinateSpace: 'canvas'});
         expect(hit?.coordinate[2]).toBeCloseTo(100, 3); expect(hit?.renderViewId).toBe(view.id);
+        expect(harness.renderer.getTerrainAt({x: pixel[0], y: pixel[1]}, undefined, {renderViewId: view.id})?.renderViewId).toBe(view.id);
     }
 }, 45000);
 
