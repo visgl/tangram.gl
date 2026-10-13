@@ -101,8 +101,10 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                     owner.preparationMs += performance.now() - started;
                 }
                 const started = performance.now();
-                const hit = owner.surface.intersectRay(ray, maximum, clips ? point => {
-                    const position = projection === 'globe' ? getGeographicProjectionProcedure('web-mercator').project(getGeographicProjectionProcedure('globe').unproject(point)) : point;
+                const hit = owner.surface.intersectRay(ray, maximum, clips ? (_point, triangleIndex, weights) => {
+                    // The draw clips its interpolated tile-position varying, not the inverse
+                    // geographic projection of the curved triangle's common-space hit.
+                    const position = [0, 1].map(axis => weights.reduce((value, weight, vertex) => value + weight * mesh.positions[mesh.indices[triangleIndex * 3 + vertex] * 3 + axis], 0));
                     return clips.some(bounds => position[0] >= bounds[0] && position[0] <= bounds[2] && position[1] >= bounds[1] && position[1] <= bounds[3]);
                 } : undefined);
                 owner.queryMs += performance.now() - started;
