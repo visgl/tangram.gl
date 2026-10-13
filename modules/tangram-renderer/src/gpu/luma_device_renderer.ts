@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import { Buffer, Texture, TextureView, ExternalTexture, Sampler } from '@luma.gl/core';
+import { Buffer, Texture } from '@luma.gl/core';
 import type {Binding, Bindings, BufferProps, Device, PrimitiveTopology, RenderPipeline, RenderPipelineParameters,
     RenderPipelineProps, RenderPass, ShaderProps, TextureFormat, TextureFormatDepthStencil, VertexArray} from '@luma.gl/core';
 import type {TangramDrawableMesh, TangramDrawableProgram, TangramGPUBackend, TangramGPUSceneOptions,
@@ -12,19 +12,30 @@ import {observeGPUResourceDisposal} from './resource_lifecycle';
 
 /** Per-topology pipelines indexed by normalized render state. */
 type PipelineStates = Map<PrimitiveTopology, Map<string, RenderPipeline>>;
+/** Resource kinds accepted by luma render-pass bindings, shared without per-draw list allocations. */
+const BINDING_RESOURCE_TAGS: readonly string[] = ['Buffer', 'Texture', 'TextureView', 'ExternalTexture', 'Sampler'];
+/** Buffer-only discriminator for subrange bindings. */
+const BUFFER_RESOURCE_TAGS: readonly string[] = ['Buffer'];
 
 /** Distinguish luma depth/stencil formats without casting arbitrary texture formats. */
 function isDepthStencilFormat(format: TextureFormat): format is TextureFormatDepthStencil {
     return format.startsWith('depth') || format.startsWith('stencil');
 }
 
-/** Accept every native luma binding, including external views and buffer subranges. */
-function isNativeBinding(resource: object): resource is Binding {
-    if (resource instanceof Buffer || resource instanceof Texture || resource instanceof TextureView ||
-        resource instanceof ExternalTexture || resource instanceof Sampler) return true;
-    return 'buffer' in resource && resource.buffer instanceof Buffer &&
-        (!('offset' in resource) || typeof resource.offset === 'number') &&
-        (!('size' in resource) || typeof resource.size === 'number');
+/** Accept host-device luma bindings, including resources from another core bundle copy. */
+function isNativeBinding(resource: object, device: Device): resource is Binding {
+    if (isDeviceResource(resource, device, BINDING_RESOURCE_TAGS)) return true;
+    return 'buffer' in resource && isDeviceResource(resource.buffer, device, BUFFER_RESOURCE_TAGS) &&
+        (!('offset' in resource) || resource.offset === undefined || typeof resource.offset === 'number') &&
+        (!('size' in resource) || resource.size === undefined || typeof resource.size === 'number');
+}
+
+/** luma's stable Resource tag and device identity do not inspect raw handles or depend on instanceof. */
+function isDeviceResource(resource: unknown, device: Device, tags: readonly string[]): boolean {
+    if (!resource || typeof resource !== 'object' || !('device' in resource) || resource.device !== device ||
+        !('destroy' in resource) || typeof resource.destroy !== 'function') return false;
+    const tag: unknown = Reflect.get(resource, Symbol.toStringTag);
+    return typeof tag === 'string' && tags.includes(tag);
 }
 
 /** Resource record deliberately contains no reference to its shader-program owner. */
@@ -302,7 +313,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
             for (const [name, resource] of Object.entries(wrapperBindings)) {
                 const native = this.bindingResources.get(resource);
                 if (native) bindings[name] = native;
-                else if (isNativeBinding(resource)) bindings[name] = resource;
+                else if (isNativeBinding(resource, this.device)) bindings[name] = resource;
                 else throw new Error(`Tangram binding '${name}' requires a native luma resource`);
             }
             assertPipelineBindings(pipeline, bindings);

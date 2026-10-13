@@ -732,18 +732,7 @@ export default class Tile {
     static slice(tile: Tile, keys?: string[]): Pick<Tile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'> & Record<string, unknown>;
     static slice(tile: Pick<WorkerBuildTile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'>, keys?: string[]): Pick<WorkerBuildTile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'> & Record<string, unknown>;
     static slice (tile: Pick<WorkerBuildTile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'> | Tile, keys?: string[]) {
-        let keep = [
-            'id',
-            'key',
-            'loading',
-            'loaded',
-            'generation',
-            'error',
-            'debug'
-        ];
-        if (Array.isArray(keys)) {
-            keep.push(...keys);
-        }
+        const keep = Array.isArray(keys) ? keys : [];
 
         // Build the tile subset
         var tile_subset = {id: tile.id, key: tile.key, loading: tile.loading, loaded: tile.loaded,

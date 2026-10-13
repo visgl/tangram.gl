@@ -340,3 +340,19 @@ test('device binding rejects disposal-only placeholders without asserting native
         expect(() => fixture.draw(fixture.createMesh())).toThrow(/requires a native luma resource/);
     } finally {fixture.renderer.destroy();}
 });
+
+test('host-device binding tags support separate core copies, buffer subranges, and opaque handles', () => {
+    const fixture = createFixture('webgpu');
+    const foreign = createFixture('webgpu');
+    const buffer = {device: fixture.renderer.device, [Symbol.toStringTag]: 'Buffer', destroy: vi.fn(),
+        get handle() {throw new Error('binding validation must not inspect handles');}};
+    const texture = {device: fixture.renderer.device, [Symbol.toStringTag]: 'TextureView', destroy: vi.fn(),
+        get handle() {throw new Error('binding validation must not inspect handles');}};
+    const bindings = {buffer: {buffer, offset: undefined, size: undefined}, texture};
+    fixture.program.getBindings = () => bindings;
+    try {
+        expect(() => fixture.draw(fixture.createMesh())).not.toThrow();
+        texture.device = foreign.renderer.device;
+        expect(() => fixture.draw(fixture.createMesh())).toThrow(/requires a native luma resource/);
+    } finally {fixture.renderer.destroy(); foreign.renderer.destroy();}
+});

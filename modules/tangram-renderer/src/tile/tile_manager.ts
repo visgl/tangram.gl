@@ -136,8 +136,10 @@ export default class TileManager {
     }
 
     keepTile(tile: Tile) {
+        const pyramid = this.pyramid;
+        if (!pyramid) throw new Error('TileManager has been destroyed');
         this.tileset.setTile(tile);
-        this.pyramid?.addTile(tile);
+        pyramid.addTile(tile);
     }
 
     hasTile(key: string) {
