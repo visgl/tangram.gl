@@ -141,6 +141,21 @@ test('point/text depth policy changes independently of blend mode and restores g
     expect(scene.mesh_render_state).toMatchObject({depthWriteEnabled: true, depthCompare: 'less'});
 });
 
+test('legacy color/selection depth policy restores LESS after non-writing annotation styles', () => {
+    const scene = Object.create(Scene.prototype);
+    scene.portable_rendering = false; scene.clearFrame = vi.fn();
+    scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    scene.gl = {depthFunc: vi.fn(), LESS: 513, LEQUAL: 515};
+    scene.style_manager = {getActiveBlendOrders: () => [{blend_order: 0, styles: ['ground', 'labels', 'ground']}]};
+    scene.styles = {ground: {name: 'ground', blend: 'opaque', baseStyle: () => 'raster'},
+        labels: {name: 'labels', blend: 'opaque', baseStyle: () => 'text'}};
+    scene.setRenderState = vi.fn(() => {scene.mesh_render_state = {depthCompare: 'less'};});
+    scene.renderStyle = vi.fn(() => 1);
+    expect(scene.renderPass('selection_program', {allow_blend: false})).toBe(3);
+    expect(scene.gl.depthFunc.mock.calls).toEqual([[513], [515], [513]]);
+    expect(scene.setRenderState.mock.calls[1][0]).toMatchObject({depth_test: true, depth_write: false});
+});
+
 test('resident preparation statistics count valid worker outputs without counting flat or disposed meshes', () => {
     const manager = Object.create(TileManager.prototype);
     const statistics = {vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, preparationMs: 5, detailLimited: true};

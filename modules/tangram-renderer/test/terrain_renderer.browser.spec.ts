@@ -6,6 +6,39 @@ import {expect, test, vi} from 'vitest';
 import Renderer from '../src/scene/renderer';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
 import {Matrix4} from '@math.gl/core';
+import HostFrame from '../src/scene/host_frame';
+import {DrapedTerrainSurfaceSnapshot} from '../src/selection/draped-terrain-surface';
+
+test('query warming advances once per shared stereo frame and releases partial work on load and destruction', () => {
+    const renderer = Renderer.create({}, {terrain: {grids: [], occludeAnnotations: true, queryPreparationBudgetMs: 1}});
+    Object.assign(renderer.scene, {setFeatureSelectionView: vi.fn()});
+    vi.spyOn(renderer.scene, 'updateScene').mockReturnValue(true);
+    vi.spyOn(renderer.scene, 'processTasks').mockImplementation(() => {});
+    vi.spyOn(renderer.scene.tile_manager, 'updateProjectedLabels').mockImplementation(() => {});
+    vi.spyOn(renderer.scene.tile_manager, 'getDrapedTerrainQueryEntries').mockReturnValue([]);
+    vi.spyOn(renderer.scene, 'load').mockReturnValue(Promise.resolve());
+    const redraw = vi.spyOn(renderer.scene, 'requestRedraw').mockImplementation(() => {});
+    const released = vi.fn();
+    const preparation = vi.spyOn(DrapedTerrainSurfaceSnapshot.prototype, 'prepareQueryIndexSteps').mockImplementation(function* () {
+        try {yield; yield;} finally {released();}
+    });
+    let time = 0;
+    const clock = vi.spyOn(performance, 'now').mockImplementation(() => ++time);
+    const frame = new HostFrame({viewport: {width: 200, height: 100}, geographicAnchor: {longitude: 0, latitude: 0, zoom: 16},
+        renderViews: ['left', 'right'].map((id, index) => ({id, viewport: {x: index * 100, width: 100, height: 100},
+            camera: {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 100]}}))});
+    const draw = (renderViewId: string) => renderer.render({frame, renderViewId});
+    try {
+        draw('left'); draw('right'); expect(preparation).not.toHaveBeenCalled();
+        draw('left'); expect(preparation).toHaveBeenCalledOnce(); expect(redraw).toHaveBeenCalled();
+        const sharedTime = renderer.scene.terrainFrameTime;
+        draw('right'); expect(preparation).toHaveBeenCalledOnce(); expect(renderer.scene.terrainFrameTime).toBe(sharedTime);
+        expect(renderer.getTerrainDrapingStatistics().annotationQueries).toMatchObject({inputBytes: 0, queryIndexBytes: 0});
+        renderer.load({}); expect(released).toHaveBeenCalledOnce();
+        draw('left'); draw('right'); draw('left'); expect(preparation).toHaveBeenCalledTimes(2);
+        renderer.destroy(); expect(released).toHaveBeenCalledTimes(2);
+    } finally {clock.mockRestore(); preparation.mockRestore(); renderer.destroy();}
+});
 
 /** Physical fields small enough to exercise generation policy without GPU fixtures. */
 function field(height: number, verticalDatum: TerrainHeightGrid['verticalDatum'] = 'orthometric'): TerrainHeightGrid {

@@ -46,6 +46,10 @@ function createFixture(type: 'webgl' | 'webgpu') {
         return resource;
     };
     const deviceFacade = {
+        getDefaultCanvasContext: () => ({getCurrentFramebuffer: () => ({
+            colorAttachments: [{texture: {format: 'bgra8unorm'}}],
+            depthStencilAttachment: {texture: {format: 'depth24plus'}}
+        })}),
         type, info: {shadingLanguage: type === 'webgl' ? 'glsl' : 'wgsl'}, limits: {},
         createBuffer: vi.fn(createBuffer), createRenderPipeline: vi.fn(createPipeline),
         createVertexArray: vi.fn(createVertexArray),

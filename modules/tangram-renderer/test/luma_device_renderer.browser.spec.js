@@ -200,7 +200,9 @@ describe('LumaDeviceRenderer', function () {
             visibleTime: 0
         });
 
-        expect(device.pipeline.options.parameters).toBe(render_state);
+        expect(device.pipeline.options.parameters).toMatchObject(render_state);
+        expect(device.pipeline.options.parameters.sampleCount).toBe(1);
+        expect(render_state).not.toHaveProperty('sampleCount');
     });
 
     it('translates Tangram render modes into luma.gl pipeline parameters', function () {
