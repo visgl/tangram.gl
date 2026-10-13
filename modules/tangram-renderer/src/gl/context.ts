@@ -5,57 +5,61 @@
 
 // WebGL context wrapper
 
-type ContextScope = (callback: () => unknown) => unknown;
+/** A host scope must return the callback result without taking ownership of its context. */
+type ContextScope = <Result>(callback: () => Result) => Result;
 
 interface ContextNamespace {
-    configure(gl: any, scope?: ContextScope): any;
-    withContext<T>(gl: any, callback: () => T): T;
-    hasContextScope(gl: any): boolean;
-    getContext(canvas?: HTMLCanvasElement | null, options?: any): any;
-    resize(gl: any, width: number, height: number, devicePixelRatio?: number): void;
+    configure<Context extends object>(gl: Context, scope?: ContextScope): Context & {_tangram_id: number};
+    withContext<T>(gl: object | null | undefined, callback: () => T): T;
+    hasContextScope(gl: object | null | undefined): boolean;
+    getContext(canvas?: HTMLCanvasElement | null, options?: WebGLContextAttributes & {device_pixel_ratio?: number}): WebGLRenderingContext;
+    resize(gl: WebGLRenderingContext, width: number, height: number, devicePixelRatio?: number): void;
 }
 
-export const Context = {} as ContextNamespace;
+export const Context: ContextNamespace = {configure, withContext, hasContextScope, getContext, resize};
 export default Context;
 
 let context_id = 0;
-const context_scopes = new WeakMap();
+const context_scopes = new WeakMap<object, ContextScope>();
 
 // Register a WebGL context for Tangram use without taking ownership of it.
-Context.configure = function configure (gl: any, scope?: ContextScope)
+function configure<Context extends object>(gl: Context, scope?: ContextScope): Context & {_tangram_id: number}
 {
-    if (gl._tangram_id == null) {
-        gl._tangram_id = context_id++;
-    }
+    const configured = hasContextIdentity(gl) ? gl : Object.assign(gl, {_tangram_id: context_id++});
     if (scope) {
         context_scopes.set(gl, scope);
     }
-    return gl;
-};
+    return configured;
+}
+
+/** Preserve already configured contexts without rewriting caller-owned properties. */
+function hasContextIdentity<Context extends object>(context: Context): context is Context & {_tangram_id: number} {
+    return '_tangram_id' in context && typeof context._tangram_id === 'number';
+}
 
 // Run WebGL work inside an optional host-managed state scope.
-Context.withContext = function withContext<T> (gl: any, callback: () => T): T
+function withContext<T>(gl: object | null | undefined, callback: () => T): T
 {
     const scope = gl && context_scopes.get(gl);
     return scope ? scope(callback) : callback();
-};
+}
 
-Context.hasContextScope = function hasContextScope (gl: any): boolean
+function hasContextScope(gl: object | null | undefined): boolean
 {
     return Boolean(gl && context_scopes.has(gl));
-};
+}
 
 // Setup a WebGL context
 // If no canvas element is provided, one is created and added to the document body
-Context.getContext = function getContext (canvas?: HTMLCanvasElement | null, options: any = {})
+function getContext(canvas?: HTMLCanvasElement | null, options: WebGLContextAttributes & {device_pixel_ratio?: number} = {}): WebGLRenderingContext
 {
     var fullscreen = false;
     if (canvas == null) {
         canvas = document.createElement('canvas');
         canvas.style.position = 'absolute';
-        canvas.style.top = 0 as any;
-        canvas.style.left = 0 as any;
-        canvas.style.zIndex = -1 as any;
+        canvas.style.top = '0';
+        canvas.style.left = '0';
+        canvas.style.zIndex = '-1';
         document.body.appendChild(canvas);
         fullscreen = true;
     }
@@ -66,8 +70,8 @@ Context.getContext = function getContext (canvas?: HTMLCanvasElement | null, opt
     canvas.addEventListener('webglcontextlost', () => {});
     canvas.addEventListener('webglcontextrestored', () => {});
 
-    var gl = canvas.getContext('webgl', options) || canvas.getContext('experimental-webgl', options);
-    if (!gl) {
+    const gl = canvas.getContext('webgl', options) || canvas.getContext('experimental-webgl', options);
+    if (!gl || !('getParameter' in gl)) {
         throw new Error('Couldn\'t create WebGL context.');
     }
     Context.configure(gl);
@@ -83,15 +87,17 @@ Context.getContext = function getContext (canvas?: HTMLCanvasElement | null, opt
     }
 
     return gl;
-};
+}
 
-Context.resize = function (gl: any, width: number, height: number, device_pixel_ratio?: number): void
+function resize(gl: WebGLRenderingContext, width: number, height: number, device_pixel_ratio?: number): void
 {
     device_pixel_ratio = device_pixel_ratio || window.devicePixelRatio || 1;
-    gl.canvas.style.width = width + 'px';
-    gl.canvas.style.height = height + 'px';
+    if ('style' in gl.canvas) {
+        gl.canvas.style.width = width + 'px';
+        gl.canvas.style.height = height + 'px';
+    }
     gl.canvas.width = Math.round(width * device_pixel_ratio);
     gl.canvas.height = Math.round(height * device_pixel_ratio);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-};
+}

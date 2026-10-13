@@ -115,9 +115,11 @@ test('nearest cached header is not always Tangram\'s nearest loaded styled ances
         load: index => index.z === 1 ? pending.promise : loadContent(index)});
     const rootIndex = {x: 0, y: 0, z: 0}, parentIndex = {x: 0, y: 0, z: 1}, childIndex = {x: 1, y: 1, z: 2};
     const pyramid = new TilePyramid();
-    const root = {source, coords: rootIndex, key: TileID.key(rootIndex, source, 0), style_z: 0, loaded: true};
-    const parent = {source, coords: parentIndex, key: TileID.key(parentIndex, source, 1), style_z: 1, loaded: false};
-    const child = {source, coords: childIndex, key: TileID.key(childIndex, source, 2), style_z: 2, loaded: false};
+    const rootKey = TileID.key(rootIndex, source, 0), parentKey = TileID.key(parentIndex, source, 1), childKey = TileID.key(childIndex, source, 2);
+    if (!rootKey || !parentKey || !childKey) throw new Error('Fixture requires valid tile keys');
+    const root = {source, coords: rootIndex, key: rootKey, style_z: 0, loaded: true};
+    const parent = {source, coords: parentIndex, key: parentKey, style_z: 1, loaded: false};
+    const child = {source, coords: childIndex, key: childKey, style_z: 2, loaded: false};
     try {
         candidate.setPreload([rootIndex]);
         await candidate.decodedTileset.getTile(rootIndex)?.data;

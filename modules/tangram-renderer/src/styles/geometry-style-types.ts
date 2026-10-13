@@ -195,7 +195,7 @@ export interface LineStyleRuntime extends GeometryStyleRuntime<LineFeatureStyle>
     styles: Record<string, GeometryStyleRuntime<LineFeatureStyle>>;
     dash_textures: Record<string, boolean>;
     main_thread_target: string;
-    resource_context: unknown;
+    resource_context: object | null;
     line_uniform_buffer?: UniformBuffer | null;
     uniform_blocks?: Record<string, UniformBuffer> | null;
     uniform_block_factory?: ((options: UniformBufferOptions) => UniformBuffer) | null;
