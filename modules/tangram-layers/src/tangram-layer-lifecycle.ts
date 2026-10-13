@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {Device, RenderPass} from '@luma.gl/core';
+import type {Scene} from '@vis.gl/tangram-renderer';
 import type {Renderer, RendererOptions, SceneDefinition, SceneListeners, SceneLoadOptions, RenderOptions} from '@vis.gl/tangram-renderer/core';
 import type {TangramLayerProps} from './tangram-layer';
 import type {FirstPersonViewport} from './view_adapter_types';
@@ -38,7 +39,7 @@ export interface TangramBridgeRenderer extends Pick<Renderer,
     'setFrame' | 'setTerrain' | 'setTerrainExaggeration' | 'getFeatureAt' | 'getTerrainAt' |
     'getDrapedTerrainSurface' | 'getTerrainDrapingStatistics' | 'getAttributions' | 'destroy' | 'setProjectedBasemapProjection'> {
     /** Scene owned by this renderer instance. */
-    scene: TangramBridgeScene;
+    scene: Scene;
     /** Scene event registration. */
     subscribe(listeners: SceneListeners): unknown;
     /** Asynchronous scene load; synchronous legacy returns remain supported. */
@@ -71,7 +72,7 @@ export interface TangramRecord {
     owner: TangramLayerOwner;
     /** Assigned renderer and scene, after successful factory construction. */
     renderer: TangramBridgeRenderer;
-    scene: TangramBridgeScene;
+    scene: Scene;
     /** Device and optional native WebGL context. */
     device: TangramBridgeDevice;
     gl: (WebGLRenderingContext & {lumaState?: {program?: WebGLProgram | null}}) | null;

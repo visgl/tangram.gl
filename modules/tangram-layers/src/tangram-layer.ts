@@ -11,6 +11,7 @@ import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types.js';
 import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
 import type {ProjectionEngine, ProjectionExecutionOptions} from '@vis.gl/tangram-renderer/core';
 import type {LayerProps} from '@deck.gl/core';
+import type {Scene} from '@vis.gl/tangram-renderer';
 import type {SceneDefinition, FeatureSelectionOptions, FeatureSelectionResult} from '@vis.gl/tangram-renderer/core';
 import type {TerrainSurface, TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
 import type {RendererOptions, RenderOptions, HostTileResourceOptions} from '@vis.gl/tangram-renderer/core';
@@ -43,9 +44,9 @@ export type TangramLayerProps = LayerProps & {
   firstPersonMaxGroundExtent?: number;
   firstPersonElevationRange?: readonly [number, number];
   /** Scene and attribution lifecycle callbacks, resolved by deck defaults. */
-  onSceneLoad?: (scene: TangramBridgeScene) => void;
-  onSceneError?: (error: Error, scene: TangramBridgeScene) => void;
-  onAttributionChange?: (credits: string[], scene: TangramBridgeScene) => void;
+  onSceneLoad?: (scene: Scene) => void;
+  onSceneError?: (error: Error, scene: Scene) => void;
+  onAttributionChange?: (credits: string[], scene: Scene) => void;
   /** Optional CPU-projected subclass's existing callback and projection policy. */
   projectedProjection?: import('@vis.gl/tangram-renderer/core').ProjectedBasemapOptions;
   onProjectionChange?: (projection: import('@vis.gl/tangram-renderer/core').ProjectedBasemapOptions) => void;

@@ -6,6 +6,34 @@ import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
 import {DrapedTerrainSurfaceSnapshot} from '@vis.gl/tangram-renderer/core';
 import {createContextFixture, createRecordFixture, createRendererFixture, getLiveRecord} from './fixtures/lifecycle';
+import type {Scene} from '@vis.gl/tangram-renderer';
+import type {TangramLayerProps} from '../src/tangram-layer';
+
+test('public scene callbacks accept explicit Scene handlers and retain the supported Scene methods', async () => {
+    class BaseLayer {}
+    const renderer = createRendererFixture({});
+    const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create: () => renderer}});
+    const layer = new Layer(); layer.state = {tangramRecord: null};
+    layer.setState = state => Object.assign(layer.state, state);
+    layer.context = createContextFixture(); layer.setNeedsRedraw = vi.fn(); layer.raiseError = vi.fn();
+    layer._synchronizeTangramScene = vi.fn();
+    const onSceneLoad = vi.fn((scene: Scene) => {void scene.updateConfig({rebuild: false});});
+    const callbacks: Pick<TangramLayerProps, 'onSceneLoad' | 'onSceneError' | 'onAttributionChange'> = {
+        onSceneLoad,
+        onSceneError: (_error, scene) => {void scene.setDataSource('fixture', {type: 'GeoJSON', url: 'fixture.json'});},
+        onAttributionChange: (_credits, scene) => {void scene.getSourceMetadata();}
+    };
+    layer.props = {scene: {}, ...callbacks};
+    try {
+        layer.updateState({props: layer.props}); const record = getLiveRecord(layer); await record.loadPromise;
+        expect(onSceneLoad).toHaveBeenCalledExactlyOnceWith(renderer.scene);
+        expect(record.scene).toBe(renderer.scene);
+        expect(renderer.scene.updateConfig).toHaveBeenCalledWith({rebuild: false});
+        layer._reportSceneError(record, new Error('fixture'), false);
+        expect(renderer.scene.setDataSource).toHaveBeenCalledWith('fixture', {type: 'GeoJSON', url: 'fixture.json'});
+        await vi.waitFor(() => expect(renderer.scene.getSourceMetadata).toHaveBeenCalled());
+    } finally {layer.finalizeState();}
+});
 
 test('ground surface and implicit picking delegate only to a live loaded record', () => {
     class BaseLayer {}
