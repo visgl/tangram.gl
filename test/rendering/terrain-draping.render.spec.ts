@@ -81,7 +81,7 @@ test('packaged raster UVs survive worker refinement and displacement', async () 
     expect(harness.errors).toEqual([]);
 }, 45000);
 
-test('non-interactive ground occludes annotation color and feature picking in both stereo eyes', async () => {
+test.each([false, true])('non-interactive ground (later order=%s) occludes annotation color and feature picking in both stereo eyes', async laterOrder => {
     const harness = new RenderingHarness('perspective', 'stereo-preview'); harnesses.push(harness);
     // No CPU ground query styles: this exercises depth parity, not a hidden CPU collision mask.
     harness.terrain = {...terrain(100), occludeAnnotations: true};
@@ -89,8 +89,13 @@ test('non-interactive ground occludes annotation color and feature picking in bo
     const sourceUrl = `data:application/json,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features: [
         {type: 'Feature', id: 1, properties: {name: 'buried-marker'}, geometry: {type: 'Point', coordinates: [0, 0]}}
     ]}))}`;
+    // Alpha-one raster output with a translucent blend mode can be ordered after
+    // overlay annotations; ordinary opaque styles always sort first in Tangram.
     await harness.initialize({...base, sources: {...base.sources, markers: {type: 'GeoJSON', url: sourceUrl}},
-        layers: {...base.layers, markers: {data: {source: 'markers'}, draw: {points: {
+        styles: laterOrder ? {lateGround: {base: 'raster', blend: 'translucent', blend_order: 10}} : {},
+        layers: {...base.layers, basemap: {...base.layers.basemap,
+            draw: {[laterOrder ? 'lateGround' : 'raster']: base.layers.basemap.draw.raster}},
+            markers: {data: {source: 'markers'}, draw: {points: {
             // Bury the entire screen-facing quad, not just its geographic anchor.
             // A slightly buried anchor can still have fragments above an inclined ground plane.
             order: 5, color: '#ff0000', size: '40px', z: -500, collide: false, interactive: true

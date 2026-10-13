@@ -823,6 +823,7 @@ export default class Scene {
 
         // Get sorted list of current blend orders, with accompanying list of styles to render for each
         const blend_orders = this.style_manager.getActiveBlendOrders();
+        if (program_key === 'selection_program') this.renderSelectionDepthPrepass(blend_orders, renderPass);
         for (const { blend_order, styles } of blend_orders) {
             // Render each style
             for (let s=0; s < styles.length; s++) {
@@ -922,6 +923,7 @@ export default class Scene {
         let last_blend;
         let last_annotation_depth;
         const blend_orders = this.style_manager.getActiveBlendOrders();
+        if (program_key === 'selection_program') this.renderSelectionDepthPrepass(blend_orders, renderPass);
         for (const { blend_order, styles } of blend_orders) {
             for (const style_name of styles) {
                 const style = this.styles[style_name];
@@ -944,21 +946,35 @@ export default class Scene {
         return count;
     }
 
-    renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null) {
-        let style = this.styles[style_name];
-        // Selection needs the same non-interactive ground depth as color. The
-        // normal ground shader writes depth only; it never invents a feature ID.
-        if (program_key === 'selection_program' && this.terrain?.occludeAnnotations && !style.selection &&
-            ['raster', 'polygons', 'lines'].includes(style.baseStyle?.()) && Style.render_states[style.blend]?.depth_write !== false) {
-            const previous = this.mesh_render_state;
-            this.mesh_render_state = {...previous, colorMask: 0, depthWriteEnabled: true, depthCompare: 'less'};
-            if (!this.portable_rendering) this.gl.colorMask(false, false, false, false);
-            try {return this.renderStyle(style_name, 'program', blend_order, proxy_level, renderPass);}
-            finally {
-                this.mesh_render_state = previous;
-                if (!this.portable_rendering) this.gl.colorMask(true, true, true, true);
+    /** Whether a non-selectable style contributes color depth but cannot write feature IDs. */
+    isTerrainSelectionOccluder(style) {
+        return Boolean(this.terrain?.occludeAnnotations && style && !style.selection &&
+            ['raster', 'polygons', 'lines'].includes(style.baseStyle?.()) && Style.render_states[style.blend]?.depth_write !== false);
+    }
+
+    /** Populate non-selectable scene depth before any IDs; pending pipelines keep selection locked for retry. */
+    renderSelectionDepthPrepass(blend_orders, renderPass) {
+        const occluders = blend_orders.flatMap(({blend_order, styles}) => styles
+            .filter(name => this.isTerrainSelectionOccluder(this.styles[name])).map(name => ({name, blend_order})));
+        if (!occluders.length) return;
+        const previous = this.mesh_render_state;
+        try {
+            this.setRenderState({depth_test: true, depth_write: true, cull_face: true, blend: false});
+            this.mesh_render_state = {...this.mesh_render_state, colorMask: 0, depthWriteEnabled: true, depthCompare: 'less'};
+            if (!this.portable_rendering) {
+                this.gl.colorMask(false, false, false, false); this.gl.depthFunc(this.gl.LESS);
             }
+            for (const {name, blend_order} of occluders) this.renderStyle(name, 'program', blend_order, null, renderPass, true);
+        } finally {
+            this.mesh_render_state = previous;
+            if (!this.portable_rendering) this.gl.colorMask(true, true, true, true);
         }
+    }
+
+    renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null, selection_depth_pass = false) {
+        let style = this.styles[style_name];
+        // Already submitted before any IDs. Repeating it later cannot erase covered IDs.
+        if (program_key === 'selection_program' && this.isTerrainSelectionOccluder(style)) return 0;
         let first_for_style = true; // TODO: allow this state to be passed in (for multilpe blend orders, stencil tests, etc)
         let render_count = 0;
         let program;
@@ -1047,7 +1063,7 @@ export default class Scene {
                         meshRenderer: this.mesh_renderer,
                         renderState: this.mesh_render_state
                     })) {
-                        if (program_key === 'selection_program') this.selection_render_pending = true;
+                        if (program_key === 'selection_program' || selection_depth_pass) this.selection_render_pending = true;
                         this.requestRedraw();
                     }
                     render_count += mesh.geometry_count;

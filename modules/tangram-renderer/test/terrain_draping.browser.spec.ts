@@ -116,11 +116,11 @@ test('selection depth-only fallback restores state even when opaque non-selectab
     const scene = Object.create(Scene.prototype);
     const state = {depthCompare: 'less', colorMask: 15};
     scene.mesh_render_state = state; scene.portable_rendering = false;
-    scene.gl = {colorMask: vi.fn()};
+    scene.gl = {colorMask: vi.fn(), depthFunc: vi.fn(), LESS: 513};
     scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
     scene.styles = {ground: {selection: false, blend: 'opaque', baseStyle: () => 'raster'}};
     scene.tile_manager = {getRenderableTiles: () => {throw new Error('draw fixture');}};
-    expect(() => scene.renderStyle('ground', 'selection_program', 0)).toThrow('draw fixture');
+    expect(() => scene.renderSelectionDepthPrepass([{blend_order: 0, styles: ['ground']}], null)).toThrow('draw fixture');
     expect(scene.mesh_render_state).toBe(state);
     expect(scene.gl.colorMask.mock.calls).toEqual([[false, false, false, false], [true, true, true, true]]);
 });
@@ -129,7 +129,7 @@ test('point/text depth policy changes independently of blend mode and restores g
     const scene = Object.create(Scene.prototype);
     scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
     scene.style_manager = {getActiveBlendOrders: () => [{blend_order: 0, styles: ['ground', 'labels', 'ground']}]};
-    scene.styles = {ground: {name: 'ground', blend: 'opaque', baseStyle: () => 'raster'},
+    scene.styles = {ground: {name: 'ground', selection: true, blend: 'opaque', baseStyle: () => 'raster'},
         labels: {name: 'labels', blend: 'opaque', baseStyle: () => 'points'}};
     scene.setRenderState = vi.fn((state: {depth_test: boolean; depth_write: boolean}) => {
         scene.mesh_render_state = {depthCompare: 'less', depthWriteEnabled: state.depth_write};
@@ -147,13 +147,52 @@ test('legacy color/selection depth policy restores LESS after non-writing annota
     scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
     scene.gl = {depthFunc: vi.fn(), LESS: 513, LEQUAL: 515};
     scene.style_manager = {getActiveBlendOrders: () => [{blend_order: 0, styles: ['ground', 'labels', 'ground']}]};
-    scene.styles = {ground: {name: 'ground', blend: 'opaque', baseStyle: () => 'raster'},
+    scene.styles = {ground: {name: 'ground', selection: true, blend: 'opaque', baseStyle: () => 'raster'},
         labels: {name: 'labels', blend: 'opaque', baseStyle: () => 'text'}};
     scene.setRenderState = vi.fn(() => {scene.mesh_render_state = {depthCompare: 'less'};});
     scene.renderStyle = vi.fn(() => 1);
     expect(scene.renderPass('selection_program', {allow_blend: false})).toBe(3);
     expect(scene.gl.depthFunc.mock.calls).toEqual([[513], [515], [513]]);
     expect(scene.setRenderState.mock.calls[1][0]).toMatchObject({depth_test: true, depth_write: false});
+});
+
+test('depth-only draws keep selection pending until their attachment-specific pipeline is ready', () => {
+    const scene = Object.create(Scene.prototype);
+    const state = {colorMask: 15, depthCompare: 'less-equal'};
+    scene.portable_rendering = true; scene.mesh_render_state = state;
+    scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    const render = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
+    scene.styles = {ground: {name: 'ground', blend: 'opaque', selection: false, baseStyle: () => 'raster', render}};
+    const mesh = {variant: {blend_order: 5, mesh_order: 0}, geometry_count: 1};
+    scene.tile_manager = {getRenderableTiles: () => [{meshes: {ground: [mesh]}, shouldProxyForStyle: () => true}]};
+    scene.setupStyle = vi.fn(() => ({})); scene.view = {projection: {type: 'web-mercator'}, setupTile: vi.fn()};
+    scene.setRenderState = vi.fn(() => {scene.mesh_render_state = {blend: false};});
+    scene.requestRedraw = vi.fn();
+    const orders = [{blend_order: 5, styles: ['ground']}];
+    scene.renderSelectionDepthPrepass(orders, null);
+    expect(scene.selection_render_pending).toBe(true);
+    expect(scene.requestRedraw).toHaveBeenCalledOnce();
+    expect(render.mock.calls[0][1].renderState).toMatchObject({colorMask: 0, blend: false, depthWriteEnabled: true});
+    expect(scene.mesh_render_state).toBe(state);
+    scene.selection_render_pending = false;
+    scene.renderSelectionDepthPrepass(orders, null);
+    expect(scene.selection_render_pending).toBe(false);
+    expect(scene.renderStyle('ground', 'selection_program', 5)).toBe(0);
+    expect(render).toHaveBeenCalledTimes(2);
+});
+
+test('selection submits late non-selectable depth before every annotation ID', () => {
+    const scene = Object.create(Scene.prototype);
+    scene.portable_rendering = true; scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    const orders = [{blend_order: 0, styles: ['labels']}, {blend_order: 5, styles: ['ground']}];
+    scene.style_manager = {getActiveBlendOrders: () => orders};
+    scene.styles = {labels: {name: 'labels', blend: 'opaque', selection: true, baseStyle: () => 'points'},
+        ground: {name: 'ground', blend: 'opaque', selection: false, baseStyle: () => 'raster'}};
+    scene.setRenderState = vi.fn(() => {scene.mesh_render_state = {};});
+    scene.renderStyle = vi.fn(() => 1);
+    scene.renderPortablePass('selection_program', {allow_blend: false, renderPass: null});
+    expect(scene.renderStyle.mock.calls[0]).toEqual(['ground', 'program', 5, null, null, true]);
+    expect(scene.renderStyle.mock.calls[1]).toEqual(['labels', 'selection_program', 0, null, null]);
 });
 
 test('resident preparation statistics count valid worker outputs without counting flat or disposed meshes', () => {
