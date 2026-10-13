@@ -117,7 +117,11 @@ test.each([false, true])('non-interactive ground (later order=%s) occludes annot
         expect((await harness.pick(pixel[0] + eye.deckViewport.x, pixel[1] + eye.deckViewport.y))?.feature).toBeUndefined();
     }
     await harness.renderer.setTerrain({...terrain(100), occludeAnnotations: false}); await harness.settle();
-    expect(countRed(await harness.pixels())).toBeGreaterThan(100);
+    if (laterOrder) {
+        // Legacy opt-out preserves the reported mismatch: later alpha-one color
+        // covers the marker, but absent selection depth leaves its ID behind.
+        expect(countRed(await harness.pixels())).toBe(0);
+    } else expect(countRed(await harness.pixels())).toBeGreaterThan(100);
     for (const eye of frame.renderViews) {
         if (!eye.deckViewport) throw new Error('Expected stereo preview viewport');
         const pixel = eye.deckViewport.project([0, 0, -400]);

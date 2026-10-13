@@ -823,7 +823,7 @@ export default class Scene {
 
         // Get sorted list of current blend orders, with accompanying list of styles to render for each
         const blend_orders = this.style_manager.getActiveBlendOrders();
-        if (program_key === 'selection_program') this.renderSelectionDepthPrepass(blend_orders, renderPass);
+        if (program_key === 'selection_program' && this.terrain?.occludeAnnotations) this.renderSelectionDepthPrepass(blend_orders, renderPass);
         for (const { blend_order, styles } of blend_orders) {
             // Render each style
             for (let s=0; s < styles.length; s++) {
@@ -923,7 +923,7 @@ export default class Scene {
         let last_blend;
         let last_annotation_depth;
         const blend_orders = this.style_manager.getActiveBlendOrders();
-        if (program_key === 'selection_program') this.renderSelectionDepthPrepass(blend_orders, renderPass);
+        if (program_key === 'selection_program' && this.terrain?.occludeAnnotations) this.renderSelectionDepthPrepass(blend_orders, renderPass);
         for (const { blend_order, styles } of blend_orders) {
             for (const style_name of styles) {
                 const style = this.styles[style_name];
@@ -974,7 +974,7 @@ export default class Scene {
     renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null, selection_depth_pass = false) {
         let style = this.styles[style_name];
         // Already submitted before any IDs. Repeating it later cannot erase covered IDs.
-        if (program_key === 'selection_program' && this.isTerrainSelectionOccluder(style)) return 0;
+        if (program_key === 'selection_program' && this.terrain?.occludeAnnotations && this.isTerrainSelectionOccluder(style)) return 0;
         let first_for_style = true; // TODO: allow this state to be passed in (for multilpe blend orders, stencil tests, etc)
         let render_count = 0;
         let program;
