@@ -847,35 +847,34 @@ export default class Scene {
 
                 const blend = allow_blend && style.blend;
                 if (blend === 'translucent') {
-                    const translucent_state = this.mesh_render_state;
+                    const translucentRenderState = this.mesh_render_state;
                     try {
-                    // Depth pre-pass for translucency
-                    this.gl.colorMask(false, false, false, false);
-                    // Resource-backed WebGL draws reapply luma pipeline parameters;
-                    // raw GL changes alone cannot control their depth/color passes.
-                    this.mesh_render_state = {...translucent_state, colorMask: 0};
-                    this.renderStyle(style.name, program_key, blend_order, null, renderPass);
+                        // Depth pre-pass for translucency
+                        this.gl.colorMask(false, false, false, false);
+                        // Resource-backed WebGL draws reapply luma pipeline parameters;
+                        // raw GL changes alone cannot control their depth/color passes.
+                        this.mesh_render_state = {...translucentRenderState, colorMask: 0};
+                        this.renderStyle(style.name, program_key, blend_order, null, renderPass);
 
-                    this.gl.colorMask(true, true, true, true);
-                    this.gl.depthFunc(this.gl.EQUAL);
-                    this.mesh_render_state = {...translucent_state, colorMask: 15, depthCompare: 'equal'};
+                        this.gl.colorMask(true, true, true, true);
+                        this.gl.depthFunc(this.gl.EQUAL);
+                        this.mesh_render_state = {...translucentRenderState, colorMask: 15, depthCompare: 'equal'};
 
-                    // Stencil buffer mask prevents overlap/flicker from compounding alpha of overlapping polys
-                    this.gl.enable(this.gl.STENCIL_TEST);
-                    this.gl.clearStencil(0);
-                    this.gl.clear(this.gl.STENCIL_BUFFER_BIT);
-                    this.gl.stencilFunc(this.gl.EQUAL, this.gl.ZERO, 0xFF);
-                    this.gl.stencilOp(this.gl.KEEP, this.gl.KEEP, this.gl.INCR);
+                        // Stencil buffer mask prevents overlap/flicker from compounding alpha of overlapping polys
+                        this.gl.enable(this.gl.STENCIL_TEST);
+                        this.gl.clearStencil(0);
+                        this.gl.clear(this.gl.STENCIL_BUFFER_BIT);
+                        this.gl.stencilFunc(this.gl.EQUAL, this.gl.ZERO, 0xFF);
+                        this.gl.stencilOp(this.gl.KEEP, this.gl.KEEP, this.gl.INCR);
 
-                    // Main render pass
-                    count += this.renderStyle(style.name, program_key, blend_order, null, renderPass);
-
-                    // Disable translucency-specific settings
+                        // Main render pass
+                        count += this.renderStyle(style.name, program_key, blend_order, null, renderPass);
                     } finally {
-                    this.mesh_render_state = translucent_state;
-                    this.gl.colorMask(true, true, true, true);
-                    this.gl.disable(this.gl.STENCIL_TEST);
-                    this.gl.depthFunc(this.gl.LESS);
+                        // Disable translucency-specific settings, also after a failed draw.
+                        this.mesh_render_state = translucentRenderState;
+                        this.gl.colorMask(true, true, true, true);
+                        this.gl.disable(this.gl.STENCIL_TEST);
+                        this.gl.depthFunc(this.gl.LESS);
                     }
                 }
                 else if (blend !== 'opaque' && style.stencil_proxy_tiles === true) {
@@ -957,13 +956,13 @@ export default class Scene {
     }
 
     /** Whether a non-selectable style contributes color depth but cannot write feature IDs. */
-    isTerrainSelectionOccluder(style) {
+    isTerrainSelectionOccluder(style: {selection?: boolean; baseStyle?(): string; blend: string} | undefined): boolean {
         return Boolean(this.terrain?.occludeAnnotations && style && !style.selection &&
             ['raster', 'polygons', 'lines'].includes(style.baseStyle?.()) && Style.render_states[style.blend]?.depth_write !== false);
     }
 
     /** Populate non-selectable scene depth before any IDs; pending pipelines keep selection locked for retry. */
-    renderSelectionDepthPrepass(blend_orders, renderPass) {
+    renderSelectionDepthPrepass(blend_orders: {blend_order: number; styles: string[]}[], renderPass: import('@luma.gl/core').RenderPass | null): void {
         const occluders = blend_orders.flatMap(({blend_order, styles}) => styles
             .filter(name => this.isTerrainSelectionOccluder(this.styles[name])).map(name => ({name, blend_order})));
         if (!occluders.length) return;
@@ -981,7 +980,7 @@ export default class Scene {
         }
     }
 
-    renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null, selection_depth_pass = false) {
+    renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null, selectionDepthPass = false) {
         let style = this.styles[style_name];
         // Already submitted before any IDs. Repeating it later cannot erase covered IDs.
         if (program_key === 'selection_program' && this.terrain?.occludeAnnotations && this.isTerrainSelectionOccluder(style)) return 0;
@@ -1073,7 +1072,7 @@ export default class Scene {
                         meshRenderer: this.mesh_renderer,
                         renderState: this.mesh_render_state
                     })) {
-                        if (program_key === 'selection_program' || selection_depth_pass) this.selection_render_pending = true;
+                        if (program_key === 'selection_program' || selectionDepthPass) this.selection_render_pending = true;
                         this.requestRedraw();
                     }
                     render_count += mesh.geometry_count;
