@@ -103,7 +103,7 @@ export default class VertexLayout {
 
         // Enable dynamic attributes for this layout
         this.dynamic_attribs.forEach(attrib => {
-            const location = program.attribute(attrib.name).location;
+            const location = program.attribute(attrib.name)?.location ?? -1;
             if (location !== -1) {
                 gl.enableVertexAttribArray(location);
                 gl.vertexAttribPointer(location, attrib.size, attrib.type, attrib.normalized!, this.stride, attrib.offset!);
@@ -116,7 +116,7 @@ export default class VertexLayout {
     // they are enabled separately.
     enableStaticAttributes (gl: VertexAttributeContext, program: VertexAttributeProgram): void {
         this.static_attribs.forEach(attrib => {
-            const location = program.attribute(attrib.name).location;
+            const location = program.attribute(attrib.name)?.location ?? -1;
             if (location !== -1 && gl[attrib.method!] instanceof Function) {
                 // N.B.: Safari appears to require an explicit array enable to set vertex attribute as "active"
                 // (the static attribute value method does not work without it). So the attribute is temporarily

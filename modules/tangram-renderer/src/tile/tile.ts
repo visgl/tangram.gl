@@ -27,7 +27,7 @@ import type {StyleFeature} from '../styles/property-types';
 
 /** Source identity and retention policy consumed by tile ownership. */
 interface TileSourcePolicy extends TileSource {
-    id: number;
+    id: number | string;
     tiled?: boolean;
     preserve_tiles_within_zoom?: number;
     max_zoom?: number;
@@ -71,7 +71,9 @@ export default class Tile {
     declare proxied_as: 'child' | 'parent' | null;
     declare proxy_level: number;
     declare proxy_order_offset: number;
-    declare fallback_for?: Map<string, readonly [number, number, number, number]>;
+    declare fallback_for?: Map<string, readonly [number, number, number, number]> | null;
+    /** A coarse fallback currently replaces this detail tile in the draw membership. */
+    declare fallback_pending?: boolean;
     /** Uploaded style names for the in-progress generation. */
     declare new_mesh_styles: string[];
     declare mesh_data?: Record<string, TileStylePayload>;
@@ -206,7 +208,7 @@ export default class Tile {
         else {
             // Pin all tiles from each non-tiled source to a single worker
             // Prevents data for these sources from being loaded more than once
-            this.worker_id = this.source.id % workers.length;
+            this.worker_id = Number(this.source.id) % workers.length;
         }
 
         this.worker = workers[this.worker_id];
@@ -727,6 +729,8 @@ export default class Tile {
     // Includes a minimum set of pre-defined keys for load state, debug. etc.
     // We use this to send a subset of the tile back to the main thread, to minimize unnecessary data transfer
     // (e.g. very large items like feature geometry are not needed on the main thread)
+    static slice(tile: Tile, keys?: string[]): Pick<Tile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'> & Record<string, unknown>;
+    static slice(tile: Pick<WorkerBuildTile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'>, keys?: string[]): Pick<WorkerBuildTile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'> & Record<string, unknown>;
     static slice (tile: Pick<WorkerBuildTile, 'id' | 'key' | 'loading' | 'loaded' | 'generation' | 'error' | 'debug'> | Tile, keys?: string[]) {
         let keep = [
             'id',
@@ -742,10 +746,11 @@ export default class Tile {
         }
 
         // Build the tile subset
-        var tile_subset: Record<string, unknown> = {};
+        var tile_subset = {id: tile.id, key: tile.key, loading: tile.loading, loaded: tile.loaded,
+            generation: tile.generation, error: tile.error, debug: tile.debug};
         for (let k=0; k < keep.length; k++) {
             const key = keep[k];
-            tile_subset[key] = Reflect.get(tile, key); // Requested extension keys are wire-envelope properties, not statically known Tile members.
+            Reflect.set(tile_subset, key, Reflect.get(tile, key)); // Optional extension keys remain wire-envelope properties.
         }
 
         return tile_subset;

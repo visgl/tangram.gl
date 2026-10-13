@@ -72,9 +72,9 @@ test('per-worker snapshots stay detached and do not aggregate source slots with 
 });
 
 test('statistics reject worker-pool replacement and transport failures instead of returning partial counts', async () => {
-    const scene = Object.assign(Scene.create({}), {workers: [{}]});
+    const scene = Object.assign(Scene.create({}), {workers: [{postMessage: vi.fn(), addEventListener: vi.fn()}]});
     const original = Reflect.get(WorkerBroker, 'postMessage');
-    const message = vi.fn(async () => { scene.workers = [{}]; return []; });
+    const message = vi.fn(async () => { scene.workers = [{postMessage: vi.fn(), addEventListener: vi.fn()}]; return []; });
     Reflect.set(WorkerBroker, 'postMessage', message);
     try {
         await expect(scene.getTileSourceStatistics()).rejects.toThrow('Workers changed');

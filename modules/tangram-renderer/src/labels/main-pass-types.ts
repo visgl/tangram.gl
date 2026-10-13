@@ -23,8 +23,9 @@ export interface LabelMesh {
     variant?: {terrainTransitionDuration?: number};
     valid: boolean;
     labels?: Record<string, MeshLabel>;
-    vertex_layout: {offset: Record<string, number>; stride: number};
-    vertex_data: Uint8Array;
+    vertex_layout: {offset?: Record<string, number>; stride: number};
+    /** CPU bytes are absent after an unretained mesh upload or destruction. */
+    vertex_data?: import('../gl/mesh-types').MeshVertexData;
     upload(): void;
 }
 

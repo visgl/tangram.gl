@@ -73,7 +73,7 @@ export default async function mainThreadLabelCollisionPass (tiles: LabelTile[], 
             }
 
             let mesh = container.mesh;
-            if (!mesh.valid) {
+            if (!mesh.valid || !mesh.vertex_data || !mesh.vertex_layout.offset) {
                 return;
             }
 

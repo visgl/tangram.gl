@@ -293,6 +293,7 @@ test('successful shader recompilation invalidates caches; failed replacement pre
     const mesh = fixture.createMesh();
     fixture.draw(mesh, program as unknown as TangramDrawableProgram);
     const oldVertex = program.vertex_shader_resource;
+    if (!oldVertex) throw new Error('Compiled fixture must own a vertex shader');
     fixture.deviceFacade.createShader.mockImplementationOnce(() => { throw new Error('compile failed'); });
     expect(() => program.compile()).toThrow('compile failed');
     expect(fixture.pipelines[0].destroy).not.toHaveBeenCalled();
@@ -320,6 +321,7 @@ test('mesh and shader wrappers release their own resources even if a cache obser
     program.compile();
     const vertex = program.vertex_shader_resource;
     const fragment = program.fragment_shader_resource;
+    if (!vertex || !fragment) throw new Error('Compiled fixture must own both shaders');
     observeGPUResourceDisposal(mesh, () => { throw new Error('mesh observer'); });
     observeGPUResourceDisposal(program, () => { throw new Error('shader observer'); });
     expect(() => mesh.destroy()).toThrow(AggregateError);
@@ -329,4 +331,12 @@ test('mesh and shader wrappers release their own resources even if a cache obser
     expect(fragment.destroy).toHaveBeenCalledTimes(1);
     fixture.renderer.destroy();
     Object.assign(ShaderProgram, {current: null});
+});
+
+test('device binding rejects disposal-only placeholders without asserting native resource types', () => {
+    const fixture = createFixture('webgpu');
+    fixture.program.getBindings = () => ({invalid: {}});
+    try {
+        expect(() => fixture.draw(fixture.createMesh())).toThrow(/requires a native luma resource/);
+    } finally {fixture.renderer.destroy();}
 });

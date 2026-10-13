@@ -4,6 +4,7 @@
 
 import {afterEach, expect, test, vi} from 'vitest';
 import Renderer from '../src/scene/renderer';
+import Scene from '../src/scene/scene';
 import HostFrame from '../src/scene/host_frame';
 import TileManager from '../src/tile/tile_manager';
 import {TileID} from '../src/tile/tile_id';
@@ -15,10 +16,12 @@ afterEach(() => vi.restoreAllMocks());
 
 test.each([256, 512])('%i-pixel sources hide cached ancestors on data-only LOD transitions', tileSize => {
     const renderer = new Renderer({});
+    const scene = renderer.scene;
+    if (!(scene instanceof Scene)) throw new Error('Fixture requires the native Scene implementation');
     const view = renderer.scene.view;
     const source = new NetworkTileSource({id: 1, name: 'fixture', url: 'data:application/json,{}', max_zoom: 4, tile_size: tileSize});
     source.builds_geometry_tiles = true;
-    const manager = new TileManager({scene: {id: 'host-lod-transition-test', view, sources: {fixture: source}, workers: [{}]}});
+    const manager = new TileManager({scene: Object.assign(scene, {view, sources: {fixture: source}, workers: [{postMessage: vi.fn(), addEventListener: vi.fn()}]})});
     const build = vi.spyOn(manager, 'buildTile').mockImplementation(tile => {
         vi.spyOn(tile, 'workerMessage').mockResolvedValue(undefined);
     });
@@ -49,11 +52,13 @@ test.each([256, 512])('%i-pixel sources hide cached ancestors on data-only LOD t
 
 test('data LOD preserves worker style zoom, source limits, display filters and cache keys', () => {
     const renderer = new Renderer({});
+    const scene = renderer.scene;
+    if (!(scene instanceof Scene)) throw new Error('Fixture requires the native Scene implementation');
     const view = renderer.scene.view;
     const source = new NetworkTileSource({id: 1, name: 'fixture', url: 'data:application/json,{}',
         max_zoom: 2, min_display_zoom: 0, max_display_zoom: 4});
     source.builds_geometry_tiles = true;
-    const manager = new TileManager({scene: {id: 'host-lod-test', view, sources: {fixture: source}, workers: [{}]}});
+    const manager = new TileManager({scene: Object.assign(scene, {view, sources: {fixture: source}, workers: [{postMessage: vi.fn(), addEventListener: vi.fn()}]})});
     const build = vi.spyOn(manager, 'buildTile').mockImplementation(() => {});
     try {
         renderer.setFrame(new HostFrame({viewport: {width: 800, height: 600},

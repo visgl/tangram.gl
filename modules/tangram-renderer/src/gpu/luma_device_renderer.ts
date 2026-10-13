@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import { Buffer, Texture } from '@luma.gl/core';
-import type {Bindings, BufferProps, Device, PrimitiveTopology, RenderPipeline, RenderPipelineParameters,
+import { Buffer, Texture, TextureView, ExternalTexture, Sampler } from '@luma.gl/core';
+import type {Binding, Bindings, BufferProps, Device, PrimitiveTopology, RenderPipeline, RenderPipelineParameters,
     RenderPipelineProps, RenderPass, ShaderProps, TextureFormat, TextureFormatDepthStencil, VertexArray} from '@luma.gl/core';
 import type {TangramDrawableMesh, TangramDrawableProgram, TangramGPUBackend, TangramGPUSceneOptions,
     TangramDrawableUniformBlock, TangramMeshBufferOptions, TangramMeshDrawDescriptor, TangramMeshDrawOptions, TangramRenderStateOptions,
@@ -16,6 +16,15 @@ type PipelineStates = Map<PrimitiveTopology, Map<string, RenderPipeline>>;
 /** Distinguish luma depth/stencil formats without casting arbitrary texture formats. */
 function isDepthStencilFormat(format: TextureFormat): format is TextureFormatDepthStencil {
     return format.startsWith('depth') || format.startsWith('stencil');
+}
+
+/** Accept every native luma binding, including external views and buffer subranges. */
+function isNativeBinding(resource: object): resource is Binding {
+    if (resource instanceof Buffer || resource instanceof Texture || resource instanceof TextureView ||
+        resource instanceof ExternalTexture || resource instanceof Sampler) return true;
+    return 'buffer' in resource && resource.buffer instanceof Buffer &&
+        (!('offset' in resource) || typeof resource.offset === 'number') &&
+        (!('size' in resource) || typeof resource.size === 'number');
 }
 
 /** Resource record deliberately contains no reference to its shader-program owner. */
@@ -54,6 +63,8 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
     declare private mesh_resources: Set<MeshResources>;
     /** A destroyed backend cannot reuse cached or host resources. */
     declare private destroyed: boolean;
+    /** Restore native types at the capability-only wrapper boundary, without asserting a resource facade. */
+    private readonly bindingResources = new WeakMap<object, Buffer | Texture>();
 
     constructor(device: Device) {
         validateDevice(device);
@@ -100,11 +111,13 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
         if (options.usage !== 'uniform') {
             throw new Error(`unsupported Tangram buffer usage '${options.usage}'`);
         }
-        return this.device.createBuffer({
+        const buffer = this.device.createBuffer({
             id: `tangram-${options.id}`,
             byteLength: options.byteLength,
             usage: Buffer.UNIFORM | Buffer.COPY_DST
         });
+        this.bindingResources.set(buffer, buffer);
+        return buffer;
     }
 
     /** Creates a shader in the language supported by the active device. */
@@ -191,6 +204,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
                 addressModeV: options.repeat ? 'repeat' : 'clamp-to-edge'
             }
         });
+        this.bindingResources.set(texture, texture);
 
         try {
             if (options.data != null) {
@@ -282,8 +296,15 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
 
         try {
             program.uniform('1f', 'u_visible_time', visibleTime);
-            const bindings = program.getBindings();
-            this.snapshotMeshUniformBindings(mesh, program, bindings);
+            const wrapperBindings = program.getBindings();
+            this.snapshotMeshUniformBindings(mesh, program, wrapperBindings);
+            const bindings: Bindings = {};
+            for (const [name, resource] of Object.entries(wrapperBindings)) {
+                const native = this.bindingResources.get(resource);
+                if (native) bindings[name] = native;
+                else if (isNativeBinding(resource)) bindings[name] = resource;
+                else throw new Error(`Tangram binding '${name}' requires a native luma resource`);
+            }
             assertPipelineBindings(pipeline, bindings);
             const vertex_array = this.getVertexArray(mesh, pipeline, descriptor);
             renderPass.setPipeline(pipeline);
@@ -315,7 +336,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
     }
 
     /** Copies mutable uniform blocks into storage unique to the encoded mesh draw. */
-    snapshotMeshUniformBindings(mesh: TangramDrawableMesh, program: TangramDrawableProgram, bindings: Bindings) {
+    snapshotMeshUniformBindings(mesh: TangramDrawableMesh, program: TangramDrawableProgram, bindings: Record<string, object>) {
         const uniform_blocks = program.uniform_blocks || {};
         const snapshot_blocks = Object.entries(uniform_blocks)
             .filter((entry): entry is [string, TangramDrawableUniformBlock & {data: ArrayBuffer}] =>
@@ -334,6 +355,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
                     byteLength: uniform_buffer.byteLength,
                     usage: Buffer.UNIFORM | Buffer.COPY_DST
                 });
+                this.bindingResources.set(buffer, buffer);
                 snapshot?.buffer.destroy();
                 snapshot = {buffer, byteLength: uniform_buffer.byteLength};
                 mesh_buffers.set(name, snapshot);
@@ -386,8 +408,8 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
         if (!pipeline) {
             const pipeline_options: RenderPipelineProps = {
                 id: `tangram-${program.name || program.id}-${descriptor.topology}-${states.size}`,
-                vs: program.vertex_shader_resource,
-                fs: program.fragment_shader_resource,
+                vs: program.vertex_shader_resource ?? undefined,
+                fs: program.fragment_shader_resource ?? undefined,
                 bufferLayout: [descriptor.bufferLayout],
                 topology: descriptor.topology,
                 disableWarnings: true,

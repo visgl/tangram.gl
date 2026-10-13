@@ -48,6 +48,14 @@ import {normalizeProjectionExecutionOptions} from '../procedures/projection-batc
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
+    /** Numeric broker identity assigned before the manager is constructed. */
+    declare readonly id: number;
+    /** Source/style generation consumed by serialized tile callbacks. */
+    declare generation: number;
+    /** Worker pool is absent before initialization and released during teardown. */
+    declare workers: import('../utils/worker-types').BrokerWorker[] | null | undefined;
+    /** Main-thread upload styles are not available before scene configuration loads. */
+    declare styles: Record<string, import('../tile/tile-build-types').TileBuildStyle & {base?: string}> | null;
     /** Detached optional worker terrain input; never a deck view or a provider handle. */
     declare terrain: import('../procedures/terrain-draping').TerrainDrapingSnapshot | undefined;
     /** Visual multiplier independent of source heights and cache keys. */

@@ -101,14 +101,14 @@ export type TangramDrawableUniformBlock = {
 export type TangramDrawableProgram = {
   id: string | number;
   name?: string;
-  vertex_shader_resource: Shader;
-  fragment_shader_resource: Shader;
+  vertex_shader_resource: Shader | null | undefined;
+  fragment_shader_resource: Shader | null | undefined;
   uniform_blocks?: Record<string, TangramDrawableUniformBlock>;
   saveUniforms(uniforms: Record<string, unknown>): void;
   setUniforms(uniforms: Record<string, unknown>, resetTextureUnit: boolean): void;
   restoreUniforms(uniforms: Record<string, unknown>): void;
   uniform(method: string, name: string, value: number): void;
-  getBindings(): Bindings;
+  getBindings(): Record<string, object>;
   getUniformValues(): Record<string, UniformValue>;
 };
 

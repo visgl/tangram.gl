@@ -5,10 +5,13 @@
 import {expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import Renderer from '../src/scene/renderer';
+import Scene from '../src/scene/scene';
 import HostFrame from '../src/scene/host_frame';
 import TileManager from '../src/tile/tile_manager';
-import type {TileReference} from '../src/tile/tile_id';
-import type {ResourceTile} from '../src/tile/tile_resource_cache';
+import Tile from '../src/tile/tile';
+import VBOMesh from '../src/gl/vbo_mesh';
+import VertexLayout from '../src/gl/vertex_layout';
+import {NetworkTileSource} from '../src/sources/data_source';
 import {TileID} from '../src/tile/tile_id';
 import {createGlobePreloadCoordinates, getGlobePreloadKey, getGlobeFallbackClipBounds} from '../src/tile/globe_tile_preload';
 
@@ -91,24 +94,31 @@ test('globe pruning retains only pinned global tiles and releases them when prel
 });
 
 test('rotation uses pinned coarse tiles for pending detail and drops clips as detail completes', () => {
-    const source = {id: 0, name: 'world', zooms: [0, 1, 2, 3, 4, 5]};
-    type CachedTile = TileReference & ResourceTile & {loaded: boolean;
-        fallback_for: Map<string, number[]> | null;
-        fallback_pending: boolean; setProxyFor: ReturnType<typeof vi.fn>};
-    const scene = {id: 'globe-preload-test', sources: {world: source}, view: {tile_zoom: 5}};
-    const tiles: Record<string, CachedTile> = {};
+    const source = new NetworkTileSource({id: 0, name: 'world', url: 'data:application/json,{}', max_zoom: 5});
+    const renderer = new Renderer({});
+    const nativeScene = renderer.scene;
+    if (!(nativeScene instanceof Scene)) throw new Error('Fixture requires the native Scene implementation');
+    const scene = Object.assign(nativeScene, {sources: {world: source}});
+    scene.view.tile_zoom = 5;
+    const tiles: Record<string, Tile> = {};
     const visibleCoordinates: Record<string, ReturnType<typeof TileID.coord>> = {};
     const preloadState: {preload_zoom: number | undefined} = {preload_zoom: 1};
-    const manager = Object.assign(new TileManager<CachedTile>({scene}), {scene, tiles, ...preloadState,
+    const manager = Object.assign(new TileManager({scene}), {scene, tiles, ...preloadState,
         preloaded_keys: new Set<string>(), visible_coords: visibleCoordinates});
-    const coarse: CachedTile = {key: 'world/0/0/1/5', coords: {x: 0, y: 0, z: 1}, source, style_z: 5,
-        fallback_for: null, fallback_pending: false,
-        loaded: true, loading: false, built: true, visible: false, meshes: {polygons: [{}]},
-        isProxy: () => false, setProxyFor: vi.fn()};
-    const detail: CachedTile = {key: 'world/0/0/2/5', coords: {x: 0, y: 0, z: 2}, source, style_z: 5,
-        fallback_pending: false, fallback_for: null,
-        loaded: true, loading: false, built: false, visible: true, meshes: {polygons: [{}]},
-        isProxy: () => false, setProxyFor: vi.fn()};
+    const context = document.createElement('canvas').getContext('webgl2');
+    if (!context) throw new Error('Fixture requires WebGL 2');
+    const bufferContext = {STATIC_DRAW: context.STATIC_DRAW, ARRAY_BUFFER: context.ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER: context.ELEMENT_ARRAY_BUFFER,
+        createBuffer: context.createBuffer.bind(context), bindBuffer: context.bindBuffer.bind(context), bufferData: context.bufferData.bind(context),
+        drawElements: context.drawElements.bind(context), drawArrays: context.drawArrays.bind(context), deleteBuffer: context.deleteBuffer.bind(context),
+        getExtension: context.getExtension.bind(context), enableVertexAttribArray: context.enableVertexAttribArray.bind(context),
+        disableVertexAttribArray: context.disableVertexAttribArray.bind(context), vertexAttribPointer: context.vertexAttribPointer.bind(context)};
+    const mesh = new VBOMesh(bufferContext, new Uint8Array(12), false, new VertexLayout([{name: 'a_position', size: 3, type: context.FLOAT}]));
+    const workers = [{postMessage: vi.fn(), addEventListener: vi.fn()}];
+    const createTile = (zoom: number, built: boolean): Tile => Object.assign(new Tile({source, coords: {x: 0, y: 0, z: zoom}, style_z: 5, workers, view: scene.view}), {
+        fallback_for: null, fallback_pending: false, loaded: true, loading: false, built, visible: !built, meshes: {polygons: [mesh]}
+    });
+    const coarse = createTile(1, true), detail = createTile(2, false);
+    const message = vi.spyOn(Tile.prototype, 'workerMessage').mockResolvedValue(undefined);
     // Exercise production state transitions without a network source or worker timing.
     manager.tiles = {[coarse.key]: coarse, [detail.key]: detail};
     manager.preload_zoom = 1;
@@ -121,7 +131,7 @@ test('rotation uses pinned coarse tiles for pending detail and drops clips as de
     expect(detail.fallback_pending).toBe(true);
     expect(manager.isTilePreloaded(coarse.key)).toBe(true);
     // Empty and label-only ancestors must not hide partially built detail.
-    const unsupportedMeshes: ResourceTile['meshes'][] = [{polygons: []}, {text: [{}]}, {points: [{}]}];
+    const unsupportedMeshes: Tile['meshes'][] = [{polygons: []}, {text: [mesh]}, {points: [mesh]}];
     for (const meshes of unsupportedMeshes) {
         coarse.meshes = meshes;
         coarse.visible = false;
@@ -130,7 +140,7 @@ test('rotation uses pinned coarse tiles for pending detail and drops clips as de
         expect(detail.fallback_pending).toBe(false);
         expect(manager.updateRenderableTiles()).toEqual([detail]);
     }
-    coarse.meshes = {polygons: [{}]};
+    coarse.meshes = {polygons: [mesh]};
     manager.updateGlobeFallbackTiles();
     expect(detail.fallback_pending).toBe(true);
     manager.preload_zoom = undefined;
@@ -146,4 +156,5 @@ test('rotation uses pinned coarse tiles for pending detail and drops clips as de
     expect(detail.fallback_pending).toBe(false);
     manager.tiles = {};
     manager.destroy();
+    mesh.destroy(); message.mockRestore(); renderer.destroy();
 });

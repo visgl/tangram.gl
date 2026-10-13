@@ -42,10 +42,14 @@ export interface LayerDebugCounts {
 
 /** Worker mesh attributes preserved during upload and temporal terrain replacement. */
 export interface TileMeshVariant extends Record<string, unknown> {
+    /** Authored style draw order, absent on non-style fixture or incomplete meshes. */
+    blend_order?: number;
     /** Stable variant draw order, assigned on upload if absent. */
     mesh_order?: number;
     /** Captured height-blend duration for admitted geometry. */
     terrainTransitionDuration?: number;
+    /** Worker-side terrain cost captured on this final mesh variant. */
+    terrainStatistics?: import('../procedures/terrain-draping').TerrainMeshPreparation;
 }
 
 /** One transferred mesh variant; collision and ground query channels are optional. */

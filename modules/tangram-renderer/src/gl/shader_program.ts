@@ -6,8 +6,6 @@
 // GL program wrapper to cache uniform locations/values, do compile-time pre-processing
 // (injecting #defines and #pragma blocks into shaders), etc.
 
-// @ts-nocheck
-
 import log from '../utils/log';
 import GLSL from './glsl';
 import Texture from './texture';
@@ -15,6 +13,9 @@ import getExtension from './extensions';
 import hashString from '../utils/hash';
 import {notifyGPUResourceDisposal} from '../gpu/resource_lifecycle';
 import type {MeshProgram} from './mesh-types';
+import type {Shader, UniformValue} from '@luma.gl/core';
+import type UniformBuffer from './uniform_buffer';
+import type {TangramShaderOptions, TangramShaderProgramOptions} from '../gpu/tangram_gpu_backend';
 
 import parseShaderErrors from 'gl-shader-errors';
 
@@ -27,7 +28,87 @@ const re_texture_cube = /\btextureCube\b/g;
 /** Wrapper ownership of cached raw programs; device-owned shaders use their own lifecycle. */
 const programReferences = new WeakMap<WebGLProgram, number>();
 
+/** Stage identity shared by source composition and compiler diagnostics. */
+type ShaderStage = 'vertex' | 'fragment';
+/** Classic context identity is part of the exact-source cache key. */
+type ShaderContext = WebGLRenderingContext & {_tangram_id?: number};
+/** Authored source fragments, either one string or an ordered list. */
+type ShaderBlocks = Record<string, string | string[]>;
+/** One injected source fragment with provenance for compiler diagnostics. */
+type ShaderBlock = {key: string; source: string; num: number; scope?: string};
+/** Source location within an injected Tangram block. */
+type ShaderBlockLocation = {scope: string; name: string; num: string; line?: number; source?: string};
+/** Compiler diagnostics retain both the original line and legacy block mapping. */
+type ShaderDiagnostic = {message: string; file: number; line: number | ShaderBlockLocation | null | undefined; type?: ShaderStage; block?: ShaderBlockLocation | null};
+/** Cached scalar/vector uniform and its optional legacy location. */
+type CachedUniform = {name: string; method: string; value: UniformValue; saved_value?: UniformValue; location?: WebGLUniformLocation | null};
+/** A sampler needs only classic binding or portable resource access, not every texture-wrapper field. */
+type SamplerTexture = Partial<Pick<Texture, 'bind' | 'getResource'>>;
+/** Program composition and portable resource allocation options. */
+interface ShaderProgramOptions {
+    name?: string;
+    defines?: Record<string, unknown>;
+    blocks?: ShaderBlocks;
+    block_scopes?: Record<string, string[]>;
+    extensions?: string[];
+    uniforms?: Parameters<typeof GLSL.parseUniforms>[0];
+    uniform_blocks?: Record<string, UniformBuffer>;
+    deferUniformBlocks?: boolean;
+    deferTextureBindings?: boolean;
+    deferUniformUpdates?: boolean;
+    shaderLanguage?: 'glsl' | 'wgsl';
+    shaderFactory?: (options: TangramShaderOptions) => Shader;
+    shaderProgramValidator?: (options: TangramShaderProgramOptions) => void;
+    deviceShaderCompilation?: boolean;
+    glsl_version?: number;
+}
+
 export default class ShaderProgram {
+    /** Caller context is opaque in the portable path. */
+    declare gl: object | null;
+    /** Stable wrapper identity, independent of shared compiled resources. */
+    declare id: number;
+    declare name: string | undefined;
+    declare vertex_source: string;
+    declare computed_vertex_source: string | null;
+    declare computed_fragment_source: string | null;
+    declare compiled: boolean;
+    declare compiling: boolean;
+    declare error: unknown;
+    declare defines: Record<string, unknown>;
+    declare blocks: ShaderBlocks;
+    declare block_scopes: Record<string, string[]>;
+    declare extensions: string[];
+    declare dependent_uniforms: ShaderProgramOptions['uniforms'];
+    declare uniforms: Record<string, CachedUniform>;
+    declare uniform_blocks: Record<string, UniformBuffer>;
+    declare defer_uniform_blocks: boolean;
+    declare defer_texture_bindings: boolean;
+    declare defer_uniform_updates: boolean;
+    declare texture_uniforms: Record<string, SamplerTexture>;
+    declare shader_language: 'glsl' | 'wgsl';
+    declare shader_factory: ShaderProgramOptions['shaderFactory'];
+    declare shader_program_validator: ShaderProgramOptions['shaderProgramValidator'];
+    declare device_shader_compilation: boolean;
+    declare vertex_shader_resource: Shader | null | undefined;
+    declare fragment_shader_resource: Shader | null | undefined;
+    declare glsl_version: number;
+    declare attribs: Record<string, {name: string; location: number}>;
+    declare shader_errors: ShaderDiagnostic[];
+    declare texture_unit: number;
+    declare saved_texture_unit: number;
+    declare saved_texture_uniforms: Record<string, SamplerTexture>;
+    declare saved_uniform_block_data: Map<UniformBuffer, Uint8Array> | null;
+    declare static id: number;
+    declare static blocks: ShaderBlocks;
+    declare static shaders_by_source: Record<string, WebGLShader>;
+    declare static resetCurrent: () => void;
+    declare static releaseProgram: (context: ShaderContext, program: WebGLProgram | null) => void;
+    declare static convertToWebGL2: (source: string, stage: ShaderStage) => string;
+    declare static buildDefineString: (defines: Record<string, unknown>) => string;
+    declare static buildExtensionString: (extensions?: string[]) => string;
+    declare static updateProgram: (context: ShaderContext, program: WebGLProgram | null, vertex: string, fragment: string, resources?: {vertex_shader?: Shader; fragment_shader?: Shader}) => WebGLProgram;
+    declare static createShader: (context: ShaderContext, source: string, stage: number) => WebGLShader;
     /** Program used when a classic mesh draw omits an explicit program. */
     declare static current: MeshProgram | null;
     /** Linked raw program owned by this wrapper, or null for device compilation. */
@@ -47,7 +128,7 @@ export default class ShaderProgram {
     /** Replaces a named Tangram shader block with the supplied source fragments. */
     static declare replaceBlock: (key: string, ...blocks: string[]) => void;
 
-    constructor(gl, vertex_source, fragment_source, options) {
+    constructor(gl: object | null, vertex_source: string, fragment_source: string, options: ShaderProgramOptions = {}) {
         options = options || {};
 
         this.gl = gl;
@@ -92,11 +173,17 @@ export default class ShaderProgram {
         this.name = options.name; // can provide a program name (useful for debugging)
     }
 
+    /** Only legacy compilation/binding may inspect raw WebGL capabilities. */
+    private get classicContext(): ShaderContext {
+        if (isShaderContext(this.gl)) return this.gl;
+        throw new Error('Classic shaders require a WebGL context');
+    }
+
     destroy() {
         if (this.shader_language === 'glsl' && !this.device_shader_compilation) {
-            this.gl.useProgram(null);
+            this.classicContext.useProgram(null);
             ShaderProgram.current = null;
-            ShaderProgram.releaseProgram(this.gl, this.program);
+            ShaderProgram.releaseProgram(this.classicContext, this.program);
         }
         this.destroyShaderResources();
         this.program = null;
@@ -114,7 +201,7 @@ export default class ShaderProgram {
 
         const changed = ShaderProgram.current !== this;
         if (changed && this.shader_language === 'glsl' && !this.defer_uniform_updates) {
-            this.gl.useProgram(this.program);
+            this.classicContext.useProgram(this.program);
         }
         ShaderProgram.current = this;
         if (bindUniformBlocks) {
@@ -211,7 +298,7 @@ export default class ShaderProgram {
         // Device compilation targets WebGL 2, where highp float is required.
         // Only the standalone legacy path needs a raw WebGL 1 precision query.
         let high = this.device_shader_compilation ? {precision: 1} :
-            this.gl.getShaderPrecisionFormat(this.gl.FRAGMENT_SHADER, this.gl.HIGH_FLOAT);
+            this.classicContext.getShaderPrecisionFormat(this.classicContext.FRAGMENT_SHADER, this.classicContext.HIGH_FLOAT);
         if (high && high.precision > 0) {
             precision = 'precision highp float;\n';
         }
@@ -257,8 +344,9 @@ export default class ShaderProgram {
             }
             if (this.device_shader_compilation) {
                 try {
+                    if (!this.shader_program_validator || !shader_resources) throw new Error('ShaderProgram: missing device shader resources');
                     this.shader_program_validator({
-                        id: this.name || this.id,
+                        id: this.name || String(this.id),
                         vertexShader: shader_resources.vertex_shader,
                         fragmentShader: shader_resources.fragment_shader
                     });
@@ -276,7 +364,7 @@ export default class ShaderProgram {
             else {
                 try {
                     this.program = ShaderProgram.updateProgram(
-                        this.gl,
+                        this.classicContext,
                         this.program,
                         this.computed_vertex_source,
                         this.computed_fragment_source,
@@ -308,17 +396,18 @@ export default class ShaderProgram {
             this.error = error;
 
             // shader error info
-            this.error.vertex_shader_source = this.computed_vertex_source;
-            this.error.fragment_shader_source = this.computed_fragment_source;
+            if (error instanceof Object) Object.assign(error, {vertex_shader_source: this.computed_vertex_source, fragment_shader_source: this.computed_fragment_source});
 
-            if (error.type === 'vertex' || error.type === 'fragment') {
+            if (isShaderFailure(error)) {
                 this.shader_errors = error.errors;
                 this.shader_errors.forEach(e => {
                     e.type = error.type;
-                    e.block = this.block(error.type, e.line);
-                    e.line = this.block(error.type, e.line);
+                    if (typeof e.line === 'number') {
+                        e.block = this.block(error.type, e.line);
+                        e.line = this.block(error.type, e.line);
+                    }
                 });
-                this.error.shader_errors = this.shader_errors;
+                Object.assign(error, {shader_errors: this.shader_errors});
             }
             throw error;
         }
@@ -332,16 +421,17 @@ export default class ShaderProgram {
         this.refreshAttributes();
     }
 
-    createShaderResources(vertex_source, fragment_source) {
-        let vertex_shader;
+    createShaderResources(vertex_source: string, fragment_source: string) {
+        if (!this.shader_factory) throw new Error('ShaderProgram: portable compilation requires a shaderFactory');
+        let vertex_shader: Shader | undefined;
         try {
-            const vertex_options = {
+            const vertex_options: TangramShaderOptions = {
                 id: `${this.name || this.id}-vertex`,
                 stage: 'vertex',
                 language: this.shader_language,
                 source: vertex_source
             };
-            const fragment_options = {
+            const fragment_options: TangramShaderOptions = {
                 id: `${this.name || this.id}-fragment`,
                 stage: 'fragment',
                 language: this.shader_language,
@@ -417,8 +507,7 @@ export default class ShaderProgram {
             this.compiled = false;
             this.compiling = false;
             this.error = error;
-            error.vertex_shader_source = this.computed_vertex_source;
-            error.fragment_shader_source = this.computed_fragment_source;
+            if (error instanceof Object) Object.assign(error, {vertex_shader_source: this.computed_vertex_source, fragment_shader_source: this.computed_fragment_source});
             throw error;
         }
 
@@ -427,7 +516,7 @@ export default class ShaderProgram {
         this.use();
     }
 
-    prependPortableUniformBlocks(source) {
+    prependPortableUniformBlocks(source: string) {
         const declarations = Object.values(this.uniform_blocks)
             .filter(uniform_buffer => typeof uniform_buffer.getDeclaration === 'function')
             .map(uniform_buffer => uniform_buffer.getDeclaration({ language: this.shader_language }));
@@ -436,7 +525,7 @@ export default class ShaderProgram {
 
     // Make list of defines (global, then program-specific)
     buildDefineList() {
-        var d, defines = {};
+        var d, defines: Record<string, unknown> = {};
         for (d in ShaderProgram.defines) {
             defines[d] = ShaderProgram.defines[d];
         }
@@ -448,33 +537,33 @@ export default class ShaderProgram {
 
     // Make list of shader blocks (global, then program-specific)
     buildShaderBlockList() {
-        let key, blocks = {};
+        let key: string, blocks: Record<string, ShaderBlock[]> = {};
 
         // Global blocks
         for (key in ShaderProgram.blocks) {
             blocks[key] = [];
-
-            if (Array.isArray(ShaderProgram.blocks[key])) {
+            const sources = ShaderProgram.blocks[key];
+            if (Array.isArray(sources)) {
                 blocks[key].push(
-                    ...ShaderProgram.blocks[key].map((source, num) => {
+                    ...sources.map((source, num) => {
                         return { key, source, num, scope: 'ShaderProgram' };
                     })
                 );
             }
             else {
-                blocks[key] = [{ key, source: ShaderProgram.blocks[key], num: 0, scope: 'ShaderProgram' }];
+                blocks[key] = [{ key, source: sources, num: 0, scope: 'ShaderProgram' }];
             }
         }
 
         // Program-specific blocks
         for (key in this.blocks) {
             blocks[key] = blocks[key] || [];
-
-            if (Array.isArray(this.blocks[key])) {
+            const sources = this.blocks[key];
+            if (Array.isArray(sources)) {
                 let scopes = (this.block_scopes && this.block_scopes[key]) || [];
-                let cur_scope = null, num = 0;
+                let cur_scope: string | null = null, num = 0;
 
-                for (let b=0; b < this.blocks[key].length; b++) {
+                for (let b=0; b < sources.length; b++) {
                     // Count blocks relative to current scope
                     if (scopes[b] !== cur_scope) {
                         cur_scope = scopes[b];
@@ -483,7 +572,7 @@ export default class ShaderProgram {
 
                     blocks[key].push({
                         key,
-                        source: this.blocks[key][b],
+                        source: sources[b],
                         num,
                         scope: cur_scope || this.name
                     });
@@ -494,14 +583,14 @@ export default class ShaderProgram {
             else {
                 // TODO: address discrepancy in array vs. single-value blocks
                 // styles assume array when tracking block scopes
-                blocks[key].push({ key, source: this.blocks[key], num: 0, scope: this.name });
+                blocks[key].push({ key, source: sources, num: 0, scope: this.name });
             }
         }
         return blocks;
     }
 
     // Inject uniform definitions
-    ensureUniforms(uniforms) {
+    ensureUniforms(uniforms: ShaderProgramOptions['uniforms']) {
         if (!uniforms) {
             return;
         }
@@ -531,8 +620,8 @@ export default class ShaderProgram {
                     `^\\s*uniform\\s+[A-Za-z0-9_]+\\s+${escapeRegExp(name)}\\s*;\\s*(?://.*)?$`,
                     'gm'
                 );
-                this.computed_vertex_source = this.computed_vertex_source.replace(declaration, '');
-                this.computed_fragment_source = this.computed_fragment_source.replace(declaration, '');
+                this.computed_vertex_source = this.computed_vertex_source?.replace(declaration, '') ?? null;
+                this.computed_fragment_source = this.computed_fragment_source?.replace(declaration, '') ?? null;
             }
 
             const block_define = `TANGRAM_UNIFORM_BLOCK_${uniform_buffer.name.replace(/[^A-Za-z0-9_]/g, '_').toUpperCase()}`;
@@ -543,7 +632,7 @@ export default class ShaderProgram {
     }
 
     // Set uniforms from a JS object, with inferred types
-    setUniforms(uniforms, reset_texture_unit = true) {
+    setUniforms(uniforms: Record<string, unknown>, reset_texture_unit = true) {
         if (!this.compiled) {
             return;
         }
@@ -561,18 +650,18 @@ export default class ShaderProgram {
         // Parse uniform types and values from the JS object
         GLSL.parseUniforms(uniforms)
             .forEach(({ name, type, value, method }) => {
-                if (type === 'sampler2D') {
+                if (type === 'sampler2D' && typeof value === 'string') {
                     // For textures, we need to track texture units, so we have a special setter
                     this.setTextureUniform(name, value);
                 }
-                else {
+                else if (isNumericUniform(value)) {
                     this.uniform(method, name, value);
                 }
             });
     }
 
     // Register a WebGL2 uniform buffer with this program.
-    setUniformBlock(name, uniform_buffer) {
+    setUniformBlock(name: string, uniform_buffer: UniformBuffer) {
         this.uniform_blocks[name] = uniform_buffer;
         if (this.compiled && !this.defer_uniform_blocks) {
             uniform_buffer.bind(this.program);
@@ -598,7 +687,7 @@ export default class ShaderProgram {
 
     // Return luma.gl Buffer resources keyed by shader block name.
     getUniformBlockBindings() {
-        const bindings = {};
+        const bindings: Record<string, import('./uniform_buffer').UniformBufferResource> = {};
         for (const [name, uniform_buffer] of Object.entries(this.uniform_blocks)) {
             if (uniform_buffer.buffer_resource) {
                 uniform_buffer.upload();
@@ -610,7 +699,7 @@ export default class ShaderProgram {
 
     // Return luma.gl Texture resources keyed by sampler uniform name.
     getTextureBindings() {
-        const bindings = {};
+        const bindings: Record<string, import('./texture').TextureResource> = {};
         for (const [uniform_name, texture] of Object.entries(this.texture_uniforms)) {
             const resource = texture && texture.getResource && texture.getResource();
             if (resource) {
@@ -638,7 +727,7 @@ export default class ShaderProgram {
 
     // Return the current scalar uniform values for renderers that own the draw call.
     getUniformValues() {
-        const values = {};
+        const values: Record<string, UniformValue> = {};
         for (const [name, uniform] of Object.entries(this.uniforms)) {
             if (uniform.value !== undefined) {
                 values[name] = uniform.value;
@@ -653,7 +742,7 @@ export default class ShaderProgram {
     }
 
     // Cache some or all uniform values so they can be restored
-    saveUniforms(subset) {
+    saveUniforms(subset?: Record<string, unknown>) {
         let uniforms = subset || this.uniforms;
         for (let u in uniforms) {
             let uniform = this.uniforms[u];
@@ -677,7 +766,7 @@ export default class ShaderProgram {
     }
 
     // Restore some or all uniforms to saved values
-    restoreUniforms(subset) {
+    restoreUniforms(subset?: Record<string, unknown>) {
         let uniforms = subset || this.uniforms;
         for (let u in uniforms) {
             let uniform = this.uniforms[u];
@@ -687,6 +776,7 @@ export default class ShaderProgram {
             }
         }
         for (const [uniform_buffer, data] of this.saved_uniform_block_data || []) {
+            if (!uniform_buffer.data) continue;
             new Uint8Array(uniform_buffer.data).set(data);
             uniform_buffer.dirty = true;
         }
@@ -696,15 +786,16 @@ export default class ShaderProgram {
     }
 
     // Set a texture uniform, finds texture by name or creates a new one
-    setTextureUniform(uniform_name, texture_name) {
+    setTextureUniform(uniform_name: string, texture_name: string) {
         var texture = Texture.textures[texture_name];
-        if (texture == null) {
+        if (texture == null || !isSamplerTexture(texture)) {
             log('warn', `Cannot find texture '${texture_name}'`);
             return;
         }
 
         this.texture_uniforms[uniform_name] = texture;
         if (!this.defer_texture_bindings) {
+            if (typeof texture.bind !== 'function') throw new Error('ShaderProgram: classic texture requires bind');
             texture.bind(this.texture_unit);
             this.uniform('1i', uniform_name, this.texture_unit);
         }
@@ -713,7 +804,7 @@ export default class ShaderProgram {
 
     // ex: program.uniform('3fv', 'position', [x, y, z]);
     // TODO: only update uniforms when changed
-    uniform(method, name, value) { // 'value' is a method-appropriate arguments list
+    uniform(method: string, name: string, value: UniformValue) { // 'value' is a method-appropriate arguments list
         if (!this.compiled) {
             return;
         }
@@ -725,11 +816,12 @@ export default class ShaderProgram {
             }
         }
 
-        this.uniforms[name] = this.uniforms[name] || {};
+        this.uniforms[name] = this.uniforms[name] || {name, method, value};
         let uniform = this.uniforms[name];
         uniform.name = name;
         if (uniform.location === undefined && !this.defer_uniform_updates) {
-            uniform.location = this.gl.getUniformLocation(this.program, name);
+            if (!this.program) return;
+            uniform.location = this.classicContext.getUniformLocation(this.program, name);
         }
         uniform.method = method;
         uniform.value = value;
@@ -737,7 +829,7 @@ export default class ShaderProgram {
     }
 
     // Set a single uniform
-    updateUniform(uniform) {
+    updateUniform(uniform: CachedUniform | undefined) {
         if (!this.compiled) {
             return;
         }
@@ -759,49 +851,51 @@ export default class ShaderProgram {
     }
 
     // Commits the uniform to the GPU
-    commitUniform(uniform){
+    commitUniform(uniform: CachedUniform){
         let location = uniform.location;
         let value = uniform.value;
+        if (location == null) return;
+        const context = this.classicContext;
 
         switch (uniform.method) {
         case '1i':
-            this.gl.uniform1i(location, value);
+            if (typeof value === 'number' || typeof value === 'boolean') context.uniform1i(location, Number(value));
             break;
         case '1f':
-            this.gl.uniform1f(location, value);
+            if (typeof value === 'number') context.uniform1f(location, value);
             break;
         case '2f':
-            this.gl.uniform2f(location, value[0], value[1]);
+            if (typeof value === 'object') context.uniform2f(location, value[0], value[1]);
             break;
         case '3f':
-            this.gl.uniform3f(location, value[0], value[1], value[2]);
+            if (typeof value === 'object') context.uniform3f(location, value[0], value[1], value[2]);
             break;
         case '4f':
-            this.gl.uniform4f(location, value[0], value[1], value[2], value[3]);
+            if (typeof value === 'object') context.uniform4f(location, value[0], value[1], value[2], value[3]);
             break;
         case '1iv':
-            this.gl.uniform1iv(location, value);
+            if (typeof value === 'object') context.uniform1iv(location, getIntegerUniformList(value));
             break;
         case '3iv':
-            this.gl.uniform3iv(location, value);
+            if (typeof value === 'object') context.uniform3iv(location, getIntegerUniformList(value));
             break;
         case '1fv':
-            this.gl.uniform1fv(location, value);
+            if (typeof value === 'object') context.uniform1fv(location, getFloatUniformList(value));
             break;
         case '2fv':
-            this.gl.uniform2fv(location, value);
+            if (typeof value === 'object') context.uniform2fv(location, getFloatUniformList(value));
             break;
         case '3fv':
-            this.gl.uniform3fv(location, value);
+            if (typeof value === 'object') context.uniform3fv(location, getFloatUniformList(value));
             break;
         case '4fv':
-            this.gl.uniform4fv(location, value);
+            if (typeof value === 'object') context.uniform4fv(location, getFloatUniformList(value));
             break;
         case 'Matrix3fv':
-            this.gl.uniformMatrix3fv(location, false, value);
+            if (typeof value === 'object') context.uniformMatrix3fv(location, false, getFloatUniformList(value));
             break;
         case 'Matrix4fv':
-            this.gl.uniformMatrix4fv(location, false, value);
+            if (typeof value === 'object') context.uniformMatrix4fv(location, false, getFloatUniformList(value));
             break;
         }
     }
@@ -812,13 +906,13 @@ export default class ShaderProgram {
             return;
         }
 
-        if (this.defer_uniform_updates) {
+        if (this.defer_uniform_updates || !this.program) {
             return;
         }
 
         for (var u in this.uniforms) {
             let uniform = this.uniforms[u];
-            uniform.location = this.gl.getUniformLocation(this.program, u);
+            uniform.location = this.classicContext.getUniformLocation(this.program, u);
             this.updateUniform(uniform);
         }
     }
@@ -832,18 +926,18 @@ export default class ShaderProgram {
     }
 
     // Get the location of a vertex attribute
-    attribute(name) {
-        if (!this.compiled) {
+    attribute(name: string) {
+        if (!this.compiled || !this.program) {
             return;
         }
 
-        var attrib = (this.attribs[name] = this.attribs[name] || {});
+        var attrib = (this.attribs[name] = this.attribs[name] || {name, location: this.classicContext.getAttribLocation(this.program, name)});
         if (attrib.location != null) {
             return attrib;
         }
 
         attrib.name = name;
-        attrib.location = this.gl.getAttribLocation(this.program, name);
+        attrib.location = this.classicContext.getAttribLocation(this.program, name);
 
         // var info = this.gl.getActiveAttrib(this.program, attrib.location);
         // attrib.type = info.type;
@@ -853,7 +947,7 @@ export default class ShaderProgram {
     }
 
     // Get shader source as string
-    source(type) {
+    source(type: ShaderStage) {
         if (type === 'vertex') {
             return this.computed_vertex_source;
         }
@@ -863,7 +957,7 @@ export default class ShaderProgram {
     }
 
     // Get shader source as array of line strings
-    lines(type) {
+    lines(type: ShaderStage) {
         let source = this.source(type);
         if (source) {
             return source.split('\n');
@@ -872,7 +966,7 @@ export default class ShaderProgram {
     }
 
     // Get a specific line from shader source
-    line(type, num) {
+    line(type: ShaderStage, num: number) {
         let source = this.lines(type);
         if (source) {
             return source[num];
@@ -890,9 +984,9 @@ export default class ShaderProgram {
     // We could track line ranges for shader blocks as they are inserted, but as this code is only used for
     // error handling on compilation failure, it was simpler to keep it separate than to burden the core
     // compilation path.
-    block(type, num) {
+    block(type: ShaderStage, num: number) {
         let lines = this.lines(type);
-        let block;
+        let block: ShaderBlockLocation | null | undefined;
         for (let i=0; i < num && i < lines.length; i++) {
             let line = lines[i];
             let match = line.match(/\/\/ tangram-block-start: ([A-Za-z0-9_-]+), ([A-Za-z0-9_-]+), (\d+)/);
@@ -924,9 +1018,9 @@ export default class ShaderProgram {
     // Returns list of available extensions from those requested
     // Sets internal #defines indicating availability of each requested extension
     checkExtensions() {
-        let exts = [];
+        let exts: string[] = [];
         this.extensions.forEach(name => {
-            let ext = getExtension(this.gl, name);
+            let ext = getExtension(this.classicContext, name);
             let def = `TANGRAM_EXTENSION_${name}`;
 
             this.defines[def] = (ext != null);
@@ -1013,19 +1107,20 @@ ShaderProgram.convertToWebGL2 = function (source, type) {
 ShaderProgram.buildDefineString = function (defines) {
     var define_str = '';
     for (var d in defines) {
-        if (defines[d] == null || defines[d] === false) {
+        const value = defines[d];
+        if (value == null || value === false) {
             continue;
         }
-        else if (typeof defines[d] === 'boolean' && defines[d] === true) { // booleans are simple defines with no value
+        else if (value === true) { // booleans are simple defines with no value
             define_str += '#define ' + d + '\n';
         }
-        else if (typeof defines[d] === 'number' && Math.floor(defines[d]) === defines[d]) { // int to float conversion to satisfy GLSL floats
-            define_str += '#define ' + d + ' ' + defines[d].toFixed(1) + '\n';
+        else if (typeof value === 'number' && Math.floor(value) === value) { // int to float conversion to satisfy GLSL floats
+            define_str += '#define ' + d + ' ' + value.toFixed(1) + '\n';
         }
-        else if (typeof defines[d] === 'number') {
+        else if (typeof value === 'number') {
             // GLSL floats do not benefit from JavaScript's full double precision, and
             // some WebGL compilers reject excessively precise decimal literals.
-            define_str += '#define ' + d + ' ' + Number(defines[d].toPrecision(12)) + '\n';
+            define_str += '#define ' + d + ' ' + Number(value.toPrecision(12)) + '\n';
         }
         else { // any other float or string value
             define_str += '#define ' + d + ' ' + defines[d] + '\n';
@@ -1046,10 +1141,12 @@ ShaderProgram.buildExtensionString = function (extensions) {
 
 ShaderProgram.addBlock = function (key, ...blocks) {
     ShaderProgram.blocks[key] = ShaderProgram.blocks[key] || [];
-    ShaderProgram.blocks[key].push(...blocks);
+    const sources = ShaderProgram.blocks[key];
+    if (!Array.isArray(sources)) throw new TypeError(`ShaderProgram: global block '${key}' must be an array before appending`);
+    sources.push(...blocks);
 };
 
-function escapeRegExp(value) {
+function escapeRegExp(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
@@ -1083,15 +1180,16 @@ ShaderProgram.updateProgram = function (gl, program, vertex_shader_source, fragm
         return cached;
     }
 
-    var vertex_shader = use_shader_resources ? shader_resources.vertex_shader.handle :
+    var vertex_shader = use_shader_resources ? shader_resources.vertex_shader?.handle :
         ShaderProgram.createShader(gl, vertex_shader_source, gl.VERTEX_SHADER);
-    var fragment_shader = use_shader_resources ? shader_resources.fragment_shader.handle :
+    var fragment_shader = use_shader_resources ? shader_resources.fragment_shader?.handle :
         ShaderProgram.createShader(gl, fragment_shader_source, gl.FRAGMENT_SHADER);
 
     gl.useProgram(null);
     // Relinking a shared program would also change every other wrapper using it.
     ShaderProgram.releaseProgram(gl, program);
     program = gl.createProgram();
+    if (!program) throw new Error('ShaderProgram: WebGL program allocation failed');
     programReferences.set(program, 1);
 
     if (vertex_shader == null || fragment_shader == null) {
@@ -1127,7 +1225,7 @@ ShaderProgram.updateProgram = function (gl, program, vertex_shader_source, fragm
             ${fragment_shader_source}`);
 
         ShaderProgram.releaseProgram(gl, program);
-        throw Object.assign(new Error(message), { type: 'program' });
+        throw Object.assign(new Error(message.message), { type: 'program' });
     }
 
     if (!use_shader_resources) {
@@ -1146,6 +1244,7 @@ ShaderProgram.createShader = function (gl, source, stype) {
     }
 
     let shader = gl.createShader(stype);
+    if (!shader) throw new Error('ShaderProgram: WebGL shader allocation failed');
 
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
@@ -1154,15 +1253,58 @@ ShaderProgram.createShader = function (gl, source, stype) {
         let type = (stype === gl.VERTEX_SHADER ? 'vertex' : 'fragment');
         let message = gl.getShaderInfoLog(shader);
         let errors = parseShaderErrors(message);
-        throw Object.assign(new Error(message), { type, errors });
+        throw Object.assign(new Error(message ?? ''), { type, errors });
     }
 
     ShaderProgram.shaders_by_source[key] = shader; // cache by exact source
     return shader;
 };
 
-function destroyShaderResource(shader) {
+function destroyShaderResource(shader: Pick<Shader, 'destroy'> | null | undefined) {
     if (shader && typeof shader.destroy === 'function') {
         shader.destroy();
     }
+}
+
+/** Structural classic boundary also accepts deterministic WebGL fixtures. */
+function isShaderContext(context: object | null): context is ShaderContext {
+    return context !== null && 'useProgram' in context && typeof context.useProgram === 'function';
+}
+/** Only native stage diagnostics carry a parsed error list. */
+function isShaderFailure(error: unknown): error is {type: ShaderStage; errors: ShaderDiagnostic[]} {
+    return error instanceof Object && 'type' in error && (error.type === 'vertex' || error.type === 'fragment') &&
+        'errors' in error && Array.isArray(error.errors);
+}
+
+/** Numeric uniforms are distinct from named texture samplers. */
+function isNumericUniform(value: unknown): value is UniformValue {
+    return typeof value === 'number' || typeof value === 'boolean' ||
+        Array.isArray(value) && value.every(component => typeof component === 'number');
+}
+
+/** Metadata-only worker records cannot bind; portable samplers need no classic bind method. */
+function isSamplerTexture(texture: object): texture is SamplerTexture {
+    return 'getResource' in texture && typeof texture.getResource === 'function' ||
+        'bind' in texture && typeof texture.bind === 'function';
+}
+
+/** Preserve existing numeric arrays and ArrayBuffer-backed float views without per-draw copies. */
+function getFloatUniformList(value: Exclude<UniformValue, number | boolean>): Float32List {
+    if (Array.isArray(value)) return value;
+    if (isFloat32UniformList(value)) return value;
+    return Array.from(value);
+}
+/** Preserve existing numeric arrays and integer views used by classic vector uniforms. */
+function getIntegerUniformList(value: Exclude<UniformValue, number | boolean>): Int32List {
+    if (Array.isArray(value)) return value;
+    if (isInt32UniformList(value)) return value;
+    return Array.from(value);
+}
+/** WebGL accepts non-shared float storage; the check narrows the buffer ownership parameter. */
+function isFloat32UniformList(value: unknown): value is Float32Array<ArrayBuffer> {
+    return value instanceof Float32Array && value.buffer instanceof ArrayBuffer;
+}
+/** WebGL accepts non-shared integer storage; the check narrows the buffer ownership parameter. */
+function isInt32UniformList(value: unknown): value is Int32Array<ArrayBuffer> {
+    return value instanceof Int32Array && value.buffer instanceof ArrayBuffer;
 }
