@@ -41,7 +41,7 @@ interface RendererScene {
     /** Switch only selection ownership; shared workers/features remain unchanged. */
     setFeatureSelectionView?(id: string, retainedIds: readonly string[]): void;
     /** Shared source/style tile ownership across every eye. */
-    tile_manager: {getResourceStatistics(): TileResourceStatistics; updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean): void;
+    tile_manager: {getResourceStatistics(): TileResourceStatistics; updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean, terrainSurface?: DrapedTerrainSurfaceSnapshot): void;
         getTerrainDrapingStatistics(terrain?: TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics;
         getDrapedTerrainQueryEntries(time: number): DrapedTerrainQueryEntry[]};
     view: View;
@@ -88,6 +88,10 @@ export default class Renderer {
     active_render_view_id: string | null;
     private animationFrame: unknown = null;
     private readonly submittedViews = new Set<string>();
+    /** One cooperative hierarchy warm-up, shared across eyes and cancelled on surface replacement. */
+    private terrainQueryPreparation?: {snapshot: DrapedTerrainSurfaceSnapshot; steps: Generator<void, void, void>};
+    /** Internal settled surface identity keeps terrain visibility caches warm without changing public frame timestamps. */
+    private annotationTerrainSurface?: DrapedTerrainSurfaceSnapshot;
     /** Serialize projection rebuilds so rapid selector changes cannot publish stale meshes last. */
     private projectionUpdate: Promise<void> = Promise.resolve();
     /** Failed worker geometry must be rebuilt even when restoring the prior options. */
@@ -139,6 +143,8 @@ export default class Renderer {
 
     load(config: SceneDefinition | null = null, options: SceneLoadOptions = {}): unknown {
         this.terrainSurfaceSnapshot = null;
+        this.annotationTerrainSurface = undefined;
+        this.terrainQueryPreparation?.steps.return(); this.terrainQueryPreparation = undefined;
         return this.scene.load(config, options);
     }
 
@@ -208,7 +214,8 @@ export default class Renderer {
 
     /** Inspect resident worker preparation cost without conflating source/GPU/scratch ownership. */
     getTerrainDrapingStatistics(): import('../procedures/terrain-draping').TerrainDrapingStatistics {
-        return this.scene.tile_manager.getTerrainDrapingStatistics(this.scene.terrain);
+        return {...this.scene.tile_manager.getTerrainDrapingStatistics(this.scene.terrain),
+            annotationQueries: this.annotationTerrainSurface?.getStatistics()};
     }
 
     /** Reproject loaded ground meshes while retaining the workers, decoded tiles and source definitions. */
@@ -377,14 +384,26 @@ export default class Renderer {
             }
         }
         if (this.host_frame) {
-            if (!this.submittedViews.size) this.scene.terrainFrameTime = performance.now();
-            this.scene.tile_manager.updateProjectedLabels(this.host_frame, this.gpuBackend?.device.type !== 'webgpu');
+            if (!this.submittedViews.size) {
+                this.scene.terrainFrameTime = performance.now();
+                this.advanceTerrainQueryPreparation();
+            }
+            let surface: DrapedTerrainSurfaceSnapshot | undefined;
+            if (this.scene.terrain?.occludeAnnotations && this.host_frame.projection.type !== 'projected') {
+                const entries = this.scene.tile_manager.getDrapedTerrainQueryEntries(this.scene.terrainFrameTime ?? performance.now());
+                const candidate = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0,
+                    this.scene.terrainFrameTime ?? performance.now(), this.scene.terrainExaggeration, this.scene.terrain.maxQueryIndexBytes);
+                if (this.annotationTerrainSurface?.displayKey !== candidate.displayKey) this.annotationTerrainSurface = candidate;
+                surface = this.annotationTerrainSurface;
+            }
+            else this.annotationTerrainSurface = undefined;
+            this.scene.tile_manager.updateProjectedLabels(this.host_frame, this.gpuBackend?.device.type !== 'webgpu', surface);
         }
         const rendered = this.scene.updateScene({ renderPass });
         if (rendered && this.scene.terrain && this.host_frame && this.host_frame.projection.type !== 'projected') {
             const time = this.scene.terrainFrameTime ?? performance.now();
             const entries = this.scene.tile_manager.getDrapedTerrainQueryEntries(time);
-            this.terrainSurfaceSnapshot = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0, time, this.scene.terrainExaggeration);
+            this.terrainSurfaceSnapshot = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0, time, this.scene.terrainExaggeration, this.scene.terrain.maxQueryIndexBytes);
         }
         if (this.submittedViews.size === 0) {
             this.scene.processTasks();
@@ -398,7 +417,29 @@ export default class Renderer {
         return rendered;
     }
 
+    /** Progress exact settled-query acceleration without charging a second stereo eye another slice. */
+    private advanceTerrainQueryPreparation(): void {
+        const snapshot = this.annotationTerrainSurface ?? this.terrainSurfaceSnapshot;
+        const budget = this.scene.terrain?.queryPreparationBudgetMs ?? 0;
+        if (!snapshot || !budget) {
+            this.terrainQueryPreparation?.steps.return(); this.terrainQueryPreparation = undefined;
+            return;
+        }
+        if (this.terrainQueryPreparation?.snapshot.displayKey !== snapshot.displayKey) {
+            this.terrainQueryPreparation?.steps.return();
+            this.terrainQueryPreparation = {snapshot, steps: snapshot.prepareQueryIndexSteps()};
+        }
+        const preparation = this.terrainQueryPreparation;
+        const started = performance.now();
+        do {
+            if (preparation.steps.next().done) {this.terrainQueryPreparation = undefined; return;}
+        } while (performance.now() - started < budget);
+        this.scene.requestRedraw();
+    }
+
     destroy() {
+        this.annotationTerrainSurface = undefined;
+        this.terrainQueryPreparation?.steps.return(); this.terrainQueryPreparation = undefined;
         this.destroyed = true;
         this.pendingTerrain = undefined;
         this.terrainSurfaceSnapshot = null;

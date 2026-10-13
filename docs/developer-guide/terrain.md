@@ -356,9 +356,10 @@ Set `scene.lighting: configured` when using authored Tangram lights on both
 backends; the reference basemap opts into this existing portable lighting path.
 Point/text anchors gain the same height, with their pixel shapes retained; screen
 collision uses the displaced anchor. Road width/offset interpolation stays in
-Tangram, with a local tangent-plane correction across the ribbon. This is an
-approximation for wide ribbons on sharply varying terrain, not exact DEM sampling
-at every dynamically extruded corner. Custom position/width blocks and CPU-projected
+Tangram. At the authored style zoom, DEM heights/slopes are sampled at the actual
+width/offset corners, including source overzoom; other zoom fractions use a local
+tangent-plane correction relative to those corners. This improves wide roads but
+is not exact DEM sampling at every dynamically extruded corner. Custom position/width blocks and CPU-projected
 basemaps are rejected rather than silently applying incompatible displacement.
 
 Changing immutable grids calls `renderer.setTerrain(options)` on existing workers.
@@ -397,6 +398,15 @@ continue to describe their original frame after subsequent replacement or relief
 changes. The host must supply new frames to advance morphing; a query does not
 advance the clock. Arbitrary retained host snapshots are outside renderer budgets.
 
+Opt-in `occludeAnnotations: true` tests point/text fragments against scene depth
+in color and selection passes. Non-interactive opaque ground/buildings contribute
+selection depth without feature IDs. With `querySurfaceStyles`, collision layout
+also omits anchors blocked by loaded ground triangles. Each eye has its own
+sightline; a candidate visible in either eye keeps the shared collision mask,
+while depth hides fragments separately. Missing ground does not certify occlusion.
+This is an anchor test, not a quad-wide occlusion oracle; transparent styles and
+arbitrary custom shader depth changes are not modeled by the CPU query.
+
 Default limits are 96 grids per generation, 32 MiB current/previous grid arrays
 per scene/worker copy, 131072 additional vertices and 16 MiB completed output per
 mesh. Optional ground query channels have a separate 8 MiB per-mesh cap. Replacement
@@ -419,6 +429,15 @@ Native headset validation remains a manual gate.
 Ground queries project only candidate meshes lazily. Settled displacement reuses
 the immutable projected query owner; changing the blend or relief makes a new owner.
 Morph queries use exact linear triangle traversal, avoiding new per-frame BVHs.
+Settled queried owners are warmed cooperatively once per logical frame. The
+default `maxQueryIndexBytes` is 16 MiB per snapshot and
+`queryPreparationBudgetMs` is a 2 ms scheduling target (range 0–20; zero disables
+warming). Shared clip leases reserve an index only once. Insufficient budget or
+failed acceleration retains exact linear queries; it never removes terrain.
+Initial lazy projection/copies are synchronous and outside that scheduling target.
+`snapshot.getStatistics()` separates projected bytes, reserved/completed indexes,
+preparation failures and CPU work. `getTerrainDrapingStatistics().annotationQueries`
+reports the internal collision surface separately from retained host snapshots.
 Mercator footprint admission skips unrelated meshes for vertical probes. Profiling
 must still include these projection/copy and traversal costs: they are not a hard
 frame-time guarantee. The globe draping mode skips the separate elevation preview's
@@ -436,6 +455,7 @@ admission and opt-in target following. It does **not** complete the whole terrai
 or WebXR roadmap. The subsequent globe preview adds balanced mixed-detail
 displacement and adaptive source selection. Next larger features remain certified
 pixel-error LOD, draping/morphing parity on wide dynamic ribbons and mixed-LOD
-boundaries, whole-pipeline/GPU memory admission, avatar collision, terrain occlusion
-of billboard labels, polar terrain and native headset validation. None is
+boundaries, whole-pipeline/GPU memory admission, avatar collision, quad-wide terrain
+occlusion, polar terrain and native headset validation. Opt-in billboard depth and
+loaded-anchor occlusion are implemented, but do not certify visibility beyond loaded triangles. None is
 implied by this example's successful rendering or CPU queries.

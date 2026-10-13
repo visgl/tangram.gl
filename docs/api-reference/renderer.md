@@ -621,6 +621,8 @@ all current/previous grids must use one datum and non-overlapping footprints.
   `snapshot.getStatistics()` reports input/projected bytes, prepared mesh count,
   projection builds and snapshot-local preparation/traversal times. Cache hits do
   not count as projection builds; these measurements are not full-frame or GPU costs.
+  Settled queries warm indexes cooperatively; `queryIndexBytes`,
+  `reservedQueryIndexBytes` and `preparationFailures` report acceleration ownership.
 - `getTerrainAt(pixel)` uses that ground display when no explicit surface is supplied.
   Positions include visual exaggeration; returned coordinate heights remain physical.
 
@@ -628,6 +630,14 @@ Defaults: 250 m requested Mercator edge target, 131072 additional vertices and
 16 MiB completed output per mesh, 32 MiB owned grid arrays per scene/worker copy,
 and 200 ms morph duration. Optional query inputs are limited to 8 MiB per mesh;
 `maxStagedMeshBytes` defaults to 64 MiB for additional replacement draw/query buffers.
+`maxQueryIndexBytes` defaults to 16 MiB per snapshot, and
+`queryPreparationBudgetMs` defaults to 2 ms per logical frame (0–20; zero disables
+warming). Morphing, budget-deferred or failed indexes use exact linear traversal.
+Lazy geometry projection and separately retained host snapshots are outside those limits.
+Opt-in `occludeAnnotations` defaults to false: it enables point/text scene-depth
+tests in color and selection, plus loaded-ground anchor occlusion for collision
+when query styles are enabled. See the terrain guide for missing-data, stereo and
+custom-style limits. The resident summary adds optional `annotationQueries` costs.
 `setTerrain` admits complete batches together with one transition origin; feature
 queries wait for worker selection tables to be replaced. These caps exclude scratch,
 clones, lazy query copies, textures and GPU overhead. Spatial mixed-LOD edge conformity

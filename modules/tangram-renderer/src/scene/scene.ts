@@ -819,6 +819,7 @@ export default class Scene {
 
         let count = 0; // how many primitives were rendered
         let last_blend; // blend mode active in last render pass
+        let last_annotation_depth;
 
         // Get sorted list of current blend orders, with accompanying list of styles to render for each
         const blend_orders = this.style_manager.getActiveBlendOrders();
@@ -831,12 +832,16 @@ export default class Scene {
                 }
 
                 // Only update render state when blend mode changes
-                if (style.blend !== last_blend) {
+                const annotation_depth = this.terrain?.occludeAnnotations && ['points', 'text'].includes(style.baseStyle?.());
+                if (style.blend !== last_blend || annotation_depth !== last_annotation_depth) {
                     let state = Object.assign({},
                         Style.render_states[style.blend],       // render state for blend mode
                         { blend: (allow_blend && style.blend) } // enable/disable blending (e.g. no blend for selection)
                     );
+                    if (annotation_depth) {state.depth_test = true; state.depth_write = false;}
                     this.setRenderState(state);
+                    if (annotation_depth && this.mesh_render_state) this.mesh_render_state.depthCompare = 'less-equal';
+                    if (this.terrain?.occludeAnnotations) this.gl.depthFunc(annotation_depth ? this.gl.LEQUAL : this.gl.LESS);
                 }
 
                 const blend = allow_blend && style.blend;
@@ -904,6 +909,7 @@ export default class Scene {
                 }
 
                 last_blend = style.blend;
+                last_annotation_depth = annotation_depth;
             }
         }
 
@@ -914,6 +920,7 @@ export default class Scene {
     renderPortablePass(program_key, { allow_blend, renderPass }) {
         let count = 0;
         let last_blend;
+        let last_annotation_depth;
         const blend_orders = this.style_manager.getActiveBlendOrders();
         for (const { blend_order, styles } of blend_orders) {
             for (const style_name of styles) {
@@ -921,11 +928,15 @@ export default class Scene {
                 if (!style) {
                     continue;
                 }
-                if (style.blend !== last_blend) {
+                const annotation_depth = this.terrain?.occludeAnnotations && ['points', 'text'].includes(style.baseStyle?.());
+                if (style.blend !== last_blend || annotation_depth !== last_annotation_depth) {
                     this.setRenderState(Object.assign({}, Style.render_states[style.blend], {
-                        blend: allow_blend && style.blend
+                        blend: allow_blend && style.blend,
+                        ...(annotation_depth ? {depth_test: true, depth_write: false} : {})
                     }));
+                    if (annotation_depth && this.mesh_render_state) this.mesh_render_state.depthCompare = 'less-equal';
                     last_blend = style.blend;
+                    last_annotation_depth = annotation_depth;
                 }
                 count += this.renderStyle(style.name, program_key, blend_order, null, renderPass);
             }
@@ -935,6 +946,19 @@ export default class Scene {
 
     renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null) {
         let style = this.styles[style_name];
+        // Selection needs the same non-interactive ground depth as color. The
+        // normal ground shader writes depth only; it never invents a feature ID.
+        if (program_key === 'selection_program' && this.terrain?.occludeAnnotations && !style.selection &&
+            ['raster', 'polygons', 'lines'].includes(style.baseStyle?.()) && Style.render_states[style.blend]?.depth_write !== false) {
+            const previous = this.mesh_render_state;
+            this.mesh_render_state = {...previous, colorMask: 0, depthWriteEnabled: true, depthCompare: 'less'};
+            if (!this.portable_rendering) this.gl.colorMask(false, false, false, false);
+            try {return this.renderStyle(style_name, 'program', blend_order, proxy_level, renderPass);}
+            finally {
+                this.mesh_render_state = previous;
+                if (!this.portable_rendering) this.gl.colorMask(true, true, true, true);
+            }
+        }
         let first_for_style = true; // TODO: allow this state to be passed in (for multilpe blend orders, stencil tests, etc)
         let render_count = 0;
         let program;

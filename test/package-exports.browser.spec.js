@@ -13,6 +13,7 @@ import TangramLayer, {
   GlobeViewAdapter
 } from '../modules/tangram-layers/dist/index.js';
 import Tangram, {
+  DrapedTerrainSurfaceSnapshot as RootDrapedTerrainSnapshot,
   ClassicWebGLRenderer,
   HostFrame,
   LumaDeviceRenderer,
@@ -32,7 +33,7 @@ import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-sty
 import {hillshade, triplanar, planar, sphereMap, heightDecode, globeHorizon} from '../modules/tangram-renderer/dist/shader-modules.js';
 import {resolveLabelPlacement, TileBuildQueue, intersectsScreenBounds,
   areGeographicLabelCopies, TileResidency, TileCachePolicy} from '../modules/tangram-renderer/dist/map-logic.js';
-import {Renderer as CoreRenderer, HostFrame as CoreHostFrame, TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance,
+import {DrapedTerrainSurfaceSnapshot as CoreDrapedTerrainSnapshot, Renderer as CoreRenderer, HostFrame as CoreHostFrame, TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance,
   calculatePlanarGroundBounds as coreGroundBounds,
   PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure,
   convertLumaLight as coreConvertLumaLight} from '../modules/tangram-renderer/dist/core.js';
@@ -47,6 +48,14 @@ import rendererPackage from '../modules/tangram-renderer/package.json';
 // the build. Check export mappings too, so these paths stay the published ones.
 
 describe('published package entrypoints', () => {
+  test('built root and core expose the declared draped display snapshot at runtime', () => {
+    for (const Snapshot of [RootDrapedTerrainSnapshot, CoreDrapedTerrainSnapshot]) {
+      const snapshot = new Snapshot('web-mercator', [], 4, 100, 1);
+      expect(snapshot.generation).toBe(4);
+      expect(snapshot.getStatistics()).toMatchObject({queryIndexBytes: 0, preparationFailures: 0});
+      expect(snapshot.intersectRay({origin: [0, 0, 100], direction: [0, 0, -1]})).toBeNull();
+    }
+  });
   test('built root and core expose working terrain collection, elevation and clearance APIs', () => {
     for (const [Collection, sample, resolve] of [[RootTerrainCollection, rootSampleElevation, rootResolveClearance], [TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance]]) {
       const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [-2, -2, 20, 2, -2, 20, 0, 2, 20], indices: [0, 1, 2]});

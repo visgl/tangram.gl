@@ -81,6 +81,40 @@ test('packaged raster UVs survive worker refinement and displacement', async () 
     expect(harness.errors).toEqual([]);
 }, 45000);
 
+test('non-interactive ground occludes annotation color and feature picking in both stereo eyes', async () => {
+    const harness = new RenderingHarness('perspective', 'stereo-preview'); harnesses.push(harness);
+    // No CPU ground query styles: this exercises depth parity, not a hidden CPU collision mask.
+    harness.terrain = {...terrain(100), occludeAnnotations: true};
+    const base = createRasterScene();
+    const sourceUrl = `data:application/json,${encodeURIComponent(JSON.stringify({type: 'FeatureCollection', features: [
+        {type: 'Feature', id: 1, properties: {name: 'buried-marker'}, geometry: {type: 'Point', coordinates: [0, 0]}}
+    ]}))}`;
+    await harness.initialize({...base, sources: {...base.sources, markers: {type: 'GeoJSON', url: sourceUrl}},
+        layers: {...base.layers, markers: {data: {source: 'markers'}, draw: {points: {
+            order: 5, color: '#ff0000', size: '40px', z: -10, collide: false, interactive: true
+        }}}}});
+    await harness.settle();
+    const countRed = (image: ImageData) => {
+        let count = 0;
+        for (let index = 0; index < image.data.length; index += 4) if (image.data[index] > 180 && image.data[index + 1] < 60 && image.data[index + 2] < 60) count++;
+        return count;
+    };
+    expect(countRed(await harness.pixels())).toBe(0);
+    const frame = harness.presentation.createFrame({width: 512, height: 320});
+    for (const eye of frame.renderViews) {
+        if (!eye.deckViewport) throw new Error('Expected stereo preview viewport');
+        const pixel = eye.deckViewport.project([0, 0, 90]);
+        expect((await harness.pick(pixel[0] + eye.deckViewport.x, pixel[1] + eye.deckViewport.y))?.feature).toBeUndefined();
+    }
+    await harness.renderer.setTerrain({...terrain(100), occludeAnnotations: false}); await harness.settle();
+    expect(countRed(await harness.pixels())).toBeGreaterThan(100);
+    for (const eye of frame.renderViews) {
+        if (!eye.deckViewport) throw new Error('Expected stereo preview viewport');
+        const pixel = eye.deckViewport.project([0, 0, 90]);
+        expect(await harness.pick(pixel[0] + eye.deckViewport.x, pixel[1] + eye.deckViewport.y)).toMatchObject({feature: {properties: {name: 'buried-marker'}}});
+    }
+}, 45000);
+
 test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s draped ground picking uses the exact admitted draw topology across replacement and exaggeration', async kind => {
     const harness = new RenderingHarness(kind); harnesses.push(harness);
     harness.terrain = {...terrain(100, kind === 'globe'), querySurfaceStyles: ['raster']};

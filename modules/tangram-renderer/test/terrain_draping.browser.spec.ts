@@ -112,6 +112,35 @@ test('draw and selection passes share the mesh clock across portable and classic
     expect(uniform).toHaveBeenLastCalledWith('1f', 'u_terrain_exaggeration', 2);
 });
 
+test('selection depth-only fallback restores state even when opaque non-selectable geometry fails', () => {
+    const scene = Object.create(Scene.prototype);
+    const state = {depthCompare: 'less', colorMask: 15};
+    scene.mesh_render_state = state; scene.portable_rendering = false;
+    scene.gl = {colorMask: vi.fn()};
+    scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    scene.styles = {ground: {selection: false, blend: 'opaque', baseStyle: () => 'raster'}};
+    scene.tile_manager = {getRenderableTiles: () => {throw new Error('draw fixture');}};
+    expect(() => scene.renderStyle('ground', 'selection_program', 0)).toThrow('draw fixture');
+    expect(scene.mesh_render_state).toBe(state);
+    expect(scene.gl.colorMask.mock.calls).toEqual([[false, false, false, false], [true, true, true, true]]);
+});
+
+test('point/text depth policy changes independently of blend mode and restores ground writes', () => {
+    const scene = Object.create(Scene.prototype);
+    scene.terrain = normalizeTerrainDraping({grids: [], occludeAnnotations: true});
+    scene.style_manager = {getActiveBlendOrders: () => [{blend_order: 0, styles: ['ground', 'labels', 'ground']}]};
+    scene.styles = {ground: {name: 'ground', blend: 'opaque', baseStyle: () => 'raster'},
+        labels: {name: 'labels', blend: 'opaque', baseStyle: () => 'points'}};
+    scene.setRenderState = vi.fn((state: {depth_test: boolean; depth_write: boolean}) => {
+        scene.mesh_render_state = {depthCompare: 'less', depthWriteEnabled: state.depth_write};
+    });
+    scene.renderStyle = vi.fn(() => 1);
+    expect(scene.renderPortablePass('selection_program', {allow_blend: false, renderPass: null})).toBe(3);
+    expect(scene.setRenderState).toHaveBeenCalledTimes(3);
+    expect(scene.setRenderState.mock.calls[1][0]).toMatchObject({depth_test: true, depth_write: false});
+    expect(scene.mesh_render_state).toMatchObject({depthWriteEnabled: true, depthCompare: 'less'});
+});
+
 test('resident preparation statistics count valid worker outputs without counting flat or disposed meshes', () => {
     const manager = Object.create(TileManager.prototype);
     const statistics = {vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, preparationMs: 5, detailLimited: true};
@@ -138,6 +167,7 @@ test.each([
     {maxAdditionalVertices: -1}, {maxAdditionalVertices: 262145}, {maxMeshBytes: -1},
     {transitionDuration: -1}, {transitionDuration: Infinity}, {transitionDuration: 5001},
     {maxQueryMeshBytes: -1}, {maxStagedMeshBytes: 1.5}, {querySurfaceStyles: ['']}, {querySurfaceStyles: ['ground', 'ground']}
+    , {maxQueryIndexBytes: -1}, {maxQueryIndexBytes: 0.5}, {queryPreparationBudgetMs: -1}, {queryPreparationBudgetMs: 21}
 ])('rejects malformed policy %j before admission', policy => {
     expect(() => normalizeTerrainDraping({grids: [grid()], ...policy})).toThrow(/limits/);
 });
@@ -256,6 +286,26 @@ test('dynamic road ribbons cannot extend across missing coverage merely because 
         const extent = 2 * Math.abs(output.getFloat32(index * stride + preparedLayout.offset.a_extrude, true)) * meters;
         expect(center - extent).toBeGreaterThanOrEqual(-20); expect(center + extent).toBeLessThanOrEqual(20);
     }
+});
+
+test.each([16, 18])('road corners sample nonlinear relief and retain nominal offset at style zoom %s', styleZoom => {
+    const packed = new VertexLayout([{name: 'a_position', size: 4, type: 5122}, {name: 'a_extrude', size: 2, type: 5122}, {name: 'a_offset', size: 2, type: 5122}]);
+    const vertices = new Uint8Array(packed.stride * 3), view = new DataView(vertices.buffer);
+    const field = grid(0); field.heights.set([100, 0, 100, 100, 0, 100, 100, 0, 100]);
+    for (let vertex = 0; vertex < 3; vertex++) {
+        view.setInt16(vertex * packed.stride + 2, vertex === 2 ? 100 : 0, true);
+        view.setInt16(vertex * packed.stride + packed.offset.a_extrude, vertex === 0 ? -20 : 20, true);
+        view.setInt16(vertex * packed.stride + packed.offset.a_offset, 10, true);
+    }
+    const terrain = normalizeTerrainDraping({grids: [field], previousGrids: [grid(20)], maxSegmentLength: 1000});
+    const result = drapeTerrainMesh({vertices, indices: new Uint16Array([0, 1, 2]), layout: packed, origin: [0, 0], tileZoom: 16, styleZoom, terrain});
+    const output = getTerrainVertexLayout(packed), data = new DataView(result.vertices.buffer);
+    const corner = (-20 + 10) * 2 ** (16 - styleZoom);
+    expect(data.getFloat32(output.offset.a_terrain, true)).toBeCloseTo(Math.abs(corner * meters), 5);
+    expect(data.getFloat32(output.offset.a_terrain + 12, true)).toBe(corner);
+    expect(data.getFloat32(output.offset.a_terrain_previous, true)).toBe(20);
+    expect(data.getFloat32(output.offset.a_terrain_previous + 12, true)).toBe(0);
+    expect(result.indices).toEqual(new Uint16Array([0, 1, 2]));
 });
 
 test('triangle, packed input and completed-mesh limits fail explicitly without mutating data', () => {

@@ -12,13 +12,14 @@ const packageEntry = `// tangram-layers
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import Tangram, {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt, calculatePlanarGroundBounds, calculatePlanarVolumeBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from './tangram.debug.mjs';
+import Tangram, {DrapedTerrainSurfaceSnapshot, TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt, calculatePlanarGroundBounds, calculatePlanarVolumeBounds, convertLumaLight, mapTangramLight, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from './tangram.debug.mjs';
 
 const {Scene, ClassicWebGLRenderer, HostFrame, LumaDeviceRenderer, debug, version} =
   Tangram;
 const Renderer = ClassicWebGLRenderer;
 
 export {
+  DrapedTerrainSurfaceSnapshot,
   TerrainMeshSurface,
   TerrainSurfaceCollection,
   sampleTerrainElevation,

@@ -111,7 +111,9 @@ test('query membership preserves the admitted clock, proxy visibility, fallback 
     const halfWorld = Math.PI * 6378137; expect(entries[0].clips).toEqual([[-halfWorld, -halfWorld, halfWorld, halfWorld]]);
     expect(manager.getTerrainDrapingStatistics()).toMatchObject({queryBytes: 102, stagedMeshBytes: 114});
     expect(manager.getDrapedTerrainQueryEntries(50)[0].blend).toBe(0); expect(manager.getDrapedTerrainQueryEntries(400)[0].blend).toBe(1);
-    ground.terrainVisibleAt = undefined; expect(manager.getDrapedTerrainQueryEntries(200)[0].blend).toBe(1);
+    ground.terrainVisibleAt = undefined; expect(manager.getDrapedTerrainQueryEntries(200)[0].blend).toBe(0);
+    expect(ground.terrainVisibleAt).toBe(200);
+    expect(manager.getDrapedTerrainQueryEntries(250)[0].blend).toBe(0.25);
     ground.valid = false; expect(manager.getDrapedTerrainQueryEntries(200)).toEqual([]); ground.valid = true;
     Object.assign(owner, {proxy_for: [{meshes: {ground: [ground]}}]}); expect(manager.getDrapedTerrainQueryEntries(200)).toEqual([]);
     owner.freeResources();

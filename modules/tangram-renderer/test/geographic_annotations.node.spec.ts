@@ -8,6 +8,54 @@ import HostFrame from '../src/scene/host_frame';
 import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS} from '../src/scene/projection_math';
 import {layoutProjectedAnnotations} from '../src/labels/projected-pass';
 import type {LabelTile} from '../src/labels/main-pass-types';
+import {TerrainSurfaceCollection, TerrainMeshSurface} from '../src/selection/terrain_surface';
+
+test('terrain blocks loaded annotation sightlines; holes stay visible and settled/matrix caches are distinct', () => {
+    const tile = createTile(1, [0, 0, 0], {collide: false});
+    const surface = new TerrainMeshSurface({projection: 'web-mercator', positions: [-2, -2, -0.5, 2, -2, -0.5, 0, 2, -0.5], indices: [0, 1, 2]});
+    const collection = new TerrainSurfaceCollection('web-mercator', [{id: 'ridge', surface}]);
+    const frame = createFrame('web-mercator');
+    const query = vi.spyOn(collection, 'intersectSegment');
+    layoutProjectedAnnotations([tile], frame, {terrainSurface: collection});
+    expect(isVisible(tile)).toBe(false); expect(query).toHaveBeenCalledOnce();
+    layoutProjectedAnnotations([tile], frame, {terrainSurface: collection});
+    expect(query).toHaveBeenCalledOnce();
+    frame.renderViews[0].camera.projection = new Matrix4().translate([0.25, 0, 0]);
+    layoutProjectedAnnotations([tile], frame, {terrainSurface: collection});
+    expect(query).toHaveBeenCalledTimes(2);
+    layoutProjectedAnnotations([tile], frame, {terrainSurface: new TerrainSurfaceCollection('web-mercator', [])});
+    expect(isVisible(tile)).toBe(true);
+});
+
+test('two eyes sharing a position never reuse different matrix sightlines; a visible eye keeps the shared candidate', () => {
+    const tile = createTile(1, [0, 0, 0], {collide: false});
+    const surface = new TerrainSurfaceCollection('web-mercator', []);
+    const query = vi.spyOn(surface, 'intersectSegment').mockReturnValueOnce({coordinate: [0, 0, 0], position: [0, 0, -0.5],
+        distance: 0.5, normal: [0, 0, 1], triangleIndex: 0, barycentric: [1, 0, 0], surfaceId: 'ridge'}).mockReturnValue(null);
+    layoutProjectedAnnotations([tile], createFrame('web-mercator', 0.5), {terrainSurface: surface});
+    expect(query).toHaveBeenCalledTimes(2); expect(isVisible(tile)).toBe(true);
+});
+
+test('packed geographic label height is physical meters and near-plane occluders do not hide it', () => {
+    const tile = createTile(1, [0, 0, 8], {collide: false}); // 0.5 meter, not eight meters.
+    const frame = createFrame('web-mercator');
+    const surface = new TerrainSurfaceCollection('web-mercator', [{id: 'before-near', surface: new TerrainMeshSurface({
+        projection: 'web-mercator', positions: [-2, -2, -2, 2, -2, -2, 0, 2, -2], indices: [0, 1, 2]})}]);
+    const query = vi.spyOn(surface, 'intersectSegment');
+    layoutProjectedAnnotations([tile], frame, {terrainSurface: surface});
+    expect(isVisible(tile)).toBe(true);
+    expect(query).toHaveBeenLastCalledWith([0, 0, -1], [0, 0, 0.5], {startInset: 0.25, endInset: 0.25});
+});
+
+test('globe loaded relief can hide a front-hemisphere label without changing the sphere horizon contract', () => {
+    const tile = createTile(1, [0, 0, 0], {collide: false});
+    const surface = new TerrainSurfaceCollection('globe', [{id: 'ridge', surface: new TerrainMeshSurface({
+        projection: 'globe', positions: [-20, -300, -20, 20, -300, -20, 0, -300, 20], indices: [0, 1, 2]})}]);
+    layoutProjectedAnnotations([tile], createFrame('globe'), {terrainSurface: surface});
+    expect(isVisible(tile)).toBe(false);
+    layoutProjectedAnnotations([tile], createFrame('globe'));
+    expect(isVisible(tile)).toBe(true);
+});
 
 /** Native SHORT tile positions and billboard attributes, not CPU-projected float vertices. */
 function createTile(id: number, position: [number, number, number], options: {
