@@ -8,6 +8,7 @@ import {PROJECTION_CONSTANTS} from '../scene/projection_math';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import VertexLayout from '../gl/vertex_layout';
 import type {DrapedTerrainQueryMesh} from '../selection/draped-terrain-surface';
+import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 
 /** Opt-in physical-height basemap displacement, independent of deck, providers and GPU ownership. */
 export interface TerrainDrapingOptions {
@@ -140,7 +141,7 @@ export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uin
     const scale = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** tileZoom);
     for (let vertex = 0; vertex < count; vertex++) {
         const position = vertex * layout.stride + layout.offset.a_position;
-        positions.set([origin[0] + data.getFloat32(position, true) * scale, origin[1] + data.getFloat32(position + 4, true) * scale, data.getFloat32(position + 8, true)], vertex * 3);
+        positions.set([origin[0] + data.getFloat32(position, true) * scale, origin[1] + data.getFloat32(position + 4, true) * scale, data.getFloat32(position + 8, true) / PACKED_HEIGHT_SCALE], vertex * 3);
         heights.set([data.getFloat32(vertex * layout.stride + layout.offset.a_terrain, true), data.getFloat32(vertex * layout.stride + layout.offset.a_terrain_previous, true)], vertex * 2);
     }
     const bounds: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];

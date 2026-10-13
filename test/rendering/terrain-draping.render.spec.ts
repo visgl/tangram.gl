@@ -84,19 +84,20 @@ test('packaged raster UVs survive worker refinement and displacement', async () 
 test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s draped ground picking uses the exact admitted draw topology across replacement and exaggeration', async kind => {
     const harness = new RenderingHarness(kind); harnesses.push(harness);
     harness.terrain = {...terrain(100, kind === 'globe'), querySurfaceStyles: ['raster']};
-    await harness.initialize(createRasterScene()); await harness.settle();
+    const base = createRasterScene();
+    await harness.initialize({...base, layers: {basemap: {...base.layers.basemap, draw: {raster: {...base.layers.basemap.draw.raster, z: 40}}}}}); await harness.settle();
     expect(coloredPixels(await harness.pixels())).toBeGreaterThan(50);
     const snapshot = harness.renderer.getDrapedTerrainSurface();
     if (!snapshot) throw new Error('Expected an admitted draped ground snapshot');
     const before = sampleTerrainElevation(snapshot, [0, 0], {minimumAltitude: -1000, maximumAltitude: 1000});
-    expect(before?.coordinate[2]).toBeCloseTo(100, 4);
+    expect(before?.coordinate[2]).toBeCloseTo(140, 4);
     const source = await harness.renderer.getTileSourceStatistics();
     await harness.renderer.setTerrain({...terrain(200, kind === 'globe'), querySurfaceStyles: ['raster']}); await harness.settle();
     harness.renderer.setTerrainExaggeration(2); await harness.settle();
     const next = harness.renderer.getDrapedTerrainSurface();
     if (!next) throw new Error('Expected a replacement ground snapshot');
-    expect(sampleTerrainElevation(next, [0, 0], {minimumAltitude: -1000, maximumAltitude: 1000})?.coordinate[2]).toBeCloseTo(200, 4);
-    expect(sampleTerrainElevation(snapshot, [0, 0], {minimumAltitude: -1000, maximumAltitude: 1000})?.coordinate[2]).toBeCloseTo(100, 4);
+    expect(sampleTerrainElevation(next, [0, 0], {minimumAltitude: -1000, maximumAltitude: 1000})?.coordinate[2]).toBeCloseTo(240, 4);
+    expect(sampleTerrainElevation(snapshot, [0, 0], {minimumAltitude: -1000, maximumAltitude: 1000})?.coordinate[2]).toBeCloseTo(140, 4);
     expect(await harness.renderer.getTileSourceStatistics()).toEqual(source);
     expect(harness.renderer.getTerrainDrapingStatistics().queryBytes).toBeGreaterThan(0);
     expect(harness.renderer.getTerrainDrapingStatistics().stagedMeshBytes).toBe(0);

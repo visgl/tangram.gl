@@ -147,7 +147,7 @@ test('exact query extraction retains final topology, physical channels, authored
     const result = drapeTerrainMesh(input), outputLayout = getTerrainVertexLayout(layout);
     const query = extractDrapedTerrainQueryMesh(result.vertices, result.indices, outputLayout, input.origin, input.tileZoom, 100000);
     expect(query.indices).toEqual(result.indices); expect(query.indices).not.toBe(result.indices);
-    expect(query.positions[2]).toBe(40); expect([...query.heights.slice(0, 2)]).toEqual([100, 50]);
+    expect(query.positions[2]).toBe(2.5); expect([...query.heights.slice(0, 2)]).toEqual([100, 50]);
     expect(query.bounds[0]).toBeCloseTo(-100 * meters); expect(query.bounds[3]).toBeCloseTo(100 * meters);
     expect(() => extractDrapedTerrainQueryMesh(result.vertices, result.indices, outputLayout, input.origin, input.tileZoom, 1)).toThrow(/query mesh-byte/);
 });
