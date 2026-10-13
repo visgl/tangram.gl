@@ -79,6 +79,22 @@ test('classic texture guard rejects missing contexts without touching portable r
     expect(() => Texture.getMaxTextureSize({})).toThrow('WebGL context');
 });
 
+test('resolved canvas selectors upload the DOM source and apply filtering without claiming an arbitrary Element is an image', async () => {
+    const canvas = document.createElement('canvas');
+    canvas.id = 'typed-texture-canvas'; canvas.width = 4; canvas.height = 2; document.body.appendChild(canvas);
+    const requests: TangramTextureOptions[] = [];
+    const texture = Texture.create(null, '__canvas_selector', {element: '#typed-texture-canvas', filtering: 'nearest',
+        textureFactory(options) {requests.push(options); return createResource();}});
+    try {
+        await texture.loading;
+        expect(requests).toHaveLength(2); expect(requests[1].data).toBe(canvas);
+        expect(texture.width).toBe(4); expect(texture.height).toBe(2);
+        expect(texture.filtering).toBe('nearest'); expect(texture.config_type).toBe('element');
+        expect(await Texture.getInfo(texture.name)).toMatchObject({width: 4, height: 2, filtering: 'nearest'});
+        expect(Texture.changed(texture.name, {element: canvas})).toBe(true);
+    } finally {texture.destroy({force: true}); canvas.remove();}
+});
+
 test('context scopes preserve generic callback results, identities and exception propagation', () => {
     const context = {}, values = {answer: 42}, entered: string[] = [];
     const configured = Context.configure(context, callback => {entered.push('scope'); return callback();});
