@@ -13,7 +13,6 @@ import type {GeographicLabelAnchor} from '../map-logic/label-identity';
 import {unionScreenBounds as unionBounds} from '../map-logic/screen-bounds';
 import type {ScreenBounds} from '../map-logic/screen-bounds';
 import type {TerrainSurfaceCollection} from '../selection/terrain_surface';
-import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 
 /** Settled surfaces retain only one eye signature and a bounded set of exact anchor results. */
 const terrainVisibility = new WeakMap<TerrainSurfaceCollection, {eyes: string; results: Map<string, boolean>}>();
@@ -78,7 +77,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
                         const first = label.ranges[0]?.[0];
                         const data = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
                         const height = label.container.label.layout.projected_height ?? (first === undefined ||
-                            mesh.vertex_layout.offset.a_position === undefined ? 0 : (mesh.vertex_layout.offset.a_terrain === undefined ? data.getInt16(first + mesh.vertex_layout.offset.a_position + 4, true) : data.getFloat32(first + mesh.vertex_layout.offset.a_position + 8, true)) / PACKED_HEIGHT_SCALE);
+                            mesh.vertex_layout.offset.a_position === undefined ? 0 : (mesh.vertex_layout.offset.a_terrain === undefined ? data.getInt16(first + mesh.vertex_layout.offset.a_position + 4, true) : data.getFloat32(first + mesh.vertex_layout.offset.a_position + 8, true)));
                         const layout = label.container.label.layout;
                         candidate = {id, label, tile, parts: [], boxes: new Map(), height,
                             linkedId: String(label.container.linked), collide: layout.projected_collide,
@@ -150,10 +149,10 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
             const scale = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** tile.coords.z);
             anchor = offset.a_terrain === undefined ? [tile.min.x + data.getInt16(base + offset.a_position, true) * scale,
                 tile.min.y + data.getInt16(base + offset.a_position + 2, true) * scale,
-                data.getInt16(base + offset.a_position + 4, true) / PACKED_HEIGHT_SCALE] : [
+                data.getInt16(base + offset.a_position + 4, true)] : [
                 tile.min.x + data.getFloat32(base + offset.a_position, true) * scale,
                 tile.min.y + data.getFloat32(base + offset.a_position + 4, true) * scale,
-                data.getFloat32(base + offset.a_position + 8, true) / PACKED_HEIGHT_SCALE];
+                data.getFloat32(base + offset.a_position + 8, true)];
             if (offset.a_terrain !== undefined) {
                 if (data.getFloat32(base + offset.a_terrain + 12, true) < 0.5) return null;
                 mesh.terrainVisibleAt ??= terrainTime;

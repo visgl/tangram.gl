@@ -36,15 +36,16 @@ test('two eyes sharing a position never reuse different matrix sightlines; a vis
     expect(query).toHaveBeenCalledTimes(2); expect(isVisible(tile)).toBe(true);
 });
 
-test('packed geographic label height is physical meters and near-plane occluders do not hide it', () => {
-    const tile = createTile(1, [0, 0, 8], {collide: false}); // 0.5 meter, not eight meters.
+test('native point height is physical meters, not polygon height packing, and near-plane occluders do not hide it', () => {
+    const tile = createTile(1, [0, 0, 8], {collide: false});
     const frame = createFrame('web-mercator');
+    frame.renderViews[0].camera.projection = new Matrix4().scale([1, 1, 1 / 16]);
     const surface = new TerrainSurfaceCollection('web-mercator', [{id: 'before-near', surface: new TerrainMeshSurface({
-        projection: 'web-mercator', positions: [-2, -2, -2, 2, -2, -2, 0, 2, -2], indices: [0, 1, 2]})}]);
+        projection: 'web-mercator', positions: [-2, -2, -20, 2, -2, -20, 0, 2, -20], indices: [0, 1, 2]})}]);
     const query = vi.spyOn(surface, 'intersectSegment');
     layoutProjectedAnnotations([tile], frame, {terrainSurface: surface});
     expect(isVisible(tile)).toBe(true);
-    expect(query).toHaveBeenLastCalledWith([0, 0, -1], [0, 0, 0.5], {startInset: 0.25, endInset: 0.25});
+    expect(query).toHaveBeenLastCalledWith([0, 0, -16], [0, 0, 8], {startInset: 0.25, endInset: 0.25});
 });
 
 test('globe loaded relief can hide a front-hemisphere label without changing the sphere horizon contract', () => {

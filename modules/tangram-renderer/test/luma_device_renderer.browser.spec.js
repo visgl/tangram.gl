@@ -6,6 +6,15 @@ import {describe, expect, it, test} from 'vitest';
 import LumaDeviceRenderer from '../src/gpu/luma_device_renderer';
 
 describe('LumaDeviceRenderer', function () {
+    test('an implicit canvas pass retains depth comparison even with depth writes disabled', () => {
+        const device = createDevice([]); device.type = 'webgpu';
+        const renderer = new LumaDeviceRenderer(device);
+        renderer.drawMesh({mesh: createMesh(), program: createProgram({}), renderPass: createRenderPass(),
+            renderState: {depthWriteEnabled: false, depthCompare: 'less-equal'}});
+        expect(device.pipeline.options).toMatchObject({depthStencilAttachmentFormat: 'depth24plus',
+            parameters: {depthWriteEnabled: false, depthCompare: 'less-equal'}});
+        renderer.destroy();
+    });
     test('WebGPU pipeline cache distinguishes offscreen attachment formats from the canvas', () => {
         const calls = [];
         const device = createDevice(calls);
@@ -325,6 +334,10 @@ describe('LumaDeviceRenderer', function () {
 
 function createDevice(calls) {
     return {
+        getDefaultCanvasContext() {
+            return {getCurrentFramebuffer: () => ({colorAttachments: [{texture: {format: 'bgra8unorm'}}],
+                depthStencilAttachment: {texture: {format: 'depth24plus'}}})};
+        },
         type: 'webgl',
         info: { shadingLanguage: 'glsl' },
         limits: { maxTextureDimension2D: 4096 },

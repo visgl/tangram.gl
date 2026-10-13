@@ -359,7 +359,11 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
             states = new Map();
             topologies.set(descriptor.topology, states);
         }
-        const framebuffer = renderPass?.props?.framebuffer;
+        // Implicit canvas passes also need an explicit depth format. In WebGPU,
+        // depthWrite=false does not otherwise create a depth-stencil pipeline,
+        // even when a non-writing annotation requests depth comparison.
+        const framebuffer = renderPass?.props?.framebuffer ??
+            (this.device.type === 'webgpu' && renderPass ? this.device.getDefaultCanvasContext().getCurrentFramebuffer() : undefined);
         const attachments: Pick<RenderPipelineProps, 'colorAttachmentFormats' | 'depthStencilAttachmentFormat'> = {};
         let parameters = render_state;
         if (this.device.type === 'webgpu' && framebuffer) {
