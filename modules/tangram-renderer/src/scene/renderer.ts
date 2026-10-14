@@ -392,7 +392,7 @@ export default class Renderer {
             if (this.scene.terrain?.occludeAnnotations && this.host_frame.projection.type !== 'projected') {
                 const entries = this.scene.tile_manager.getDrapedTerrainQueryEntries(this.scene.terrainFrameTime ?? performance.now());
                 const candidate = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0,
-                    this.scene.terrainFrameTime ?? performance.now(), this.scene.terrainExaggeration, this.scene.terrain.maxQueryIndexBytes);
+                    this.scene.terrainFrameTime ?? performance.now(), this.scene.terrainExaggeration, this.scene.terrain.maxQueryIndexBytes, this.scene.terrain.maxProjectedQueryBytes);
                 if (this.annotationTerrainSurface?.displayKey !== candidate.displayKey) this.annotationTerrainSurface = candidate;
                 surface = this.annotationTerrainSurface;
             }
@@ -403,7 +403,7 @@ export default class Renderer {
         if (rendered && this.scene.terrain && this.host_frame && this.host_frame.projection.type !== 'projected') {
             const time = this.scene.terrainFrameTime ?? performance.now();
             const entries = this.scene.tile_manager.getDrapedTerrainQueryEntries(time);
-            this.terrainSurfaceSnapshot = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0, time, this.scene.terrainExaggeration, this.scene.terrain.maxQueryIndexBytes);
+            this.terrainSurfaceSnapshot = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0, time, this.scene.terrainExaggeration, this.scene.terrain.maxQueryIndexBytes, this.scene.terrain.maxProjectedQueryBytes);
         }
         if (this.submittedViews.size === 0) {
             this.scene.processTasks();

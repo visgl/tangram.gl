@@ -35,6 +35,8 @@ export interface TerrainDrapingOptions {
     maxStagedMeshBytes?: number;
     /** Aggregate acceleration reservation for the current draped query snapshot; default 16 MiB. */
     maxQueryIndexBytes?: number;
+    /** Retained projected picking geometry per snapshot; default 32 MiB, with exact streaming fallback. */
+    maxProjectedQueryBytes?: number;
     /** Cooperative query-index warming target per host frame in milliseconds; default 2. */
     queryPreparationBudgetMs?: number;
     /** Test annotation fragments against rendered terrain and omit fully blocked collision candidates; default false. */
@@ -108,12 +110,13 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     const maxQueryMeshBytes = options.maxQueryMeshBytes ?? 8 * 1024 * 1024;
     const maxStagedMeshBytes = options.maxStagedMeshBytes ?? 64 * 1024 * 1024;
     const maxQueryIndexBytes = options.maxQueryIndexBytes ?? 16 * 1024 * 1024;
+    const maxProjectedQueryBytes = options.maxProjectedQueryBytes ?? 32 * 1024 * 1024;
     const queryPreparationBudgetMs = options.queryPreparationBudgetMs ?? 2;
     const occludeAnnotations = options.occludeAnnotations ?? false;
     if (!Number.isSafeInteger(maximum) || maximum < 0 || !Number.isFinite(segment) || segment < 1 ||
         !Number.isSafeInteger(vertices) || vertices < 0 || vertices > 262144 || !Number.isSafeInteger(meshBytes) || meshBytes < 0 ||
         !Number.isFinite(duration) || duration < 0 || duration > 5000 ||
-        ![maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes].every(value => Number.isSafeInteger(value) && value >= 0) ||
+        ![maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes].every(value => Number.isSafeInteger(value) && value >= 0) ||
         !Number.isFinite(queryPreparationBudgetMs) || queryPreparationBudgetMs < 0 || queryPreparationBudgetMs > 20 ||
         typeof occludeAnnotations !== 'boolean' ||
         querySurfaceStyles.some(name => typeof name !== 'string' || !name.length) || new Set(querySurfaceStyles).size !== querySurfaceStyles.length) throw new Error('Invalid terrain draping limits');
@@ -142,7 +145,7 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     const copy = (grids: readonly TerrainHeightGrid[]): TerrainHeightGrid[] => grids.map(grid => ({...grid, bounds: [...grid.bounds], heights: Float32Array.from(grid.heights), valid: Uint8Array.from(grid.valid)}));
     return {grids: copy(options.grids), previousGrids: copy(previous), maxSegmentLength: segment, maxAdditionalVertices: vertices,
         maxGridBytes: maximum, maxMeshBytes: meshBytes, transitionDuration: duration, byteLength: bytes, minimumHeight,
-        querySurfaceStyles: [...querySurfaceStyles], maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, queryPreparationBudgetMs, occludeAnnotations};
+        querySurfaceStyles: [...querySurfaceStyles], maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes, queryPreparationBudgetMs, occludeAnnotations};
 }
 
 /** Retain only the final draw's ground channels and topology, never reconstruct another DEM mesh. */

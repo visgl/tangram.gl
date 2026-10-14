@@ -7,6 +7,9 @@ import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS} from '../scene/p
 import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import log from '../utils/log';
 import {summarizeDrapedTerrainBounds, type DrapedTerrainBoundsSummary} from '../map-logic/draped-terrain-bounds';
+import {intersectRayTriangle} from '@math.gl/culling/queries';
+import {Vector3} from '@math.gl/core';
+import type {TerrainRay, TerrainSurfaceHit} from './terrain_surface';
 
 /** Measured CPU costs for one immutable terrain display, excluding other retained snapshots. */
 export interface DrapedTerrainQueryStatistics {
@@ -28,10 +31,72 @@ export interface DrapedTerrainQueryStatistics {
     queryMs: number;
     /** Owners whose acceleration failed; their exact linear queries remain available. */
     preparationFailures: number;
+    /** Demanded entries using bounded-memory exact triangle projection rather than retained copies. */
+    streamingMeshes: number;
 }
 
 /** Do not retry failed acceleration until a new projected owner is admitted. */
-const failedPreparation = new WeakSet<TerrainMeshSurface>();
+const failedPreparation = new WeakSet<ProjectedQuerySurface>();
+
+/** Cached or bounded-memory picking owner, with the same exact clipping boundary. */
+type ProjectedQuerySurface = TerrainMeshSurface | StreamingTerrainSurface;
+/** Candidate clip evaluated in original triangle/barycentric coordinates. */
+type AcceptTerrainPosition = (position: readonly [number, number, number], triangleIndex: number, weights: readonly [number, number, number]) => boolean;
+
+/** Project only the current triangle when retaining another full mesh would exceed the snapshot budget. */
+class StreamingTerrainSurface implements TerrainSurface {
+    /** Captured content projection, independent of a deck viewport. */
+    readonly projection: TerrainSurface['projection'];
+    /** Source arrays remain immutable under the same worker-payload contract as cached queries. */
+    private readonly mesh: DrapedTerrainQueryMesh;
+    /** Display blend used by the matching color pass. */
+    private readonly blend: number;
+    /** Display-only height multiplier; physical query altitude remains unchanged. */
+    private readonly exaggeration: number;
+
+    /** Capture one immutable display without allocating per-vertex projected arrays. */
+    constructor(mesh: DrapedTerrainQueryMesh, projection: TerrainSurface['projection'], blend: number, exaggeration: number) {
+        this.mesh = mesh; this.projection = projection; this.blend = blend; this.exaggeration = exaggeration;
+        if (mesh.indices.length % 3 || !mesh.positions.every(Number.isFinite) ||
+            mesh.indices.some(index => index >= mesh.positions.length / 3 || !Number.isFinite(mesh.heights[index * 2]) || !Number.isFinite(mesh.heights[index * 2 + 1]))) throw new Error('Terrain mesh: triangle positions, indices and physical heights must be finite and in range');
+    }
+
+    /** Streaming owners retain no additional full-mesh typed arrays or acceleration. */
+    getStatistics(): {geometryBytes: number; queryIndexBytes: number} {return {geometryBytes: 0, queryIndexBytes: 0};}
+
+    /** Match cached exact nearest-hit, face, physical-height, and source-clip semantics. */
+    intersectRay(ray: TerrainRay, maximum = Infinity, accept?: AcceptTerrainPosition): TerrainSurfaceHit | null {
+        if (maximum < 0 || Number.isNaN(maximum)) throw new Error('Terrain ray distance must be non-negative');
+        const length = Math.hypot(...ray.direction);
+        if (ray.origin.length !== 3 || ray.direction.length !== 3 || !ray.origin.every(Number.isFinite) ||
+            !ray.direction.every(Number.isFinite) || !Number.isFinite(length) || length === 0) return null;
+        const direction: [number, number, number] = [ray.direction[0] / length, ray.direction[1] / length, ray.direction[2] / length];
+        const mercator = getGeographicProjectionProcedure('web-mercator'), projection = getGeographicProjectionProcedure(this.projection);
+        let nearest: TerrainSurfaceHit | null = null;
+        for (let triangle = 0; triangle < this.mesh.indices.length / 3; triangle++) {
+            const physicalHeights: number[] = [];
+            const vertices = [0, 1, 2].map(vertex => {
+                const index = this.mesh.indices[triangle * 3 + vertex], offset = index * 3;
+                const current = this.mesh.heights[index * 2], previous = this.mesh.heights[index * 2 + 1];
+                const height = previous + (current - previous) * this.blend;
+                physicalHeights.push(this.mesh.positions[offset + 2] + height);
+                const position: [number, number, number] = [this.mesh.positions[offset], this.mesh.positions[offset + 1], this.mesh.positions[offset + 2] + height * this.exaggeration];
+                return this.projection === 'globe' ? projection.project(mercator.unproject(position)) : position;
+            });
+            const candidate = intersectRayTriangle(ray.origin, direction, vertices[0], vertices[1], vertices[2], {maxT: nearest?.distance ?? maximum});
+            if (!candidate || nearest && candidate.t >= nearest.distance) continue;
+            const position: [number, number, number] = [ray.origin[0] + direction[0] * candidate.t, ray.origin[1] + direction[1] * candidate.t, ray.origin[2] + direction[2] * candidate.t];
+            if (accept && !accept(position, triangle, candidate.barycentric)) continue;
+            const normal = new Vector3(vertices[1]).subtract(vertices[0]).cross(new Vector3(vertices[2]).subtract(vertices[0]));
+            if (this.projection === 'globe' && (Math.hypot(...position) === 0 || normal.dot(direction) >= 0)) continue;
+            normal.normalize();
+            const coordinate = projection.unproject(position);
+            coordinate[2] = candidate.barycentric.reduce((height, weight, vertex) => height + weight * physicalHeights[vertex], 0);
+            nearest = {position, coordinate, distance: candidate.t, normal: [normal[0], normal[1], normal[2]], triangleIndex: triangle, barycentric: candidate.barycentric};
+        }
+        return nearest;
+    }
+}
 
 /** Worker-owned query channels extracted from the final ground draw topology. */
 export interface DrapedTerrainQueryMesh {
@@ -140,7 +205,7 @@ function intersectsFootprint(ray: import('./terrain_surface').TerrainRay, maximu
 /** Immutable frame-specific surface, matching ground draw topology and temporal displacement. */
 export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
     /** Lazy query owners and measured work for this snapshot, never global renderer/GPU ownership. */
-    private readonly queryOwners: {surface?: TerrainMeshSurface; prepare(): TerrainMeshSurface; blend: number; projectionBuilds: number; preparationMs: number; queryMs: number}[];
+    private readonly queryOwners: {surface?: ProjectedQuerySurface; prepare(): ProjectedQuerySurface; blend: number; projectionBuilds: number; preparationMs: number; queryMs: number}[];
     /** Scene mesh generation, not source-cache or provider revision. */
     readonly generation: number;
     /** Shared monotonic clock used for both eyes and the corresponding draw. */
@@ -157,12 +222,15 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
     private readonly indexBudget: {reserved: number};
 
     /** Capture displacement without copying/projecting every mesh until it is queried. */
-    constructor(projection: TerrainSurface['projection'], entries: readonly DrapedTerrainQueryEntry[], generation: number, frameTime: number, exaggeration: number, maxQueryIndexBytes = 16 * 1024 * 1024) {
+    constructor(projection: TerrainSurface['projection'], entries: readonly DrapedTerrainQueryEntry[], generation: number, frameTime: number, exaggeration: number, maxQueryIndexBytes = 16 * 1024 * 1024, maxProjectedQueryBytes = 32 * 1024 * 1024) {
         if (!Number.isSafeInteger(generation) || generation < 0 || !Number.isFinite(frameTime) || !Number.isFinite(exaggeration) || exaggeration < 0 || exaggeration > 1000) throw new Error('Invalid terrain surface frame');
         if (!Number.isSafeInteger(maxQueryIndexBytes) || maxQueryIndexBytes < 0) throw new Error('Invalid terrain query index budget');
+        if (!Number.isSafeInteger(maxProjectedQueryBytes) || maxProjectedQueryBytes < 0) throw new Error('Invalid terrain projected query budget');
         const queryOwners: DrapedTerrainSurfaceSnapshot['queryOwners'] = [];
         const indexBudget = {reserved: 0};
         const indexLimits = new Map<DrapedTerrainQueryMesh, number>();
+        const admittedSurfaces = new Map<DrapedTerrainQueryMesh, Map<number, ProjectedQuerySurface>>();
+        let projectedBytes = 0;
         const surfaces: TerrainSurfaceEntry[] = entries.map(entry => {
             if (!Number.isFinite(entry.blend) || entry.blend < 0 || entry.blend > 1) throw new Error('Invalid terrain surface blend');
             const mesh = entry.mesh;
@@ -173,6 +241,14 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
             let displayBounds: TerrainSurfaceBounds | null | undefined;
             const owner: DrapedTerrainSurfaceSnapshot['queryOwners'][number] = {blend, projectionBuilds: 0, preparationMs: 0, queryMs: 0, prepare() {
                 if (!owner.surface) {
+                    const existing = admittedSurfaces.get(mesh)?.get(blend);
+                    if (existing) {owner.surface = existing; return existing;}
+                    // TerrainMeshSurface owns Float64 XYZ, Float64 physical heights, and Uint32 topology.
+                    const geometryBytes = mesh.positions.length * 8 + mesh.heights.length / 2 * 8 + mesh.indices.length * 4;
+                    if (geometryBytes > maxProjectedQueryBytes - projectedBytes) {
+                        owner.surface = new StreamingTerrainSurface(mesh, projection, blend, exaggeration);
+                    } else {
+                        projectedBytes += geometryBytes;
                     // Near-first collection admission chooses the first demanded owner, not
                     // constructor membership order. Clip leases of the same settled mesh share it.
                     const indexLimit = blend !== 1 ? 0 : indexLimits.get(mesh) ?? (required <= maxQueryIndexBytes - indexBudget.reserved ? required : 0);
@@ -181,6 +257,9 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                     owner.projectionBuilds = Number(cached?.projection !== projection || cached.blend !== blend || cached.exaggeration !== exaggeration || cached.indexLimit !== indexLimit);
                     owner.surface = getProjectedSurface(mesh, projection, blend, exaggeration, indexLimit);
                     owner.preparationMs += performance.now() - started;
+                    }
+                    const blends = admittedSurfaces.get(mesh) ?? new Map<number, ProjectedQuerySurface>();
+                    blends.set(blend, owner.surface); admittedSurfaces.set(mesh, blends);
                 }
                 return owner.surface;
             }};
@@ -208,16 +287,16 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
         this.queryOwners = queryOwners;
         this.indexBudget = indexBudget;
         this.inputBytes = [...new Set(entries.map(entry => entry.mesh))].reduce((bytes, mesh) => bytes + mesh.positions.byteLength + mesh.heights.byteLength + mesh.indices.byteLength, 0);
-        this.displayKey = `${projection}/${generation}/${exaggeration}/${maxQueryIndexBytes}/${entries.map(entry => `${entry.id}:${getMeshIdentity(entry.mesh)}:${entry.blend}:${JSON.stringify(entry.clips)}`).join(',')}`;
+        this.displayKey = `${projection}/${generation}/${exaggeration}/${maxQueryIndexBytes}/${maxProjectedQueryBytes}/${entries.map(entry => `${entry.id}:${getMeshIdentity(entry.mesh)}:${entry.blend}:${JSON.stringify(entry.clips)}`).join(',')}`;
     }
 
     /** Fairly warm demanded settled owners; closing releases every partial hierarchy. */
     *prepareQueryIndexSteps(): Generator<void, void, void> {
-        const warmed = new Set<TerrainMeshSurface>();
+        const warmed = new Set<ProjectedQuerySurface>();
         const pending: {owner: DrapedTerrainSurfaceSnapshot['queryOwners'][number]; steps: Generator<void, void, void>}[] = [];
         for (const owner of this.queryOwners) {
             const surface = owner.surface;
-            if (!surface || owner.blend !== 1 || warmed.has(surface) || failedPreparation.has(surface)) continue;
+            if (!surface || surface instanceof StreamingTerrainSurface || owner.blend !== 1 || warmed.has(surface) || failedPreparation.has(surface)) continue;
             warmed.add(surface);
             pending.push({owner, steps: surface.prepareQueryIndexSteps()});
         }
@@ -245,8 +324,8 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
 
     /** Detached snapshot-local CPU query costs; excludes other retained host snapshots and GPU/transient storage. */
     getStatistics(): DrapedTerrainQueryStatistics {
-        const statistics = {inputBytes: this.inputBytes, projectedBytes: 0, queryIndexBytes: 0, reservedQueryIndexBytes: this.reservedQueryIndexBytes, preparedMeshes: 0, projectionBuilds: 0, preparationMs: 0, queryMs: 0, preparationFailures: 0};
-        const counted = new Set<TerrainMeshSurface>();
+        const statistics = {inputBytes: this.inputBytes, projectedBytes: 0, queryIndexBytes: 0, reservedQueryIndexBytes: this.reservedQueryIndexBytes, preparedMeshes: 0, projectionBuilds: 0, preparationMs: 0, queryMs: 0, preparationFailures: 0, streamingMeshes: 0};
+        const counted = new Set<ProjectedQuerySurface>();
         for (const owner of this.queryOwners) {
             if (owner.surface && !counted.has(owner.surface)) {
                 const sizes = owner.surface.getStatistics();
@@ -255,6 +334,7 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                 counted.add(owner.surface);
             }
             statistics.preparedMeshes += Number(owner.surface !== undefined);
+            statistics.streamingMeshes += Number(owner.surface instanceof StreamingTerrainSurface);
             statistics.projectionBuilds += owner.projectionBuilds;
             statistics.preparationMs += owner.preparationMs; statistics.queryMs += owner.queryMs;
         }
