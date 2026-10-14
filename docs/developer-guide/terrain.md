@@ -438,6 +438,14 @@ query path. Bounds are an acceleration hint, not an occlusion/coverage guarantee
 
 Ground queries project only candidate meshes lazily. Settled displacement reuses
 the immutable projected query owner; changing the blend or relief makes a new owner.
+`maxProjectedQueryBytes` caps retained projected XYZ, physical-height and topology
+arrays at 32 MiB per snapshot by default. Demand is admitted near-first and repeated
+clip leases share one owner. Zero or insufficient space uses exact streaming
+triangle projection, preserving clips, physical altitude and nearest-hit picking
+without retaining another projected mesh. Streaming trades CPU time for bounded
+residency; it is not a faster query path. `streamingMeshes` reports affected entries.
+The cap excludes immutable worker inputs, transient triangle scratch, separately
+retained snapshots and GPU resources; it is not a whole-renderer memory limit.
 Morph queries use exact linear triangle traversal, avoiding new per-frame BVHs.
 Settled queried owners are warmed cooperatively once per logical frame. The
 default `maxQueryIndexBytes` is 16 MiB per snapshot and
@@ -451,7 +459,7 @@ demanded owners after each slice; cancellation releases every incomplete index.
 Conservative display bounds are cached per immutable entry, without projecting
 its vertices. Insufficient budget or
 failed acceleration retains exact linear queries; it never removes terrain.
-Initial lazy projection/copies are synchronous and outside that scheduling target.
+Initial lazy projection/copies and streaming queries are synchronous and outside that scheduling target.
 `snapshot.getStatistics()` separates projected bytes, reserved/completed indexes,
 preparation failures and CPU work. `getTerrainDrapingStatistics().annotationQueries`
 reports the internal collision surface separately from retained host snapshots.

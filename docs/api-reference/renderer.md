@@ -632,9 +632,12 @@ Defaults: 250 m requested Mercator edge target, 131072 additional vertices and
 and 200 ms morph duration. Optional query inputs are limited to 8 MiB per mesh;
 `maxStagedMeshBytes` defaults to 64 MiB for additional replacement draw/query buffers.
 `maxQueryIndexBytes` defaults to 16 MiB per snapshot, and
+`maxProjectedQueryBytes` defaults to 32 MiB of retained projected query geometry
+per snapshot. Zero or exhausted projection residency uses exact streaming queries
+instead of dropping pickable ground; `streamingMeshes` reports that fallback.
 `queryPreparationBudgetMs` defaults to 2 ms per logical frame (0–20; zero disables
 warming). Morphing, budget-deferred or failed indexes use exact linear traversal.
-Lazy geometry projection and separately retained host snapshots are outside those limits.
+Transient projection work and separately retained host snapshots are outside those limits.
 Opt-in `occludeAnnotations` defaults to false: it enables point/text scene-depth
 tests in color and selection, plus loaded-ground anchor occlusion for collision
 when query styles are enabled. See the terrain guide for missing-data, stereo and

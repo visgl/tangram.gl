@@ -136,6 +136,90 @@ function ground(): DrapedTerrainQueryMesh {
         heights: new Float32Array([100, 0, 100, 0, 100, 0]), indices: new Uint16Array([0, 1, 2]), bounds: [-10, -10, 10, 10]};
 }
 
+test.each(['web-mercator', 'globe'] as const)('zero projected residency budget preserves exact %s queries through morph, relief and clips', projection => {
+    const globe = getGeographicProjectionProcedure('globe');
+    const ray = projection === 'globe' ? {origin: globe.project([0, -0.00001, 1000]), direction: [0, 10, 0] as const} :
+        {origin: [0, -1, 1000] as const, direction: [0, 0, -2] as const};
+    for (const blend of [0, 0.5, 1]) for (const exaggeration of [0, 2, 5]) for (const clips of [undefined, [[-10, -10, 10, 10]], [[5, 5, 10, 10]]] as const) {
+        const mesh = ground(), entries = [{id: 'ground', mesh, blend, clips}];
+        const cached = new DrapedTerrainSurfaceSnapshot(projection, entries, 0, 0, exaggeration);
+        const streaming = new DrapedTerrainSurfaceSnapshot(projection, entries, 0, 0, exaggeration, 1024, 0);
+        expect(streaming.intersectRay(ray)).toEqual(cached.intersectRay(ray));
+        expect(streaming.intersectRay(ray, 0.000001)).toBeNull();
+        for (const _step of streaming.prepareQueryIndexSteps()) { /* no projected owner or hierarchy */ }
+        const skippedByClipBounds = projection === 'web-mercator' && clips?.[0][0] === 5;
+        expect(streaming.getStatistics()).toMatchObject({projectedBytes: 0, queryIndexBytes: 0, reservedQueryIndexBytes: 0, streamingMeshes: skippedByClipBounds ? 0 : 1, projectionBuilds: 0});
+    }
+});
+
+test('projected geometry is demand-admitted, byte-exact, and shared by repeated clip leases', () => {
+    const left = ground(), right = ground();
+    for (let vertex = 0; vertex < 3; vertex++) right.positions[vertex * 3] += 100;
+    right.bounds = [90, -10, 110, 10];
+    const surface = new DrapedTerrainSurfaceSnapshot('web-mercator', [
+        {id: 'left', mesh: left, blend: 1}, {id: 'left-lease', mesh: left, blend: 1}, {id: 'right', mesh: right, blend: 1}
+    ], 0, 0, 1, 1024, 108);
+    expect(surface.getStatistics().projectedBytes).toBe(0);
+    expect(surface.intersectRay({origin: [0, -1, 500], direction: [0, 0, -1]})?.surfaceId).toBe('left');
+    expect(surface.getStatistics()).toMatchObject({projectedBytes: 108, streamingMeshes: 0});
+    expect(surface.intersectRay({origin: [100, -1, 500], direction: [0, 0, -1]})?.surfaceId).toBe('right');
+    expect(surface.getStatistics()).toMatchObject({projectedBytes: 108, streamingMeshes: 1});
+    for (const _step of surface.prepareQueryIndexSteps()) { /* only the resident owner warms */ }
+    expect(surface.getStatistics().queryIndexBytes).toBe(TriangleQueryIndex.getRequiredHierarchyBytes(1));
+});
+
+test('streaming demand evicts older cache residency without invalidating a retained snapshot', () => {
+    const mesh = ground(), entries = [{id: 'ground', mesh, blend: 1}];
+    const ray = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};
+    const previous = new DrapedTerrainSurfaceSnapshot('web-mercator', entries, 0, 0, 1, 0, 108);
+    const expected = previous.intersectRay(ray);
+    expect(previous.getStatistics()).toMatchObject({projectedBytes: 108, projectionBuilds: 1});
+    const streaming = new DrapedTerrainSurfaceSnapshot('web-mercator', entries, 0, 1, 1, 0, 0);
+    expect(streaming.intersectRay(ray)).toEqual(expected);
+    expect(streaming.getStatistics()).toMatchObject({projectedBytes: 0, projectionBuilds: 0, streamingMeshes: 1});
+    expect(previous.intersectRay(ray)).toEqual(expected);
+    const next = new DrapedTerrainSurfaceSnapshot('web-mercator', entries, 0, 2, 1, 0, 108);
+    expect(next.intersectRay(ray)).toEqual(expected);
+    // A fresh build proves the weak cache no longer pins the previous arrays.
+    expect(next.getStatistics()).toMatchObject({projectedBytes: 108, projectionBuilds: 1});
+});
+
+test('streaming-owner validation is counted separately from exact query CPU time', () => {
+    const surface = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'ground', mesh: ground(), blend: 1}], 0, 0, 1, 0, 0);
+    const clock = vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(107).mockReturnValueOnce(110).mockReturnValueOnce(113);
+    try {
+        expect(surface.intersectRay({origin: [0, -1, 500], direction: [0, 0, -1]})).not.toBeNull();
+        expect(surface.getStatistics()).toMatchObject({preparationMs: 7, queryMs: 3, streamingMeshes: 1, projectedBytes: 0});
+    } finally {clock.mockRestore();}
+});
+
+test('streaming queries reject malformed channels instead of returning a plausible hit', () => {
+    const mesh = ground(); mesh.indices[2] = 999;
+    const surface = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'invalid', mesh, blend: 1}], 0, 0, 1, 0, 0);
+    expect(() => surface.intersectRay({origin: [0, -1, 500], direction: [0, 0, -1]})).toThrow(/index|finite and in range/);
+    for (const limit of [-1, 0.5, NaN]) expect(() => new DrapedTerrainSurfaceSnapshot('web-mercator', [], 0, 0, 1, 0, limit)).toThrow(/projected query budget/);
+    expect(new DrapedTerrainSurfaceSnapshot('web-mercator', [], 0, 0, 1, 0, 0).displayKey).not.toBe(new DrapedTerrainSurfaceSnapshot('web-mercator', [], 0, 0, 1, 0, 1).displayKey);
+});
+
+test('streaming rejects a clipped nearer triangle and retains original-order distance ties', () => {
+    const mesh = ground();
+    mesh.positions = new Float64Array([...mesh.positions, ...mesh.positions]);
+    mesh.positions[11] += 100; mesh.positions[14] += 100; mesh.positions[17] += 100;
+    mesh.heights = new Float32Array([...mesh.heights, ...mesh.heights]);
+    mesh.indices = new Uint32Array([3, 4, 5, 0, 1, 2, 0, 1, 2]);
+    const entries = [{id: 'layered-ground', mesh, blend: 1}];
+    const ray = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};
+    const cached = new DrapedTerrainSurfaceSnapshot('web-mercator', entries, 0, 0, 1);
+    const streaming = new DrapedTerrainSurfaceSnapshot('web-mercator', entries, 0, 0, 1, 0, 0);
+    expect(streaming.intersectRay(ray)).toEqual(cached.intersectRay(ray));
+    expect(streaming.intersectRay(ray)?.triangleIndex).toBe(0);
+    expect(streaming.intersectRay(ray, 200)).toBeNull();
+    // A ray starting below the raised face keeps the first of the two identical lower triangles.
+    const below = {origin: [0, -1, 150] as const, direction: [0, 0, -1] as const};
+    expect(streaming.intersectRay(below)).toEqual(cached.intersectRay(below));
+    expect(streaming.intersectRay(below)?.triangleIndex).toBe(1);
+});
+
 test('ground queries use the final triangles and morph, preserving physical heights under visual exaggeration', () => {
     const mesh = ground();
     const ray = {origin: [0, -1, 500] as const, direction: [0, 0, -2] as const};
