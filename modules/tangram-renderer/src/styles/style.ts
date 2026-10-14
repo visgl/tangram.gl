@@ -217,7 +217,7 @@ export var Style: StyleMethods = {
                     if (!draped.indices.length) {delete tile_data.meshes[variant]; delete transferredMeshes[variant]; continue;}
                     if (this.terrain.querySurfaceStyles.includes(this.name)) {
                         if (this.baseStyle() !== 'raster') throw new Error('Terrain query surfaces require a ground raster style');
-                        mesh.terrain_surface = extractDrapedTerrainQueryMesh(draped.vertices, draped.indices, getTerrainVertexLayout(originalLayout), [tile.min!.x, tile.min!.y], tile.coords!.z, this.terrain.maxQueryMeshBytes);
+                        mesh.terrain_surface = extractDrapedTerrainQueryMesh(draped.vertices, draped.indices, getTerrainVertexLayout(originalLayout), [tile.min!.x, tile.min!.y], tile.coords!.z, this.terrain.maxQueryMeshBytes, draped.groundPositions);
                     }
                 }
                 if (this.cpu_projection) {

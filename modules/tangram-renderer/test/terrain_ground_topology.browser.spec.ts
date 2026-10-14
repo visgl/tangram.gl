@@ -219,3 +219,35 @@ test('material UV channels cannot silently collapse to the copied template coord
     const outputLayout = getTerrainVertexLayout(materialLayout), output = new DataView(prepared.vertices.buffer);
     for (let index = 0; index < prepared.vertices.length / outputLayout.stride; index++) expect(output.getUint16(index * outputLayout.stride + outputLayout.offset.a_texcoord, true)).toBe(100);
 });
+
+test('finite world terminal edges retain physical owners without closing interior ownership clips', () => {
+    const input = quad(3, 0, 2, [grid(3, 0, 2)]), prepared = drapeTerrainMesh(input), output = getTerrainVertexLayout(layout);
+    const mesh = extractDrapedTerrainQueryMesh(prepared.vertices, prepared.indices, output, input.origin, input.tileZoom, 1024 * 1024, prepared.groundPositions);
+    const half = CIRCUMFERENCE / 2, span = CIRCUMFERENCE / 4;
+    const clip = [input.origin[0], input.origin[1] - span, input.origin[0] + span, input.origin[1]] as const;
+    const snapshot = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'terminal', mesh, blend: 1, clips: [clip], halfOpenClips: true}], 1, 100, 1);
+    for (const [x, y] of [[half, half - span / 2], [half - span / 2, half], [half, half]]) {
+        const hit = snapshot.intersectRay({origin: [x, y, 1e6], direction: [0, 0, -1]});
+        expect(hit?.surfaceId).toBe('terminal');
+        expect(hit?.coordinate[2]).toBeCloseTo(100, 5);
+    }
+    for (const [x, y] of [[half + 1, half - span / 2], [half - span / 2, half + 1]]) {
+        expect(snapshot.intersectRay({origin: [x, y, 1e6], direction: [0, 0, -1]})).toBeNull();
+    }
+    expect(() => extractDrapedTerrainQueryMesh(prepared.vertices, prepared.indices, output, input.origin, input.tileZoom, 1024 * 1024, new Float64Array(2))).toThrow(/canonical terrain query/);
+    expect(() => extractDrapedTerrainQueryMesh(prepared.vertices, prepared.indices, output, input.origin, input.tileZoom, 1024 * 1024, new Float64Array(mesh.positions.length / 3 * 2).fill(NaN))).toThrow(/canonical terrain query/);
+});
+
+test('canonical field replacement preserves generic previous-field sampling without imposing topology restrictions', () => {
+    const current = grid(1, 1, 2, 500), previous: TerrainHeightGrid = {...grid(1, 1, 2, 100),
+        bounds: [current.bounds[0] - 1, current.bounds[1] - 1, current.bounds[2] + 1, current.bounds[3] + 1]};
+    expect(() => wrapTerrainGroundGrids([previous])).toThrow(/quadtree/);
+    expect(wrapTerrainGroundGrids([previous], false)).toEqual([previous]);
+    const input = quad(1, 1, 2, [current], [previous]), prepared = drapeTerrainMesh(input);
+    const mesh = extractDrapedTerrainQueryMesh(prepared.vertices, prepared.indices, getTerrainVertexLayout(layout), input.origin, input.tileZoom, 1024 * 1024, prepared.groundPositions);
+    expect(mesh.indices.length).toBeGreaterThan(0);
+    for (let vertex = 0; vertex < mesh.heights.length; vertex += 2) {
+        expect(mesh.heights[vertex]).toBeCloseTo(500, 5);
+        expect(mesh.heights[vertex + 1]).toBeCloseTo(100, 5);
+    }
+});

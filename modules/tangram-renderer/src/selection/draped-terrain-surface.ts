@@ -155,7 +155,7 @@ export interface DrapedTerrainQueryEntry {
     blend: number;
     /** Optional absolute Mercator rectangles matching coarse globe fallback clipping. */
     clips?: readonly (readonly [number, number, number, number])[];
-    /** Match fragment ownership at upper clip edges; default false preserves legacy custom-entry semantics. */
+    /** Half-open interior ownership; terminal EPSG:3857 world edges stay closed for physical probes. Default false. */
     halfOpenClips?: boolean;
 }
 
@@ -241,6 +241,12 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
             if (typeof halfOpenClips !== 'boolean') throw new Error('Invalid terrain query clip ownership');
             const required = TriangleQueryIndex.getRequiredHierarchyBytes(mesh.indices.length / 3);
             if (clips?.some(bounds => bounds.length !== 4 || !bounds.every(Number.isFinite) || bounds[0] > bounds[2] || bounds[1] > bounds[3])) throw new Error('Invalid terrain query clip');
+            const worldHalf = Math.PI * PROJECTION_CONSTANTS.mercatorRadius;
+            // A finite world has no owner beyond its east/north edge. Normalize
+            // source-bound reconstruction ulps, but never close interior seams.
+            if (halfOpenClips) for (const bounds of clips ?? []) for (const axis of [2, 3]) {
+                if (Math.abs(bounds[axis] - worldHalf) <= worldHalf * Number.EPSILON * 8) bounds[axis] = worldHalf;
+            }
             let displayBounds: TerrainSurfaceBounds | null | undefined;
             const owner: DrapedTerrainSurfaceSnapshot['queryOwners'][number] = {blend, projectionBuilds: 0, preparationMs: 0, queryMs: 0, prepare() {
                 if (!owner.surface) {
@@ -284,8 +290,8 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                     // The draw clips its interpolated tile-position varying, not the inverse
                     // geographic projection of the curved triangle's common-space hit.
                     const position = projection === 'web-mercator' ? point : [0, 1].map(axis => weights.reduce((value, weight, vertex) => value + weight * mesh.positions[mesh.indices[triangleIndex * 3 + vertex] * 3 + axis], 0));
-                    return clips.some(bounds => position[0] >= bounds[0] && (halfOpenClips ? position[0] < bounds[2] : position[0] <= bounds[2]) &&
-                        position[1] >= bounds[1] && (halfOpenClips ? position[1] < bounds[3] : position[1] <= bounds[3]));
+                    return clips.some(bounds => position[0] >= bounds[0] && (halfOpenClips && bounds[2] !== worldHalf ? position[0] < bounds[2] : position[0] <= bounds[2]) &&
+                        position[1] >= bounds[1] && (halfOpenClips && bounds[3] !== worldHalf ? position[1] < bounds[3] : position[1] <= bounds[3]));
                 } : undefined);
                 owner.queryMs += performance.now() - started;
                 return hit;

@@ -157,17 +157,23 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
         querySurfaceStyles: [...querySurfaceStyles], groundMeshResolution, maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes, queryPreparationBudgetMs, occludeAnnotations};
 }
 
-/** Retain only the final draw's ground channels and topology, never reconstruct another DEM mesh. */
+/**
+ * Retain the final draw's ground channels and topology, never another DEM mesh.
+ * @param canonicalPositions - Optional exact lattice XY, avoiding source-origin reconstruction ulps at terminal bounds.
+ */
 export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uint16Array | Uint32Array, layout: VertexLayout,
-    origin: readonly [number, number], tileZoom: number, byteLimit: number): DrapedTerrainQueryMesh {
+    origin: readonly [number, number], tileZoom: number, byteLimit: number, canonicalPositions?: Float64Array): DrapedTerrainQueryMesh {
     const count = vertices.byteLength / layout.stride;
     if (!Number.isInteger(count) || count * 32 + indices.byteLength > byteLimit) throw new Error('Terrain query mesh-byte budget exceeded');
+    if (canonicalPositions && (canonicalPositions.length !== count * 2 || !canonicalPositions.every(Number.isFinite))) throw new Error('Invalid canonical terrain query positions');
     const positions = new Float64Array(count * 3), heights = new Float32Array(count * 2);
     const data = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
     const scale = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** tileZoom);
     for (let vertex = 0; vertex < count; vertex++) {
         const position = vertex * layout.stride + layout.offset.a_position;
-        positions.set([origin[0] + data.getFloat32(position, true) * scale, origin[1] + data.getFloat32(position + 4, true) * scale, data.getFloat32(position + 8, true) / PACKED_HEIGHT_SCALE], vertex * 3);
+        positions.set([canonicalPositions?.[vertex * 2] ?? origin[0] + data.getFloat32(position, true) * scale,
+            canonicalPositions?.[vertex * 2 + 1] ?? origin[1] + data.getFloat32(position + 4, true) * scale,
+            data.getFloat32(position + 8, true) / PACKED_HEIGHT_SCALE], vertex * 3);
         heights.set([data.getFloat32(vertex * layout.stride + layout.offset.a_terrain, true), data.getFloat32(vertex * layout.stride + layout.offset.a_terrain_previous, true)], vertex * 2);
     }
     const bounds: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -191,7 +197,7 @@ function getHeightFields(terrain: TerrainDrapingSnapshot, ground = false): {curr
     let fields = cache.get(terrain);
     if (!fields) {
         fields = {current: new TerrainHeightField(ground ? wrapTerrainGroundGrids(terrain.grids) : terrain.grids),
-            previous: new TerrainHeightField(ground ? wrapTerrainGroundGrids(terrain.previousGrids) : terrain.previousGrids)};
+            previous: new TerrainHeightField(ground ? wrapTerrainGroundGrids(terrain.previousGrids, false) : terrain.previousGrids)};
         cache.set(terrain, fields);
     }
     return fields;
@@ -249,7 +255,7 @@ export function drapeTerrainMesh(options: {
     ground?: boolean;
     /** Validated immutable current/previous heights and resource policy. */
     terrain: TerrainDrapingSnapshot;
-}): {vertices: Uint8Array; indices: Uint16Array | Uint32Array; byteLength: number; statistics: TerrainMeshPreparation; groundClip?: boolean} {
+}): {vertices: Uint8Array; indices: Uint16Array | Uint32Array; byteLength: number; statistics: TerrainMeshPreparation; groundClip?: boolean; groundPositions?: Float64Array} {
     const started = performance.now();
     const statistics: TerrainMeshPreparation = {inputVertices: 0, vertices: 0, triangles: 0, suppressedTriangles: 0, meshBytes: 0, preparationMs: 0, edgeTarget: 0, detailLimited: false};
     const {terrain, layout, origin} = options;
@@ -415,7 +421,7 @@ export function drapeTerrainMesh(options: {
         statistics.edgeTarget = maximum; statistics.detailLimited = maximum > requestedCell;
     }
     Object.assign(statistics, {vertices: count, triangles: elements.length / 3, suppressedTriangles: (refined.indices.length - elements.length) / 3, meshBytes: byteLength, preparationMs: performance.now() - started});
-    return {vertices, indices: elements, byteLength, statistics, ...(canonicalGround ? {groundClip: true} : {})};
+    return {vertices, indices: elements, byteLength, statistics, ...(groundTopology ? {groundClip: true, groundPositions: groundTopology.positions} : {})};
 }
 
 /** Copy constant raster style channels; UVs and ownership use the original source tile coordinate system. */

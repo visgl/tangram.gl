@@ -79,10 +79,12 @@ function getPatchPlan(grids: readonly TerrainHeightGrid[]): readonly TerrainFiel
     return patches;
 }
 
-/** Periodic sample references match canonical topology at the antimeridian; arrays remain immutable and shared. */
-export function wrapTerrainGroundGrids(grids: readonly TerrainHeightGrid[]): TerrainHeightGrid[] {
+/** Quadtree fields wrap periodically; optional generic previous fields retain their original sampling domain. */
+export function wrapTerrainGroundGrids(grids: readonly TerrainHeightGrid[], requireQuadtree = true): TerrainHeightGrid[] {
     return grids.flatMap(grid => {
-        const bounds = snapTileBounds(grid.bounds);
+        let bounds: TerrainFieldBounds;
+        try {bounds = snapTileBounds(grid.bounds);}
+        catch (error) {if (requireQuadtree) throw error; return [grid];}
         const offset = Math.floor(((bounds[0] + bounds[2]) / 2 + CIRCUMFERENCE / 2) / CIRCUMFERENCE) * CIRCUMFERENCE;
         return [-1, 0, 1].map(world => ({...grid, bounds: [bounds[0] - offset + world * CIRCUMFERENCE, bounds[1], bounds[2] - offset + world * CIRCUMFERENCE, bounds[3]] as const}));
     });

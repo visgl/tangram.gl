@@ -420,6 +420,11 @@ Selected ground styles must render one full source-tile raster quad with constan
 style channels. Partial georeferenced images, varying quad colors/elevations,
 ribbons and annotation quads are rejected on this path rather than silently
 claiming seam conformity. Other styles keep their original tessellation.
+Only current footprints determine canonical topology. Generic `previousGrids`
+remain valid and retain their original sampling domain; quadtree previous fields
+receive the same periodic neighborhood as current ground. This permits migration
+from a legacy arbitrary height field without imposing new topology restrictions
+on its historical samples.
 
 Ground cells are independent of vector/raster source zoom. Coarse DEM boundaries
 include fine-neighbor knots. Raster tile/detail/fallback boundaries never crop
@@ -428,6 +433,11 @@ fragment shader partitions them with half-open source/fallback clips. Query
 snapshots apply the same ownership convention, including parent/detail clip
 edges. Raster UVs remain in source-tile coordinates. Periodic DEM references
 reconcile the antimeridian while retaining the source height arrays.
+Physical queries close the finite world's terminal east/north bounds, which have
+no adjacent owner; interior ownership stays half-open. Canonical query XY is
+copied directly from the shared lattice instead of reconstructing it from a
+source origin, avoiding roundoff at those terminal bounds. This does not create
+terrain beyond the Mercator domain or add polar coverage.
 
 All ground owners sample identical current/previous heights and slopes at shared
 nodes, then use the same generation blend in color, depth, collision and queries.
