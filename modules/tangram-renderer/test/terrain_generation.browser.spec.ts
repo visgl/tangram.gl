@@ -63,6 +63,10 @@ test('late source detail and either eye inherit the admitted field clock rather 
     expect(manager.getTerrainTransitionOrigin(first, 1250)).toBe(1200);
     manager.startTerrainTransition(9, 1400); // Bounded clock history must not alter retained mesh origins.
     expect(manager.getTerrainTransitionOrigin(late, 2000)).toBe(100);
+    expect(manager.getTerrainTransitionOrigin(first, 2100)).toBe(1200);
+    const current = mesh(); current.variant = {...first.variant, terrainGeneration: 9};
+    expect(manager.getTerrainTransitionOrigin(current, 2300)).toBe(1400);
+    current.destroy();
     first.destroy(); late.destroy(); scene.destroy();
 });
 

@@ -346,7 +346,10 @@ export default class TileManager {
         if (generation === undefined) return mesh.terrainVisibleAt ??= time;
         let origin = this.terrainTransitionOrigins.get(generation);
         if (origin === undefined) {
-            origin = mesh.terrainVisibleAt ?? time;
+            // Retained old meshes must not reinsert an evicted epoch and displace
+            // the current field clock used by late detail arrivals.
+            if (mesh.terrainVisibleAt !== undefined) return mesh.terrainVisibleAt;
+            origin = time;
             this.startTerrainTransition(generation, origin);
         }
         return mesh.terrainVisibleAt = origin;
