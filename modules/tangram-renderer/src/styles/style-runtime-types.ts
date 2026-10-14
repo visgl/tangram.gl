@@ -163,7 +163,7 @@ export interface StyleMethods {
     endData(tile: StyleFinalizeTile): Promise<BuildTileData<Uint8Array> | null>;
     hasDataForTile(tile: Pick<WorkerBuildTile, 'id'>): boolean;
     getTileMesh(tile: Pick<WorkerBuildTile, 'id'>, variant: GeometryMeshVariant & TileMeshVariant): BuildMesh;
-    vertexLayoutForMeshVariant(variant: GeometryMeshVariant & TileMeshVariant): VertexLayout | undefined;
+    vertexLayoutForMeshVariant(variant: TileMeshVariant | undefined): VertexLayout | undefined;
     meshVariantTypeForDraw(draw: BuildDraw): (GeometryMeshVariant & TileMeshVariant) | undefined;
     addFeature(feature: BuildFeature, draw: BuildDraw, context: BuildContext): void;
     buildGeometry(geometry: BuildGeometry, style: BuildFeatureStyle, context: BuildContext): number | undefined;

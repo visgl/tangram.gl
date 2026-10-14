@@ -268,7 +268,7 @@ export var Style: StyleMethods = {
         return meshes[variant.key];
     },
 
-    vertexLayoutForMeshVariant (_variant: GeometryMeshVariant & TileMeshVariant): VertexLayout | undefined {
+    vertexLayoutForMeshVariant (_variant: TileMeshVariant | undefined): VertexLayout | undefined {
         // styles must implement
         return undefined;
     },
@@ -547,9 +547,8 @@ export var Style: StyleMethods = {
                 options.globeRefinementError = `Globe projection does not support style '${this.name}' with a position shader block`;
             }
         }
-        if (!isGeometryMeshVariant(options.variant)) throw new Error('Mesh variant is incomplete');
-        const variant = options.variant;
-        let vertex_layout = this.vertexLayoutForMeshVariant(variant);
+        // Custom layout hooks may intentionally ignore absent variant metadata.
+        let vertex_layout = this.vertexLayoutForMeshVariant(options.variant);
         if (!vertex_layout) throw new Error('Style has no mesh vertex layout');
         if (options.variant?.terrain) {
             vertex_layout = getTerrainVertexLayout(vertex_layout);
@@ -1027,11 +1026,4 @@ export function addLayerDebugEntry (target: LayerDebugTree, layer: string, faetu
 /** Cache normalization installs the value slot before feature evaluation. */
 function isPropertyCache(value: unknown): value is PropertyCache {
     return value !== null && typeof value === 'object' && 'value' in value;
-}
-
-/** Mesh construction consumes the initialized geometry identity without cloning authored variant objects. */
-function isGeometryMeshVariant(value: TileMeshVariant | undefined): value is GeometryMeshVariant & TileMeshVariant {
-    return Boolean(value && (typeof value.key === 'string' || typeof value.key === 'number') &&
-        typeof value.selection === 'number' && typeof value.mesh_order === 'number' &&
-        (value.blend_order === undefined || typeof value.blend_order === 'number'));
 }

@@ -266,7 +266,7 @@ describe('VBOMesh render backend', function () {
             }
         };
         let render_options;
-        const scene = {
+        const scene = Object.assign(Object.create(Scene.prototype), {
             mesh_renderer,
             mesh_render_state: { blend: true, depthWriteEnabled: false },
             styles: {
@@ -291,7 +291,7 @@ describe('VBOMesh render backend', function () {
                 setupTile() {}
             },
             requestRedraw() {}
-        };
+        });
 
         const count = Scene.prototype.renderStyle.call(
             scene,
