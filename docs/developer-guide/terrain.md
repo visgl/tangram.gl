@@ -8,6 +8,10 @@ Copyright (c) vis.gl contributors
 
 <span className="badge badge--warning">Status: Experimental</span>
 
+For remaining work and batch acceptance gates, see the
+[consolidated roadmap](./roadmap.md). The contracts below describe implemented
+behavior; per-stage budgets are not a whole-renderer memory guarantee.
+
 The [Mercator terrain example](/tangram.gl/examples/deck-terrain) combines
 loaders.gl elevation decoding, deck.gl terrain rendering and Tangram's CPU
 terrain-query surface. It streams a bounded neighborhood of Mapterhorn Terrarium
@@ -350,6 +354,17 @@ height/exaggeration combinations that would invert the spherical radius are reje
 
 The existing scene workers refine polygons, extruded walls, raster meshes and
 road ribbons, then append current/previous height and ENU-slope attributes.
+Each immutable worker field now owns one indexed `TerrainHeightField` for all
+style meshes. Height/slope lookups prune unrelated DEM footprints while preserving
+the original ordered bilinear results and touching-edge no-data behavior.
+Conservative rectangle masks are prepared lazily and reused across meshes,
+with an 8 MiB retained prefix cap for each current/previous field; insufficient
+space uses exact sample scans. Fully valid fields retain only a validity sentinel.
+This additional cache excludes source arrays, metadata, temporary prefix construction,
+other field generations and GPU memory. Prefix construction remains synchronous
+inside the existing scene worker, not a hard preparation-time limit. The globe
+preview uses indexed height/slope sampling but retains its existing cooperative
+mask preparation; it does not adopt the worker's synchronous mask cache.
 GLSL and WGSL displace before projection, so MapView, FirstPersonView, GlobeView
 and host-supplied stereo cameras use the same drawing/feature-selection path.
 Set `scene.lighting: configured` when using authored Tangram lights on both

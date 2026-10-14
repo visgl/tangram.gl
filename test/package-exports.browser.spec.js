@@ -32,7 +32,7 @@ import {TangramStyleSheetSchema} from '../modules/tangram-renderer/dist/style-sc
 import tangramStyleJsonSchema from '../modules/tangram-renderer/dist/tangram-style.schema.json';
 import {hillshade, triplanar, planar, sphereMap, heightDecode, globeHorizon} from '../modules/tangram-renderer/dist/shader-modules.js';
 import {resolveLabelPlacement, TileBuildQueue, intersectsScreenBounds,
-  areGeographicLabelCopies, TileResidency, TileCachePolicy} from '../modules/tangram-renderer/dist/map-logic.js';
+  areGeographicLabelCopies, TileResidency, TileCachePolicy, TerrainHeightField} from '../modules/tangram-renderer/dist/map-logic.js';
 import {DrapedTerrainSurfaceSnapshot as CoreDrapedTerrainSnapshot, Renderer as CoreRenderer, HostFrame as CoreHostFrame, TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance,
   calculatePlanarGroundBounds as coreGroundBounds,
   PROJECTION_CONSTANTS, projectGeographicPosition, projectGeographicVector, unprojectGlobePosition, getGeographicProjectionProcedure,
@@ -48,6 +48,13 @@ import rendererPackage from '../modules/tangram-renderer/package.json';
 // the build. Check export mappings too, so these paths stay the published ones.
 
 describe('published package entrypoints', () => {
+  test('the optional map-logic artifact exports indexed terrain sampling without changing the root API', () => {
+    const field = new TerrainHeightField([{width: 2, height: 2, bounds: [0, 0, 1, 1],
+      heights: new Float32Array([0, 2, 4, 6]), valid: new Uint8Array(4).fill(1), registration: 'grid-node', verticalDatum: 'unknown'}]);
+    expect(field.sampleHeight([0.5, 0.5])).toBe(3);
+    expect(field.coversBounds([0, 0, 1, 1])).toBe(true);
+    expect(Tangram).not.toHaveProperty('TerrainHeightField');
+  });
   test('built root and core expose the declared draped display snapshot at runtime', () => {
     for (const Snapshot of [RootDrapedTerrainSnapshot, CoreDrapedTerrainSnapshot]) {
       const snapshot = new Snapshot('web-mercator', [], 4, 100, 1);
