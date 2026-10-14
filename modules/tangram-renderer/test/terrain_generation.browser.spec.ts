@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {requireTileManager} from './helpers/scene-owners';
 import {expect, test, vi} from 'vitest';
 import Tile from '../src/tile/tile';
 import Scene from '../src/scene/scene';
@@ -58,44 +59,44 @@ test.each([false, true])('scene completion admits or rejects the entire terrain 
     const firstMesh = mesh(), secondMesh = mesh(); first.beginTerrainStage(); second.beginTerrainStage();
     if (!first.terrainStage || !second.terrainStage) throw new Error('Missing stage');
     first.terrainStage.meshes = {ground: [firstMesh]}; second.terrainStage.meshes = {ground: [secondMesh]};
-    scene.tile_manager.tiles = {first, second}; scene.terrainTransaction = true;
+    requireTileManager(scene).tiles = {first, second}; scene.terrainTransaction = true;
     const resolve = vi.fn(), reject = vi.fn(); Object.assign(scene, {generation: 7, building: {resolve, reject, error: failed ? new Error('budget') : undefined}});
     vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
-    vi.spyOn(scene.tile_manager, 'publishTerrainDisplay').mockImplementation(() => {});
-    vi.spyOn(scene.tile_manager, 'updateLabels').mockResolvedValue({});
+    vi.spyOn(requireTileManager(scene), 'publishTerrainDisplay').mockImplementation(() => {});
+    vi.spyOn(requireTileManager(scene), 'updateLabels').mockResolvedValue({});
     scene.tileManagerBuildDone();
     if (failed) {expect(reject).toHaveBeenCalledOnce(); expect(firstMesh.destroy).toHaveBeenCalledOnce(); expect(first.meshes).toEqual({});}
     else {expect(resolve).toHaveBeenCalledWith(true); expect(firstMesh.terrainVisibleAt).toBe(secondMesh.terrainVisibleAt); expect(scene.terrainDisplayGeneration).toBe(7);}
-    scene.tile_manager.tiles = {}; first.freeResources(); second.freeResources(); scene.destroy();
+    requireTileManager(scene).tiles = {}; first.freeResources(); second.freeResources(); scene.destroy();
 });
 
 test('staged-byte admission fails before allocating GPU owners and keeps the previous ground', () => {
     const scene = Scene.create({}, {terrain: {grids: [], maxStagedMeshBytes: 1}}), owner = tile();
     Object.assign(scene, {generation: 1}); scene.terrainTransaction = true; owner.generation = 1; const previous = mesh(); owner.meshes = {ground: [previous]}; owner.beginTerrainStage();
-    scene.tile_manager.tiles = {[owner.key]: owner};
+    requireTileManager(scene).tiles = {[owner.key]: owner};
     const error = vi.spyOn(scene, 'tileManagerBuildError').mockImplementation(() => {});
-    vi.spyOn(scene.tile_manager, 'tileBuildStop').mockImplementation(() => {});
+    vi.spyOn(requireTileManager(scene), 'tileBuildStop').mockImplementation(() => {});
     vi.spyOn(Tile, 'abortBuild').mockImplementation(() => {});
-    scene.tile_manager.buildTileStylesCompleted({tile: {...Tile.slice(owner), mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}}}, progress: {done: true}});
+    requireTileManager(scene).buildTileStylesCompleted({tile: {...Tile.slice(owner), mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}}}, progress: {done: true}});
     expect(error).toHaveBeenCalledWith(expect.objectContaining({message: 'Terrain staged mesh-byte budget exceeded'}));
     expect(previous.destroy).not.toHaveBeenCalled(); expect(owner.meshes.ground[0]).toBe(previous);
-    scene.tile_manager.tiles = {}; owner.freeResources(); scene.destroy();
+    requireTileManager(scene).tiles = {}; owner.freeResources(); scene.destroy();
 });
 
 test('a staged GPU upload failure releases unattached new buffers, aborts the raw batch and preserves admitted owners', () => {
     const scene = Scene.create({}, {terrain: {grids: []}}), owner = tile(), previous = mesh(), uploaded = mesh();
     Object.assign(scene, {generation: 1, styles: {first: {makeMesh: () => uploaded}, second: {makeMesh: () => {throw new Error('allocation');}}}, withWebGLContext: (operation: () => void) => operation()});
     scene.terrainTransaction = true; owner.generation = 1; owner.meshes = {ground: [previous]}; owner.beginTerrainStage();
-    scene.tile_manager.tiles = {[owner.key]: owner};
+    requireTileManager(scene).tiles = {[owner.key]: owner};
     const error = vi.spyOn(scene, 'tileManagerBuildError').mockImplementation(() => {});
-    vi.spyOn(scene.tile_manager, 'tileBuildStop').mockImplementation(() => {});
+    vi.spyOn(requireTileManager(scene), 'tileBuildStop').mockImplementation(() => {});
     const abort = vi.spyOn(Tile, 'abortBuild').mockImplementation(() => {});
     const batch = {first: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}, second: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}};
-    scene.tile_manager.buildTileStylesCompleted({tile: {...Tile.slice(owner), loaded: true, mesh_data: batch}, progress: {done: true}});
+    requireTileManager(scene).buildTileStylesCompleted({tile: {...Tile.slice(owner), loaded: true, mesh_data: batch}, progress: {done: true}});
     expect(error).toHaveBeenCalledWith(expect.objectContaining({message: 'allocation'}));
     expect(uploaded.destroy).toHaveBeenCalledOnce(); expect(previous.destroy).not.toHaveBeenCalled();
     expect(abort).toHaveBeenCalledWith(expect.objectContaining({mesh_data: batch}));
-    scene.tile_manager.tiles = {}; owner.freeResources(); scene.destroy();
+    requireTileManager(scene).tiles = {}; owner.freeResources(); scene.destroy();
 });
 
 test('query membership preserves the admitted clock, proxy visibility, fallback clips and separate staged bytes', () => {

@@ -34,13 +34,13 @@ type NativeLightFields = {
 /** Minimum per-eye view data consumed by lighting, independent of scene/deck classes. */
 export interface LightView {
     /** Style zoom used by legacy pixel-distance conversion. */
-    zoom: number;
+    zoom: number | null;
     /** Active projection, if the host supplies one. */
     projection?: {type: string};
     /** Longitude used to select the nearest planar world copy. */
-    center?: {lng: number};
+    center?: {lng: number} | null;
     /** Active camera transform and eye origin. */
-    camera: {
+    camera?: {
         /** Hosted cameras bind the full eye origin rather than only altitude. */
         type?: string;
         /** Column-major common-to-eye transform. */
@@ -85,7 +85,7 @@ export interface LightConfig {
 /** Structural shader program boundary used by both GPU backends. */
 export interface LightUniformProgram {
     /** Set a named scalar or vector uniform, preserving legacy GL setter names. */
-    uniform(method: string, name: string, value: number | readonly number[] | undefined): void;
+    uniform(method: string, name: string, value: import('@luma.gl/core').UniformValue): void;
 }
 /** Optional subclass data inspected by the shared descriptor mapper. */
 type LightShadingFields = {
@@ -114,6 +114,11 @@ export default class Light {
     declare name: string;
     /** Active per-eye camera and style zoom. */
     declare view: LightView;
+    /** A camera is needed for eye-space positions, but not light construction. */
+    protected get activeCamera(): NonNullable<LightView['camera']> {
+        if (!this.view.camera) throw new Error('Light view camera is not initialized');
+        return this.view.camera;
+    }
     /** Native source descriptor, absent for legacy lights. */
     declare lumaLight: (NormalizedTangramLight & NativeLightFields) | undefined;
     /** Parsed ambient contribution vector. */
@@ -303,7 +308,7 @@ export default class Light {
             ...(direction ? {direction: direction as [number, number, number]} : {}),
             ...(this.attenuation != null ? {attenuation: this.attenuation} : {}),
             ...(this.radius ? {radius: this.radius.map(value => value == null ? null :
-                StyleParser.convertUnits(value, {zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom)})) as [number | null, number]} : {}),
+                StyleParser.convertUnits(value, {zoom: Number(this.view.zoom), meters_per_pixel: Geo.metersPerPixel(Number(this.view.zoom))})) as [number | null, number]} : {}),
             ...(this.angle != null ? {angle: this.angle, exponent: this.exponent as number} : {})
         });
         if (this.lumaLight) {
@@ -413,7 +418,7 @@ class DirectionalLight extends Light {
     setupProgram (_program: LightUniformProgram) {
         super.setupProgram(_program);
         const direction = this.getLightingDirection();
-        _program.uniform('3fv', `u_${this.name}.direction`, direction);
+        _program.uniform('3fv', `u_${this.name}.direction`, direction as number[]);
     }
 
 }
@@ -478,7 +483,7 @@ class PointLight extends Light {
     updateEyePosition () {
         if (this.origin === 'luma') {
             // Native luma positions share the projected common space of geometry.
-            const camera = this.view.camera;
+            const camera = this.activeCamera;
             const position = this.lumaLight?.positionSpace === 'geographic'
                 ? projectGeographicLight(this.position as [number, number, number], this.view.projection?.type === 'globe', this.view.center?.lng)
                 : this.position as [number, number, number];
@@ -498,23 +503,23 @@ class PointLight extends Light {
 
             // Move light's world position into camera space
             const m = Geo.latLngToMeters([...this.position] as number[]);
-            this.position_eye[0] = m[0] - this.view.camera.position_meters[0];
-            this.position_eye[1] = m[1] - this.view.camera.position_meters[1];
+            this.position_eye[0] = m[0] - this.activeCamera.position_meters[0];
+            this.position_eye[1] = m[1] - this.activeCamera.position_meters[1];
 
             this.position_eye[2] = StyleParser.convertUnits(this.position[2],
-                { zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom) }) as number;
-            this.position_eye[2] = this.position_eye[2] - this.view.camera.position_meters[2];
+                { zoom: Number(this.view.zoom), meters_per_pixel: Geo.metersPerPixel(Number(this.view.zoom)) }) as number;
+            this.position_eye[2] = this.position_eye[2] - this.activeCamera.position_meters[2];
         }
         else if (this.origin === 'ground' || this.origin === 'camera') {
             // For camera or ground origin, format is: [x, y, z] in meters (default) or pixels w/px units
 
             // Light is in camera space by default
             this.position_eye = StyleParser.convertUnits(this.position,
-                { zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom) }) as number[];
+                { zoom: Number(this.view.zoom), meters_per_pixel: Geo.metersPerPixel(Number(this.view.zoom)) }) as number[];
 
             if (this.origin === 'ground') {
                 // Leave light's xy in camera space, but z needs to be moved relative to ground plane
-                this.position_eye[2] = this.position_eye[2] - this.view.camera.position_meters[2];
+                this.position_eye[2] = this.position_eye[2] - this.activeCamera.position_meters[2];
             }
         }
         this.position_eye[3] = 1;
@@ -529,9 +534,9 @@ class PointLight extends Light {
 
         _program.uniform('1f', `u_${this.name}.attenuationExponent`, this.attenuation);
         _program.uniform('1f', `u_${this.name}.innerRadius`, this.radius?.[0] == null ? -1 :
-            StyleParser.convertUnits(this.radius[0], {zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom)}) as number);
+            StyleParser.convertUnits(this.radius[0], {zoom: Number(this.view.zoom), meters_per_pixel: Geo.metersPerPixel(Number(this.view.zoom))}) as number);
         _program.uniform('1f', `u_${this.name}.outerRadius`, this.radius == null ? -1 :
-            StyleParser.convertUnits(this.radius[1], {zoom: this.view.zoom, meters_per_pixel: Geo.metersPerPixel(this.view.zoom)}) as number);
+            StyleParser.convertUnits(this.radius[1], {zoom: Number(this.view.zoom), meters_per_pixel: Geo.metersPerPixel(Number(this.view.zoom))}) as number);
     }
 }
 Light.types['point'] = PointLight;
@@ -574,7 +579,7 @@ class SpotLight extends PointLight {
         super.setupProgram(_program);
 
         const direction = this.getLightingDirection();
-        _program.uniform('3fv', `u_${this.name}.direction`, direction);
+        _program.uniform('3fv', `u_${this.name}.direction`, direction as number[]);
         _program.uniform('1f', `u_${this.name}.spotCosCutoff`, Math.cos(this.angle * 3.14159 / 180));
         _program.uniform('1f', `u_${this.name}.spotExponent`, this.exponent as number);
         _program.uniform('2fv', `u_${this.name}.lumaConeCos`, this.lumaLight ?

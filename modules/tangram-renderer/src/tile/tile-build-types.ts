@@ -79,10 +79,17 @@ export interface TileStylePayload extends MeshOptions {
 }
 
 /** Worker-side build envelope; independent of the main-thread Tile class. */
-export type DecodedTileFeature = Omit<StyleFeature, 'geometry'> & {geometry: StyleFeature['geometry'] | null};
+export type DecodedTileFeature = Omit<StyleFeature, 'geometry'> & {type?: string; geometry: import('../utils/geo').Geometry | null};
 
 /** Worker-side build envelope; independent of the main-thread Tile class. */
 export interface WorkerBuildTile extends TileDataContext, StyleParseTile, Record<string, unknown> {
+    /** Source-normalized tile address retained in every build envelope. */
+    coords: import('./tile_id').TileCoordinate;
+    /** Absolute Mercator upper-left and lower-right tile corners. */
+    min: {x: number; y: number};
+    max: {x: number; y: number};
+    /** Source-detail scale relative to the worker style zoom. */
+    overzoom2?: number;
     /** Collision/task identity. */
     id: number | string;
     /** Normalized source/style key. */

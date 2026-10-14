@@ -142,7 +142,8 @@ const SceneLoader = subscribeMixin<Omit<SceneLoaderAPI, keyof SubscriptionMethod
 
     normalizeDataSource(source: SceneSourceDefinition, bundle: SceneBundle): SceneSourceDefinition {
         source.url = bundle.urlFor(source.url);
-        source.tilejson = bundle.urlFor(source.tilejson);
+        // Inline TileJSON is already a descriptor, not a resource URL.
+        if (typeof source.tilejson !== 'object') source.tilejson = bundle.urlFor(source.tilejson);
 
         // composite untiled raster sources
         if (Array.isArray(source.composite)) {
@@ -334,7 +335,7 @@ const SceneLoader = subscribeMixin<Omit<SceneLoaderAPI, keyof SubscriptionMethod
     // Substitutes global scene properties (those defined in the `config.global` object) for any style values
     // of the form `global.`, for example `color: global.park_color` would be replaced with the value (if any)
     // defined for the `park_color` property in `config.global.park_color`.
-    applyGlobalProperties(config: SceneDefinition): SceneDefinition {
+    applyGlobalProperties<Config extends SceneDefinition>(config: Config): Config {
         if (!config.global || Object.keys(config.global).length === 0) {
             return config; // no global properties to transform
         }

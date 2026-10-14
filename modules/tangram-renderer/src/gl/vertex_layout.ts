@@ -84,7 +84,9 @@ export default class VertexLayout {
             // Static attribute
             else {
                 attrib.static = Array.isArray(attrib.static) ? attrib.static : [attrib.static]; // convert single value to array
-                attrib.method = `vertexAttrib${attrib.static.length}fv`;
+                const size = attrib.static.length;
+                if (size !== 1 && size !== 2 && size !== 3 && size !== 4) throw new Error('Static vertex attributes require one to four components');
+                attrib.method = `vertexAttrib${size}fv`;
             }
         }
     }

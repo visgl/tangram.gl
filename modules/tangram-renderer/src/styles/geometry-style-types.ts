@@ -36,7 +36,7 @@ export type GeometryExtrusion = boolean | number | number[] | null | undefined;
 /** Normalized mesh variant shared by outlines, polygons, and portable attributes. */
 export interface GeometryMeshVariant {
     key: string | number;
-    blend_order: number;
+    blend_order: number | undefined;
     mesh_order: number;
     selection: number;
     normal?: number;
@@ -186,7 +186,7 @@ export interface GeometryStyleRuntime<FeatureStyle extends Omit<PolygonFeatureSt
     startData(tile: GeometryTile): void;
     addFeature(feature: GeometryFeature, draw: GeometryDraw, context: GeometryContext): void;
     buildPolygons(polygons: GeometryPolygon[], style: FeatureStyle, context: GeometryContext): number;
-    endData(tile: GeometryTile): Promise<GeometryTileData | undefined>;
+    endData(tile: GeometryTile): Promise<GeometryTileData | null>;
 }
 /** Additional lifecycle and interpolation owned only by line styles. */
 export interface LineStyleRuntime extends GeometryStyleRuntime<LineFeatureStyle> {

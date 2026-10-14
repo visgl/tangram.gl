@@ -272,7 +272,7 @@ describe('opt-in worker CPU projection', () => {
             vertex_data: {vertex_count: 4, end: () => {}, vertex_buffer: request.vertices, element_buffer: request.indices}
         }}}}, cpu_projection: request.projection, baseStyle: () => 'raster',
         vertexLayoutForMeshVariant: () => layout, buildRasterTextures};
-        expect(await Style.endData.call(style, {...request.tile, id: 1})).toBeNull();
+        expect(await Style.endData.call(style, {...request.tile, id: 1, coords: {x: 0, y: 0, key: '0/0/0', ...request.tile.coords}})).toBeNull();
         expect(buildRasterTextures).not.toHaveBeenCalled();
     });
 

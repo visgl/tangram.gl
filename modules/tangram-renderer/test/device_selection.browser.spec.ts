@@ -57,7 +57,7 @@ test.each([
   const renderSelection = vi.fn(() => {
     if (throws) throw new Error('selection draw failed');
   });
-  const scene = {
+  const scene = Object.assign(Object.create(Scene.prototype), {
     gl: {bindFramebuffer: vi.fn(), viewport: vi.fn(), clearColor: vi.fn()},
     device: {type, beginRenderPass: vi.fn(() => renderPass), createCommandEncoder: vi.fn(() => encoder), submit: vi.fn()},
     selection: {framebuffer: {}, fbo_size: {width: 256, height: 256}, locked: false, read: vi.fn()},
@@ -66,7 +66,7 @@ test.each([
     background: {computed_color: [0, 0, 0, 1]},
     frame: 2, last_selection_render: 0, last_main_render: 1,
     updateBackground: vi.fn(), renderPass: renderSelection
-  };
+  });
   const draw = () => Scene.prototype.render.call(scene, {main: false, selection: true});
   if (throws) expect(draw).toThrow('selection draw failed');
   else {
@@ -94,10 +94,10 @@ test.each(['begin', 'end', 'finish'])('selection encoder is released when %s fai
   const pass = {end: vi.fn(() => {if (phase === 'end') throw new Error('end');})};
   const encoder = {beginRenderPass: vi.fn(() => {if (phase === 'begin') throw new Error('begin'); return pass;}),
     finish: vi.fn(() => {if (phase === 'finish') throw new Error('finish'); return {};}), destroy: vi.fn()};
-  const scene = {device: {type: 'webgpu', createCommandEncoder: () => encoder, submit: vi.fn()},
+  const scene = Object.assign(Object.create(Scene.prototype), {device: {type: 'webgpu', createCommandEncoder: () => encoder, submit: vi.fn()},
     selection: {framebuffer: {}, fbo_size: {width: 256, height: 256}, locked: false, read: vi.fn()}, lights: {},
     view: {panning: false, user_input_active: false}, frame: 2, last_selection_render: 0, last_main_render: 1,
-    updateBackground: vi.fn(), renderPass: vi.fn()};
+    updateBackground: vi.fn(), renderPass: vi.fn()});
   expect(() => Scene.prototype.render.call(scene, {main: false, selection: true})).toThrow(phase);
   expect(encoder.destroy).toHaveBeenCalledOnce();
   expect(scene.device.submit).not.toHaveBeenCalled();

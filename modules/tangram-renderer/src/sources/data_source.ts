@@ -40,6 +40,10 @@ export default class DataSource {
     zoom_bias!: number;
     min_display_zoom!: number;
     max_display_zoom!: number | null;
+    /** Main-thread geometry admission assigned from top-level scene layers. */
+    declare builds_geometry_tiles: boolean | undefined;
+    /** Optional worker-owned provider identity, retained from source configuration. */
+    declare tile_provider?: string;
     /** Provider credits discovered in TileJSON, kept separate from scene-authored credits. */
     protected metadata_attribution?: string;
 
@@ -476,7 +480,7 @@ export class NetworkTileSource extends NetworkSource {
 
     tiled!: boolean;
     bounds: any;
-    builds_geometry_tiles!: boolean;
+    declare builds_geometry_tiles: boolean;
     tms!: boolean;
     url_subdomains?: string[];
     next_url_subdomain?: number;

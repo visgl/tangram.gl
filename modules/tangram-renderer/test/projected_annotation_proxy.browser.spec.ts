@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {requireTileManager} from './helpers/scene-owners';
 import {afterEach, expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import Scene from '../src/scene/scene';
@@ -40,7 +41,7 @@ test('pending child labels retire an older proxy before drawing, including an un
     child.tile.meshes = {};
     proxy.tile.isProxy = () => true;
     proxy.tile.shouldProxyForStyle = style => child.tile.meshes[style] == null;
-    const manager = Object.assign(scene.tile_manager, {renderable_tiles: [proxy.tile, child.tile]});
+    const manager = Object.assign(requireTileManager(scene), {renderable_tiles: [proxy.tile, child.tile]});
     const states = vi.spyOn(manager, 'updateTileStates').mockImplementation(() => Promise.resolve({}));
     vi.spyOn(scene.style_manager, 'updateActiveStyles').mockReturnValue([]);
     vi.spyOn(scene.style_manager, 'updateActiveBlendOrders').mockImplementation(() => {});

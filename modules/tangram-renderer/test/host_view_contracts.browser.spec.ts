@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {requireTileManager} from './helpers/scene-owners';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
@@ -82,7 +83,7 @@ describe('atomic multi-view host contract', () => {
     test('projected footprints do not prune warm tiles using the unrelated geographic camera rectangle', () => {
         const renderer = new Renderer({});
         renderer.setFrame(frame({tileZoom: 2, projection: {type: 'projected', visibleBounds: [-170, 5, -40, 75]}}));
-        const prune = vi.spyOn(renderer.scene.view.scene.tile_manager, 'removeTiles');
+        const prune = vi.spyOn(requireTileManager(renderer.scene.view.scene), 'removeTiles');
         renderer.scene.view.pruneTilesForView();
         expect(prune).not.toHaveBeenCalled();
         renderer.destroy();
@@ -100,8 +101,8 @@ describe('atomic multi-view host contract', () => {
         ].map(({key, x, y, z}) => ({key, coords: TileID.coord({x, y, z}),
             visible: key === 'visible', loading: false, style_z: 4,
             isProxy: () => key === 'proxy', setupProgram: () => {}}));
-        vi.spyOn(view.scene.tile_manager, 'isTilePreloaded').mockImplementation(key => key === 'pinned');
-        vi.spyOn(view.scene.tile_manager, 'removeTiles').mockImplementation(filter => {
+        vi.spyOn(requireTileManager(view.scene), 'isTilePreloaded').mockImplementation(key => key === 'pinned');
+        vi.spyOn(requireTileManager(view.scene), 'removeTiles').mockImplementation(filter => {
             for (const tile of tiles) if (filter(tile)) removed.push(tile.key);
         });
         try {
@@ -143,7 +144,7 @@ describe('atomic multi-view host contract', () => {
     test.each(['web-mercator', 'globe'] as const)('%s selects one shared data LOD without changing style zoom', type => {
         const renderer = new Renderer({});
         const view = renderer.scene.view;
-        const selection = vi.spyOn(view.scene.tile_manager, 'updateTilesForView');
+        const selection = vi.spyOn(requireTileManager(view.scene), 'updateTilesForView');
         const options: Partial<HostFrameOptions> = {
             geographicAnchor: {longitude: 0, latitude: 0, zoom: 4.5},
             projection: {type, visibleBounds: [-20, -10, 20, 10]},
@@ -202,7 +203,7 @@ describe('atomic multi-view host contract', () => {
 
     test('invalidates elevation-only changes without reselecting on an eye switch', () => {
         const renderer = new Renderer({});
-        const selection = vi.spyOn(renderer.scene.view.scene.tile_manager, 'updateTilesForView');
+        const selection = vi.spyOn(requireTileManager(renderer.scene.view.scene), 'updateTilesForView');
         const projection = {type: 'globe', visibleBounds: [-100, 20, -50, 60]} as const;
         renderer.setFrame(frame({projection}));
         selection.mockClear();
@@ -218,7 +219,7 @@ describe('atomic multi-view host contract', () => {
     test('selects tiles only after camera, projection, anchor, dimensions, and buffer are installed', () => {
         const renderer = new Renderer({});
         const view = renderer.scene.view;
-        const selection = vi.spyOn(view.scene.tile_manager, 'updateTilesForView').mockImplementation(() => {
+        const selection = vi.spyOn(requireTileManager(view.scene), 'updateTilesForView').mockImplementation(() => {
             expect(view.camera?.position_meters).toEqual([-1, 0, 0]);
             expect(view.projection.type).toBe('globe');
             expect(view.center).toMatchObject({lng: 10, lat: 20});
@@ -236,7 +237,7 @@ describe('atomic multi-view host contract', () => {
 
     test('invalidates camera-only and buffer-only changes, but not identical frames or eye switches', () => {
         const renderer = new Renderer({});
-        const selection = vi.spyOn(renderer.scene.view.scene.tile_manager, 'updateTilesForView');
+        const selection = vi.spyOn(requireTileManager(renderer.scene.view.scene), 'updateTilesForView');
         renderer.setFrame(frame());
         selection.mockClear();
         renderer.setFrame(frame());
@@ -303,7 +304,7 @@ describe('atomic multi-view host contract', () => {
     test('retains visible tiles from either eye during pruning', () => {
         const renderer = new Renderer({});
         renderer.setFrame(frame());
-        const remove = vi.spyOn(renderer.scene.view.scene.tile_manager, 'removeTiles');
+        const remove = vi.spyOn(requireTileManager(renderer.scene.view.scene), 'removeTiles');
         renderer.scene.view.pruneTilesForView();
         const predicate = remove.mock.calls[0][0];
         expect(predicate({
@@ -424,7 +425,7 @@ describe('atomic multi-view host contract', () => {
         const renderer = new Renderer({});
         expect(renderer.scene.view.camera).toBeInstanceOf(ExternalCamera);
         const classic = new ClassicScene({}, {disableRenderLoop: true});
-        classic.config = {cameras: {main: {type: 'perspective', position: [-74, 40, 4]}}};
+        classic.config = {global: {}, sources: {}, styles: {}, textures: {}, lights: {}, layers: {}, scene: {}, cameras: {main: {type: 'perspective', position: [-74, 40, 4]}}};
         classic.resizeMap(800, 600);
         classic.view.reset();
         expect(classic.view.camera).toBeInstanceOf(PerspectiveCamera);

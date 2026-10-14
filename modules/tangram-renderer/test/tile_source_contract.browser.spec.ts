@@ -253,7 +253,8 @@ test('worker reset disposes archive sources and metadata detects a source replac
     try {
         SceneWorker.sources = {world: source}; SceneWorker.tiles = {};
         await expect(SceneWorker.getSourceMetadata(['world'])).rejects.toThrow('changed during metadata');
-        SceneWorker.sources = {world: {dispose}};
+        vi.spyOn(source, 'dispose').mockImplementation(dispose);
+        SceneWorker.sources = {world: source};
         SceneWorker.finalizeTileSources(); SceneWorker.finalizeTileSources();
         expect(dispose).toHaveBeenCalledOnce();
     } finally { SceneWorker.sources = originalSources; SceneWorker.tiles = originalTiles; }

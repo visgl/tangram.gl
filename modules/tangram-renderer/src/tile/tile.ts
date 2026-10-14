@@ -772,7 +772,7 @@ export default class Tile {
 Tile.coord_children = {}; // only allocate children coordinates once per coordinate
 
 /** Preserve the legacy null-geometry guard while narrowing decoded GeoJSON for style evaluation. */
-function hasFeatureGeometry(feature: DecodedTileFeature): feature is StyleFeature {
+function hasFeatureGeometry(feature: DecodedTileFeature): feature is DecodedTileFeature & StyleFeature {
     return feature.geometry != null;
 }
 

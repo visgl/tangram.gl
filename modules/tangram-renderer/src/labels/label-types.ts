@@ -31,9 +31,9 @@ export interface LabelLayout extends CollisionLayout {
     /** Point label carrying an attached text label. */
     parent?: LabelParent;
     /** Maximum line-placement subdivisions. */
-    subdiv: number;
+    subdiv?: number;
     /** Raster padding excluded from oriented offsets. */
-    vertical_buffer: number;
+    vertical_buffer?: number;
     /** Whether contextual shaping requires straight placement. */
     no_curving?: boolean;
     /** Side of a boundary line: left (-1) or right (1). */
@@ -41,7 +41,7 @@ export interface LabelLayout extends CollisionLayout {
     /** Point-placement strategy identifier. */
     placement?: number;
     /** Minimum segment length relative to label size. */
-    placement_min_length_ratio: number;
+    placement_min_length_ratio?: number;
     /** Requested spacing along a line in pixels. */
     placement_spacing?: number;
     /** Whether points may be placed outside tile bounds. */
@@ -59,7 +59,7 @@ export interface LabelParent {
     /** Parent's unscaled dimensions. */
     size: LabelPointCoordinate;
     /** Parent's point anchor. */
-    anchor?: string;
+    anchor?: string | string[];
     /** Parent's pixel offset. */
     offset: LabelPointCoordinate;
 }

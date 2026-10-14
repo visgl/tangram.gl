@@ -7,7 +7,7 @@ import Label from './label';
 import RepeatGroup from './repeat_group';
 import CollisionGrid from './collision_grid';
 import log from '../utils/log';
-import type {CollisionObject, CollisionTileState} from './collision-types';
+import type {CollisionObject, CollisionTileState, PendingCollisionObject} from './collision-types';
 
 const Collision = {
 
@@ -134,6 +134,7 @@ const Collision = {
 
                 for (let i = 0; i < objects.length; i++) {
                     let object = objects[i];
+                    if (object.linked && !isPreparedCollisionObject(object.linked)) throw new TypeError('Collision partner has not completed label preparation');
                     if (this.canBePlaced(object, tile, object.linked, state)) {
                         // show object if it isn't dependent on a parent object
                         if (!object.linked) {
@@ -199,7 +200,7 @@ const Collision = {
 
     // Run collision and repeat check to see if label can currently be placed
     /** Check a candidate, preserving previously resolved placement outcomes. */
-    canBePlaced (object: CollisionObject, tile: string, exclude: CollisionObject | null | 0 | '' = null, { repeat = true }: {repeat?: boolean} = {}): boolean | null | undefined {
+    canBePlaced (object: CollisionObject, tile: string, exclude: PendingCollisionObject | null | 0 | '' = null, { repeat = true }: {repeat?: boolean} = {}): boolean | null | undefined {
         let label = object.label;
         let layout = object.label.layout;
 
@@ -214,14 +215,14 @@ const Collision = {
             if (this.grid && label.cells) {
                 // test label candidate against labels placed in each grid cell
                 placeable = label.cells.reduce((keep, cell) => {
-                    if (keep && label.discard(cell, exclude && exclude.label)) {
+                    if (keep && label.discard(cell, (exclude && exclude.label) ?? null)) {
                         keep = false;
                     }
                     return keep;
                 }, true);
             }
             else {
-                placeable = !label.discard(this.tiles[tile]!.bboxes, exclude && exclude.label);
+                placeable = !label.discard(this.tiles[tile]!.bboxes, (exclude && exclude.label) ?? null);
             }
         }
 
@@ -265,3 +266,8 @@ const Collision = {
 };
 
 export default Collision;
+
+/** Linked text may queue before measurement, but placement requires its concrete label. */
+function isPreparedCollisionObject(object: PendingCollisionObject): object is CollisionObject {
+    return object.label !== undefined;
+}

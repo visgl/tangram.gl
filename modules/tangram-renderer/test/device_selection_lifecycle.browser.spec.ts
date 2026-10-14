@@ -97,8 +97,8 @@ test('Scene.getFeatureAt preserves its public error-result contract on device re
   const fixture = createSelection();
   const error = new Error('device mapping failed');
   fixture.staging.readAsync.mockRejectedValueOnce(error);
-  const scene = {initialized: true, portable_rendering: false, selection_feature_count: 1,
-    selection: fixture.selection, view: {size: {css: {width: 256, height: 256}}}};
+  const scene = Object.assign(Object.create(Scene.prototype), {initialized: true, portable_rendering: false, selection_feature_count: 1,
+    selection: fixture.selection, view: {size: {css: {width: 256, height: 256}}}});
   const pending = Scene.prototype.getFeatureAt.call(scene, {x: 128, y: 128});
   await fixture.selection.readDeviceRequests();
   expect(await pending).toEqual({error});

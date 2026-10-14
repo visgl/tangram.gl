@@ -17,9 +17,10 @@ import FeatureSelection from '../src/selection/selection';
 import {Style} from '../src/styles/style';
 import {getFeatureRenderedGeneration} from '../src/styles/feature_annotations';
 import Geo from '../src/utils/geo';
+import type {WorkerBuildTile} from '../src/tile/tile-build-types';
 
 /** One consumer's worker build identity, distinct from the shared normalized data index. */
-interface BuildContext extends SharedTileContext {
+interface BuildContext extends WorkerBuildTile {
     /** Mesh style zoom never enters decoded identity. */
     style_z: number;
     /** Scene generation carried by the existing protocol. */
@@ -27,7 +28,7 @@ interface BuildContext extends SharedTileContext {
     /** Loaded consumer state, not decoded-store state. */
     loaded?: boolean;
     /** Worker error state, independent of provider content. */
-    error?: unknown;
+    error?: string | null;
 }
 
 /** Explicitly typed state for the legacy worker's dynamically assigned properties. */
@@ -40,7 +41,8 @@ const worker = Object.assign(sceneWorker, {sources, tiles, generation: 7,
 
 /** Fresh consumer with deterministic transform anchors. */
 function createTile(key = 'world/0/0/0/1', styleZoom = 1): BuildContext {
-    return {source: 'world', key, style_z: styleZoom, generation: 7,
+    return {source: 'world', key, id: key, debug: {}, style_z: styleZoom, generation: 7,
+        meters_per_pixel: Geo.metersPerPixel(styleZoom), meters_per_pixel_sq: Geo.metersPerPixel(styleZoom) ** 2, units_per_meter_overzoom: Geo.unitsPerMeter(styleZoom),
         coords: {x: 0, y: 0, z: 0, key: '0/0/0'},
         min: Geo.metersForTile({x: 0, y: 0, z: 0}), max: Geo.metersForTile({x: 1, y: 1, z: 0})};
 }
@@ -60,7 +62,7 @@ function createDeferred<ValueT>() {
 
 beforeEach(() => {
     worker.finalizeTileSources();
-    worker.sharedTileSources = new SharedTileSourceAdapter();
+    worker.sharedTileSources = new SharedTileSourceAdapter<WorkerBuildTile>();
     worker.sources = {}; worker.tiles = {}; worker.generation = 7;
     worker.config_sources = {}; worker.configuring = Promise.resolve();
 });
@@ -133,7 +135,7 @@ test('final cancellation during TileJSON discovery cancels the subsequently assi
 test('source replacement and removal release pending work, while style-only configuration retains leases', async () => {
     const pending = createDeferred<typeof response>(); vi.spyOn(Utils, 'io').mockReturnValue(pending.promise);
     vi.spyOn(Utils, 'cancelRequest').mockImplementation(() => {});
-    const config = {sources: {world: {type: 'GeoJSON', url: '/fixtures/{z}/{x}/{y}.json'}}};
+    const config = {global: {}, styles: {}, layers: {}, sources: {world: {type: 'GeoJSON', url: '/fixtures/{z}/{x}/{y}.json'}}};
     worker.createDataSources(config);
     const tile = createTile(); worker.tiles[tile.key] = tile;
     const loading = worker.loadTileSourceData(tile), rejected = expect(loading).rejects.toMatchObject({name: 'AbortError'});

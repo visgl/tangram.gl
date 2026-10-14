@@ -45,7 +45,7 @@ Object.assign(Lines, {
             lightCount: this.portable_light_count, cpuProjection: Boolean(this.cpu_projection), terrain: Boolean(this.terrain), selection });
     },
 
-    setGL(this: LineStyleRuntime, gl_context: unknown, uniform_blocks: Record<string, UniformBuffer> = {}, options = {}) {
+    setGL(this: LineStyleRuntime, gl_context: WebGLRenderingContext | null, uniform_blocks: Record<string, UniformBuffer> = {}, options = {}) {
         if (Object.prototype.hasOwnProperty.call(this, 'line_uniform_buffer') &&
             this.line_uniform_buffer) {
             this.line_uniform_buffer.destroy();
@@ -456,7 +456,7 @@ Object.assign(Lines, {
 
     // Override
     async endData (this: LineStyleRuntime, tile: GeometryTile) {
-        const tile_data: GeometryTileData | undefined = await Style.endData.call(this, tile);
+        const tile_data: GeometryTileData | null = await Style.endData.call(this, tile);
         if (tile_data) {
             tile_data.uniforms.u_has_line_texture = false;
             tile_data.uniforms.u_texture = Texture.default;

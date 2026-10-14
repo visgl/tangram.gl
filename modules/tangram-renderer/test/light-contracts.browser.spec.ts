@@ -126,7 +126,7 @@ describe('checked lighting runtime preserves legacy contracts', () => {
         const light = Light.create(view, {name: 'world', type: 'point', origin: 'world', position: [1, 2, '10px']});
         const projected = Geo.latLngToMeters([1, 2]);
         expect(light.toLumaLight().tangram.position).toEqual([
-            projected[0] - 10, projected[1] - 20, 10 * Geo.metersPerPixel(view.zoom) - 30
+            projected[0] - 10, projected[1] - 20, 10 * Geo.metersPerPixel(Number(view.zoom)) - 30
         ]);
     });
 

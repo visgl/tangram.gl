@@ -410,7 +410,7 @@ export class StyleManager {
     }
 
     // Initialize all styles
-    initStyles (scene: Record<string, unknown> = {}): void {
+    initStyles (scene: import('./style-runtime-types').StyleInitOptions = {}): void {
         // Initialize all
         for (let sname in this.styles) {
             this.styles[sname].init(scene);

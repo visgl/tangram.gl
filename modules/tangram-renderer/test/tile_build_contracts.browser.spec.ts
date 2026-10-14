@@ -10,8 +10,9 @@ import type {TileBuildStyle, WorkerBuildTile} from '../src/tile/tile-build-types
 afterEach(() => {vi.restoreAllMocks(); for (const key of Object.keys(Collision.tiles)) Collision.abortTile(key);});
 
 test('decoded null geometry is skipped without changing valid feature identity or authored draw order', () => {
-    const feature = {geometry: {type: 'Point'}, properties: {name: 'fixture'}};
+    const feature = {geometry: {type: 'Point', coordinates: [0, 0]}, properties: {name: 'fixture'}};
     const tile: WorkerBuildTile = {id: 42, key: 'fixture', source: 'fixture', debug: {},
+        coords: {x: 0, y: 0, z: 4, key: '0/0/4'}, min: {x: 0, y: 0}, max: {x: 256, y: 256},
         style_z: 4, meters_per_pixel: 1, meters_per_pixel_sq: 1, units_per_meter_overzoom: 1,
         source_data: {layers: {_default: {features: [{geometry: null, properties: {}}, feature]}}}};
     const groups = [{layers: ['first'], style: 'markers'}, {layers: ['second'], style: 'markers'}];

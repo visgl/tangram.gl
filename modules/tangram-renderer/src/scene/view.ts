@@ -52,7 +52,7 @@ interface ViewTile {
     coords: TileCoordinate;
     key: string;
     isProxy(): boolean;
-    setupProgram(matrices: MatrixSet, program: ViewProgram, buffer?: UniformBuffer): void;
+    setupProgram(matrices: MatrixSet & {model: Float64Array; model32: Float32Array}, program: ViewProgram, buffer?: UniformBuffer): void;
 }
 
 interface ViewProgram extends Program {
@@ -71,7 +71,7 @@ export interface ViewScene {
         isTilePreloaded?(key: string): boolean;
         /** Install shared worker/cache limits before refreshing visibility. */
         setResourceLimits?(options: Readonly<HostTileResourceOptions> | undefined): void;
-    };
+    } | null;
     updateConfig(options: {rebuild: boolean; normalize: boolean}): unknown;
     requestRedraw(): void;
 }
@@ -85,6 +85,11 @@ export default class View {
     declare trigger: SubscriptionMethods['trigger'];
     declare hasSubscribersFor: SubscriptionMethods['hasSubscribersFor'];
     readonly scene: ViewScene;
+    /** Scene teardown retires its tile owner; view operations require the live manager. */
+    private get activeTileManager(): NonNullable<ViewScene['tile_manager']> {
+        if (!this.scene.tile_manager) throw new Error('View scene tile manager has been destroyed');
+        return this.scene.tile_manager;
+    }
     readonly visibility_adapter: VisibilityLODAdapter;
     readonly globe_visibility_adapter: GlobeVisibilityLODAdapter;
     /** Shared traversal/bounds contract, independent of host viewport classes. */
@@ -118,7 +123,7 @@ export default class View {
     user_input_at: number;
     user_input_timeout: number;
     user_input_active: boolean;
-    matrices: MatrixSet & {model32: Float32Array; model_view: Float64Array; normal: Float64Array} = createViewMatrices();
+    matrices: MatrixSet & {model: Float64Array; model32: Float32Array; model_view: Float64Array; normal: Float64Array} = createViewMatrices();
 
 
     constructor (scene: ViewScene, options: ViewOptions = {}) {
@@ -209,7 +214,7 @@ export default class View {
         this.dataTileZoom = dataTileZoom;
         this.applyingFrame = true;
         try {
-            this.scene.tile_manager.setResourceLimits?.(frame.tileResources);
+            this.activeTileManager.setResourceLimits?.(frame.tileResources);
             this.buffer = frame.tileBuffer;
             this.setProjection(frame.projection);
             resize();
@@ -465,7 +470,7 @@ export default class View {
             Geo.tileForMeters([viewBounds.centerMeters.x, viewBounds.centerMeters.y], this.dataTileZoom);
         this.bounds = viewBounds.bounds;
 
-        this.scene.tile_manager.updateTilesForView();
+        this.activeTileManager.updateTilesForView();
 
         this.trigger('move');
         this.scene.requestRedraw(); // TODO automate via move event?
@@ -521,9 +526,9 @@ export default class View {
         const metersPerPixel = this.meters_per_pixel;
         const tileZoom = this.tile_zoom;
 
-        this.scene.tile_manager.removeTiles(tile => {
+        this.activeTileManager.removeTiles(tile => {
             // Ignore visible tiles
-            if (tile.visible || tile.isProxy() || this.scene.tile_manager.isTilePreloaded?.(tile.key)) {
+            if (tile.visible || tile.isProxy() || this.activeTileManager.isTilePreloaded?.(tile.key)) {
                 return false;
             }
 
@@ -583,13 +588,13 @@ export default class View {
     }
 
     // Calculate and set model/view and normal matrices for a tile
-    setupTile (tile: ViewTile, program: ViewProgram, clipBounds?: number[]) {
+    setupTile (tile: ViewTile, program: ViewProgram, clipBounds?: readonly number[]) {
         const uniform_buffer = this.scene.uniform_buffers && this.scene.uniform_buffers.TangramTile;
 
         // Tile-specific state
         // TODO: calc these once per tile (currently being needlessly re-calculated per-tile-per-style)
         tile.setupProgram(this.matrices, program, uniform_buffer);
-        const bounds = clipBounds || [0, 0, 0, 0];
+        const bounds = clipBounds ? Array.from(clipBounds) : [0, 0, 0, 0];
         if (uniform_buffer) uniform_buffer.setUniforms({u_tile_clip_bounds: bounds});
         else program.uniform('4fv', 'u_tile_clip_bounds', bounds);
 

@@ -72,7 +72,7 @@ test('renderer queues the requested eye without changing its current camera and 
 
 test('selection targets, pending compilation locks and request lifetimes are isolated per eye', async () => {
     const createTexture = vi.fn(() => ({destroy: vi.fn()}));
-    const scene = Object.assign(Scene.create({}), {initialized: true, selection_feature_count: 1,
+    const scene = Object.assign(Scene.create({}), {workers: [], initialized: true, selection_feature_count: 1,
         device: {createTexture, createFramebuffer: vi.fn(() => ({destroy: vi.fn()}))}});
     scene.setFeatureSelectionView('left', ['left', 'right']);
     const left = scene.getFeatureAt({x: 100, y: 100}, {renderViewId: 'left', width: 200, height: 200});
@@ -106,7 +106,7 @@ test('initial load and reload restore the retained eye before rendering queued q
     const scene = Scene.create({});
     vi.spyOn(Scene, 'create').mockReturnValue(scene);
     const renderer = new Renderer({});
-    Object.assign(scene, {initialized: true, selection_feature_count: 1,
+    Object.assign(scene, {workers: [], initialized: true, selection_feature_count: 1,
         device: {createTexture: () => ({destroy: vi.fn()}), createFramebuffer: () => ({destroy: vi.fn()})}});
     renderer.setFrame(frame());
     vi.spyOn(scene, 'load').mockImplementation(async () => scene.resetFeatureSelection());

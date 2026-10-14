@@ -8,6 +8,8 @@ import Light from '../src/lights/light';
 import Scene from '../src/scene/scene';
 import SceneLoader from '../src/scene/scene_loader';
 import ShaderProgram from '../src/gl/shader_program';
+import UniformBuffer from '../src/gl/uniform_buffer';
+import Material from '../src/lights/material';
 import ExternalCamera from '../src/scene/external_camera';
 import {Style} from '../src/styles/style';
 import {StyleManager} from '../src/styles/style_manager';
@@ -136,26 +138,25 @@ describe('scene light integration', () => {
         const manager = new StyleManager();
         const definitions = {surface: {base: 'polygons', lighting: 'fragment'},
             road: {base: 'lines', lighting: 'vertex'}, terrain: {base: 'raster', lighting: 'fragment'}};
-        const buffers: {destroy: ReturnType<typeof vi.fn>}[] = [];
-        const factory = vi.fn(() => {
-            const buffer = {destroy: vi.fn()};
+        const buffers: UniformBuffer[] = [];
+        const factory = vi.fn((options: import('../src/gl/uniform_buffer').UniformBufferOptions) => {
+            const buffer = new UniformBuffer(null, {...options, bufferFactory: () => ({write() {}, destroy() {}})});
+            vi.spyOn(buffer, 'destroy');
             buffers.push(buffer);
             return buffer;
         });
-        const programs: {destroy: ReturnType<typeof vi.fn>}[] = [];
+        const programs: ShaderProgram[] = [];
         const resourceContext = {};
         const options = {portableLighting: true, portableLightCount: 1,
             uniformBlockFactory: factory, maxTextureSize: 1024, resourceContext};
-        type ResourceStyle = ManagedStyle & Pick<typeof Style, 'setGL'> & {
-            portable_material_buffer: {destroy: ReturnType<typeof vi.fn>};
-            program: {destroy: ReturnType<typeof vi.fn>};
-            selection_program: {destroy: ReturnType<typeof vi.fn>};
-        };
+        type ResourceStyle = ManagedStyle & Pick<typeof Style, 'setGL'> & Pick<import('../src/styles/style-runtime-types').StyleState, 'portable_material_buffer' | 'program' | 'selection_program'>;
         let styles = manager.build(definitions) as Record<string, ResourceStyle>;
         manager.initStyles({generation: 1});
         const base = styles.polygons;
-        const baseBuffer = {destroy: vi.fn()};
-        const baseProgram = {destroy: vi.fn()};
+        const baseBuffer = new UniformBuffer(null, {name: 'base-material', bufferFactory: () => ({write() {}, destroy() {}})});
+        const baseProgram = new ShaderProgram(null, '', '', {shaderLanguage: 'wgsl'});
+        vi.spyOn(baseBuffer, 'destroy');
+        vi.spyOn(baseProgram, 'destroy');
         base.portable_material_buffer = baseBuffer;
         base.program = baseProgram;
         base.resource_context = resourceContext;
@@ -163,8 +164,10 @@ describe('scene light integration', () => {
             for (const name of Object.keys(definitions)) {
                 const style = styles[name];
                 style.setGL(null, {}, options);
-                style.program = {destroy: vi.fn()};
-                style.selection_program = {destroy: vi.fn()};
+                style.program = new ShaderProgram(null, '', '', {shaderLanguage: 'wgsl'});
+                style.selection_program = new ShaderProgram(null, '', '', {shaderLanguage: 'wgsl'});
+                vi.spyOn(style.program, 'destroy');
+                vi.spyOn(style.selection_program, 'destroy');
                 programs.push(style.program, style.selection_program);
             }
             styles = manager.build(definitions) as Record<string, ResourceStyle>;
@@ -195,7 +198,7 @@ describe('scene light integration', () => {
 
     test('portable style materials are private, refreshed and destroyed when lighting is disabled', () => {
         const style = Object.assign(Object.create(Style), {base: 'polygons',
-            defines: {TANGRAM_LIGHTING_FRAGMENT: true}, material: {diffuse: {amount: [1, 1, 1, 1]}}});
+            defines: {TANGRAM_LIGHTING_FRAGMENT: true}, material: new Material({diffuse: {amount: [1, 1, 1, 1]}})});
         const first = {destroy: vi.fn(), setUniforms: vi.fn()};
         const second = {destroy: vi.fn(), setUniforms: vi.fn()};
         const factory = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second);

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {requireTileManager} from './helpers/scene-owners';
 import {Matrix4} from '@math.gl/core';
 import {afterEach, expect, test, vi} from 'vitest';
 import HostFrame from '../src/scene/host_frame';
@@ -60,7 +61,7 @@ test('resource policies are copied, frozen, applied without camera movement and 
     const options = {maxConcurrentBuilds: 1, maxCachedTiles: 0};
     const first = createFrame(options);
     options.maxConcurrentBuilds = 100;
-    const install = vi.spyOn(renderer.scene.view.scene.tile_manager, 'setResourceLimits');
+    const install = vi.spyOn(requireTileManager(renderer.scene.view.scene), 'setResourceLimits');
     const visibility = vi.spyOn(renderer.scene.view, 'updateBounds');
     try {
         renderer.setFrame(first);

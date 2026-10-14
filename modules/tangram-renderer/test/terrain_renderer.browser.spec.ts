@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {requireTileManager} from './helpers/scene-owners';
 import {expect, test, vi} from 'vitest';
 import Renderer from '../src/scene/renderer';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
@@ -14,8 +15,8 @@ test('query warming advances once per shared stereo frame and releases partial w
     Object.assign(renderer.scene, {setFeatureSelectionView: vi.fn()});
     vi.spyOn(renderer.scene, 'updateScene').mockReturnValue(true);
     vi.spyOn(renderer.scene, 'processTasks').mockImplementation(() => {});
-    vi.spyOn(renderer.scene.tile_manager, 'updateProjectedLabels').mockImplementation(() => {});
-    vi.spyOn(renderer.scene.tile_manager, 'getDrapedTerrainQueryEntries').mockReturnValue([]);
+    vi.spyOn(requireTileManager(renderer.scene), 'updateProjectedLabels').mockImplementation(() => {});
+    vi.spyOn(requireTileManager(renderer.scene), 'getDrapedTerrainQueryEntries').mockReturnValue([]);
     vi.spyOn(renderer.scene, 'load').mockReturnValue(Promise.resolve());
     const redraw = vi.spyOn(renderer.scene, 'requestRedraw').mockImplementation(() => {});
     const released = vi.fn();
@@ -145,8 +146,8 @@ test('surface snapshots follow submitted frames, not pending config or skipped d
     Object.assign(renderer.scene, {setFeatureSelectionView: vi.fn()});
     const draw = vi.spyOn(renderer.scene, 'updateScene').mockReturnValue(true);
     vi.spyOn(renderer.scene, 'processTasks').mockImplementation(() => {});
-    vi.spyOn(renderer.scene.tile_manager, 'updateProjectedLabels').mockImplementation(() => {});
-    vi.spyOn(renderer.scene.tile_manager, 'getDrapedTerrainQueryEntries').mockReturnValue([]);
+    vi.spyOn(requireTileManager(renderer.scene), 'updateProjectedLabels').mockImplementation(() => {});
+    vi.spyOn(requireTileManager(renderer.scene), 'getDrapedTerrainQueryEntries').mockReturnValue([]);
     const frame: import('../src/types').HostFrameOptions = {viewport: {width: 100, height: 100}, geographicAnchor: {longitude: 0, latitude: 0, zoom: 16},
         projection: {type: 'web-mercator'}, renderViews: [{id: 'eye', viewport: {width: 100, height: 100}, camera: {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 100]}}]};
     expect(renderer.getDrapedTerrainSurface()).toBeNull(); renderer.render({frame});

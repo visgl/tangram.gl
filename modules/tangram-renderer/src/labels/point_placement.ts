@@ -18,7 +18,7 @@ type PlacementResult = {positions: Point[]; angles: number[]};
 export default function placePointsOnLine (line: Point[], size: Point, layout: PlacementLayout): LabelPoint[] {
     const labels: LabelPoint[] = [];
     const strategy = layout.placement;
-    const min_length = Math.max(size[0], size[1]) * layout.placement_min_length_ratio * layout.units_per_pixel;
+    const min_length = Math.max(size[0], size[1])  * Number(layout.placement_min_length_ratio) * layout.units_per_pixel;
 
     if (strategy === PLACEMENT.SPACED) {
         let result = getPositionsAndAngles(line, min_length, layout);

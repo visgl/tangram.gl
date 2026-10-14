@@ -7,11 +7,18 @@ import GLSL from '../gl/glsl';
 import StyleParser from '../styles/style_parser';
 
 import material_source from './material.glsl';
+import type {PortableMaterial} from './lighting-uniforms';
 
 const material_props = ['emission', 'ambient', 'diffuse', 'specular'];
 
 export default class Material {
     [key: string]: any;
+    /** Normalized constant/texture channels created from authored material definitions. */
+    declare emission: PortableMaterial['emission'];
+    declare ambient: PortableMaterial['ambient'];
+    declare diffuse: PortableMaterial['diffuse'];
+    declare specular: PortableMaterial['specular'];
+    declare normal: {texture?: unknown; mapping: string; scale: number[] | undefined; amount: number} | undefined;
     static block: string;
 
     constructor (config: any) {

@@ -21,7 +21,8 @@ test('projected worker candidates preserve authored collision and distinguish so
     const draw = {key: 'markers/draw', collide: true};
     const layout = style().computeLayout({}, {id: 7, properties: {}}, draw, context, {units_per_pixel: 4});
     expect(layout).toMatchObject({collide: false, projected_collide: true});
-    expect(JSON.parse(layout.projected_identity)).toEqual(['cities', 'places', 'markers', 'markers/draw', 'number', 7]);
+    expect(layout.projected_identity).toBeDefined();
+    expect(JSON.parse(layout.projected_identity ?? '')).toEqual(['cities', 'places', 'markers', 'markers/draw', 'number', 7]);
     for (const alternative of [
         style().computeLayout({}, {id: '7', properties: {}}, draw, context, {}),
         style().computeLayout({}, {id: 7, properties: {}}, draw, {...context, source: 'other'}, {}),
@@ -72,6 +73,7 @@ test.each([
     {name: 'classic', screen_space_labels: false, cpu_projection: undefined, retained: 1}
 ])('$name tile construction preserves the appropriate repeat candidates', async ({screen_space_labels, cpu_projection, retained}) => {
     const tile = {id: 'repeat-candidates', key: 'fixture', source: 'fixture', source_data: {}, debug: {},
+        coords: {x: 0, y: 0, z: 0, key: '0/0/0'}, min: {x: 0, y: 0}, max: {x: 256, y: 256},
         style_z: 0, meters_per_pixel: 1, meters_per_pixel_sq: 1, units_per_meter_overzoom: 1};
     // Keep the real tile/collision policy but avoid worker transport and geometry allocation.
     const buildGroups = vi.spyOn(Tile, 'buildStyleGroups').mockImplementation(() => {});
