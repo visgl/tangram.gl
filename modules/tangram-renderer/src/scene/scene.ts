@@ -1299,15 +1299,15 @@ export default class Scene {
                     // Tile-specific state
                     if (first_for_tile === true) {
                         first_for_tile = false;
-                        this.view.setupTile(tile, activeProgram, clip);
+                        this.view.setupTile(tile, activeProgram, clip ?? (mesh.variant.terrainGroundClip ? [0, -4096, 4096, 0] : undefined));
                     }
 
                     // Render this mesh variant
                     if (mesh.variant.terrain) {
                         const now = this.terrainFrameTime ?? performance.now();
-                        mesh.terrainVisibleAt ??= now;
+                        const origin = this.activeTileManager.getTerrainTransitionOrigin(mesh, now);
                         const duration = mesh.variant.terrainTransitionDuration ?? this.terrain?.transitionDuration ?? 0;
-                        const blend = duration ? Math.max(0, Math.min(1, (now - mesh.terrainVisibleAt) / duration)) : 1;
+                        const blend = duration ? Math.max(0, Math.min(1, (now - origin) / duration)) : 1;
                         mesh.terrainBlend = blend;
                         const uniforms = {u_terrain_blend: blend, u_terrain_exaggeration: this.terrainExaggeration};
                         if (this.uniform_buffers.TangramTile) this.uniform_buffers.TangramTile.setUniforms(uniforms);
@@ -1655,6 +1655,7 @@ export default class Scene {
             if (this.terrainTransaction) {
                 const time = performance.now();
                 const build = this.building;
+                if (!build.error && this.terrain) this.activeTileManager.startTerrainTransition(this.terrain.transitionGeneration, time);
                 this.activeTileManager.forEachTile(tile => {if (build.error) tile.discardTerrainStage(); else tile.commitTerrainStage(time);});
                 if (!this.building.error) this.terrainDisplayGeneration = this.generation;
                 this.terrainTransaction = false;

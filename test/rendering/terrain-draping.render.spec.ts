@@ -81,6 +81,47 @@ test('packaged raster UVs survive worker refinement and displacement', async () 
     expect(harness.errors).toEqual([]);
 }, 45000);
 
+/** Offline balanced globe coverage, with one coarse leaf replaced by its four children. */
+function canonicalField(height: number): TerrainDrapingOptions {
+    const circumference = 2 * Math.PI * 6378137;
+    const leaf = (column: number, row: number, zoom: number) => {
+        const span = circumference / 2 ** zoom;
+        return {width: 2, height: 2, bounds: [column * span - circumference / 2, circumference / 2 - (row + 1) * span,
+            (column + 1) * span - circumference / 2, circumference / 2 - row * span] as const,
+            heights: new Float32Array(4).fill(height), valid: new Uint8Array(4).fill(1), verticalDatum: 'orthometric' as const, registration: 'grid-node' as const};
+    };
+    const grids = Array.from({length: 16}, (_, index) => leaf(index % 4, Math.floor(index / 4), 2)).filter((_grid, index) => index !== 6);
+    grids.push(leaf(4, 2, 3), leaf(5, 2, 3), leaf(4, 3, 3), leaf(5, 3, 3));
+    return {grids, querySurfaceStyles: ['raster'], groundMeshResolution: 8, transitionDuration: 200};
+}
+
+test.each(['flat', 'globe'] as ViewKind[])('%s canonical ground preserves raster color, ownership and atomic query morphs through the packaged worker', async kind => {
+    const harness = new RenderingHarness(kind, 'stereo-preview'); harnesses.push(harness);
+    harness.terrain = canonicalField(20);
+    if (kind === 'globe') {harness.globePreloadZoom = 2; harness.tileZoom = 3;}
+    await harness.initialize(createRasterScene()); await harness.settle();
+    expect(coloredPixels(await harness.pixels())).toBeGreaterThan(1000);
+    const source = await harness.renderer.getTileSourceStatistics();
+    const before = harness.renderer.getDrapedTerrainSurface();
+    if (!before) throw new Error('Expected admitted canonical ground');
+    expect(before.inputBytes).toBeGreaterThan(0);
+    await harness.renderer.setTerrain({...canonicalField(120), previousGrids: canonicalField(20).grids});
+    await harness.settle();
+    expect(coloredPixels(await harness.pixels())).toBeGreaterThan(1000);
+    const after = harness.renderer.getDrapedTerrainSurface();
+    expect(after?.generation).toBeGreaterThan(before.generation);
+    expect(await harness.renderer.getTileSourceStatistics()).toEqual(source);
+    const frame = harness.presentation.createFrame({width: 512, height: 320});
+    for (const eye of frame.renderViews) {
+        if (!eye.deckViewport) throw new Error('Expected stereo viewport');
+        const pixel = eye.deckViewport.project([0.001, 0.001, 120]);
+        const hit = harness.renderer.getTerrainAt({x: pixel[0] + (eye.viewport?.x ?? 0), y: pixel[1] + (eye.viewport?.y ?? 0)}, undefined, {coordinateSpace: 'canvas'});
+        expect(hit?.coordinate[2]).toBeGreaterThanOrEqual(20 - 1e-6);
+        expect(hit?.coordinate[2]).toBeLessThanOrEqual(120 + 1e-6);
+    }
+    expect(harness.errors).toEqual([]);
+}, 45000);
+
 test.each([false, true])('non-interactive ground (later order=%s) occludes annotation color and feature picking in both stereo eyes', async laterOrder => {
     const harness = new RenderingHarness('perspective', 'stereo-preview'); harnesses.push(harness);
     // No CPU ground query styles: this exercises depth parity, not a hidden CPU collision mask.

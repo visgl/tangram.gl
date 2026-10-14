@@ -387,13 +387,56 @@ Do not mutate grids in place; keep option identities stable until data changes.
 `transitionDuration` defaults to 200 ms. Newly admitted meshes blend height and
 slope from the last admitted field, or explicit `previousGrids`; missing previous
 samples start at their current height, not sea level. Color, collision and both
-eyes share a frame clock. `setTerrain` uploads replacements into an isolated stage;
+eyes share a field-generation clock. Ordinary detail tiles arriving after the
+first draw inherit that generation's origin; they do not restart its morph while
+adjacent fallback is already settled. `setTerrain` uploads replacements into an isolated stage;
 all tile batches must finish before the draw owners swap together. Every replacement
 mesh and label receives the same transition origin. Failure discards the entire
 stage, then restores worker configuration. This removes asynchronous per-tile
 transition starts, but is not a spatial mixed-LOD tessellation/seam guarantee.
 `terrainExaggeration` defaults to 1 and is GPU-only:
 it does not refetch tiles, resample grids or rebuild topology.
+
+### Conforming raster ground
+
+Set `groundMeshResolution: 32` with `querySurfaceStyles: ['ground']` to opt into
+DEM-owned raster ground topology. Zero (the default) keeps legacy refinement.
+Accepted resolutions are 2, 4, 8, 16, 32 and 64 cells per DEM tile axis. The globe
+reference opts into 32; local Map/FirstPerson references retain their existing
+refinement policy until a suitable detail/error policy is available.
+
+Current DEM footprints must be non-overlapping square EPSG:3857 quadtree tiles
+with balanced 2:1 edges; tiny coordinate roundoff is snapped to the world lattice.
+Selected ground styles must render one full source-tile raster quad with constant
+style channels. Partial georeferenced images, varying quad colors/elevations,
+ribbons and annotation quads are rejected on this path rather than silently
+claiming seam conformity. Other styles keep their original tessellation.
+
+Ground cells are independent of vector/raster source zoom. Coarse DEM boundaries
+include fine-neighbor knots. Raster tile/detail/fallback boundaries never crop
+or retessellate those triangles: each owner submits complete cells and the
+fragment shader partitions them with half-open source/fallback clips. Query
+snapshots apply the same ownership convention, including parent/detail clip
+edges. Raster UVs remain in source-tile coordinates. Periodic DEM references
+reconcile the antimeridian while retaining the source height arrays.
+
+All ground owners sample identical current/previous heights and slopes at shared
+nodes, then use the same generation blend in color, depth, collision and queries.
+Changing the field still publishes complete staged generations atomically.
+Retained snapshots remain immutable. **This is height/slope morphing on the new
+admitted topology, not exact replay of an older triangle surface**: changing DEM
+leaf topology can change spherical chord approximation at the handoff. Exact
+cross-topology geometric morphing remains follow-up work.
+
+Resolution is explicit, not a certified pixel-error control. A fine source tile
+may own only part of a larger DEM triangle; higher source zoom does not refine
+that triangle. The existing per-mesh vertex/output/query limits still reject
+oversized work, and failed staged admission keeps the previous display. Canonical
+positions/topology and periodic metadata are preparation scratch outside completed
+draw/query byte caps. Ground and legacy style samplers have separate 8 MiB prefix
+owners per current/previous field; they are not one total pipeline budget.
+There are no skirts. This does not guarantee polygon/wide-road draping parity,
+polar coverage, whole-frame performance or native headset behavior.
 
 Missing DEM footprints and invalid bilinear neighborhoods suppress triangles.
 Conservative footprint/mask checks can remove extra triangles near holes; they

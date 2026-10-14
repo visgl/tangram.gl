@@ -209,7 +209,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         if (draping.checked && BasemapLayer) {
             grids = nextGrids;
             if (nextGrids.length !== terrainInput.grids.length || nextGrids.some((grid, index) => grid !== terrainInput.grids[index])) {
-                terrainInput = {grids, querySurfaceStyles: ['ground'], transitionDuration: 200, maxSegmentLength: 100000, occludeAnnotations: true,
+                terrainInput = {grids, querySurfaceStyles: ['ground'], groundMeshResolution: 32, transitionDuration: 200, maxSegmentLength: 100000, occludeAnnotations: true,
                     maxGridBytes: 256 * 1024 * 1024, maxStagedMeshBytes: 128 * 1024 * 1024};
             }
             const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));

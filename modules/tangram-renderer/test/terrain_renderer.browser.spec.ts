@@ -74,8 +74,13 @@ test('queued terrain snapshots coalesce, serialize and keep source caches warm',
     await Promise.all([renderer.setTerrain({grids: [], maxSegmentLength: 50}), renderer.setTerrain({grids: [], maxSegmentLength: 100}), renderer.setTerrain({grids: [], maxSegmentLength: 200})]);
     expect(rebuild).toHaveBeenCalledOnce(); expect(rebuild).toHaveBeenCalledWith({preserveTileCache: true, preserveTime: true});
     expect(renderer.scene.terrain?.maxSegmentLength).toBe(200);
+    expect(renderer.scene.terrain?.transitionGeneration).toBe(1);
+    await renderer.scene.rebuild({preserveTileCache: true, preserveTime: true});
+    expect(renderer.scene.terrain?.transitionGeneration).toBe(1);
+    await renderer.setTerrain({grids: [], transitionDuration: 0});
+    expect(renderer.scene.terrain?.transitionGeneration).toBe(2);
     renderer.setTerrainExaggeration(5); renderer.setTerrainExaggeration(5);
-    expect(renderer.scene.terrainExaggeration).toBe(5); expect(redraw).toHaveBeenCalledTimes(2);
+    expect(renderer.scene.terrainExaggeration).toBe(5); expect(redraw).toHaveBeenCalledTimes(3);
     for (const value of [-1, NaN, Infinity, 1001]) expect(() => renderer.setTerrainExaggeration(value)).toThrow(/exaggeration/);
     renderer.destroy();
     await expect(renderer.setTerrain({grids: []})).rejects.toThrow(/live/);
@@ -94,6 +99,7 @@ test('failed terrain rebuild restores workers and meshes; failed recovery fails 
     rebuild.mockResolvedValue(undefined);
     await renderer.setTerrain({grids: [], transitionDuration: 0});
     expect(renderer.scene.terrain?.transitionDuration).toBe(0);
+    expect(renderer.scene.terrain?.transitionGeneration).toBe(1);
     renderer.destroy();
 });
 

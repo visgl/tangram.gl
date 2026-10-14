@@ -167,6 +167,7 @@ export default class Renderer {
             if (!terrain) return;
             this.pendingTerrain = undefined;
             const previous = this.scene.terrain;
+            terrain = {...terrain, transitionGeneration: previous.transitionGeneration + 1};
             if (this.pendingTerrainUsesPrevious && terrain.grids.length && previous.grids.length) {
                 const byteLength = terrain.byteLength + previous.grids.reduce((bytes, grid) => bytes + grid.heights.byteLength + grid.valid.byteLength, 0);
                 if (byteLength > terrain.maxGridBytes) throw new Error('Terrain draping current/previous grid-byte budget exceeded');

@@ -48,6 +48,10 @@ export interface TileMeshVariant extends Record<string, unknown> {
     mesh_order?: number;
     /** Captured height-blend duration for admitted geometry. */
     terrainTransitionDuration?: number;
+    /** Terrain field epoch whose meshes share one display transition origin, independent of scene rebuilds. */
+    terrainGeneration?: number;
+    /** Complete canonical ground cells require half-open tile ownership clipping. */
+    terrainGroundClip?: boolean;
     /** Worker-side terrain cost captured on this final mesh variant. */
     terrainStatistics?: import('../procedures/terrain-draping').TerrainMeshPreparation;
 }

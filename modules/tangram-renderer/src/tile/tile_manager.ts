@@ -25,6 +25,7 @@ import type {TileBuildStyle, TileBuildProgress, TileStylePayload, TileDebug, Wor
 import type {BrokerWorker} from '../utils/worker-types';
 import type {TaskRecord} from '../utils/task';
 import type {TerrainDrapingSnapshot} from '../procedures/terrain-draping';
+import type VBOMesh from '../gl/vbo_mesh';
 
 /** Manager-facing camera operations; no classic camera implementation is required. */
 interface TileManagerView {
@@ -65,6 +66,8 @@ type TileBuildReply = Pick<WorkerBuildTile, 'mesh_data' | 'debug'> & {
 type TileBuildFailure = {id: number | string; key: string; generation: number | null; error: unknown; mesh_data?: Record<string, TileStylePayload>};
 
 export default class TileManager {
+    /** At most two active/recent field clocks; late tiles never restart their admitted field's morph. */
+    private readonly terrainTransitionOrigins = new Map<number, number>();
     /** Scene and proxy ownership are released on destruction. */
     declare scene: TileManagerScene | null;
     declare pyramid: TilePyramid<Tile> | null;
@@ -112,6 +115,7 @@ export default class TileManager {
     }
 
     destroy() {
+        this.terrainTransitionOrigins.clear();
         this.tileset.finalize(tile => tile.destroy());
         this.pyramid = null;
         this.visible_coords = {};
@@ -271,6 +275,12 @@ export default class TileManager {
 
     /** Layout annotations before drawing and refresh proxy/style ownership after label swaps. */
     updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean, terrainSurface?: import('../selection/terrain_surface').TerrainSurfaceCollection): void {
+        if (this.activeScene.terrain) {
+            const time = this.activeScene.terrainFrameTime ?? performance.now();
+            for (const tile of this.renderable_tiles) for (const meshes of [tile.meshes, tile.pending_label_meshes ?? {}]) for (const parts of Object.values(meshes)) for (const mesh of parts) {
+                if (mesh.variant?.terrain) this.getTerrainTransitionOrigin(mesh, time);
+            }
+        }
         const tiles = this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for);
         const pending = tiles.some(tile => tile.pending_label_meshes !== null);
         const layoutOptions = {clockwiseRotation, terrainSurface, terrainExaggeration: this.activeScene.terrainExaggeration ?? 1,
@@ -323,6 +333,25 @@ export default class TileManager {
         this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
     }
 
+    /** Publish one atomic field transition origin only after staged geometry succeeds. */
+    startTerrainTransition(generation: number, time: number): void {
+        if (this.terrainTransitionOrigins.has(generation)) return;
+        this.terrainTransitionOrigins.set(generation, time);
+        while (this.terrainTransitionOrigins.size > 2) this.terrainTransitionOrigins.delete(this.terrainTransitionOrigins.keys().next().value!);
+    }
+
+    /** Reuse the field clock for query layout, both eyes and late ordinary tile/detail arrivals. */
+    getTerrainTransitionOrigin(mesh: Pick<VBOMesh, 'variant' | 'terrainVisibleAt'>, time: number): number {
+        const generation = mesh.variant.terrainGeneration;
+        if (generation === undefined) return mesh.terrainVisibleAt ??= time;
+        let origin = this.terrainTransitionOrigins.get(generation);
+        if (origin === undefined) {
+            origin = mesh.terrainVisibleAt ?? time;
+            this.startTerrainTransition(generation, origin);
+        }
+        return mesh.terrainVisibleAt = origin;
+    }
+
     /** Ground query membership and fallback clipping follow the same admitted owners as the draw pass. */
     getDrapedTerrainQueryEntries(time: number): DrapedTerrainQueryEntry[] {
         const entries: DrapedTerrainQueryEntry[] = [];
@@ -332,11 +361,12 @@ export default class TileManager {
                 if (!mesh.valid || !mesh.terrainQueryMesh) continue;
                 const duration = mesh.variant.terrainTransitionDuration ?? 0;
                 // Layout and draw must start newly visible ground on the same clock.
-                mesh.terrainVisibleAt ??= time;
+                this.getTerrainTransitionOrigin(mesh, time);
                 const blend = mesh.terrainVisibleAt === undefined || !duration ? 1 : Math.max(0, Math.min(1, (time - mesh.terrainVisibleAt) / duration));
                 const scale = tile.span.x / 4096;
-                const clips = tile.fallback_for ? Array.from(tile.fallback_for.values(), (bounds): [number, number, number, number] => [tile.min.x + bounds[0] * scale, tile.min.y + bounds[1] * scale, tile.min.x + bounds[2] * scale, tile.min.y + bounds[3] * scale]) : undefined;
-                entries.push({id: `${tile.key}/${style}/${mesh.id}`, mesh: mesh.terrainQueryMesh, blend, clips});
+                const clipBounds = tile.fallback_for ? Array.from(tile.fallback_for.values()) : mesh.variant.terrainGroundClip ? [[0, -4096, 4096, 0]] : undefined;
+                const clips = clipBounds?.map((bounds): [number, number, number, number] => [tile.min.x + bounds[0] * scale, tile.min.y + bounds[1] * scale, tile.min.x + bounds[2] * scale, tile.min.y + bounds[3] * scale]);
+                entries.push({id: `${tile.key}/${style}/${mesh.id}`, mesh: mesh.terrainQueryMesh, blend, clips, halfOpenClips: mesh.variant.terrainGroundClip === true});
             }
         }
         return entries;

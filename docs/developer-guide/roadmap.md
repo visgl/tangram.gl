@@ -30,7 +30,7 @@ acceptance in [#48](https://github.com/visgl/tangram.gl/issues/48).
   annotation depth and demand-bounded query/index residency (#188–#208).
   Preview stitching does **not** imply conforming styled ground topology.
 
-## Current batch: reusable height-field preparation
+## Landed batch: reusable height-field preparation
 
 `TerrainHeightField` indexes immutable DEM footprints for height/slope lookup and
 conservative rectangle admission. Worker styles share current/previous field
@@ -43,6 +43,20 @@ registration, physical meters and no-data holes. Diagnostics count admitted
 grid visits, mask reads/builds and retained mask bytes. They are not FPS or total
 memory estimates. This reduces repeated source scans and mask construction; it
 does not change styled topology, certify terrain error or move work off-thread.
+
+## Current batch: canonical raster ground and field transitions
+
+Opt-in `groundMeshResolution` gives selected full-tile raster ground styles
+DEM-owned triangles with balanced coarse/fine knots. Complete cells survive
+source-detail and fallback boundaries; half-open draw/query clips partition
+ownership rather than retessellating the surface. Periodic copies reconcile
+antimeridian sampling. The globe reference opts into 32 cells per DEM axis.
+
+Late source tiles inherit the admitted field's shared transition origin, including
+both eyes and CPU queries; successful staged replacement starts the next field
+clock atomically. This completes the raster-ground seam/clock portion of batch 1,
+not arbitrary polygon/ribbon conformity or exact replay of older DEM triangulation.
+Explicit resolution remains a resource/detail policy rather than certified error.
 
 ## Remaining batches, in priority order
 
@@ -57,7 +71,8 @@ does not change styled topology, certify terrain error or move work off-thread.
 | 7. Parser and tileset production switches | Published YAML scalar/merge parity, authored MVT-property preservation, PMTiles/MLT/provider conformance, shared loaders.gl source/tileset lifecycle hooks. | Re-run the corpus on the selected release, compare worker outputs and cancellation, record decode and raw/min/gzip costs, then switch one default implementation at a time. |
 | 8. Type and coverage hardening | Replace residual broad dynamic types with normalized scene/style/source contracts; migrate remaining JS tests and simple Chai/Sinon usage; exercise untested ownership/error paths. | Raise each authored-package coverage metric above 90% without weaker thresholds/exclusions; no suppression regressions; unchanged runtime outputs and browser/worker coverage rather than assertions about types alone. |
 
-Batch 1 is the next terrain correctness priority. Batches 2–3 share resource and
+Batch 1's remaining priorities are polygon/ribbon edge conformity and exact
+cross-topology geometric transitions. Batches 2–3 share resource and
 profiling work and can form one substantial follow-up. Batch 8 can run independently;
 it must not be described as another filename-only TypeScript migration.
 Batch 7 requires published upstream fixes; do not block unrelated terrain work on it.

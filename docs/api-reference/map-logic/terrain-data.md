@@ -95,6 +95,29 @@ tree metadata and temporary work are outside the byte cap.
 they measure work and retention, not elapsed time or whole-pipeline memory.
 These helpers remain CPU-only and are exported from the existing `map-logic` entry.
 
+## Canonical ground topology
+
+`createTerrainGroundTopology(grids, bounds, resolution = 32, maxVertices = 131072)`
+returns complete counterclockwise DEM triangles intersecting an EPSG:3857 ownership
+rectangle, accepting at most 96 footprints. Footprints must be non-overlapping square quadtree tiles with balanced
+2:1 edges; resolution is a power of two from 2 to 64. Unsupported geometry or an
+exhausted vertex limit throws without publishing partial arrays.
+
+The detached `positions` contain unwrapped absolute XY pairs; `indices` contain
+triangles. `samplePositions` retain exact periodic XY before `sampleOffset` world
+translation, avoiding subtractive precision loss during sampling. Arrays may
+alias when no translation is needed. No heights, source fetches, GPU resources or
+provider state are owned. Treat input grids/arrays as immutable; validated patch
+metadata is reused by field-array identity.
+
+Triangles are deliberately **not clipped to bounds**. A host must clip drawing
+and querying to the ownership rectangle; otherwise adjacent source owners overlap.
+This retains identical curved triangles across source-detail/fallback boundaries.
+It is not arbitrary polygon subdivision, a height decoder, no-data admission or
+an error-controlled terrain scheduler. The renderer adapter applies height/mask
+admission and half-open source clips; see
+[conforming raster ground](../../developer-guide/terrain.md#conforming-raster-ground).
+
 ## Globe display meshes
 
 `buildGlobeTerrainMesh(grid, {exaggeration, resolution, neighbors})` resamples a

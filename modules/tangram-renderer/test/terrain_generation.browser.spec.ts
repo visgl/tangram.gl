@@ -45,6 +45,43 @@ test('incremental replacement uploads retain old draw owners until a shared gene
     expect(replacement.destroy).toHaveBeenCalledOnce(); expect(label.destroy).toHaveBeenCalledOnce();
 });
 
+test('late source detail and either eye inherit the admitted field clock rather than restarting its morph', () => {
+    const scene = Scene.create({}, {terrain: {grids: []}}), manager = requireTileManager(scene);
+    const first = mesh(), late = mesh();
+    first.variant = {terrain: true, terrainGeneration: 7, terrainTransitionDuration: 200};
+    late.variant = {...first.variant};
+    expect(manager.getTerrainTransitionOrigin(first, 100)).toBe(100);
+    expect(manager.getTerrainTransitionOrigin(late, 250)).toBe(100);
+    expect(manager.getTerrainTransitionOrigin(late, 1000)).toBe(100);
+    scene.generation++;
+    manager.startTerrainTransition(7, 1100); // An unrelated staged scene rebuild cannot restart a settled field.
+    const rebuilt = mesh(); rebuilt.variant = {...first.variant};
+    expect(manager.getTerrainTransitionOrigin(rebuilt, 1150)).toBe(100);
+    rebuilt.destroy();
+    manager.startTerrainTransition(8, 1200);
+    first.variant = {...first.variant, terrainGeneration: 8};
+    expect(manager.getTerrainTransitionOrigin(first, 1250)).toBe(1200);
+    manager.startTerrainTransition(9, 1400); // Bounded clock history must not alter retained mesh origins.
+    expect(manager.getTerrainTransitionOrigin(late, 2000)).toBe(100);
+    first.destroy(); late.destroy(); scene.destroy();
+});
+
+test('canonical ground query clips retain source ownership while late meshes use one generation blend', () => {
+    const scene = Scene.create({}, {terrain: {grids: []}}), manager = requireTileManager(scene), owner = tile();
+    const first = mesh(), late = mesh();
+    const query = {positions: new Float64Array([-1, -1, 0, 1, -1, 0, -1, 1, 0]), heights: new Float32Array(6), indices: new Uint16Array([0, 1, 2]), bounds: [-1, -1, 1, 1] as const};
+    first.terrainQueryMesh = query; late.terrainQueryMesh = query;
+    first.variant = {terrain: true, terrainGeneration: 7, terrainTransitionDuration: 200, terrainGroundClip: true};
+    late.variant = {...first.variant};
+    owner.meshes = {ground: [first]}; manager.renderable_tiles = [owner];
+    expect(manager.getDrapedTerrainQueryEntries(100)[0]).toMatchObject({blend: 0, halfOpenClips: true});
+    owner.meshes.ground.push(late);
+    const entries = manager.getDrapedTerrainQueryEntries(200);
+    expect(entries.map(entry => entry.blend)).toEqual([0.5, 0.5]);
+    expect(entries[0].clips).toEqual([[-Math.PI * 6378137, -Math.PI * 6378137, Math.PI * 6378137, Math.PI * 6378137]]);
+    owner.freeResources(); manager.renderable_tiles = []; scene.destroy();
+});
+
 test('cancelled and partially failed stages release only replacement buffers and restore display ownership', () => {
     const owner = tile(), previous = mesh(), replacement = mesh(); owner.meshes = {ground: [previous]}; owner.beginTerrainStage();
     vi.spyOn(owner, 'buildMeshBatch').mockImplementation(() => {owner.meshes = {ground: [replacement]}; throw new Error('upload');});
@@ -63,10 +100,11 @@ test.each([false, true])('scene completion admits or rejects the entire terrain 
     const resolve = vi.fn(), reject = vi.fn(); Object.assign(scene, {generation: 7, building: {resolve, reject, error: failed ? new Error('budget') : undefined}});
     vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
     vi.spyOn(requireTileManager(scene), 'publishTerrainDisplay').mockImplementation(() => {});
+    const start = vi.spyOn(requireTileManager(scene), 'startTerrainTransition');
     vi.spyOn(requireTileManager(scene), 'updateLabels').mockResolvedValue({});
     scene.tileManagerBuildDone();
-    if (failed) {expect(reject).toHaveBeenCalledOnce(); expect(firstMesh.destroy).toHaveBeenCalledOnce(); expect(first.meshes).toEqual({});}
-    else {expect(resolve).toHaveBeenCalledWith(true); expect(firstMesh.terrainVisibleAt).toBe(secondMesh.terrainVisibleAt); expect(scene.terrainDisplayGeneration).toBe(7);}
+    if (failed) {expect(reject).toHaveBeenCalledOnce(); expect(firstMesh.destroy).toHaveBeenCalledOnce(); expect(first.meshes).toEqual({}); expect(start).not.toHaveBeenCalled();}
+    else {expect(resolve).toHaveBeenCalledWith(true); expect(firstMesh.terrainVisibleAt).toBe(secondMesh.terrainVisibleAt); expect(scene.terrainDisplayGeneration).toBe(7); expect(start).toHaveBeenCalledWith(0, firstMesh.terrainVisibleAt);}
     requireTileManager(scene).tiles = {}; first.freeResources(); second.freeResources(); scene.destroy();
 });
 
