@@ -243,6 +243,7 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                 if (!owner.surface) {
                     const existing = admittedSurfaces.get(mesh)?.get(blend);
                     if (existing) {owner.surface = existing; return existing;}
+                    const started = performance.now();
                     // TerrainMeshSurface owns Float64 XYZ, Float64 physical heights, and Uint32 topology.
                     const geometryBytes = mesh.positions.length * 8 + mesh.heights.length / 2 * 8 + mesh.indices.length * 4;
                     if (geometryBytes > maxProjectedQueryBytes - projectedBytes) {
@@ -253,11 +254,11 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                     // constructor membership order. Clip leases of the same settled mesh share it.
                     const indexLimit = blend !== 1 ? 0 : indexLimits.get(mesh) ?? (required <= maxQueryIndexBytes - indexBudget.reserved ? required : 0);
                     if (blend === 1 && !indexLimits.has(mesh)) {indexLimits.set(mesh, indexLimit); indexBudget.reserved += indexLimit;}
-                    const cached = projectedQueries.get(mesh), started = performance.now();
+                    const cached = projectedQueries.get(mesh);
                     owner.projectionBuilds = Number(cached?.projection !== projection || cached.blend !== blend || cached.exaggeration !== exaggeration || cached.indexLimit !== indexLimit);
                     owner.surface = getProjectedSurface(mesh, projection, blend, exaggeration, indexLimit);
-                    owner.preparationMs += performance.now() - started;
                     }
+                    owner.preparationMs += performance.now() - started;
                     const blends = admittedSurfaces.get(mesh) ?? new Map<number, ProjectedQuerySurface>();
                     blends.set(blend, owner.surface); admittedSurfaces.set(mesh, blends);
                 }

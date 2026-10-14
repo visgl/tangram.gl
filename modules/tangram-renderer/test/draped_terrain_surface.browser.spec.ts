@@ -168,6 +168,15 @@ test('projected geometry is demand-admitted, byte-exact, and shared by repeated 
     expect(surface.getStatistics().queryIndexBytes).toBe(TriangleQueryIndex.getRequiredHierarchyBytes(1));
 });
 
+test('streaming-owner validation is counted separately from exact query CPU time', () => {
+    const surface = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'ground', mesh: ground(), blend: 1}], 0, 0, 1, 0, 0);
+    const clock = vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(107).mockReturnValueOnce(110).mockReturnValueOnce(113);
+    try {
+        expect(surface.intersectRay({origin: [0, -1, 500], direction: [0, 0, -1]})).not.toBeNull();
+        expect(surface.getStatistics()).toMatchObject({preparationMs: 7, queryMs: 3, streamingMeshes: 1, projectedBytes: 0});
+    } finally {clock.mockRestore();}
+});
+
 test('streaming queries reject malformed channels instead of returning a plausible hit', () => {
     const mesh = ground(); mesh.indices[2] = 999;
     const surface = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'invalid', mesh, blend: 1}], 0, 0, 1, 0, 0);
