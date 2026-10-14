@@ -29,6 +29,8 @@ export function clearFunctionStringCache(): void {
 }
 
 // Recursively parse an object, compiling string properties that look like functions
+export function compileFunctionStrings<Value extends object>(value: Value, wrap?: FunctionStringWrapper): Value;
+export function compileFunctionStrings<Value>(value: Value, wrap?: FunctionStringWrapper): Value | CompiledFunction;
 export function compileFunctionStrings<Value>(
   value: Value,
   wrap?: FunctionStringWrapper

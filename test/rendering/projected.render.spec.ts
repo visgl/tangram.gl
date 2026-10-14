@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {requireTileManager} from '../../modules/tangram-renderer/test/helpers/scene-owners';
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Deck, OrthographicView, type Layer, type LayerProps} from '@deck.gl/core';
@@ -494,7 +495,7 @@ test(`${DEVICE_TYPE}: projected pixel roads keep CSS width across zoom, with out
   await expect.poll(() => sceneLoads, {timeout: 20000}).toBe(3);
   await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas)), {timeout: 20000}).toBeGreaterThan(100);
   await expect.poll(() => {
-    const resources = loadedScene?.tile_manager.getResourceStatistics();
+    const resources = loadedScene ? requireTileManager(loadedScene).getResourceStatistics() : undefined;
     return resources ? resources.activeBuilds + resources.queuedBuilds : -1;
   }, {timeout: 20000}).toBe(0);
   // Capture only after the animated scene has loaded and finished building;
@@ -721,7 +722,7 @@ test.each([false, true])(`${DEVICE_TYPE}: source detail round trips retain style
   const initialScene = loadedScene;
   const workers = Reflect.get(initialScene, 'workers');
   /** Observe real scene tiles without widening its public API solely for a fixture. */
-  const getVisibleTiles = () => Object.values(initialScene.tile_manager.tiles).filter(tile => tile.visible);
+  const getVisibleTiles = () => Object.values(requireTileManager(initialScene).tiles).filter(tile => tile.visible);
   /** Wait for installed detail and every scheduled build, not only a fallback's first pixel. */
   const waitForDetail = async (detail: number) => {
     // Auto-tiled GeoJSON uses 512px tiles: normalized data is one level below logical detail.
@@ -731,13 +732,13 @@ test.each([false, true])(`${DEVICE_TYPE}: source detail round trips retain style
       return tiles.length > 0 && tiles.every(tile => Reflect.get(tile, 'coords').z === sourceZoom && tile.built && Reflect.get(tile, 'style_z') === 4);
     }, {timeout: 20000}).toBe(true);
     await expect.poll(() => {
-      const resources = initialScene.tile_manager.getResourceStatistics();
+      const resources = requireTileManager(initialScene).getResourceStatistics();
       return resources.activeBuilds + resources.queuedBuilds;
     }, {timeout: 20000}).toBe(0);
     await expect.poll(async () => coloredPixels(await readCanvasPixels(canvas)), {timeout: 20000}).toBeGreaterThan(500);
     expect(errors).toEqual([]);
     expect(initialScene.view.zoom).toBe(4);
-    const resources = initialScene.tile_manager.getResourceStatistics();
+    const resources = requireTileManager(initialScene).getResourceStatistics();
     expect(resources.activeBuilds).toBeLessThanOrEqual(2);
     expect(resources.cachedTiles).toBeLessThanOrEqual(16);
     expect(resources.cachedMeshBytes).toBeLessThanOrEqual(32 * 1024 * 1024);

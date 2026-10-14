@@ -62,7 +62,7 @@ export class RasterTileSource extends NetworkTileSource {
     }
 
     // Return texture info for a raster tile
-    async tileTexture (tile: Tile): Promise<any> {
+    async tileTexture (tile: Tile, _options: {blend?: string; generation?: number} = {}): Promise<any> {
         let coords = this.adjustRasterTileZoom(tile);
         let key = coords.key;
         // texture definitions are cached to avoid loading the same raster tile multiple times,

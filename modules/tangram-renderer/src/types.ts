@@ -222,7 +222,7 @@ export type RendererOptions = {
   numWorkers?: number;
   /** Positive safe integer limit for shared built-in tile loads in each worker; omitted is unlimited. */
   maxConcurrentTileLoadsPerWorker?: number;
-  logLevel?: string;
+  logLevel?: import('./utils/log').LogLevel;
   highDensityDisplay?: boolean;
   introspection?: boolean;
   [option: string]: unknown;
@@ -239,7 +239,7 @@ export type SceneUpdateOptions = {
   loading?: boolean;
   rebuild?: boolean | Record<string, unknown>;
   serialize_funcs?: boolean;
-  texture_nodes?: Record<string, unknown>;
+  texture_nodes?: import('./scene/scene-resource-types').SceneTextureNodes;
   normalize?: boolean;
   fade_in?: boolean;
 };

@@ -43,7 +43,7 @@ interface RendererScene {
     /** Shared source/style tile ownership across every eye. */
     tile_manager: {getResourceStatistics(): TileResourceStatistics; updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean, terrainSurface?: DrapedTerrainSurfaceSnapshot): void;
         getTerrainDrapingStatistics(terrain?: TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics;
-        getDrapedTerrainQueryEntries(time: number): DrapedTerrainQueryEntry[]};
+        getDrapedTerrainQueryEntries(time: number): DrapedTerrainQueryEntry[]} | null;
     view: View;
     config: {animated?: boolean; scene?: {cpu_projection?: unknown}} | null;
     animated: boolean;
@@ -84,6 +84,11 @@ export default class Renderer {
     gpuBackend: LumaDeviceRenderer | null;
     device_renderer: LumaDeviceRenderer | null;
     scene: RendererScene;
+    /** A destroyed scene no longer owns a tile manager. */
+    private get activeTileManager(): NonNullable<RendererScene['tile_manager']> {
+        if (!this.scene.tile_manager) throw new Error('Renderer scene tile manager has been destroyed');
+        return this.scene.tile_manager;
+    }
     host_frame: HostFrame | null;
     active_render_view_id: string | null;
     private animationFrame: unknown = null;
@@ -126,7 +131,7 @@ export default class Renderer {
         this.scene = Scene.create(config, Object.assign({}, options, device_options, {
             device: this.gpuBackend ? this.gpuBackend.device : options.device,
             disableRenderLoop: true,
-            cameraMode: 'external'
+            cameraMode: 'external' as const
         }));
         this.terrainDisplayMinimumHeight = this.scene.terrain?.minimumHeight ?? 0;
         this.host_frame = null;
@@ -214,7 +219,7 @@ export default class Renderer {
 
     /** Inspect resident worker preparation cost without conflating source/GPU/scratch ownership. */
     getTerrainDrapingStatistics(): import('../procedures/terrain-draping').TerrainDrapingStatistics {
-        return {...this.scene.tile_manager.getTerrainDrapingStatistics(this.scene.terrain),
+        return {...this.activeTileManager.getTerrainDrapingStatistics(this.scene.terrain),
             annotationQueries: this.annotationTerrainSurface?.getStatistics()};
     }
 
@@ -312,7 +317,7 @@ export default class Renderer {
 
     /** Current build queue and completed-cache mesh residency; does not include textures or driver memory. */
     getTileResourceStatistics(): TileResourceStatistics {
-        return this.scene.tile_manager.getResourceStatistics();
+        return this.activeTileManager.getResourceStatistics();
     }
 
     /**
@@ -390,19 +395,19 @@ export default class Renderer {
             }
             let surface: DrapedTerrainSurfaceSnapshot | undefined;
             if (this.scene.terrain?.occludeAnnotations && this.host_frame.projection.type !== 'projected') {
-                const entries = this.scene.tile_manager.getDrapedTerrainQueryEntries(this.scene.terrainFrameTime ?? performance.now());
+                const entries = this.activeTileManager.getDrapedTerrainQueryEntries(this.scene.terrainFrameTime ?? performance.now());
                 const candidate = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0,
                     this.scene.terrainFrameTime ?? performance.now(), this.scene.terrainExaggeration, this.scene.terrain.maxQueryIndexBytes);
                 if (this.annotationTerrainSurface?.displayKey !== candidate.displayKey) this.annotationTerrainSurface = candidate;
                 surface = this.annotationTerrainSurface;
             }
             else this.annotationTerrainSurface = undefined;
-            this.scene.tile_manager.updateProjectedLabels(this.host_frame, this.gpuBackend?.device.type !== 'webgpu', surface);
+            this.activeTileManager.updateProjectedLabels(this.host_frame, this.gpuBackend?.device.type !== 'webgpu', surface);
         }
         const rendered = this.scene.updateScene({ renderPass });
         if (rendered && this.scene.terrain && this.host_frame && this.host_frame.projection.type !== 'projected') {
             const time = this.scene.terrainFrameTime ?? performance.now();
-            const entries = this.scene.tile_manager.getDrapedTerrainQueryEntries(time);
+            const entries = this.activeTileManager.getDrapedTerrainQueryEntries(time);
             this.terrainSurfaceSnapshot = new DrapedTerrainSurfaceSnapshot(this.host_frame.projection.type, entries, this.scene.terrainDisplayGeneration ?? 0, time, this.scene.terrainExaggeration, this.scene.terrain.maxQueryIndexBytes);
         }
         if (this.submittedViews.size === 0) {

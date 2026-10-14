@@ -3,7 +3,6 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
 
 import log from '../utils/log';
 import Utils from '../utils/utils';
@@ -38,6 +37,66 @@ import MediaCapture from '../utils/media_capture';
 import setupSceneDebug from './scene_debug';
 import {getWorkerURL} from './worker_url';
 import type {ViewScene} from './view';
+import type {ViewOptions} from './view';
+import type {SubscriptionMethods} from '../utils/subscribe';
+import type {RendererOptions} from '../types';
+import type {TangramGPUSceneOptions} from '../gpu/tangram_gpu_backend';
+import type {UniformBufferOptions} from '../gl/uniform_buffer';
+import type {SceneBundle} from './scene_bundle';
+import type {FinalizedSceneDefinition, SceneTextureNodes} from './scene-resource-types';
+import type {LogLevel} from '../utils/log';
+import type {Device, RenderPipelineParameters} from '@luma.gl/core';
+
+/** Scene-owned compatibility options, independent of authored scene configuration. */
+export interface SceneOptions extends RendererOptions, ViewOptions, Partial<TangramGPUSceneOptions> {
+    /** Optional parent for a scene-owned classic canvas. */
+    container?: HTMLElement;
+    /** Callback before each owned-loop update. */
+    preUpdate?: () => void;
+    /** Callback after each owned-loop update. */
+    postUpdate?: () => void;
+    /** Leave frame scheduling to the host. */
+    disableRenderLoop?: boolean;
+    /** Retain the classic vertex-binding compatibility path. */
+    disableVertexArrayObjects?: boolean;
+    /** Attributes for a newly allocated classic context. */
+    webGLContextOptions?: WebGLContextAttributes;
+    /** Caller-owned classic context; never destroyed by this scene. */
+    webGLContext?: WebGLRenderingContext;
+    /** Host state guard around classic GL operations. */
+    webGLContextScope?: <Result>(callback: () => Result) => Result;
+    /** Logging threshold applied during scene construction. */
+    logLevel?: LogLevel;
+}
+/** Normalized scene registries after URL and global resolution; custom values remain unknown. */
+type SceneRuntimeConfiguration = FinalizedSceneDefinition & {
+    sources: Record<string, import('./scene-resource-types').SceneSourceDefinition>;
+    textures: Record<string, import('../gl/texture').TextureOptions>;
+    cameras: NonNullable<NonNullable<ViewScene['config']>['cameras']>;
+    styles: Record<string, import('../styles/style-mixing-types').StyleDefinition>;
+    lights: Record<string, import('../lights/light').LightConfig>;
+    layers: Record<string, {enabled?: boolean; data?: {source: string; layer?: unknown}; [name: string]: unknown}>;
+    scene: {animated?: boolean; cpu_projection?: unknown; lighting?: unknown; scripts?: Record<string, string> | string[]; background?: {color?: unknown}; [name: string]: unknown};
+}
+/** Rebuild policy captured when a concurrent request is queued. */
+interface RebuildOptions {
+    initial?: boolean;
+    new_generation?: boolean;
+    sources?: string[] | null;
+    serialize_funcs?: boolean;
+    profile?: boolean;
+    fade_in?: boolean;
+    preserveTileCache?: boolean;
+    preserveTime?: boolean;
+}
+/** Promise ownership for the active generation and its queued replacement. */
+interface SceneBuildState {
+    resolve(value: boolean | void): void;
+    reject(error: unknown): void;
+    initial: boolean;
+    error?: Error;
+    queued?: {resolve(value: void | boolean): void; reject(error: unknown): void; options: RebuildOptions};
+}
 import type {SceneListeners, SceneDefinition, SceneLoadOptions, TileSourceStatistics, FeatureSelectionResult} from '../types';
 import {validateConcurrentTileLoads} from '../sources/decoded_tile_store';
 import type {RenderPass} from '@luma.gl/core';
@@ -48,6 +107,138 @@ import {normalizeProjectionExecutionOptions} from '../procedures/projection-batc
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
+    /** Next scene identity used by broker targets. */
+    declare static id: number;
+    /** Next globally unique style/source generation. */
+    declare static generation: number;
+    /** Active initialization promise, cleared after settling. */
+    declare initializing: Promise<void> | null;
+    /** Requested worker-pool size. */
+    declare num_workers: number;
+    /** Optional caller-supplied worker bundle URL. */
+    declare worker_url: string | undefined;
+    /** Authored URL or object retained for reloads. */
+    declare config_source: SceneDefinition | null;
+    /** Root resolver for normalized scene resource paths. */
+    declare config_bundle: SceneBundle | null;
+    /** Most recent successfully loaded authored input. */
+    declare last_valid_config_source: SceneDefinition | null;
+    /** Reload options belonging to the last valid input. */
+    declare last_valid_options: SceneLoadOptions | undefined;
+    /** Compatibility reload state retained after a failed load. */
+    declare last_valid_base_path: SceneLoadOptions | undefined;
+    /** Active geometry generation and its optional queued replacement. */
+    declare building: SceneBuildState | null;
+    /** Whether this scene owns an automatic animation loop. */
+    declare render_loop: boolean;
+    /** Whether the owned animation loop has been started. */
+    declare render_loop_active: boolean;
+    /** Deferred stop request consumed by the animation loop. */
+    declare render_loop_stop: boolean;
+    /** Number of submitted render passes. */
+    declare render_count: number;
+    /** Previous frame's count used to detect redraw changes. */
+    declare last_render_count: number;
+    /** Whether this frame changed the submitted geometry count. */
+    declare render_count_changed: boolean;
+    /** Monotonic scene frame counter. */
+    declare frame: number;
+    /** Last frame with a completed color render. */
+    declare last_main_render: number;
+    /** Screenshot/video task owner shared by render callbacks. */
+    declare media_capture: MediaCapture;
+    /** Most recently fetched worker selection-map size. */
+    declare selection_feature_count: number;
+    /** Shared in-flight selection-map count request. */
+    declare fetching_selection_map: Promise<number> | null;
+    /** Previous scene's texture names awaiting ownership release. */
+    declare prev_textures: string[] | null;
+    /** Whether all eligible features receive selection IDs. */
+    declare introspection: boolean;
+    /** Lifecycle timestamps used by loading diagnostics. */
+    declare times: Record<string, number | null>;
+    /** Current shader time in seconds, including host overrides. */
+    declare animation_time: number;
+    /** Classic DOM canvas parent, absent for host-owned canvases. */
+    declare container: HTMLElement | null | undefined;
+    /** Classic or host canvas, cleared during destruction. */
+    declare canvas: HTMLCanvasElement | OffscreenCanvas | null;
+    /** Attributes used only when allocating a classic WebGL context. */
+    declare contextOptions: WebGLContextAttributes | undefined;
+    /** Caller-owned classic context, if supplied. */
+    declare external_gl: WebGLRenderingContext | null;
+    /** Active classic context; portable rendering can leave it absent. */
+    declare gl: WebGLRenderingContext | null;
+    /** Caller-owned luma device used by portable drawing and readback. */
+    declare device: Device | null;
+    /** Selected source language for the active backend. */
+    declare shader_language: 'glsl' | 'wgsl';
+    /** Whether drawing is delegated to the device backend. */
+    declare portable_rendering: boolean;
+    /** Opaque scene resource identity, not a raw GPU owner. */
+    declare resource_context: object | null;
+    /** Whether the current resource context is configured. */
+    declare resources_initialized: boolean;
+    /** Whether scene teardown must release its canvas/context. */
+    declare owns_gl: boolean;
+    /** Optional host callback that brackets classic context access. */
+    declare webgl_context_scope: SceneOptions['webGLContextScope'];
+    /** Host notification used instead of an owned render loop. */
+    declare redraw_callback: (() => void) | undefined;
+    /** Whether classic shader state uses uniform blocks. */
+    declare enable_uniform_buffers: boolean;
+    /** Whether shader allocation is delegated to the device factory. */
+    declare device_shader_compilation: boolean;
+    /** Scene-owned uniform blocks shared by tile draws. */
+    declare uniform_buffers: Record<string, UniformBuffer>;
+    /** Initialized light instances, cleared during scene teardown. */
+    declare lights: Record<string, Light> | null;
+    /** Cached authored background and its last computed RGBA value. */
+    declare background: {color?: import('../styles/property-types').PropertyCache; computed_color?: number[]} | null;
+    /** Nested configuration-update lock count. */
+    declare updating: number;
+    /** Most recent generation whose geometry work drained. */
+    declare last_complete_generation: number | null;
+    /** Selected logging threshold for this scene. */
+    declare log_level: LogLevel;
+    /** Whether the current view has finished loading and building. */
+    declare view_complete: boolean;
+    /** Deduplicated scripts shared by scene and source configuration. */
+    declare external_scripts: string[] | undefined;
+    /** Round-robin worker index for new tile builds. */
+    declare next_worker: number;
+    /** Authored root directory used when reloading edited scenes. */
+    declare base_path: string | undefined;
+    /** Deprecated alias of the root resource directory. */
+    declare config_path: string | undefined;
+    /** Related-object subscriptions released during teardown. */
+    declare listeners: Record<string, import('../utils/subscribe').EventListeners> | null;
+    /** Classic cached GL render-state owner. */
+    declare render_states: RenderStateManager | undefined;
+    /** Portable pipeline policy captured for the current pass. */
+    declare mesh_render_state: RenderPipelineParameters | null;
+    /** Profiling callbacks installed by the scene debug adapter. */
+    declare debug: {profile(name: string): void; profileEnd(name: string): void};
+    /** Scene event dispatcher installed by the subscription mixin. */
+    declare trigger: SubscriptionMethods['trigger'];
+    /** Subscription lookup used before emitting expensive diagnostics. */
+    declare hasSubscribersFor: SubscriptionMethods['hasSubscribersFor'];
+    /** Subscription teardown installed by the shared event mixin. */
+    declare unsubscribeAll: SubscriptionMethods['unsubscribeAll'];
+    /** Caller allocation hook for scene-owned uniform blocks. */
+    declare uniform_buffer_factory: TangramGPUSceneOptions['uniformBufferFactory'] | undefined;
+    /** Caller allocation hook for owned shader resources. */
+    declare shader_factory: TangramGPUSceneOptions['shaderFactory'] | undefined;
+    /** Optional backend shader validation hook. */
+    declare shader_program_validator: TangramGPUSceneOptions['shaderProgramValidator'] | undefined;
+    /** Caller allocation hook for owned mesh buffers. */
+    declare mesh_buffer_factory: TangramGPUSceneOptions['meshBufferFactory'] | undefined;
+    /** Backend draw dispatcher; the scene does not own it. */
+    declare mesh_renderer: TangramGPUSceneOptions['meshRenderer'] | undefined;
+    /** Caller allocation hook for scene texture resources. */
+    declare texture_factory: TangramGPUSceneOptions['textureFactory'] | undefined;
+    /** Backend texture limit used by glyph atlas packing. */
+    declare max_texture_size: number | undefined;
     /** Numeric broker identity assigned before the manager is constructed. */
     declare readonly id: number;
     /** Source/style generation consumed by serialized tile callbacks. */
@@ -55,7 +246,7 @@ export default class Scene {
     /** Worker pool is absent before initialization and released during teardown. */
     declare workers: import('../utils/worker-types').BrokerWorker[] | null | undefined;
     /** Main-thread upload styles are not available before scene configuration loads. */
-    declare styles: Record<string, import('../tile/tile-build-types').TileBuildStyle & {base?: string}> | null;
+    declare styles: Record<string, import('../styles/style-mixing-types').ManagedStyle> | null;
     /** Detached optional worker terrain input; never a deck view or a provider handle. */
     declare terrain: import('../procedures/terrain-draping').TerrainDrapingSnapshot | undefined;
     /** Visual multiplier independent of source heights and cache keys. */
@@ -83,8 +274,8 @@ export default class Scene {
     declare subscribe: (listeners: SceneListeners) => void;
     declare view: View;
     /** Tile worker and mesh ownership for the active scene. */
-    declare tile_manager: TileManager;
-    declare config: (NonNullable<ViewScene['config']> & {animated?: boolean; scene?: {animated?: boolean; cpu_projection?: unknown}}) | null;
+    declare tile_manager: TileManager | null;
+    declare config: SceneRuntimeConfiguration | null;
     /** Current source instances, recreated when scene configuration changes. */
     declare sources: Record<string, DataSource>;
     declare dirty: boolean;
@@ -97,7 +288,38 @@ export default class Scene {
     /** Scene owns compiled transforms, not the caller's reusable engine. */
     private readonly projectionAdapter: HostProjectionEngineAdapter | undefined;
 
-    constructor(config_source, options) {
+    /** Configuration-dependent operations run after scene loading; teardown/reload keep the optional field truthful. */
+    private get liveConfig(): SceneRuntimeConfiguration {
+        if (!this.config) throw new Error('Scene configuration is not loaded');
+        return this.config;
+    }
+    /** Draw operations on the classic path require a live context, unlike device-only submission. */
+    private get activeGL(): WebGLRenderingContext {
+        if (!this.gl) throw new Error('Scene has no active WebGL context');
+        return this.gl;
+    }
+    /** Worker calls follow initialization and must not cross the destroyed pool boundary. */
+    private get activeWorkers(): import('../utils/worker-types').BrokerWorker[] {
+        if (!this.workers) throw new Error('Scene worker pool is not initialized');
+        return this.workers;
+    }
+    /** Styles are initialized before the main draw path and retired when a scene is destroyed. */
+    private get liveStyles(): Record<string, import('../styles/style-mixing-types').ManagedStyle> {
+        if (!this.styles) throw new Error('Scene styles are not initialized');
+        return this.styles;
+    }
+    /** Tile ownership is unavailable after teardown rather than a permanently live façade. */
+    private get activeTileManager(): TileManager {
+        if (!this.tile_manager) throw new Error('Scene tile manager has been destroyed');
+        return this.tile_manager;
+    }
+    /** Rendering and query code use a concrete active-eye target after readiness checks. */
+    private get activeSelection(): FeatureSelection {
+        if (!this.selection) throw new Error('Scene feature selection is not initialized');
+        return this.selection;
+    }
+
+    constructor(config_source: SceneDefinition | null, options: SceneOptions = {}) {
         options = options || {};
         this.terrain = options.terrain ? normalizeTerrainDraping(options.terrain) : undefined;
         this.terrainExaggeration = 1;
@@ -201,23 +423,23 @@ export default class Scene {
 
         this.log_level = options.logLevel || 'warn';
         log.setLevel(this.log_level);
-        log.reset();
+        log.reset?.();
         if (options.projectionEngine) {
-            this.projectionAdapter = new HostProjectionEngineAdapter(options.projectionEngine, options.projectionEngineExecution);
+            const adapter = this.projectionAdapter = new HostProjectionEngineAdapter(options.projectionEngine, options.projectionEngineExecution);
             this.projectionTarget = `ProjectionEngine_${this.id}`;
             WorkerBroker.addTarget(this.projectionTarget, {
-                projectPositions: async (coordinates, type) => WorkerBroker.withTransferables(
-                    await this.projectionAdapter.projectPositions(coordinates, type))
+                projectPositions: async (...parameters: Parameters<HostProjectionEngineAdapter['projectPositions']>) => WorkerBroker.withTransferables(
+                    await adapter.projectPositions(...parameters))
             });
         }
     }
 
-    static create (config, options = {}) {
+    static create (config: SceneDefinition | null, options: SceneOptions = {}) {
         return new Scene(config, options);
     }
 
     // Supply camera matrices from an embedding renderer
-    setCameraMatrices (matrices) {
+    setCameraMatrices (matrices: Parameters<View['setCameraMatrices']>[0]) {
         this.view.setCameraMatrices(matrices);
     }
 
@@ -225,11 +447,11 @@ export default class Scene {
     // Options:
     //   `base_path`: base URL against which scene resources should be resolved (useful for Play) (default nulll)
     //   `blocking`: should rendering block on scene load completion (default true)
-    load (config_source: SceneDefinition | null = null, options: SceneLoadOptions = {}) {
+    load (config_source: SceneDefinition | null = null, options: SceneLoadOptions = {}): Promise<void> {
         if (this.initializing) {
             return this.initializing;
         }
-        log.reset();
+        log.reset?.();
 
         this.updating++;
         this.initialized = false;
@@ -250,14 +472,14 @@ export default class Scene {
 
         // Load scene definition (sources, styles, etc.), then create styles & workers
         this.createCanvas();
-        this.prev_textures = this.config && Object.keys(this.config.textures); // save textures from last scene
+        this.prev_textures = this.config && Object.keys(this.liveConfig.textures); // save textures from last scene
         this.initializing = this.loadScene(config_source, options)
             .then(async ({ texture_nodes }) => {
                 await this.createWorkers();
 
                 // Clean up resources from prior scene
                 this.destroyFeatureSelection();
-                WorkerBroker.postMessage(this.workers, 'self.clearFunctionStringCache');
+                WorkerBroker.postMessage(this.activeWorkers, 'self.clearFunctionStringCache');
 
                 // Scene loaded from a JS object, or modified by a `load` event, may contain compiled JS functions
                 // which need to be serialized, while one loaded only from a URL does not.
@@ -317,14 +539,14 @@ export default class Scene {
 
     destroyScene() {
         this.projectionAdapter?.dispose();
-        WorkerBroker.removeTarget(this.projectionTarget);
+        if (this.projectionTarget) WorkerBroker.removeTarget(this.projectionTarget);
         this.initialized = false;
         this.render_loop_stop = true; // schedule render loop to stop
 
         this.destroyListeners();
         this.destroyFeatureSelection();
 
-        if (this.owns_gl && this.canvas && this.canvas.parentNode) {
+        if (this.owns_gl && this.canvas && 'parentNode' in this.canvas && this.canvas.parentNode) {
             this.canvas.parentNode.removeChild(this.canvas);
         }
         this.canvas = null;
@@ -342,7 +564,7 @@ export default class Scene {
 
             if (this.owns_gl) {
                 // Force context loss only when Tangram created and owns it
-                let ext = this.gl.getExtension('WEBGL_lose_context');
+                let ext = this.activeGL.getExtension('WEBGL_lose_context');
                 if (ext) {
                     ext.loseContext();
                 }
@@ -356,9 +578,9 @@ export default class Scene {
         this.sources = {};
 
         this.destroyWorkers();
-        this.tile_manager.destroy();
+        this.activeTileManager.destroy();
         this.tile_manager = null;
-        log.reset();
+        log.reset?.();
     }
 
     createCanvas() {
@@ -371,6 +593,7 @@ export default class Scene {
 
     createCanvasContext() {
         if (this.portable_rendering) {
+            if (!this.resource_context) throw new Error('Scene has no portable resource context');
             Texture.setResourceFactory(this.resource_context, this.texture_factory);
             this.media_capture.setCanvas(this.canvas, null);
             this.createUniformBuffers();
@@ -379,14 +602,14 @@ export default class Scene {
         }
         else if (this.external_gl) {
             this.gl = Context.configure(this.external_gl, this.webgl_context_scope);
-            this.canvas = this.gl.canvas;
+            this.canvas = this.activeGL.canvas;
         }
         else {
             this.container = this.container || document.body;
             this.canvas = document.createElement('canvas');
             this.canvas.style.position = 'absolute';
-            this.canvas.style.top = 0;
-            this.canvas.style.left = 0;
+            this.canvas.style.top = '0';
+            this.canvas.style.left = '0';
 
             // Force tangram canvas underneath all leaflet layers, and set background to transparent
             this.container.style.backgroundColor = 'transparent';
@@ -410,6 +633,7 @@ export default class Scene {
         }
 
         if (this.owns_gl) {
+            if (!this.container) throw new Error('Scene canvas has no container');
             this.resizeMap(this.container.clientWidth, this.container.clientHeight);
         }
         Texture.setResourceFactory(this.gl, this.texture_factory);
@@ -465,8 +689,9 @@ export default class Scene {
         });
     }
 
-    createUniformBuffer(options) {
-        return new UniformBuffer(this.portable_rendering ? null : this.gl, Object.assign({}, options, {
+    createUniformBuffer(options: UniformBufferOptions) {
+        const gl = this.gl;
+        return new UniformBuffer(this.portable_rendering || !UniformBuffer.isSupported(gl) ? null : gl, Object.assign({}, options, {
             bufferFactory: this.uniform_buffer_factory
         }));
     }
@@ -484,21 +709,23 @@ export default class Scene {
         let scripts = [];
 
         // scene-level scripts
-        if (this.config.scene.scripts) {
-            for (let f in this.config.scene.scripts) {
-                if (scripts.indexOf(this.config.scene.scripts[f]) === -1) {
-                    scripts.push(this.config.scene.scripts[f]);
+        if (this.liveConfig.scene.scripts) {
+            for (let f in this.liveConfig.scene.scripts) {
+                    const script = Reflect.get(this.liveConfig.scene.scripts, f);
+                    if (scripts.indexOf(script) === -1) {
+                        scripts.push(script);
                 }
             }
         }
 
         // data-source-level scripts
-        for (let s in this.config.sources) {
-            let source = this.config.sources[s];
+        for (let s in this.liveConfig.sources) {
+            let source = this.liveConfig.sources[s];
             if (source.scripts) {
                 for (let f in source.scripts) {
-                    if (scripts.indexOf(source.scripts[f]) === -1) {
-                        scripts.push(source.scripts[f]);
+                    const script = Reflect.get(source.scripts, f);
+                    if (scripts.indexOf(script) === -1) {
+                        scripts.push(script);
                     }
                 }
             }
@@ -528,12 +755,18 @@ export default class Scene {
     makeWorkers() {
         // Let VertexElements know if 32 bit indices for element arrays are available
         let has_element_index_uint = this.portable_rendering ||
-            (this.gl.getExtension('OES_element_index_uint') ? true : false);
+            (this.activeGL.getExtension('OES_element_index_uint') ? true : false);
 
         let queue = [];
         this.workers = [];
         for (let id=0; id < this.num_workers; id++) {
-            let worker = new Worker(this.worker_url || getWorkerURL() || Tangram.workerURL); // eslint-disable-line no-undef
+            let url = this.worker_url || getWorkerURL();
+            if (!url) {
+                const fallbackValue: unknown = Reflect.get(Tangram, 'workerURL');
+                url = typeof fallbackValue === 'string' ? fallbackValue : undefined;
+            }
+            if (!url) throw new Error('Scene has no worker URL');
+            let worker = new Worker(url); // eslint-disable-line no-undef
             this.workers[id] = worker;
 
             WorkerBroker.addWorker(worker);
@@ -554,16 +787,16 @@ export default class Scene {
 
         this.next_worker = 0;
         return Promise.all(queue).then(() => {
-            log.setWorkers(this.workers);
+            log.setWorkers?.(this.workers ?? null);
         });
     }
 
     destroyWorkers() {
         this.destroyFeatureSelection(); // selections retain worker references and must be recreated
         if (Array.isArray(this.workers)) {
-            log.setWorkers(null);
+            log.setWorkers?.(null);
             this.workers.forEach((worker) => {
-                worker.terminate();
+                if ('terminate' in worker && typeof worker.terminate === 'function') worker.terminate();
             });
             this.workers = null;
         }
@@ -580,13 +813,13 @@ export default class Scene {
     // Resize the map when device pixel ratio changes, e.g. when switching between displays
     updateDevicePixelRatio () {
         if (Utils.updateDevicePixelRatio()) {
-            WorkerBroker.postMessage(this.workers, 'self.updateDevicePixelRatio', Utils.device_pixel_ratio)
+            WorkerBroker.postMessage(this.activeWorkers, 'self.updateDevicePixelRatio', Utils.device_pixel_ratio)
                 .then(() => this.rebuild())
-                .then(() => this.resizeMap(this.view.size.css.width, this.view.size.css.height));
+                .then(() => {const {width, height} = this.view.size.css; if (width !== undefined && height !== undefined) this.resizeMap(width, height);});
         }
     }
 
-    resizeMap(width, height) {
+    resizeMap(width: number, height: number) {
         if (width === 0 && height === 0) {
             return;
         }
@@ -598,7 +831,7 @@ export default class Scene {
         }
     }
 
-    withWebGLContext(callback) {
+    withWebGLContext<Result>(callback: () => Result): Result {
         return this.webgl_context_scope ? this.webgl_context_scope(callback) : callback();
     }
 
@@ -662,7 +895,7 @@ export default class Scene {
         }
     }
 
-    update({ force = false, renderPass = null } = {}) {
+    update({ force = false, renderPass = null }: {force?: boolean; renderPass?: RenderPass | null} = {}) {
         return this.withWebGLContext(() => {
             if (force) {
                 this.dirty = true;
@@ -679,7 +912,7 @@ export default class Scene {
         this.animation_time = this.host_animation_time ?? ((Date.now() - this.start_time) / 1000);
         // Determine which passes (if any) to render
         let main = this.dirty;
-        let selection = this.selection ? this.selection.hasPendingRequests() : false;
+        let selection = this.selection ? this.activeSelection.hasPendingRequests() : false;
         var will_render = !(
             (main === false && selection === false) ||
             this.initialized === false ||
@@ -719,11 +952,12 @@ export default class Scene {
     }
 
     // Accepts flags indicating which render passes should be made
-    render({ main, selection, renderPass = null }) {
+    render({ main, selection, renderPass = null }: {main: boolean; selection: boolean; renderPass?: RenderPass | null}) {
         var gl = this.gl;
 
         this.updateBackground();
-        Object.keys(this.lights).forEach(i => this.lights[i].update());
+        const lights = this.lights ?? {};
+        Object.keys(lights).forEach(i => lights[i].update());
 
         // Render main pass
         this.render_count_changed = false;
@@ -750,24 +984,26 @@ export default class Scene {
             // between frames until every selection pipeline is ready.
             this.selection_render_pending = false;
             if (this.view.panning || this.view.user_input_active) {
-                this.selection.clearPendingRequests();
+                this.activeSelection.clearPendingRequests();
                 return;
             }
 
             // Only re-render if selection buffer is out of date (relative to main render buffer)
             // and not locked (e.g. no tiles are actively building)
-            if (!this.selection.locked && this.last_selection_render < this.last_main_render) {
-                if (this.selection.framebuffer) {
+            if (!this.activeSelection.locked && this.last_selection_render < this.last_main_render) {
+                if (this.activeSelection.framebuffer) {
                     // An external host pass may still be open. Use a separate
                     // encoder, and submit selection before its asynchronous copy.
-                    let encoder = this.device.type === 'webgpu' ? this.device.createCommandEncoder({id: 'tangram-selection'}) : null;
+                    const device = this.device;
+                    if (!device) throw new Error('Scene selection framebuffer has no device');
+                    let encoder = device.type === 'webgpu' ? device.createCommandEncoder({id: 'tangram-selection'}) : null;
                     let selection_pass = null;
                     try {
                         // Host eye scissors use full-canvas origins; selection targets
                         // are view-local, including the attachment clear at pass creation.
-                        const {width, height} = this.selection.fbo_size;
-                        selection_pass = (encoder ?? this.device).beginRenderPass({
-                            framebuffer: this.selection.framebuffer,
+                        const {width, height} = this.activeSelection.fbo_size;
+                        selection_pass = (encoder ?? device).beginRenderPass({
+                            framebuffer: this.activeSelection.framebuffer,
                             parameters: {viewport: [0, 0, width, height], scissorRect: [0, 0, width, height]},
                             clearColor: FeatureSelection.defaultColor,
                             clearDepth: 1
@@ -783,7 +1019,7 @@ export default class Scene {
                             if (encoder && selection_pass) {
                                 const commands = encoder.finish();
                                 encoder = null; // finish releases the encoder; submit releases the commands.
-                                this.device.submit(commands);
+                                device.submit(commands);
                             }
                         } finally {
                             encoder?.destroy();
@@ -791,23 +1027,25 @@ export default class Scene {
                     }
                 }
                 else {
-                    this.selection.bind();          // switch to FBO
+                    this.activeSelection.bind();          // switch to FBO
                     this.renderPass(
                         'selection_program',        // render w/alternate program
                         { allow_blend: false });
                 }
 
                 // Device render passes own state restoration; only classic rendering binds raw targets.
-                if (!this.selection.framebuffer) {
-                    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-                    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-                    gl.clearColor(...this.background.computed_color);
+                if (!this.activeSelection.framebuffer) {
+                    const context = this.activeGL, color = this.background?.computed_color;
+                    if (!this.canvas || !color) throw new Error('Scene selection has no canvas/background');
+                    context.bindFramebuffer(context.FRAMEBUFFER, null);
+                    context.viewport(0, 0, this.canvas.width, this.canvas.height);
+                    context.clearColor(color[0], color[1], color[2], color[3]);
                 }
                 if (this.selection_render_pending) return true;
                 this.last_selection_render = this.frame;
             }
 
-            this.selection.read(); // process any pending results from selection buffer
+            this.activeSelection.read(); // process any pending results from selection buffer
         }
 
         return true;
@@ -815,7 +1053,7 @@ export default class Scene {
 
     // Render all active styles, grouped by blend/depth type (opaque, overlay, etc.) and by program (style)
     // Called both for main render pass, and for secondary passes like selection buffer
-    renderPass(program_key = 'program', { allow_blend, renderPass = null } = {}) {
+    renderPass(program_key: 'program' | 'selection_program' = 'program', { allow_blend, renderPass = null }: {allow_blend?: boolean; renderPass?: RenderPass | null} = {}) {
         // optionally force alpha off (e.g. for selection pass)
         allow_blend = (allow_blend == null) ? true : allow_blend;
 
@@ -835,7 +1073,7 @@ export default class Scene {
         for (const { blend_order, styles } of blend_orders) {
             // Render each style
             for (let s=0; s < styles.length; s++) {
-                let style = this.styles[styles[s]];
+                let style = this.liveStyles[styles[s]];
                 if (style == null) {
                     continue;
                 }
@@ -850,7 +1088,7 @@ export default class Scene {
                     if (annotation_depth) {state.depth_test = true; state.depth_write = false;}
                     this.setRenderState(state);
                     if (annotation_depth && this.mesh_render_state) this.mesh_render_state.depthCompare = 'less-equal';
-                    if (this.terrain?.occludeAnnotations) this.gl.depthFunc(annotation_depth ? this.gl.LEQUAL : this.gl.LESS);
+                    if (this.terrain?.occludeAnnotations) this.activeGL.depthFunc(annotation_depth ? this.activeGL.LEQUAL : this.activeGL.LESS);
                 }
 
                 const blend = allow_blend && style.blend;
@@ -858,40 +1096,40 @@ export default class Scene {
                     const translucentRenderState = this.mesh_render_state;
                     try {
                         // Depth pre-pass for translucency
-                        this.gl.colorMask(false, false, false, false);
+                        this.activeGL.colorMask(false, false, false, false);
                         // Resource-backed WebGL draws reapply luma pipeline parameters;
                         // raw GL changes alone cannot control their depth/color passes.
                         this.mesh_render_state = {...translucentRenderState, colorMask: 0};
                         this.renderStyle(style.name, program_key, blend_order, null, renderPass);
 
-                        this.gl.colorMask(true, true, true, true);
-                        this.gl.depthFunc(this.gl.EQUAL);
+                        this.activeGL.colorMask(true, true, true, true);
+                        this.activeGL.depthFunc(this.activeGL.EQUAL);
                         this.mesh_render_state = {...translucentRenderState, colorMask: 15, depthCompare: 'equal'};
 
                         // Stencil buffer mask prevents overlap/flicker from compounding alpha of overlapping polys
-                        this.gl.enable(this.gl.STENCIL_TEST);
-                        this.gl.clearStencil(0);
-                        this.gl.clear(this.gl.STENCIL_BUFFER_BIT);
-                        this.gl.stencilFunc(this.gl.EQUAL, this.gl.ZERO, 0xFF);
-                        this.gl.stencilOp(this.gl.KEEP, this.gl.KEEP, this.gl.INCR);
+                        this.activeGL.enable(this.activeGL.STENCIL_TEST);
+                        this.activeGL.clearStencil(0);
+                        this.activeGL.clear(this.activeGL.STENCIL_BUFFER_BIT);
+                        this.activeGL.stencilFunc(this.activeGL.EQUAL, this.activeGL.ZERO, 0xFF);
+                        this.activeGL.stencilOp(this.activeGL.KEEP, this.activeGL.KEEP, this.activeGL.INCR);
 
                         // Main render pass
                         count += this.renderStyle(style.name, program_key, blend_order, null, renderPass);
                     } finally {
                         // Disable translucency-specific settings, also after a failed draw.
                         this.mesh_render_state = translucentRenderState;
-                        this.gl.colorMask(true, true, true, true);
-                        this.gl.disable(this.gl.STENCIL_TEST);
-                        this.gl.depthFunc(this.gl.LESS);
+                        this.activeGL.colorMask(true, true, true, true);
+                        this.activeGL.disable(this.activeGL.STENCIL_TEST);
+                        this.activeGL.depthFunc(this.activeGL.LESS);
                     }
                 }
                 else if (blend !== 'opaque' && style.stencil_proxy_tiles === true) {
                     // Mask proxy tiles to with stencil buffer to avoid overlap/flicker from compounding alpha
                     // Find unique levels of proxy tiles to render for this style
-                    const proxy_levels = this.tile_manager.getRenderableTiles()
+                    const proxy_levels = this.activeTileManager.getRenderableTiles()
                         .filter(t => t.meshes[style.name]) // must have meshes for this style
                         .map(t => t.proxy_level) // get the proxy depth
-                        .reduce((levels, level) => { // count unique proxy depths
+                        .reduce<number[]>((levels, level) => { // count unique proxy depths
                             levels.indexOf(level) > -1 || levels.push(level);
                             return levels;
                         }, [])
@@ -902,18 +1140,18 @@ export default class Scene {
                         // tile levels, or multiple proxy tile levels but no non-proxy tiles, etc.):
                         // Render each proxy tile level to stencil buffer, masking each level such that it will not
                         // render over any pixel rendered by a previous proxy tile level.
-                        this.gl.enable(this.gl.STENCIL_TEST);
-                        this.gl.clearStencil(0);
-                        this.gl.clear(this.gl.STENCIL_BUFFER_BIT);
-                        this.gl.stencilOp(this.gl.KEEP, this.gl.KEEP, this.gl.REPLACE);
+                        this.activeGL.enable(this.activeGL.STENCIL_TEST);
+                        this.activeGL.clearStencil(0);
+                        this.activeGL.clear(this.activeGL.STENCIL_BUFFER_BIT);
+                        this.activeGL.stencilOp(this.activeGL.KEEP, this.activeGL.KEEP, this.activeGL.REPLACE);
 
                         for (let i = 0; i < proxy_levels.length; i++) {
                             // stencil test passes either for zero (not-yet-rendered),
                             // or for other pixels at this proxy level (but not previous proxy levels)
-                            this.gl.stencilFunc(this.gl.GEQUAL, proxy_levels.length - i, 0xFF);
+                            this.activeGL.stencilFunc(this.activeGL.GEQUAL, proxy_levels.length - i, 0xFF);
                             count += this.renderStyle(style.name, program_key, blend_order, proxy_levels[i], renderPass);
                         }
-                        this.gl.disable(this.gl.STENCIL_TEST);
+                        this.activeGL.disable(this.activeGL.STENCIL_TEST);
                     }
                     else {
                         // No special render handling needed when there are no proxy tiles,
@@ -935,7 +1173,7 @@ export default class Scene {
     }
 
     // Render styles through luma pipelines without mutating a raw WebGL state machine.
-    renderPortablePass(program_key, { allow_blend, renderPass }) {
+    renderPortablePass(program_key: 'program' | 'selection_program', { allow_blend, renderPass }: {allow_blend: boolean; renderPass: RenderPass | null}) {
         let count = 0;
         let last_blend;
         let last_annotation_depth;
@@ -943,7 +1181,7 @@ export default class Scene {
         if (program_key === 'selection_program' && this.terrain?.occludeAnnotations) this.renderSelectionDepthPrepass(blend_orders, renderPass);
         for (const { blend_order, styles } of blend_orders) {
             for (const style_name of styles) {
-                const style = this.styles[style_name];
+                const style = this.liveStyles[style_name];
                 if (!style) {
                     continue;
                 }
@@ -964,46 +1202,46 @@ export default class Scene {
     }
 
     /** Whether a non-selectable style contributes color depth but cannot write feature IDs. */
-    isTerrainSelectionOccluder(style: {selection?: boolean; baseStyle?(): string; blend: string} | undefined): boolean {
+    isTerrainSelectionOccluder(style: {selection?: boolean; baseStyle?(): string; blend: import('../styles/style-runtime-types').StyleState['blend']} | undefined): boolean {
         return Boolean(this.terrain?.occludeAnnotations && style && !style.selection &&
-            ['raster', 'polygons', 'lines'].includes(style.baseStyle?.()) && Style.render_states[style.blend]?.depth_write !== false);
+            ['raster', 'polygons', 'lines'].includes(style.baseStyle?.() ?? '') && Style.render_states[style.blend]?.depth_write !== false);
     }
 
     /** Populate non-selectable scene depth before any IDs; pending pipelines keep selection locked for retry. */
-    renderSelectionDepthPrepass(blend_orders: {blend_order: number; styles: string[]}[], renderPass: import('@luma.gl/core').RenderPass | null): void {
+    renderSelectionDepthPrepass(blend_orders: {blend_order?: number; styles: string[]}[], renderPass: import('@luma.gl/core').RenderPass | null): void {
         const occluders = blend_orders.flatMap(({blend_order, styles}) => styles
-            .filter(name => this.isTerrainSelectionOccluder(this.styles[name])).map(name => ({name, blend_order})));
+            .filter(name => this.isTerrainSelectionOccluder(this.liveStyles[name])).map(name => ({name, blend_order})));
         if (!occluders.length) return;
         const previous = this.mesh_render_state;
         try {
             this.setRenderState({depth_test: true, depth_write: true, cull_face: true, blend: false});
             this.mesh_render_state = {...this.mesh_render_state, colorMask: 0, depthWriteEnabled: true, depthCompare: 'less'};
             if (!this.portable_rendering) {
-                this.gl.colorMask(false, false, false, false); this.gl.depthFunc(this.gl.LESS);
+                this.activeGL.colorMask(false, false, false, false); this.activeGL.depthFunc(this.activeGL.LESS);
             }
             for (const {name, blend_order} of occluders) this.renderStyle(name, 'program', blend_order, null, renderPass, true);
         } finally {
             this.mesh_render_state = previous;
-            if (!this.portable_rendering) this.gl.colorMask(true, true, true, true);
+            if (!this.portable_rendering) this.activeGL.colorMask(true, true, true, true);
         }
     }
 
-    renderStyle(style_name, program_key, blend_order, proxy_level = null, renderPass = null, selectionDepthPass = false) {
-        let style = this.styles[style_name];
+    renderStyle(style_name: string, program_key: 'program' | 'selection_program', blend_order: number | undefined, proxy_level: number | null = null, renderPass: RenderPass | null = null, selectionDepthPass = false) {
+        let style = this.liveStyles[style_name];
         // Already submitted before any IDs. Repeating it later cannot erase covered IDs.
         if (program_key === 'selection_program' && this.terrain?.occludeAnnotations && this.isTerrainSelectionOccluder(style)) return 0;
         let first_for_style = true; // TODO: allow this state to be passed in (for multilpe blend orders, stencil tests, etc)
         let render_count = 0;
-        let program;
+        let program: ShaderProgram | undefined;
 
         // Render tile GL geometries
-        let renderable_tiles = this.tile_manager.getRenderableTiles();
+        let renderable_tiles = this.activeTileManager.getRenderableTiles();
 
         // For each tile, only include meshes for the blend order currently being rendered
         // Each draw groups a tile, its meshes and optional missing-detail clip bounds.
         let tile_meshes = renderable_tiles
             .filter(t => typeof proxy_level !== 'number' || t.proxy_level === proxy_level) // optional filter by proxy level
-            .flatMap(t => {
+            .flatMap((t): [import('../tile/tile').default, import('../gl/vbo_mesh').default[], readonly [number, number, number, number] | undefined][] => {
                 if (t.meshes[style_name]) {
                     const meshes = t.meshes[style_name].filter(m => m.variant.blend_order === blend_order);
                     if (t.fallback_for) {
@@ -1021,7 +1259,7 @@ export default class Scene {
         // tile boundaries from rendering over adjacent tile features meant to be underneath
         let max_mesh_order =
             Math.max(...tile_meshes.map(([, meshes]) => {
-                return Math.max(...meshes.map(m => m.variant.mesh_order));
+                return Math.max(...meshes.map(m => Number(m.variant.mesh_order)));
             }));
 
         // One pass per mesh variant order (loop goes to max value +1 because 0 is a valid order value)
@@ -1055,11 +1293,13 @@ export default class Scene {
                 }
 
                 // Render each mesh (for current variant order)
+                if (!program) throw new Error('Scene mesh program is not ready');
+                const activeProgram = program;
                 order_meshes.forEach(mesh => {
                     // Tile-specific state
                     if (first_for_tile === true) {
                         first_for_tile = false;
-                        this.view.setupTile(tile, program, clip);
+                        this.view.setupTile(tile, activeProgram, clip);
                     }
 
                     // Render this mesh variant
@@ -1071,14 +1311,14 @@ export default class Scene {
                         mesh.terrainBlend = blend;
                         const uniforms = {u_terrain_blend: blend, u_terrain_exaggeration: this.terrainExaggeration};
                         if (this.uniform_buffers.TangramTile) this.uniform_buffers.TangramTile.setUniforms(uniforms);
-                        else {program.uniform('1f', 'u_terrain_blend', blend); program.uniform('1f', 'u_terrain_exaggeration', this.terrainExaggeration);}
+                        else {activeProgram.uniform('1f', 'u_terrain_blend', blend); activeProgram.uniform('1f', 'u_terrain_exaggeration', this.terrainExaggeration);}
                         if (blend < 1) this.requestRedraw();
                     }
                     if (style.render(mesh, {
                         projection: this.view.projection.type,
-                        renderPass,
+                        renderPass: renderPass ?? undefined,
                         meshRenderer: this.mesh_renderer,
-                        renderState: this.mesh_render_state
+                        renderState: this.mesh_render_state ?? undefined
                     })) {
                         if (program_key === 'selection_program' || selectionDepthPass) this.selection_render_pending = true;
                         this.requestRedraw();
@@ -1091,9 +1331,9 @@ export default class Scene {
         return render_count;
     }
 
-    setupStyle(style, program_key) {
+    setupStyle(style: import('../styles/style-mixing-types').ManagedStyle, program_key: 'program' | 'selection_program') {
         // Get shader program from style, lazily compiling if necessary
-        let program;
+        let program: ShaderProgram | undefined;
         try {
             program = style.getProgram(program_key);
             if (!program) {
@@ -1141,11 +1381,12 @@ export default class Scene {
         if (this.portable_rendering) {
             return;
         }
+        if (!this.render_states) throw new Error('Scene render state is not initialized');
         this.render_states.depth_write.set({ depth_write: true });
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT | this.gl.STENCIL_BUFFER_BIT);
+        this.activeGL.clear(this.activeGL.COLOR_BUFFER_BIT | this.activeGL.DEPTH_BUFFER_BIT | this.activeGL.STENCIL_BUFFER_BIT);
     }
 
-    setRenderState({ depth_test, depth_write, cull_face, blend } = {}) {
+    setRenderState({ depth_test, depth_write, cull_face, blend }: {depth_test?: boolean; depth_write?: boolean; cull_face?: boolean; blend?: import('../gpu/tangram_gpu_backend').TangramBlendMode} = {}) {
         if (!this.initialized) {
             return;
         }
@@ -1157,8 +1398,8 @@ export default class Scene {
             depth_test: true,
             depth_write: true,
             culling: true,
-            blending: false
-        } : render_states.defaults;
+            blending: false as const
+        } : this.getRenderStateDefaults();
         depth_test = (depth_test === false) ? false : defaults.depth_test;      // default true
         depth_write = (depth_write === false) ? false : defaults.depth_write;   // default true
         cull_face = (cull_face === false) ? false : defaults.culling;           // default true
@@ -1176,7 +1417,8 @@ export default class Scene {
         }
 
         // Reset frame state
-        let gl = this.gl;
+        if (!render_states) throw new Error('Scene render state is not initialized');
+        let gl = this.activeGL;
 
         render_states.depth_test.set({ depth_test });
         render_states.depth_write.set({ depth_write });
@@ -1221,25 +1463,32 @@ export default class Scene {
     }
 
     // Request feature selection at given pixel. Runs async and returns results via a promise.
-    getFeatureAt(pixel, { radius, renderViewId, width, height }:
+    /** Classic render-state defaults are absent on device-only scenes. */
+    private getRenderStateDefaults(): RenderStateManager['defaults'] {
+        if (!this.render_states) throw new Error('Scene render state is not initialized');
+        return this.render_states.defaults;
+    }
+
+    getFeatureAt(pixel: {x: number; y: number}, { radius, renderViewId, width, height }:
         {radius?: number; renderViewId?: string; width?: number; height?: number} = {}): Promise<FeatureSelectionResult | undefined> {
         if (!this.initialized) {
             log('debug', 'Scene.getFeatureAt() called before scene was initialized');
-            return Promise.resolve();
+            return Promise.resolve(undefined);
         }
 
         // skip selection if no interactive features
         if (this.selection_feature_count === 0) {
-            return Promise.resolve();
+            return Promise.resolve(undefined);
         }
         width ??= this.view.size.css.width;
         height ??= this.view.size.css.height;
+        if (width === undefined || height === undefined) return Promise.resolve(undefined);
 
         // only instantiate feature selection on-demand
         if (renderViewId === undefined && !this.selection) {
             this.resetFeatureSelection();
         }
-        const selection = renderViewId === undefined ? this.selection : this.getFeatureSelectionView(renderViewId).selection;
+        const selection = renderViewId === undefined ? this.activeSelection : this.getFeatureSelectionView(renderViewId).selection;
 
         // Scale point and radius to [0..1] range
         let point = {
@@ -1247,23 +1496,24 @@ export default class Scene {
             y: pixel.y / height
         };
 
-        if (radius > 0) {
-            radius  = {
+        let selectionRadius: {x: number; y: number} | null;
+        if (radius !== undefined && radius > 0) {
+            selectionRadius  = {
                 x: radius / width,
                 y: radius / height
             };
         }
         else {
-            radius = null;
+            selectionRadius = null;
         }
 
-        return selection.getFeatureAt(point, { radius }).
+        return selection.getFeatureAt(point, { radius: selectionRadius }).
             then(selection => Object.assign(selection, { pixel })).
             catch(error => Promise.resolve({ error }));
     }
 
     // Query features within visible tiles, with optional filter conditions
-    async queryFeatures({ filter, unique = true, group_by = null, visible = null, geometry = false } = {}) {
+    async queryFeatures({ filter, unique = true, group_by = null, visible = null, geometry = false }: import('../types').SceneQueryOptions = {}): Promise<import('../types').SceneFeature[] | Record<string, import('../types').SceneFeature[]>> {
         if (!this.initialized) {
             return [];
         }
@@ -1274,7 +1524,7 @@ export default class Scene {
         // Valid values: true, false/null, single property name, or array of property names
         unique = (typeof unique === 'string') ? [unique] : unique;
         const uniqueify_on_id = (unique === true || (Array.isArray(unique) && unique.indexOf('$id') > -1));
-        const uniqueify = unique && (obj => {
+        const uniqueify = unique && ((obj: import('../types').SceneFeature) => {
             const properties = Array.isArray(unique) ? sliceObject(obj.properties, unique) : obj.properties;
             const id = uniqueify_on_id ? obj.id : null;
             if (geometry) {
@@ -1286,16 +1536,16 @@ export default class Scene {
 
         // Optional grouping criteria
         // Valid values: false/null, single property name, or array of property names
-        group_by = (typeof group_by === 'string' || Array.isArray(group_by)) && group_by;
-        const group = group_by && (obj => {
-            return Array.isArray(group_by) ? JSON.stringify(sliceObject(obj, group_by)) : obj[group_by];
+        const groupProperties = group_by;
+        const group = groupProperties && ((obj: Record<string, unknown>) => {
+            return typeof groupProperties === 'string' ? obj[groupProperties] : JSON.stringify(sliceObject(obj, groupProperties));
         });
 
-        const tile_keys = this.tile_manager.getRenderableTiles().map(t => t.key);
-        const results = await WorkerBroker.postMessage(this.workers, 'self.queryFeatures', { filter, visible, geometry, tile_keys });
-        const features = [];
-        const keys = {};
-        const groups = {};
+        const tile_keys = this.activeTileManager.getRenderableTiles().map(t => t.key);
+        const results = await WorkerBroker.postMessage<import('../types').SceneFeature[]>(this.activeWorkers, 'self.queryFeatures', { filter, visible, geometry, tile_keys });
+        const features: import('../types').SceneFeature[] = [];
+        const keys: Record<string, boolean> = {};
+        const groups: Record<string, import('../types').SceneFeature[]> = {};
 
         results.forEach(r => r.forEach(feature => {
             if (uniqueify) {
@@ -1307,7 +1557,7 @@ export default class Scene {
             }
 
             if (group) {
-                const str = group(feature.properties);
+                const str = String(group(feature.properties));
                 groups[str] = groups[str] || [];
                 groups[str].push(feature);
             }
@@ -1321,12 +1571,12 @@ export default class Scene {
     // Rebuild all tiles, without re-parsing the config or re-compiling styles
     // sync: boolean of whether to sync the config object to the worker
     // sources: optional array of data sources to selectively rebuild (by default all our rebuilt)
-    rebuild({ initial = false, new_generation = true, sources = null, serialize_funcs, profile = false, fade_in = false, preserveTileCache = false, preserveTime = false } = {}) {
-        return new Promise((resolve, reject) => {
+    rebuild({ initial = false, new_generation = true, sources = null, serialize_funcs, profile = false, fade_in = false, preserveTileCache = false, preserveTime = false }: RebuildOptions = {}) {
+        return new Promise<boolean | void>((resolve, reject) => {
             // Skip rebuild if already in progress
             if (this.building) {
                 // Queue up to one rebuild call at a time, only save last request
-                if (this.building.queued && this.building.queued.reject) {
+                if (this.building.queued) {
                     // notify previous request that it did not complete
                     log('debug', 'Scene.rebuild: request superceded by a newer call');
                     this.building.queued.resolve(false); // false flag indicates rebuild request was superceded
@@ -1342,7 +1592,7 @@ export default class Scene {
             // Track tile build state
             this.building = { resolve, reject, initial };
             this.terrainTransaction = Boolean(this.terrain && preserveTileCache && preserveTime);
-            if (this.terrainTransaction) this.tile_manager.forEachTile(tile => tile.beginTerrainStage());
+            if (this.terrainTransaction) this.activeTileManager.forEachTile(tile => tile.beginTerrainStage());
 
             // Profiling
             if (profile) {
@@ -1354,7 +1604,7 @@ export default class Scene {
             if (new_generation) {
                 this.generation = ++Scene.generation;
                 for (let style in this.styles) {
-                    this.styles[style].setGeneration(this.generation);
+                    this.liveStyles[style].setGeneration(this.generation);
                 }
             }
 
@@ -1372,14 +1622,14 @@ export default class Scene {
             if (!preserveTime) this.resetTime();
 
             // Rebuild visible tiles
-            if (!preserveTileCache) this.tile_manager.pruneToVisibleTiles();
-            this.tile_manager.forEachTile(tile => {
+            if (!preserveTileCache) this.activeTileManager.pruneToVisibleTiles();
+            this.activeTileManager.forEachTile(tile => {
                 if (!sources || sources.indexOf(tile.source.name) > -1) {
-                    this.tile_manager.buildTile(tile, { fade_in });
+                    this.activeTileManager.buildTile(tile, { fade_in });
                 }
             });
-            this.tile_manager.updateTilesForView(); // picks up additional tiles for any new/changed data sources
-            this.tile_manager.checkBuildQueue();    // resolve immediately if no tiles to build
+            this.activeTileManager.updateTilesForView(); // picks up additional tiles for any new/changed data sources
+            this.activeTileManager.checkBuildQueue();    // resolve immediately if no tiles to build
         }).then(() => {
             // Profiling
             if (profile) {
@@ -1404,15 +1654,16 @@ export default class Scene {
             log('info', 'Scene: build geometry finished');
             if (this.terrainTransaction) {
                 const time = performance.now();
-                this.tile_manager.forEachTile(tile => {if (this.building.error) tile.discardTerrainStage(); else tile.commitTerrainStage(time);});
+                const build = this.building;
+                this.activeTileManager.forEachTile(tile => {if (build.error) tile.discardTerrainStage(); else tile.commitTerrainStage(time);});
                 if (!this.building.error) this.terrainDisplayGeneration = this.generation;
                 this.terrainTransaction = false;
-                this.tile_manager.publishTerrainDisplay();
+                this.activeTileManager.publishTerrainDisplay();
                 this.requestRedraw();
             }
             if (this.building.error) {
                 this.building.reject(this.building.error);
-            } else if (this.building.resolve) {
+            } else {
                 this.logFirstBuild();
                 this.building.resolve(true);
             }
@@ -1425,7 +1676,7 @@ export default class Scene {
                 this.rebuild(queued.options).then(queued.resolve, queued.reject);
             }
             else {
-                this.tile_manager.updateLabels(); // refresh label if nothing to rebuild
+                this.activeTileManager.updateLabels(); // refresh label if nothing to rebuild
             }
         }
     }
@@ -1434,7 +1685,7 @@ export default class Scene {
        Load (or reload) the scene config
        @return {Promise}
     */
-    async loadScene(config_source = null, { base_path, file_type } = {}) {
+    async loadScene(config_source: SceneDefinition | null = null, { base_path, file_type }: SceneLoadOptions = {}) {
         this.config_source = config_source || this.config_source;
 
         if (typeof this.config_source === 'string') {
@@ -1449,10 +1700,12 @@ export default class Scene {
         this.config_path = this.base_path;
 
         const { config, bundle, texture_nodes } = await SceneLoader.loadScene(
-            this.config_source,
+            this.config_source ?? {},
             { path: this.base_path, type: file_type, cameraMode: this.view.camera_mode });
 
-        this.config = config;
+        // Finalized registries are consumed by owners that validate each
+        // authored source, style, camera, and light value before use.
+        this.config = config as SceneRuntimeConfiguration;
         this.config_bundle = bundle;
         return { texture_nodes }; // pass along texture nodes for resolution after global property subtistution
     }
@@ -1470,18 +1723,20 @@ export default class Scene {
     //      ...
     //      scene.setDataSource("dynamic_data", {type: 'GeoJSON', data: geojson_data });
     //
-    setDataSource (name, config) {
+    setDataSource (name: string, config: import('./scene-resource-types').SceneSourceDefinition) {
         if (!name || !config || !config.type || (!config.url && !config.tilejson && !config.data)) {
             log('error', 'No name provided or not a valid config:', name, config);
             return;
         }
 
-        let load = (this.config.sources[name] == null);
-        let source = this.config.sources[name] = Object.assign({}, config);
+        let load = (this.liveConfig.sources[name] == null);
+        let source = this.liveConfig.sources[name] = Object.assign({}, config);
 
         // Convert raw data into blob URL
         if (source.data && typeof source.data === 'object') {
-            source.url = URLs.createObjectURL(new Blob([JSON.stringify(source.data)], { type: 'application/json' }));
+            const url = URLs.createObjectURL(new Blob([JSON.stringify(source.data)], { type: 'application/json' }));
+            if (typeof url !== 'string') throw new Error('Could not create a data source URL');
+            source.url = url;
             delete source.data;
         }
 
@@ -1500,24 +1755,25 @@ export default class Scene {
     // 1) all tiles if `rebuild_all` parameter is specified (used when loading a new scene)
     // 2) the data source has changed in a way that affects tile layout (e.g. tile size, max_zoom, etc.)
     createDataSources(rebuild_all = false) {
-        const reset = []; // sources to reset
+        const reset: string[] = []; // sources to reset
         const prev_source_names = Object.keys(this.sources);
         let source_id = 0;
 
-        for (var name in this.config.sources) {
-            const source = this.config.sources[name];
+        for (var name in this.liveConfig.sources) {
+            const source = this.liveConfig.sources[name];
             const prev_source = this.sources[name];
 
             try {
                 const config = { ...source, name, id: source_id++ };
-                this.sources[name] = DataSource.create(config, this.sources);
-                if (!this.sources[name]) {
+                const created = DataSource.create(config, this.sources);
+                if (!created) {
                     throw {};
                 }
+                this.sources[name] = created;
             }
             catch(e) {
                 delete this.sources[name];
-                const message = `Could not create data source: ${e.message}`;
+                const message = `Could not create data source: ${e instanceof Error ? e.message : (e && typeof e === 'object' ? Reflect.get(e, 'message') : undefined)}`;
                 log('warn', `Scene: ${message}`, source);
                 this.trigger('warning', { type: 'sources', source, message });
             }
@@ -1532,7 +1788,7 @@ export default class Scene {
 
         // Sources that were removed
         prev_source_names.forEach(s => {
-            if (!this.config.sources[s]) {
+            if (!this.liveConfig.sources[s]) {
                 this.sources[s]?.dispose?.();
                 delete this.sources[s]; // TODO: remove from workers too?
                 reset.push(s);
@@ -1541,14 +1797,14 @@ export default class Scene {
 
         // Remove tiles from sources that have changed
         if (reset.length > 0) {
-            this.tile_manager.removeTiles(tile => {
+            this.activeTileManager.removeTiles(tile => {
                 return (reset.indexOf(tile.source.name) > -1);
             });
         }
 
         // Mark sources that will generate geometry tiles (any that are referenced in scene layers)
-        for (let ln in this.config.layers) {
-            let layer = this.config.layers[ln];
+        for (let ln in this.liveConfig.layers) {
+            let layer = this.liveConfig.layers[ln];
             if (layer.enabled !== false && layer.data && this.sources[layer.data.source]) {
                 this.sources[layer.data.source].builds_geometry_tiles = true;
             }
@@ -1558,7 +1814,7 @@ export default class Scene {
     // Load all textures in the scene definition
     loadTextures() {
         const resource_context = this.portable_rendering ? this.resource_context : this.gl;
-        return Texture.createFromObject(resource_context, this.config.textures)
+        return Texture.createFromObject(resource_context, this.liveConfig.textures)
             .then(() => Texture.createDefault(resource_context)); // create a 'default' texture for placeholders
     }
 
@@ -1570,8 +1826,9 @@ export default class Scene {
 
         this.prev_textures.forEach(t => {
             // free textures that aren't in the new scene, but are still in the global texture set
-            if (!this.config.textures[t] && Texture.textures[t]) {
-                Texture.textures[t].destroy();
+            const texture = Texture.textures[t];
+            if (!this.liveConfig.textures[t] && texture instanceof Texture) {
+                texture.destroy();
             }
         });
         this.prev_textures = null;
@@ -1584,18 +1841,18 @@ export default class Scene {
         }
 
         // (Re)build styles from config
-        this.styles = this.style_manager.build(this.config.styles);
+        this.styles = this.style_manager.build(this.liveConfig.styles);
         this.style_manager.initStyles(this);
 
         // Optionally set GL context (used when initializing or re-initializing GL resources)
         for (let style in this.styles) {
-            this.styles[style].setGL(this.portable_rendering ? null : this.gl, this.uniform_buffers, {
-                resourceContext: this.portable_rendering ? this.resource_context : this.gl,
+            this.liveStyles[style].setGL(this.portable_rendering ? null : this.gl, this.uniform_buffers, {
+                resourceContext: (this.portable_rendering ? this.resource_context : this.gl) ?? undefined,
                 shaderFactory: this.shader_factory,
                 shaderProgramValidator: this.shader_program_validator,
                 shaderLanguage: this.shader_language,
                 portableLighting: Boolean(this.uniform_buffers.TangramLighting),
-                portableLightCount: Object.keys(this.lights).length,
+                portableLightCount: Object.keys(this.lights ?? {}).length,
                 deviceShaderCompilation: this.device_shader_compilation,
                 uniformBlockFactory: options => this.createUniformBuffer(options),
                 meshBufferFactory: this.mesh_buffer_factory,
@@ -1613,9 +1870,9 @@ export default class Scene {
     // Is scene currently animating?
     get animated () {
         // Disable animation is scene flag requests it, otherwise enable animation if any animated styles are in view
-        return (this.config.scene.animated === false ?
+        return (this.liveConfig.scene.animated === false ?
             false :
-            this.style_manager.getActiveStyles().some(s => this.styles[s].animated));
+            this.style_manager.getActiveStyles().some(s => this.liveStyles[s].animated));
     }
 
     // Get active camera - for public API
@@ -1624,7 +1881,7 @@ export default class Scene {
     }
 
     // Set active camera - for public API
-    setActiveCamera(name) {
+    setActiveCamera(name: string) {
         return this.view.setActiveCamera(name);
     }
 
@@ -1632,34 +1889,35 @@ export default class Scene {
     createLights() {
         this.lights = {};
         this.uniform_buffers = this.uniform_buffers || {};
-        if (Array.isArray(this.config.lights) && this.config.lights.length === 0) {
-            this.config.scene = {...this.config.scene, lighting: 'configured'};
+        if (Array.isArray(this.liveConfig.lights) && this.liveConfig.lights.length === 0) {
+            this.liveConfig.scene = {...this.liveConfig.scene, lighting: 'configured'};
         }
-        this.config.lights = normalizeSceneLights(this.config.lights);
+        this.liveConfig.lights = normalizeSceneLights(this.liveConfig.lights) as SceneRuntimeConfiguration['lights'];
 
         if (debugSettings.wireframe) {
             Light.enabled = false; // disable lighting for wireframe mode
         }
 
-        for (let i in this.config.lights) {
-            if (!this.config.lights[i] || typeof this.config.lights[i] !== 'object') {
+        for (let i in this.liveConfig.lights) {
+            if (!this.liveConfig.lights[i] || typeof this.liveConfig.lights[i] !== 'object') {
                 continue;
             }
-            let light = this.config.lights[i];
+            let light = this.liveConfig.lights[i];
             const visible = (light.visible ?? light.luma?.visible) !== false;
             light.name = i.replace('-', '_'); // light names are injected in shaders, can't have hyphens
             if (visible) {
-                this.lights[light.name] = Light.create(this.view, light);
+                const created = Light.create(this.view, light);
+                if (created) this.lights[light.name] = created;
             }
         }
         // CPU-projected surfaces explicitly opt into diffuse lighting. Named
         // Tangram lights must use the same bounded WGSL path as native lights;
         // otherwise only WebGL consumes the authored light contributions.
-        const projectedLighting = this.config.scene?.cpu_projection !== undefined &&
-            Object.values(this.config.styles || {}).some(style =>
-                style && ['vertex', 'fragment'].includes(style.lighting));
-        const configured = this.shader_language === 'wgsl' && (projectedLighting || this.config.scene?.lighting === 'configured' ||
-            Object.values(this.config.lights).some(light => light && typeof light === 'object' && 'luma' in light));
+        const projectedLighting = this.liveConfig.scene?.cpu_projection !== undefined &&
+            Object.values(this.liveConfig.styles || {}).some(style =>
+                style && typeof style.lighting === 'string' && ['vertex', 'fragment'].includes(style.lighting));
+        const configured = this.shader_language === 'wgsl' && (projectedLighting || this.liveConfig.scene?.lighting === 'configured' ||
+            Object.values(this.liveConfig.lights).some(light => light && typeof light === 'object' && 'luma' in light));
         if (configured) {
             getPortableLightUniforms(this.getLumaLightDefinitions()); // Reject resource overflow before compiling styles.
             if (!this.uniform_buffers.TangramLighting) {
@@ -1682,7 +1940,7 @@ export default class Scene {
 
     // Set background color from scene config
     setBackground() {
-        const bg = this.config.scene.background;
+        const bg = this.liveConfig.scene.background;
 
         this.background = {};
         if (bg && bg.color) {
@@ -1695,13 +1953,16 @@ export default class Scene {
 
     // Update background color each frame as needed (e.g. may be zoom-interpolated)
     updateBackground () {
-        const last_color = this.background.computed_color;
-        const color = this.background.computed_color = StyleParser.evalCachedColorProperty(this.background.color, { zoom: this.view.tile_zoom });
+        const background = this.background;
+        if (!background?.color) return;
+        const last_color = background.computed_color;
+        const color = background.computed_color = StyleParser.evalCachedColorProperty(background.color, { zoom: this.view.tile_zoom });
+        if (!color) return;
 
         // update GL/canvas if color has changed
         if (!last_color || color.some((v, i) => last_color[i] !== v)) {
             // if background is fully opaque, set canvas background to match
-            if (this.owns_gl) {
+            if (this.owns_gl && this.canvas && 'style' in this.canvas) {
                 if (color[3] === 1) {
                     this.canvas.style.backgroundColor =
                         `rgba(${color.map(c => Math.floor(c * 255)).join(', ')})`;
@@ -1712,13 +1973,13 @@ export default class Scene {
             }
 
             if (!this.portable_rendering) {
-                this.gl.clearColor(...color);
+                this.activeGL.clearColor(color[0], color[1], color[2], color[3]);
             }
         }
     }
 
     // Turn introspection mode on/off
-    setIntrospection (val) {
+    setIntrospection (val: boolean) {
         if (val !== this.introspection) {
             this.introspection = (val != null) ? val : false;
             this.updating++;
@@ -1766,8 +2027,9 @@ export default class Scene {
     async getTileSourceStatistics(): Promise<TileSourceStatistics[]> {
         const workers = this.workers?.slice() ?? [];
         if (workers.length === 0) return [];
-        const statistics = await WorkerBroker.postMessage(workers, 'self.getTileSourceStatistics');
-        if (workers.length !== this.workers?.length || workers.some((worker, index) => worker !== this.workers[index])) {
+        const statistics = await WorkerBroker.postMessage<Omit<TileSourceStatistics, 'workerId'>>(workers, 'self.getTileSourceStatistics');
+        const currentWorkers = this.workers;
+        if (workers.length !== currentWorkers?.length || workers.some((worker, index) => worker !== currentWorkers?.[index])) {
             throw new Error('Workers changed during tile-source statistics loading');
         }
         return statistics.map((value, workerId) => ({...value, workerId}));
@@ -1775,17 +2037,19 @@ export default class Scene {
 
     // Update scene config, and optionally rebuild geometry
     // rebuild can be boolean, or an object containing rebuild options to passthrough
-    updateConfig({ loading = false, rebuild = true, serialize_funcs, texture_nodes = {}, normalize = true, fade_in = false } = {}) {
+    updateConfig({ loading = false, rebuild = true, serialize_funcs, texture_nodes = {}, normalize = true, fade_in = false }: {loading?: boolean; rebuild?: boolean | RebuildOptions; serialize_funcs?: boolean; texture_nodes?: SceneTextureNodes; normalize?: boolean; fade_in?: boolean} = {}) {
         this.generation = ++Scene.generation;
         this.updating++;
 
         // Apply globals, finalize textures and other resource paths if needed
-        this.config = SceneLoader.applyGlobalProperties(this.config);
+        this.config = SceneLoader.applyGlobalProperties(this.liveConfig);
+        const bundle = this.config_bundle;
+        if (!bundle) throw new Error('Scene configuration has no resource bundle');
         if (normalize) {
             // normalize whole scene if requested - usually when user is making run-time updates to scene
-            SceneLoader.normalize(this.config, this.config_bundle, texture_nodes);
+            SceneLoader.normalize(this.liveConfig, bundle, texture_nodes);
         }
-        SceneLoader.hoistTextureNodes(this.config, this.config_bundle, texture_nodes);
+        SceneLoader.hoistTextureNodes(this.liveConfig, bundle, texture_nodes);
 
         this.trigger(loading ? 'load' : 'update', { config: this.config });
 
@@ -1796,7 +2060,7 @@ export default class Scene {
             this.createDataSources(loading);
             this.loadTextures();
             this.setBackground();
-            FontManager.loadFonts(this.config.fonts);
+            FontManager.loadFonts(this.liveConfig.fonts);
 
             // TODO: detect changes to styles? already (currently) need to recompile anyway when camera or lights change
             this.updateStyles();
@@ -1826,7 +2090,7 @@ export default class Scene {
         // Tell workers we're about to rebuild (so they can update styles, etc.)
         let config_serialized =
             serialize_funcs ? Utils.serializeWithFunctions(this.config) : JSON.stringify(this.config);
-        return WorkerBroker.postMessage(this.workers, 'self.updateConfig', {
+        return WorkerBroker.postMessage(this.activeWorkers, 'self.updateConfig', {
             config: config_serialized,
             generation: this.generation,
             introspection: this.introspection,
@@ -1847,18 +2111,19 @@ export default class Scene {
 
         this.listeners.texture = {
             update: () => this.dirty = true,
-            warning: (data) => this.trigger('warning', Object.assign({ type: 'textures' }, data))
+            warning: (data: unknown) => this.trigger('warning', Object.assign({ type: 'textures' }, data))
         };
         Texture.subscribe(this.listeners.texture);
 
         this.listeners.scene_loader = {
-            error: (data) => this.trigger('error', Object.assign({ type: 'scene' }, data))
+            error: (data: unknown) => this.trigger('error', Object.assign({ type: 'scene' }, data))
         };
         SceneLoader.subscribe(this.listeners.scene_loader);
     }
 
     destroyListeners () {
         this.unsubscribeAll();
+        if (!this.listeners) return;
         this.view.unsubscribe(this.listeners.view);
         Texture.unsubscribe(this.listeners.texture);
         SceneLoader.unsubscribe(this.listeners.scene_loader);
@@ -1870,15 +2135,14 @@ export default class Scene {
         this.selection_views?.clear();
         this.selection_view_id = null;
         if (this.selection) {
-            this.selection.destroy();
+            this.activeSelection.destroy();
         }
         this.selection = null;
     }
 
     resetFeatureSelection() {
         this.destroyFeatureSelection();
-        this.selection = new FeatureSelection(this.gl, this.workers,
-            () => this.building || this.selection_render_pending, this.device);
+        this.selection = this.createFeatureSelection(() => Boolean(this.building || this.selection_render_pending));
         this.last_render_count = 0; // force re-evaluation of selection map
     }
 
@@ -1886,9 +2150,8 @@ export default class Scene {
     getFeatureSelectionView(id: string): {selection: FeatureSelection; lastRender: number; pending: boolean} {
         let state = this.selection_views.get(id);
         if (!state) {
-            state = {selection: null, lastRender: -1, pending: false};
-            state.selection = new FeatureSelection(this.gl, this.workers,
-                () => this.building || (this.selection === state.selection ? this.selection_render_pending : state.pending), this.device);
+            const selection = this.createFeatureSelection(() => Boolean(this.building || (this.selection === state?.selection ? this.selection_render_pending : state?.pending)));
+            state = {selection, lastRender: -1, pending: false};
             this.selection_views.set(id, state);
             if (this.selection_view_id === id) {
                 // A host may render again without calling setFrame after its query.
@@ -1900,10 +2163,15 @@ export default class Scene {
         return state;
     }
 
+    /** Choose the validated classic/device constructor without an unchecked overload cast. */
+    private createFeatureSelection(lock: () => boolean): FeatureSelection {
+        return this.device ? new FeatureSelection(this.gl, this.activeWorkers, lock, this.device) : new FeatureSelection(this.activeGL, this.activeWorkers, lock);
+    }
+
     /** Select an eye's target before drawing; invalidate removed views and preserve in-flight reads. */
-    setFeatureSelectionView(id, retainedIds) {
-        if (this.selection_view_id === null && this.selection) this.selection.destroy();
-        const previous = this.selection_views.get(this.selection_view_id);
+    setFeatureSelectionView(id: string, retainedIds: readonly string[]) {
+        if (this.selection_view_id === null && this.selection) this.activeSelection.destroy();
+        const previous = this.selection_view_id === null ? undefined : this.selection_views.get(this.selection_view_id);
         if (previous) {
             previous.lastRender = this.last_selection_render;
             previous.pending = this.selection_render_pending;
@@ -1921,9 +2189,9 @@ export default class Scene {
         this.selection_render_pending = state?.pending ?? false;
     }
 
-    resetWorkerFeatureSelection(sources = null) {
+    resetWorkerFeatureSelection(sources: string[] | null = null) {
         if (this.workers) {
-            WorkerBroker.postMessage(this.workers, 'self.resetFeatureSelection', sources);
+            WorkerBroker.postMessage(this.activeWorkers, 'self.resetFeatureSelection', sources);
         }
     }
 
@@ -1931,7 +2199,7 @@ export default class Scene {
     getFeatureSelectionMapSize() {
         // Only allow one fetch process to run at a time
         if (this.fetching_selection_map == null) {
-            this.fetching_selection_map = WorkerBroker.postMessage(this.workers, 'self.getFeatureSelectionMapSize')
+            this.fetching_selection_map = WorkerBroker.postMessage<number>(this.activeWorkers, 'self.getFeatureSelectionMapSize')
                 .then(sizes => {
                     this.fetching_selection_map = null;
                     return sizes.reduce((a, b) => a + b);
@@ -1949,9 +2217,9 @@ export default class Scene {
     updateViewComplete () {
         if ((this.render_count_changed || this.generation !== this.last_complete_generation) &&
             !this.building &&
-            !this.tile_manager.isLoadingVisibleTiles() &&
-            this.tile_manager.allVisibleTilesLabeled()) {
-            this.tile_manager.updateLabels();
+            !this.activeTileManager.isLoadingVisibleTiles() &&
+            this.activeTileManager.allVisibleTilesLabeled()) {
+            this.activeTileManager.updateLabels();
             this.last_complete_generation = this.generation;
             this.trigger('view_complete', { first: (this.view_complete !== true) });
             this.view_complete = true;

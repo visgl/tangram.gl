@@ -29,29 +29,17 @@ export class RenderState {
 
 export default class RenderStateManager {
 
-    defaults: Record<string, any>;
+    defaults: {culling: boolean; culling_face: number; blending: false; blending_src: number; blending_dst: number; blending_src_alpha: number; blending_dst_alpha: number; depth_write: boolean; depth_test: boolean};
     culling: RenderState;
     blending: RenderState;
     depth_write: RenderState;
     depth_test: RenderState;
 
     constructor (gl: any) {
-        this.defaults = {};
-
-        // Culling
-        this.defaults.culling = true;
-        this.defaults.culling_face = gl.BACK;
-
-        // Blending
-        this.defaults.blending = false;
-        this.defaults.blending_src = gl.ONE_MINUS_SRC_ALPHA;
-        this.defaults.blending_dst = gl.ONE_MINUS_SRC_ALPHA;
-        this.defaults.blending_src_alpha = gl.ONE;
-        this.defaults.blending_dst_alpha = gl.ONE_MINUS_SRC_ALPHA;
-
-        // Depth test/write
-        this.defaults.depth_write = true;
-        this.defaults.depth_test = true;
+        this.defaults = {culling: true, culling_face: gl.BACK,
+            blending: false, blending_src: gl.ONE_MINUS_SRC_ALPHA, blending_dst: gl.ONE_MINUS_SRC_ALPHA,
+            blending_src_alpha: gl.ONE, blending_dst_alpha: gl.ONE_MINUS_SRC_ALPHA,
+            depth_write: true, depth_test: true};
         gl.depthFunc(gl.LESS); // depth function only needs to be set once
 
         // Culling

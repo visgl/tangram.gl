@@ -10,6 +10,7 @@ import {notifyGPUResourceDisposal, observeGPUResourceDisposal} from '../src/gpu/
 import type {TangramDrawableMesh, TangramDrawableProgram, TangramMeshDrawDescriptor} from '../src/gpu/tangram_gpu_backend';
 import VBOMesh from '../src/gl/vbo_mesh';
 import ShaderProgram from '../src/gl/shader_program';
+import UniformBuffer from '../src/gl/uniform_buffer';
 import {StyleManager} from '../src/styles/style_manager';
 
 /** Strict test facade for the small subset of the abstract Device used by this backend. */
@@ -243,15 +244,12 @@ test('WebGPU static attributes release the partial array instead of leaking it',
 });
 
 test('rebuilding a manager preserves base objects but retires their owned programs and buffers', () => {
-    const manager = new StyleManager() as StyleManager & {styles: Record<string, {
-        program: {destroy: ReturnType<typeof vi.fn>} | null;
-        selection_program: {destroy: ReturnType<typeof vi.fn>} | null;
-        portable_material_buffer: {destroy: ReturnType<typeof vi.fn>} | null;
-    }>};
+    const manager = new StyleManager();
     const polygons = manager.styles.polygons;
-    const program = {destroy: vi.fn()};
-    const selection = {destroy: vi.fn()};
-    const material = {destroy: vi.fn()};
+    const program = new ShaderProgram(null, '', '', {shaderLanguage: 'wgsl'});
+    const selection = new ShaderProgram(null, '', '', {shaderLanguage: 'wgsl'});
+    const material = new UniformBuffer(null, {name: 'test-material', bufferFactory: () => ({write() {}, destroy() {}})});
+    for (const resource of [program, selection, material]) vi.spyOn(resource, 'destroy');
     polygons.program = program;
     polygons.selection_program = selection;
     polygons.portable_material_buffer = material;

@@ -3,7 +3,6 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
 
 /*jshint worker: true*/
 
@@ -31,27 +30,90 @@ import {buildFilter} from '../styles/filter';
 import Texture from '../gl/texture';
 import VertexElements from '../gl/vertex_elements';
 import Label from '../labels/label';
+import type {WorkerBuildTile, TileBuildStyle} from '../tile/tile-build-types';
+import type {DecodedTileFeature} from '../tile/tile-build-types';
+import type {LayerTree} from '../styles/layer';
+import type {StyleDefinition} from '../styles/style-mixing-types';
+import type {SceneSourceDefinition} from './scene-resource-types';
+import type {LogLevel} from '../utils/log';
+import type {TerrainDrapingSnapshot} from '../procedures/terrain-draping';
+import type {DebugSettings} from '../utils/debug_settings';
+
+/** Configuration serialized by Scene after global/resource normalization. */
+interface WorkerSceneConfiguration extends Record<string, unknown> {
+    global: Record<string, unknown>;
+    sources: Record<string, SceneSourceDefinition>;
+    styles: Record<string, StyleDefinition & import('./scene-resource-types').SceneStyleDefinition>;
+    layers: Record<string, import('../styles/layer-types').SceneLayerDefinition>;
+    textures?: Record<string, import('./scene-resource-types').SceneResourceDefinition>;
+}
+/** Worker-local ownership installed by init and updateConfig before builds are dispatched. */
+interface WorkerSceneState {
+    scene_id: number;
+    _worker_id: number;
+    num_workers: number;
+    generation: number;
+    introspection: boolean;
+    global: Record<string, unknown>;
+    sources: Record<string, DataSource>;
+    styles: Record<string, import('../styles/style-mixing-types').ManagedStyle>;
+    layers: Record<string, LayerTree>;
+    tiles: Record<string, WorkerBuildTile>;
+    style_manager: StyleManager;
+    sharedTileSources: SharedTileSourceAdapter<WorkerBuildTile>;
+    last_config_sources: Record<string, SceneSourceDefinition>;
+    config_sources: Record<string, SceneSourceDefinition>;
+    syncing_textures: Promise<unknown>;
+    configuring: Promise<void>;
+    finalizeTileSources(): void;
+    importExternalScripts(scripts: string[]): void;
+    createDataSources(config: Pick<WorkerSceneConfiguration, 'sources'>): void;
+    syncTextures(textures?: Record<string, unknown>): Promise<unknown>;
+    getTile(key: string): WorkerBuildTile | undefined;
+    awaitConfiguration(): Promise<void>;
+    loadTileSourceData(tile: WorkerBuildTile): Promise<unknown>;
+    removeTile(key: string): void;
+}
+
+/** Match the geometry builder's null-geometry admission before evaluating worker queries. */
+function hasQueryGeometry(feature: DecodedTileFeature): feature is DecodedTileFeature & {geometry: NonNullable<DecodedTileFeature['geometry']>} {
+    return feature.geometry !== null;
+}
 
 import {registerMeshProjector, clearMeshProjectorPreparation, getMeshProjectorPreparationStatistics,
     getMeshProjectorWorkStatistics} from '../procedures/mesh-projector';
 
-const SceneWorker = Object.assign(self, {
+/** Bootstrap retains the original own-property shape; init installs the declared lazy state. */
+class WorkerSceneState {
+    declare scene_id: number;
+    declare _worker_id: number;
+    declare num_workers: number;
+    declare generation: number;
+    declare introspection: boolean;
+    declare global: Record<string, unknown>;
+    declare style_manager: StyleManager;
+    declare last_config_sources: Record<string, SceneSourceDefinition>;
+    declare config_sources: Record<string, SceneSourceDefinition>;
+    declare syncing_textures: Promise<unknown>;
+    declare configuring: Promise<void>;
+    sources: WorkerSceneState['sources'] = {};
+    styles: WorkerSceneState['styles'] = {};
+    layers: WorkerSceneState['layers'] = {};
+    tiles: WorkerSceneState['tiles'] = {};
+    sharedTileSources = new SharedTileSourceAdapter<WorkerBuildTile>();
+}
+
+const SceneWorker = Object.assign(self, new WorkerSceneState(), {
 
     FeatureSelection,
     registerMvtDecoder,
     registerMvtTileProvider,
     registerMeshProjector,
 
-    sources: {},
-    styles: {},
-    layers: {},
-    tiles: {},
-    /** Worker-local decoded content, independent of renderer mesh/style keys. */
-    sharedTileSources: new SharedTileSourceAdapter(),
 
     // Initialize worker
-    init (scene_id, worker_id, num_workers, log_level, device_pixel_ratio, has_element_index_unit, external_scripts, maxConcurrentLoads) {
-        const sharedTileSources = new SharedTileSourceAdapter(external_scripts.length === 0, {maxConcurrentLoads});
+    init (this: WorkerSceneState, scene_id: number, worker_id: number, num_workers: number, log_level: LogLevel, device_pixel_ratio: number, has_element_index_unit: boolean, external_scripts: string[], maxConcurrentLoads?: number): number {
+        const sharedTileSources = new SharedTileSourceAdapter<WorkerBuildTile>(external_scripts.length === 0, {maxConcurrentLoads});
         this.finalizeTileSources();
         this.sharedTileSources = sharedTileSources;
         this.scene_id = scene_id;
@@ -69,7 +131,7 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Import custom external scripts
-    importExternalScripts(scripts) {
+    importExternalScripts(this: WorkerSceneState, scripts: string[]) {
         if (scripts.length === 0) {
             return;
         }
@@ -84,14 +146,17 @@ const SceneWorker = Object.assign(self, {
 
         Object.getOwnPropertyNames(window).forEach(prop => {
             if (prev_names.indexOf(prop) === -1) {
-                this[prop] = window[prop]; // new property added to window, also add it to self
+                Reflect.set(this, prop, Reflect.get(window, prop)); // new property added to window, also add it to self
             }
         });
     },
 
     // Starts a config refresh
-    updateConfig ({ config, generation, introspection, shader_language = 'glsl', projection_target, terrain }, debug) {
-        config = JSON.parse(config);
+    updateConfig (this: WorkerSceneState, { config: serializedConfig, generation, introspection, shader_language = 'glsl', projection_target, terrain }: {
+        config: string; generation: number; introspection: boolean; shader_language?: 'glsl' | 'wgsl'; projection_target?: string; terrain?: TerrainDrapingSnapshot;
+    }, debug: Partial<DebugSettings>) {
+        // This is the scene-owned broker envelope, not a provider data parser.
+        const config = JSON.parse(serializedConfig) as WorkerSceneConfiguration;
         mergeDebugSettings(debug);
 
         this.generation = generation;
@@ -132,12 +197,12 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Create data sources and clear tile cache if necessary
-    createDataSources (config) {
+    createDataSources (this: WorkerSceneState, config: Pick<WorkerSceneConfiguration, 'sources'>) {
         // Save and compare previous sources
         this.last_config_sources = this.config_sources || {};
         this.config_sources = mergeObjects({}, config.sources); // deep copy the serialized config for the later existence comparison
         let last_sources = this.sources;
-        let changed = [];
+        let changed: string[] = [];
 
         // Parse new sources
         this.sources = {}; // clear previous sources
@@ -186,16 +251,17 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Returns a promise that fulfills when config refresh is finished
-    awaitConfiguration () {
+    awaitConfiguration (this: WorkerSceneState): Promise<void> {
         return this.configuring;
     },
 
     // Build a tile: load from tile source if building for first time, otherwise rebuild with existing data
-    buildTile ({ tile }) {
+    buildTile (this: WorkerSceneState, { tile }: {tile: WorkerBuildTile}): Promise<void> | undefined {
         // Tile cached?
-        if (this.getTile(tile.key) != null) {
+        const cachedTile = this.getTile(tile.key);
+        if (cachedTile != null) {
             // Already loading?
-            if (this.getTile(tile.key).loading === true) {
+            if (cachedTile.loading === true) {
                 return;
             }
         }
@@ -219,7 +285,7 @@ const SceneWorker = Object.assign(self, {
                     }
 
                     // Warn and continue on data source error
-                    if (tile.source_data.error) {
+                    if (tile.source_data?.error) {
                         log('warn', `tile load error(s) for ${tile.key}: ${tile.source_data.error}`);
                     }
 
@@ -247,7 +313,7 @@ const SceneWorker = Object.assign(self, {
                 }
                 catch(error) {
                     // Send error to main thread
-                    tile.error = error.toString();
+                    tile.error = String(error);
                     WorkerBroker.postMessage(`TileManager_${this.scene_id}.buildTileError`, Tile.slice(tile));
                 }
             }
@@ -255,12 +321,12 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Load this tile's data source, or copy from an existing tile's data
-    loadTileSourceData (tile) {
+    loadTileSourceData (this: WorkerSceneState, tile: WorkerBuildTile) {
         return this.sharedTileSources.loadTile(tile, this.sources[tile.source], () => iterateSourceTiles(this.tiles));
     },
 
     /** Internal diagnostics distinguish decoded acquisition from styled mesh/build residency. */
-    getTileSourceStatistics() {
+    getTileSourceStatistics(this: WorkerSceneState) {
         const projectionPreparation = getMeshProjectorPreparationStatistics();
         const projectionWork = getMeshProjectorWorkStatistics();
         return {...this.sharedTileSources.store.getStatistics(), sharingEnabled: this.sharedTileSources.sharingEnabled,
@@ -268,10 +334,10 @@ const SceneWorker = Object.assign(self, {
     },
 
     /** Return current source capabilities; external provider factories are registered only in workers. */
-    async getSourceMetadata(names: readonly string[], generation = this.generation): Promise<Record<string, TangramTileSourceMetadata>> {
+    async getSourceMetadata(this: WorkerSceneState, names: readonly string[], generation: number = this.generation): Promise<Record<string, TangramTileSourceMetadata>> {
         await this.awaitConfiguration();
         if (generation !== this.generation) throw new Error('Worker configuration changed during metadata loading');
-        const sources = names.map(name => [name, this.sources[name]]);
+        const sources = names.map((name): [string, DataSource] => [name, this.sources[name]]);
         return Object.fromEntries(await Promise.all(sources.map(async ([name, source]) => {
             if (!source) throw new Error(`Source '${name}' is unavailable in this worker`);
             const metadata = await source.getMetadata();
@@ -282,7 +348,7 @@ const SceneWorker = Object.assign(self, {
     },
 
     /** Explicit cleanup for worker reset; native worker termination also releases its isolated heap. */
-    finalizeTileSources() {
+    finalizeTileSources(this: WorkerSceneState) {
         clearMeshProjectorPreparation();
         for (const key in this.tiles) this.removeTile(key);
         this.sharedTileSources.finalize();
@@ -292,12 +358,12 @@ const SceneWorker = Object.assign(self, {
         this.last_config_sources = {};
     },
 
-    getTile(key) {
+    getTile(this: WorkerSceneState, key: string): WorkerBuildTile | undefined {
         return this.tiles[key];
     },
 
     // Remove tile
-    removeTile (key) {
+    removeTile (this: WorkerSceneState, key: string) {
         var tile = this.tiles[key];
 
         if (tile != null) {
@@ -317,28 +383,30 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Query features within visible tiles, with optional filter conditions
-    queryFeatures ({ filter, visible, geometry, tile_keys }) {
-        let features = [];
+    queryFeatures (this: WorkerSceneState, { filter, visible, geometry, tile_keys }: {filter?: unknown; visible?: boolean; geometry?: boolean; tile_keys: string[]}) {
+        let features: {type?: string; id?: string | number; properties: Record<string, unknown>; geometry?: import('../utils/geo').Geometry | null}[] = [];
         let tiles = tile_keys
             .map(t => this.tiles[t])
             .filter(t => t && t.loaded);
 
         // Compile feature filter
         if (filter != null) {
-            filter = ['{', '['].indexOf(filter[0]) > -1 ? JSON.parse(filter) : filter; // de-serialize if looks like an object
+            filter = typeof filter === 'string' && ['{', '['].indexOf(filter[0]) > -1 ? JSON.parse(filter) : filter; // de-serialize if looks like an object
             filter = compileFunctionStrings(filter, StyleParser.wrapFunction);
         }
-        filter = buildFilter(filter, FilterOptions);
+        const compiledFilter = buildFilter(filter, FilterOptions);
 
         tiles.forEach(tile => {
-            for (let layer in tile.source_data.layers) {
-                let data = tile.source_data.layers[layer];
+            const layers = tile.source_data?.layers;
+            for (let layer in layers) {
+                let data = layers[layer];
 
                 if (data == null) {
                     return;
                 }
 
                 data.features.forEach(feature => {
+                    if (!hasQueryGeometry(feature)) return;
                     // Optionally check if feature is visible (e.g. was rendered for current generation)
                     const feature_visible = (getFeatureRenderedGeneration(feature) === this.generation);
                     if ((visible === true && !feature_visible) ||
@@ -352,12 +420,12 @@ const SceneWorker = Object.assign(self, {
                     context.layer = layer;         // add data source layer name
                     context.id = feature.id;       // add feature id
 
-                    if (!filter(context)) {
+                    if (!compiledFilter(context)) {
                         return;
                     }
 
                     // Info to return with each feature
-                    let subset = {
+                    let subset: (typeof features)[number] = {
                         type: feature.type,
                         id: feature.id,
                         properties: Object.assign({}, feature.properties, {
@@ -372,7 +440,7 @@ const SceneWorker = Object.assign(self, {
                     if (geometry === true) {
                         // Transform back to lat lng (copy geometry to avoid local modification)
                         subset.geometry = Geo.copyGeometry(feature.geometry);
-                        Geo.tileSpaceToLatlng(subset.geometry, tile.coords.z, tile.min);
+                        if (subset.geometry) Geo.tileSpaceToLatlng(subset.geometry, tile.coords.z, tile.min);
                     }
 
                     features.push(subset);
@@ -383,8 +451,8 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Get a feature from the selection map
-    getFeatureSelection ({ id, key } = {}) {
-        var selection = FeatureSelection.map[key];
+    getFeatureSelection ({ id, key }: {id?: number; key?: number} = {}) {
+        var selection = key === undefined ? undefined : FeatureSelection.map[key];
 
         return {
             id: id,
@@ -393,7 +461,7 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Resets the feature selection state
-    resetFeatureSelection (sources = null) {
+    resetFeatureSelection (sources: string[] | null = null) {
         FeatureSelection.reset(sources);
     },
 
@@ -403,7 +471,7 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Texture info needs to be synced from main thread, e.g. width/height, which we only know after the texture loads
-    syncTextures (tex_config) {
+    syncTextures (tex_config?: Record<string, unknown>) {
         let textures = [];
         if (tex_config) {
             textures.push(...Object.keys(tex_config));
@@ -417,7 +485,7 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Sync device pixel ratio from main thread
-    updateDevicePixelRatio (device_pixel_ratio) {
+    updateDevicePixelRatio (device_pixel_ratio: number) {
         Utils.device_pixel_ratio = device_pixel_ratio;
     },
 
@@ -426,11 +494,11 @@ const SceneWorker = Object.assign(self, {
     },
 
     // Profiling helpers
-    profile (name) {
+    profile (this: WorkerSceneState, name: string) {
         console.profile(`worker ${this._worker_id}: ${name}`); // eslint-disable-line no-console
     },
 
-    profileEnd (name) {
+    profileEnd (this: WorkerSceneState, name: string) {
         console.profileEnd(`worker ${this._worker_id}: ${name}`); // eslint-disable-line no-console
     },
 

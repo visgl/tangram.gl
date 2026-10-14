@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {requireTileManager} from './helpers/scene-owners';
 import {expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import Renderer from '../src/scene/renderer';
@@ -73,11 +74,11 @@ test('globe pruning retains only pinned global tiles and releases them when prel
     const renderer = new Renderer({});
     const view = renderer.scene.view;
     const pinnedKeys = new Set(['global']);
-    view.scene.tile_manager.isTilePreloaded = key => pinnedKeys.has(key);
+    requireTileManager(view.scene).isTilePreloaded = key => pinnedKeys.has(key);
     const removed: string[] = [];
     const tiles = ['global', 'offscreen'].map(key => ({key, visible: false, loading: true,
         style_z: 5, coords: TileID.coord({x: 0, y: 0, z: 2}), isProxy: () => false, setupProgram: () => {}}));
-    const remove = vi.spyOn(view.scene.tile_manager, 'removeTiles').mockImplementation(filter => {
+    const remove = vi.spyOn(requireTileManager(view.scene), 'removeTiles').mockImplementation(filter => {
         for (const tile of tiles) if (filter(tile)) removed.push(tile.key);
     });
     try {

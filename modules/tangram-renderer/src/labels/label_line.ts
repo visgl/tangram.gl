@@ -256,6 +256,8 @@ export class LabelLineBase {
 // Class for straight labels.
 // Extends base LabelLine class.
 export class LabelLineStraight extends LabelLineBase {
+    /** Discriminator for one unarticulated text quad. */
+    declare type: 'straight';
     constructor (size: LabelPointCoordinate, line: LabelPointCoordinate[], layout: LabelLayout, tolerance: number){
         super(layout);
         this.type = 'straight';
@@ -275,7 +277,7 @@ export class LabelLineStraight extends LabelLineBase {
 
         // matches for "left" or "right" labels where the offset angle is dependent on the geometry
         if (typeof layout.orientation === 'number'){
-            this.offset[1] += ORIENTED_LABEL_OFFSET_FACTOR * (size[1] - layout.vertical_buffer);
+            this.offset[1] += ORIENTED_LABEL_OFFSET_FACTOR * (size[1] - Number(layout.vertical_buffer));
 
             // if line is flipped, or the orientation is "left" (-1), flip the offset's y-axis
             if (flipped){
@@ -378,6 +380,8 @@ export class LabelLineStraight extends LabelLineBase {
 // Class for curved labels
 // Extends base LabelLine class to support angles, pre_angles, offsets as arrays for each segment
 class LabelLineCurved extends LabelLineBase {
+    /** Discriminator for per-segment curved text quads. */
+    declare type: 'curved';
     /** Per-segment samples at fractional zoom stops. */
     declare angles: number[][];
     declare pre_angles: number[][];
@@ -427,7 +431,7 @@ class LabelLineCurved extends LabelLineBase {
 
         // matches for "left" or "right" labels where the offset angle is dependent on the geometry
         if (typeof layout.orientation === 'number'){
-            this.offset[1] += ORIENTED_LABEL_OFFSET_FACTOR * (height_px - layout.vertical_buffer);
+            this.offset[1] += ORIENTED_LABEL_OFFSET_FACTOR * (height_px - Number(layout.vertical_buffer));
 
             // if line is flipped, or the orientation is "left" (-1), flip the offset's y-axis
             if (flipped){

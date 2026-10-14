@@ -87,12 +87,12 @@ export default class UniformBuffer {
     /** Whether CPU writes need uploading. */
     declare dirty: boolean;
 
-    static isSupported(gl: WebGL2RenderingContext | null | undefined): gl is WebGL2RenderingContext {
+    static isSupported(gl: WebGLRenderingContext | null | undefined): gl is WebGL2RenderingContext {
         return Boolean(gl &&
-            gl.UNIFORM_BUFFER != null &&
-            typeof gl.bindBufferBase === 'function' &&
-            typeof gl.getUniformBlockIndex === 'function' &&
-            typeof gl.uniformBlockBinding === 'function');
+            'UNIFORM_BUFFER' in gl && gl.UNIFORM_BUFFER != null &&
+            'bindBufferBase' in gl && typeof gl.bindBufferBase === 'function' &&
+            'getUniformBlockIndex' in gl && typeof gl.getUniformBlockIndex === 'function' &&
+            'uniformBlockBinding' in gl && typeof gl.uniformBlockBinding === 'function');
     }
 
     static createLayout(uniforms: Record<string, string>): UniformLayout {

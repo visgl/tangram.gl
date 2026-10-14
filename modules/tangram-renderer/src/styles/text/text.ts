@@ -41,6 +41,7 @@ interface TextFeatureStyle {
 /** Inherited mesh surface needed to populate a text vertex template. */
 interface TextBuildMesh {
     vertex_data: {vertex_layout: VertexLayout};
+    variant: import('../points/point-runtime-types').PointTemplateMesh['variant'];
 }
 /** Checked standalone-text style, extending only the point/style capabilities it consumes. */
 export interface TextStyleRuntime extends TextLabelRuntime {
@@ -66,19 +67,16 @@ export interface TextStyleRuntime extends TextLabelRuntime {
     getBlendOrderForDraw(draw: TextLabelDraw): number;
     buildLabels(size: LabelPointCoordinate | LabelPointCoordinate[], geometry: TextGeometry, layout: LabelLayout, totalSize?: LabelPointCoordinate): TextRenderLabel[];
     buildLineLabels(line: LabelPointCoordinate[], size: LabelPointCoordinate | LabelPointCoordinate[], layout: LabelLayout, totalSize?: LabelPointCoordinate): TextRenderLabel[];
-    init(options?: {generation?: number; styles?: unknown; sources?: Record<string, unknown>}): void;
+    init(options?: import('../style-runtime-types').StyleInitOptions): void;
     getWGSLShaderSource(selection?: boolean): string;
     makeVertexTemplate(style: TextFeatureStyle, mesh: TextBuildMesh): number[];
     addFeature(feature: TextFeature, draw: TextLabelDraw, context: TextContext): void;
-    endData(tile: TextTile): Promise<TextTileData | undefined>;
+    endData(tile: TextTile): Promise<TextTileData | null>;
     _preprocess(draw: TextLabelDraw): TextLabelDraw | undefined;
     vertexLayoutForMeshVariant(variant: TextMeshVariant): VertexLayout;
 }
 /** Completed text tile mesh and texture ownership records. */
-interface TextTileData {
-    textures: string[];
-    meshes: Record<string, {uniforms: Record<string, unknown>}>;
-}
+type TextTileData = import('../style-runtime-types').BuildTileData<Uint8Array>;
 /** Existing prototype/mixin factory: inherited methods remain implemented by Points. */
 export let TextStyle: TextStyleRuntime = Object.create(Points);
 
@@ -239,7 +237,9 @@ Object.assign(TextStyle, {
 
             // Always apply shader blocks to standalone text
             for (let m in tile_data.meshes) {
-                tile_data.meshes[m].uniforms.u_apply_color_blocks = true;
+                const mesh = tile_data.meshes[m];
+                mesh.uniforms = mesh.uniforms || {};
+                mesh.uniforms.u_apply_color_blocks = true;
             }
         }
 
@@ -316,7 +316,7 @@ Object.assign(TextStyle, {
     // Build one or more labels for a line geometry
     buildLineLabels (this: TextStyleRuntime, line: LabelPointCoordinate[], size: LabelPointCoordinate | LabelPointCoordinate[], layout: LabelLayout, total_size?: LabelPointCoordinate): TextRenderLabel[] {
         let labels: TextRenderLabel[] = [];
-        let subdiv = Math.min(layout.subdiv, line.length - 1);
+        let subdiv = Math.min(Number(layout.subdiv), line.length - 1);
         if (subdiv > 1) {
             // Create multiple labels for line, with each allotted a range of segments
             // in which it will attempt to place

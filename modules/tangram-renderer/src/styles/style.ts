@@ -5,9 +5,17 @@
 
 // Rendering styles
 
-// @ts-nocheck
 
 import StyleParser from './style_parser';
+import type {StyleRuntime, StyleMethods, StyleInitOptions, StyleGLOptions, BuildFeature, BuildContext, BuildDraw, BuildGeometry, BuildFeatureStyle, BuildTileData, BuildMesh, LayerDebugTree, CountedLayerTree, RasterTextureInfo, RasterTextureTile} from './style-runtime-types';
+import type {WorkerBuildTile, TileStylePayload, TileMeshVariant} from '../tile/tile-build-types';
+import type {GeometryMeshVariant} from './geometry-style-types';
+import type {PropertyCache, PropertyContext} from './property-types';
+import type VertexLayout from '../gl/vertex_layout';
+import VertexData from '../gl/vertex_data';
+import type {VertexAttribute} from '../gl/vertex-types';
+import type UniformBuffer from '../gl/uniform_buffer';
+import type {MeshElementData, MeshRenderOptions} from '../gl/mesh-types';
 import {markFeatureRendered} from './feature_annotations';
 import FeatureSelection from '../selection/selection';
 import gl from '../gl/constants'; // import GL constants since workers can't access GL context
@@ -34,8 +42,8 @@ import {heightDecode} from '../shader-modules/height-decode';
 
 // Base class
 
-export var Style = {
-    init ({ generation, styles, sources = {}, introspection, shader_language = 'glsl', config, projection_target, terrain } = {}) {
+export var Style: StyleMethods = {
+    init (this: StyleRuntime, { generation, styles, sources = {}, introspection, shader_language = 'glsl', config, projection_target, terrain }: StyleInitOptions = {}) {
         this.setGeneration(generation);
         this.styles = styles;                       // styles for scene
         this.sources = sources;                     // data sources for scene
@@ -47,10 +55,11 @@ export var Style = {
             normalizeProjectedBasemapOptions(config.scene.cpu_projection);
         this.screen_space_labels = Boolean(this.cpu_projection) || config?.scene?._host_screen_space_labels === true;
         if (this.cpu_projection) {
-            validateProjectedLights(config.lights);
+            validateProjectedLights(config?.lights);
             if (this.lighting && !(['polygons', 'raster'].includes(this.baseStyle()) &&
-                ['vertex', 'fragment'].includes(this.lighting))) throw new Error('CPU projection lighting requires polygon/raster vertex or fragment mode');
-            const specular = this.material?.specular?.amount ?? this.material?.specular;
+                ['vertex', 'fragment'].includes(String(this.lighting)))) throw new Error('CPU projection lighting requires polygon/raster vertex or fragment mode');
+            const specularChannel = this.material?.specular;
+            const specular = specularChannel !== null && typeof specularChannel === 'object' && 'amount' in specularChannel ? specularChannel.amount ?? specularChannel : specularChannel;
             const zeroSpecular = specular === undefined || specular === 0 ||
                 (Array.isArray(specular) && specular.slice(0, 3).every(value => value === 0));
             if (this.material?.normal || !zeroSpecular) {
@@ -116,7 +125,7 @@ export var Style = {
         this.initialized = true;
     },
 
-    destroy () {
+    destroy (this: StyleRuntime) {
         if (Object.prototype.hasOwnProperty.call(this, 'portable_material_buffer')) {
             this.portable_material_buffer?.destroy();
         }
@@ -142,11 +151,11 @@ export var Style = {
     reset () {
     },
 
-    baseStyle () {
+    baseStyle (this: StyleRuntime): string {
         return this.base || this.name;
     },
 
-    setGeneration (generation) {
+    setGeneration (this: StyleRuntime, generation: number | undefined) {
         // Scene generation id this style was created for
         this.generation = generation;
 
@@ -160,7 +169,7 @@ export var Style = {
     /*** Style parsing and geometry construction ***/
 
     // Returns an object to hold feature data (for a tile or other object)
-    startData (tile) {
+    startData (this: StyleRuntime, tile: Pick<WorkerBuildTile, 'id'>) {
         this.tile_data[tile.id] = this.tile_data[tile.id] || {
             meshes: {},
             uniforms: {},
@@ -169,28 +178,33 @@ export var Style = {
     },
 
     // Finalizes an object holding feature data (for a tile or other object)
-    async endData (tile) {
+    async endData (this: StyleRuntime, tile: import('./style-runtime-types').StyleFinalizeTile) {
         var tile_data = this.tile_data[tile.id];
         this.tile_data[tile.id] = null;
 
         if (tile_data && Object.keys(tile_data.meshes).length > 0) {
+            const transferredMeshes: Record<string, BuildMesh<Uint8Array>> = {};
             for (let variant in tile_data.meshes) {
-                let mesh = tile_data.meshes[variant];
+                const buildingMesh = tile_data.meshes[variant];
+                const vertexData = buildingMesh.vertex_data;
+                if (vertexData instanceof Uint8Array) throw new Error('Style mesh has already been finalized');
 
                 // Remove empty mesh variants
-                if (mesh.vertex_data.vertex_count === 0) {
+                if (vertexData.vertex_count === 0) {
                     delete tile_data.meshes[variant];
                     continue;
                 }
 
                 // Only keep final byte buffer
-                mesh.vertex_data.end();
-                mesh.vertex_elements = mesh.vertex_data.element_buffer;
-                mesh.vertex_data = mesh.vertex_data.vertex_buffer; // convert from instance to raw typed array
+                vertexData.end();
+                let mesh: BuildMesh<Uint8Array> = Object.assign(buildingMesh, {vertex_elements: vertexData.element_buffer, vertex_data: vertexData.vertex_buffer});
+                transferredMeshes[variant] = mesh;
+                if ((this.terrain || this.cpu_projection) && (!tile.min || !tile.coords)) throw new Error('Projected tile has no address');
                 if (this.terrain) {
                     const originalLayout = this.vertexLayoutForMeshVariant(mesh.variant);
-                    const draped = drapeTerrainMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements,
-                        layout: originalLayout, origin: [tile.min.x, tile.min.y], tileZoom: tile.coords.z, styleZoom: tile.style_z,
+                    if (!originalLayout) throw new Error('Style has no terrain vertex layout');
+                    const draped = drapeTerrainMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements || false,
+                        layout: originalLayout, origin: [tile.min!.x, tile.min!.y], tileZoom: tile.coords!.z, styleZoom: tile.style_z,
                         annotations: ['points', 'text'].includes(this.baseStyle()), terrain: this.terrain});
                     mesh.vertex_data = draped.vertices; mesh.vertex_elements = draped.indices;
                     if (mesh.labels) {
@@ -198,22 +212,27 @@ export var Style = {
                         for (const label of Object.values(mesh.labels)) label.ranges = label.ranges.map(([offset, count]) => [offset / originalLayout.stride * stride, count]);
                     }
                     mesh.variant = {...mesh.variant, terrain: true, terrainStatistics: draped.statistics, terrainTransitionDuration: this.terrain.transitionDuration};
-                    if (!draped.indices.length) {delete tile_data.meshes[variant]; continue;}
+                    if (!draped.indices.length) {delete tile_data.meshes[variant]; delete transferredMeshes[variant]; continue;}
                     if (this.terrain.querySurfaceStyles.includes(this.name)) {
                         if (this.baseStyle() !== 'raster') throw new Error('Terrain query surfaces require a ground raster style');
-                        mesh.terrain_surface = extractDrapedTerrainQueryMesh(draped.vertices, draped.indices, getTerrainVertexLayout(originalLayout), [tile.min.x, tile.min.y], tile.coords.z, this.terrain.maxQueryMeshBytes);
+                        mesh.terrain_surface = extractDrapedTerrainQueryMesh(draped.vertices, draped.indices, getTerrainVertexLayout(originalLayout), [tile.min!.x, tile.min!.y], tile.coords!.z, this.terrain.maxQueryMeshBytes);
                     }
                 }
                 if (this.cpu_projection) {
                     if (!['polygons', 'raster', 'lines', 'points', 'text'].includes(this.baseStyle())) throw new Error('CPU projection requires ground meshes or screen-facing annotations');
-                    const projected = await projectTileMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements,
-                        layout: this.vertexLayoutForMeshVariant(mesh.variant), tile, geometry: this.baseStyle(), projection: this.cpu_projection,
+                    const layout = this.vertexLayoutForMeshVariant(mesh.variant);
+                    if (!layout) throw new Error('Style has no projected vertex layout');
+                    const geometry = this.baseStyle();
+                    if (geometry !== 'polygons' && geometry !== 'raster' && geometry !== 'lines' && geometry !== 'points' && geometry !== 'text') throw new Error('Unsupported projected style geometry');
+                    const projection = this.cpu_projection;
+                    const projected = await projectTileMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements || false,
+                        layout, tile: {...tile, min: tile.min!, coords: tile.coords!}, geometry, projection,
                         projectionCacheKey: this.projection_target,
                         projectPositions: this.projection_target ? coordinates => WorkerBroker.postMessage(
-                            `${this.projection_target}.projectPositions`, WorkerBroker.withTransferables(coordinates, this.cpu_projection.type)) : undefined});
+                            `${this.projection_target}.projectPositions`, WorkerBroker.withTransferables(coordinates, projection.type)) : undefined});
                     mesh.vertex_data = projected.vertices;
                     mesh.vertex_elements = projected.indices;
-                    if (projected.indices.length === 0) delete tile_data.meshes[variant];
+                    if (projected.indices.length === 0) {delete tile_data.meshes[variant]; delete transferredMeshes[variant];}
                 }
             }
 
@@ -222,7 +241,7 @@ export var Style = {
 
             // Load raster tiles passed from data source
             // Blocks mesh completion to avoid flickering
-            return this.buildRasterTextures(tile, tile_data);
+            return this.buildRasterTextures(tile, Object.assign(tile_data, {meshes: Object.assign(tile_data.meshes, transferredMeshes)}));
         }
         else {
             return null; // don't send tile data back if doesn't have geometry
@@ -230,14 +249,17 @@ export var Style = {
     },
 
     // Has mesh data for a given tile?
-    hasDataForTile (tile) {
+    hasDataForTile (this: StyleRuntime, tile: Pick<WorkerBuildTile, 'id'>) {
         return this.tile_data[tile.id] != null;
     },
 
-    getTileMesh (tile, variant) {
-        const meshes = this.tile_data[tile.id].meshes;
+    getTileMesh (this: StyleRuntime, tile: Pick<WorkerBuildTile, 'id'>, variant: GeometryMeshVariant & TileMeshVariant) {
+        const data = this.tile_data[tile.id];
+        if (!data) throw new Error('Style tile geometry has not started');
+        const meshes = data.meshes;
         if (meshes[variant.key] == null) {
             const vertex_layout = this.vertexLayoutForMeshVariant(variant);
+            if (!vertex_layout) throw new Error('Style has no vertex layout');
             meshes[variant.key] = {
                 variant,
                 vertex_data: vertex_layout.createVertexData()
@@ -246,15 +268,17 @@ export var Style = {
         return meshes[variant.key];
     },
 
-    vertexLayoutForMeshVariant (/*variant*/) {
+    vertexLayoutForMeshVariant (_variant: GeometryMeshVariant & TileMeshVariant): VertexLayout | undefined {
         // styles must implement
+        return undefined;
     },
 
-    meshVariantTypeForDraw (/*draw*/) {
+    meshVariantTypeForDraw (_draw: BuildDraw): (GeometryMeshVariant & TileMeshVariant) | undefined {
         // styles must implement
+        return undefined;
     },
 
-    addFeature (feature, draw, context) {
+    addFeature (this: StyleRuntime, feature: BuildFeature, draw: BuildDraw, context: BuildContext) {
         let tile = context.tile;
         if (tile.generation !== this.generation) {
             return;
@@ -269,13 +293,13 @@ export var Style = {
             return; // skip feature
         }
 
-        if (this.buildGeometry(feature.geometry, style, context) > 0) {
+        if (Number(this.buildGeometry(feature.geometry, style, context)) > 0 && this.generation !== undefined) {
             markFeatureRendered(feature, this.generation); // bookkeeping must not mutate shared decoded content
         }
     },
 
-    buildGeometry (geometry, style, context) {
-        let geom_count;
+    buildGeometry (this: StyleRuntime, geometry: BuildGeometry, style: BuildFeatureStyle, context: BuildContext) {
+        let geom_count: number | undefined;
         if (geometry.type === 'Polygon') {
             geom_count = this.buildPolygons([geometry.coordinates], style, context);
         }
@@ -296,13 +320,14 @@ export var Style = {
         }
 
         // Optionally collect per-layer stats
-        if (geom_count > 0 && debugSettings.layer_stats) {
+        if (geom_count !== undefined && geom_count > 0 && debugSettings.layer_stats) {
             let tile = context.tile;
+            if (!tile.debug) throw new Error('Style debug tile has no counters');
             tile.debug.layers = tile.debug.layers || { list: {}, tree: {} };
             let list = tile.debug.layers.list;
             let tree = tile.debug.layers.tree;
-            let ftree = {}; // tree of layers for this feature
-            context.layers.forEach(layer => {
+            let ftree: CountedLayerTree = {}; // tree of layers for this feature
+            context.layers?.forEach(layer => {
                 addLayerDebugEntry(list, layer, 1, geom_count, {[this.name]: geom_count}, {[this.baseStyle()]: geom_count});
 
                 let node = tree;
@@ -320,7 +345,7 @@ export var Style = {
                     if (i < levels.length - 1) {
                         node[level].layers = node[level].layers || {};
                     }
-                    node = node[level].layers;
+                    node = node[level].layers ?? {};
                     fnode = fnode[level];
                 }
             });
@@ -329,14 +354,14 @@ export var Style = {
         return geom_count;
     },
 
-    parseFeature (feature, draw, context) {
+    parseFeature (this: StyleRuntime, feature: BuildFeature, draw: BuildDraw, context: BuildContext): BuildFeatureStyle | undefined {
         try {
-            var style = this.feature_style;
+            var style: BuildFeatureStyle | undefined = this.feature_style;
 
             // Calculate order
             style.order = this.parseOrder(draw.order, context);
             if (style.order == null && this.blend !== 'overlay') {
-                let msg = `Layer '${draw.layers.join(', ')}', draw group '${draw.group}': `;
+                let msg = `Layer '${draw.layers?.join(', ')}', draw group '${draw.group}': `;
                 msg += '\'order\' parameter is required unless blend mode is \'overlay\'';
                 if (draw.order != null) {
                     msg += '; \'order\' was set to a dynamic value (e.g. string tied to feature property, ';
@@ -356,8 +381,9 @@ export var Style = {
             if (this.shaders.attributes) {
                 style.attributes = style.attributes || {};
                 for (const aname in this.shaders.attributes) {
-                    style.attributes[aname] = StyleParser.evalCachedProperty(
-                        draw.attributes && draw.attributes[aname], context);
+                    const attribute = draw.attributes?.[aname];
+                    if (attribute !== undefined && !isPropertyCache(attribute)) throw new Error('Custom attribute is not preprocessed');
+                    style.attributes[aname] = StyleParser.evalCachedProperty(attribute, context);
                     // set attribute value to zero for null/undefined/non-numeric values
                     if (typeof style.attributes[aname] !== 'number') {
                         style.attributes[aname] = 0;
@@ -374,7 +400,10 @@ export var Style = {
             }
 
             if (style.interactive === true) {
-                style.selection_color = FeatureSelection.makeColor(feature, context.tile, context);
+                const tile = context.tile;
+                if (tile.generation == null || !tile.key || !tile.coords || tile.style_z === undefined || !tile.source) throw new Error('Interactive style tile is incomplete');
+                if (typeof context.source !== 'string' || typeof context.layer !== 'string') throw new Error('Interactive style context has no source layer');
+                style.selection_color = FeatureSelection.makeColor(feature, {...tile, key: tile.key, coords: tile.coords, style_z: tile.style_z, source: tile.source, generation: tile.generation}, {...context, layers: context.layers ?? [], source: context.source, layer: context.layer});
             }
             else {
                 style.selection_color = FeatureSelection.defaultColor;
@@ -383,15 +412,15 @@ export var Style = {
             return style;
         }
         catch (error) {
-            log('error', 'Style.parseFeature: style parsing error', feature, style, error.stack);
+            log('error', 'Style.parseFeature: style parsing error', feature, style, error instanceof Error ? error.stack : undefined);
         }
     },
 
-    _parseFeature (/*feature, draw, context*/) {
+    _parseFeature (this: StyleRuntime, _feature: BuildFeature, _draw: BuildDraw, _context: BuildContext): BuildFeatureStyle | undefined {
         return this.feature_style;
     },
 
-    preprocess (draw) {
+    preprocess (this: StyleRuntime, draw: BuildDraw) {
         // Preprocess first time
         if (!draw.preprocessed) {
             // Apply draw defaults
@@ -400,10 +429,10 @@ export var Style = {
                 for (let param in this.draw) {
                     let val = this.draw[param];
                     if (typeof val === 'object' && !Array.isArray(val)) {  // nested param (e.g. `outline`)
-                        draw[param] = mergeObjects({}, val, draw[param]);
+                        Reflect.set(draw, param, mergeObjects({}, val, Object(Reflect.get(draw, param))));
                     }
-                    else if (draw[param] == null) { // simple param (single scalar value or array)
-                        draw[param] = val;
+                    else if (Reflect.get(draw, param) == null) { // simple param (single scalar value or array)
+                        Reflect.set(draw, param, val);
                     }
                 }
             }
@@ -415,10 +444,11 @@ export var Style = {
                 draw.interactive = true;  // always enable feature selection for introspection
             }
 
-            draw = this._preprocess(draw); // optional subclass implementation
-            if (!draw) {
+            const preprocessed = this._preprocess(draw); // optional subclass implementation
+            if (!preprocessed) {
                 return;
             }
+            draw = preprocessed;
 
             // Custom attributes
             if (this.shaders.attributes) {
@@ -435,12 +465,12 @@ export var Style = {
     },
 
     // optionally implemented by subclass
-    _preprocess (draw) {
+    _preprocess (draw: BuildDraw): BuildDraw | undefined {
         return draw;
     },
 
     // Parse an order value
-    parseOrder (order, context) {
+    parseOrder (order: unknown, context: PropertyContext): unknown {
         // Calculate order if it was not cached
         if (typeof order !== 'number') {
             return StyleParser.calculateOrder(order, context);
@@ -449,30 +479,30 @@ export var Style = {
     },
 
     // Expand final precision for half-layers (for outlines)
-    scaleOrder (order) {
+    scaleOrder (order: number) {
         return order * 2;
     },
 
     // Parse a color of choose a default if acceptable, return undefined if color missing
-    parseColor(color, context) {
+    parseColor(this: StyleRuntime, color: PropertyCache | null | undefined, context: PropertyContext) {
         // Need either a color, or a shader block for 'color' or 'filter'
         if (color) {
             return StyleParser.evalCachedColorProperty(color, context);
         }
-        else if (this.shaders.blocks.color || this.shaders.blocks.filter) {
+        else if (this.shaders.blocks?.color || this.shaders.blocks?.filter) {
             return StyleParser.defaults.color;
         }
     },
 
     // Build functions are no-ops until overriden
-    buildPolygons () { return 0; },
-    buildLines () { return 0; },
-    buildPoints () { return 0; },
+    buildPolygons (_polygons: Extract<BuildGeometry, {type: 'MultiPolygon'}>['coordinates'], _style: BuildFeatureStyle, _context: BuildContext) { return 0; },
+    buildLines (_lines: number[][][], _style: BuildFeatureStyle, _context: BuildContext) { return 0; },
+    buildPoints (_points: number[][], _style: BuildFeatureStyle, _context: BuildContext) { return 0; },
 
 
     /*** GL state and rendering ***/
 
-    setGL (gl, uniform_blocks = {}, options = {}) {
+    setGL (this: StyleRuntime, gl: WebGLRenderingContext | null, uniform_blocks: Record<string, UniformBuffer> = {}, options: StyleGLOptions = {}) {
         this.gl = gl;
         this.resource_context = options.resourceContext || gl;
         this.uniform_blocks = uniform_blocks;
@@ -497,6 +527,8 @@ export var Style = {
             this.portable_lighting_mode = this.defines.TANGRAM_LIGHTING_VERTEX ? 'vertex' :
                 this.defines.TANGRAM_LIGHTING_FRAGMENT ? 'fragment' : false;
             if (this.portable_lighting_mode) {
+                if (!(this.material instanceof Material)) throw new Error('Style material has not been initialized');
+                if (!this.uniform_block_factory) throw new Error('Style has no uniform block factory');
                 getPortableMaterialUniforms(this.material);
                 this.portable_material_buffer = this.uniform_block_factory({
                     name: 'TangramMaterial', binding: 7, uniforms: PORTABLE_MATERIAL_UNIFORMS
@@ -506,16 +538,19 @@ export var Style = {
         }
     },
 
-    makeMesh (vertex_data, vertex_elements, options = {}) {
+    makeMesh (this: StyleRuntime, vertex_data: Uint8Array, vertex_elements: MeshElementData, options: Partial<TileStylePayload> = {}) {
         options = { ...options, bufferFactory: this.mesh_buffer_factory };
         if (['polygons', 'lines', 'raster'].includes(this.baseStyle()) &&
             Number.isInteger(options.tileZoom)) {
-            options.globeRefinement = {tileZoom: options.tileZoom, tileScale: Geo.tile_scale};
+            options.globeRefinement = {tileZoom: Number(options.tileZoom), tileScale: Geo.tile_scale};
             if (this.shaders?.blocks?.position) {
                 options.globeRefinementError = `Globe projection does not support style '${this.name}' with a position shader block`;
             }
         }
-        let vertex_layout = this.vertexLayoutForMeshVariant(options.variant);
+        if (!isGeometryMeshVariant(options.variant)) throw new Error('Mesh variant is incomplete');
+        const variant = options.variant;
+        let vertex_layout = this.vertexLayoutForMeshVariant(variant);
+        if (!vertex_layout) throw new Error('Style has no mesh vertex layout');
         if (options.variant?.terrain) {
             vertex_layout = getTerrainVertexLayout(vertex_layout);
             // The worker already refines terrain topology; do not rebuild a second main-thread globe mesh.
@@ -524,7 +559,7 @@ export var Style = {
 
         if (debugSettings.wireframe) {
             // In wireframe debug mode, transform mesh into lines
-            vertex_elements = makeWireframeForTriangleElementData(vertex_elements);
+            vertex_elements = makeWireframeForTriangleElementData(vertex_elements || new Uint16Array());
             return new VBOMesh(this.gl, vertex_data, vertex_elements, vertex_layout,
                 { ...options, globeRefinement: undefined, draw_mode: 0x0001 });
         }
@@ -532,12 +567,12 @@ export var Style = {
         return new VBOMesh(this.gl, vertex_data, vertex_elements, vertex_layout, options);
     },
 
-    render (mesh, options) {
+    render (mesh: VBOMesh, options: MeshRenderOptions) {
         return mesh.render(options);
     },
 
     // Get a specific program, compiling if necessary
-    getProgram (key = 'program') {
+    getProgram (this: StyleRuntime, key: 'program' | 'selection_program' = 'program') {
         this.compileSetup();
 
         const program = this[key];
@@ -552,7 +587,7 @@ export var Style = {
             }
             catch (e) {
                 log('error', `Style: error compiling program for style '${this.name}' (program key '${key}')`,
-                    this, e.stack, e.type, e.shader_errors);
+                    this, e instanceof Error ? e.stack : undefined, Reflect.get(Object(e), 'type'), Reflect.get(Object(e), 'shader_errors'));
                 throw e; // re-throw so users can be notified via event subscriptions
             }
         }
@@ -560,7 +595,7 @@ export var Style = {
     },
 
     // One-time setup for compiling style's programs
-    compileSetup () {
+    compileSetup (this: StyleRuntime) {
         if (this.compile_setup) {
             return;
         }
@@ -571,14 +606,15 @@ export var Style = {
 
         // Build defines & for selection (need to create a new object since the first is stored as a reference by the program)
         var defines = this.buildDefineList();
+        var selection_defines: Record<string, unknown> | undefined;
         if (this.selection) {
-            var selection_defines = Object.assign({}, defines);
+            selection_defines = Object.assign({}, defines);
             selection_defines.TANGRAM_FEATURE_SELECTION = true;
         }
 
         // Shader blocks
-        var blocks = (this.shaders && this.shaders.blocks);
-        var block_scopes = (this.shaders && this.shaders.block_scopes);
+        const blocks = this.shaders.blocks ?? {};
+        const block_scopes = this.shaders.block_scopes ?? {};
 
         // Uniforms
         var uniforms = Object.assign({}, this.shaders && this.shaders.uniforms);
@@ -612,7 +648,7 @@ export var Style = {
                 name: this.name,
                 defines,
                 uniforms,
-                uniform_blocks: this.uniform_blocks,
+                uniform_blocks: this.uniform_blocks ?? undefined,
                 shaderLanguage: this.shader_language,
                 deviceShaderCompilation: this.device_shader_compilation,
                 shaderProgramValidator: this.shader_program_validator,
@@ -627,7 +663,7 @@ export var Style = {
         );
 
         if (this.selection) {
-            const selection_source = this.shader_language === 'wgsl' ? this.getWGSLShaderSource(true) : null;
+            const selection_source = this.shader_language === 'wgsl' ? this.getWGSLShaderSource?.(true) : null;
             this.selection_program = new ShaderProgram(
                 this.gl,
                 selection_source ?? this.vertex_shader_src,
@@ -636,7 +672,7 @@ export var Style = {
                     name: (this.name + ' (selection)'),
                     defines: selection_defines,
                     uniforms,
-                    uniform_blocks: this.uniform_blocks,
+                    uniform_blocks: this.uniform_blocks ?? undefined,
                     shaderLanguage: this.shader_language,
                     deviceShaderCompilation: this.device_shader_compilation,
                     shaderProgramValidator: this.shader_program_validator,
@@ -658,7 +694,7 @@ export var Style = {
     },
 
     // Add a shader block
-    addShaderBlock (key, block, scope = null) {
+    addShaderBlock (this: StyleRuntime, key: string, block: string, scope: string | null = null) {
         this.shaders.blocks = this.shaders.blocks || {};
         this.shaders.blocks[key] = this.shaders.blocks[key] || [];
         this.shaders.blocks[key].push(block);
@@ -669,7 +705,7 @@ export var Style = {
     },
 
     // Remove all shader blocks for key
-    removeShaderBlock (key) {
+    removeShaderBlock (this: StyleRuntime, key: string) {
         if (this.shaders.blocks) {
             this.shaders.blocks[key] = null;
         }
@@ -679,7 +715,7 @@ export var Style = {
         }
     },
 
-    replaceShaderBlock (key, block, scope = null) {
+    replaceShaderBlock (this: StyleRuntime, key: string, block: string, scope: string | null = null) {
         this.removeShaderBlock(key);
         this.addShaderBlock(key, block, scope);
     },
@@ -687,9 +723,9 @@ export var Style = {
     /** TODO: could probably combine and generalize this with similar method in ShaderProgram
      * (list of define objects that inherit from each other)
      */
-    buildDefineList () {
+    buildDefineList (this: StyleRuntime) {
         // Add any custom defines to built-in style defines
-        var defines = {}; // create a new object to avoid mutating a prototype value that may be shared with other styles
+        var defines: Record<string, unknown> = {}; // create a new object to avoid mutating a prototype value that may be shared with other styles
         if (this.defines != null) {
             for (var d in this.defines) {
                 defines[d] = this.defines[d];
@@ -705,12 +741,12 @@ export var Style = {
     },
 
     // Determines if 'raster' parameter is set to a valid value
-    hasRasters () {
-        return (['color', 'normal', 'custom'].indexOf(this.raster) > -1);
+    hasRasters (this: StyleRuntime) {
+        return (['color', 'normal', 'custom'].indexOf(String(this.raster)) > -1);
     },
 
     // Setup raster access in shaders
-    setupRasters () {
+    setupRasters (this: StyleRuntime) {
         if (!this.hasRasters()) {
             return;
         }
@@ -740,7 +776,7 @@ export var Style = {
         if (num_raster_sources > 0) {
             // Track how many raster sources have alpha masking (used for handling transparency outside raster image)
             const num_masked_rasters = Object.keys(this.sources)
-                .filter(s => this.sources[s].mask_alpha)
+                .filter(s => 'mask_alpha' in this.sources[s] && this.sources[s].mask_alpha)
                 .length;
             this.defines.TANGRAM_HAS_MASKED_RASTERS = (num_masked_rasters > 0);
             this.defines.TANGRAM_ALL_MASKED_RASTERS = (num_masked_rasters === num_raster_sources);
@@ -756,23 +792,25 @@ export var Style = {
     },
 
     // Load raster tile textures and set uniforms
-    async buildRasterTextures (tile, tile_data) {
+    async buildRasterTextures (this: StyleRuntime, tile: import('./style-runtime-types').StyleFinalizeTile, tile_data: BuildTileData<Uint8Array>) {
         // skip if style doesn't support rasters
         if (!this.hasRasters()) {
             return tile_data;
         }
 
         // skip if source didn't attach any rasters to tile
-        if (tile.rasters.length === 0) {
+        if (!tile.rasters?.length) {
             return tile_data;
         }
+        const coords = tile.coords;
+        if (!coords) throw new Error('Raster tile has no address');
 
         // Load textures on main thread and return when done
         // We want to block the building of a raster tile mesh until its texture is loaded,
         // to avoid flickering while loading (texture will render as black)
         let textures;
         try {
-            textures = await WorkerBroker.postMessage(
+            textures = await WorkerBroker.postMessage<RasterTextureInfo[] | undefined>(
                 `${this.main_thread_target}.loadTextures`,
                 { coords: tile.coords, source: tile.source, rasters: tile.rasters, min: tile.min, max: tile.max }
             );
@@ -790,12 +828,13 @@ export var Style = {
         }
 
         // Enable alpha masking if needed (for transparency outside raster image, on first raster only)
-        tile_data.uniforms['u_raster_mask_alpha'] = (this.sources[tile.rasters[0]].mask_alpha === true);
+        const firstRaster = this.sources[tile.rasters[0]];
+        tile_data.uniforms['u_raster_mask_alpha'] = ('mask_alpha' in firstRaster && firstRaster.mask_alpha === true);
 
         // Set texture uniforms (returned after loading from main thread)
-        const u_samplers = tile_data.uniforms['u_rasters'] = [];
-        const u_sizes = tile_data.uniforms['u_raster_sizes'] = [];
-        const u_offsets = tile_data.uniforms['u_raster_offsets'] = [];
+        const u_samplers: string[] = tile_data.uniforms['u_rasters'] = [];
+        const u_sizes: number[][] = tile_data.uniforms['u_raster_sizes'] = [];
+        const u_offsets: number[][] = tile_data.uniforms['u_raster_offsets'] = [];
 
         textures.forEach(t => {
             const i = t.index;
@@ -808,12 +847,12 @@ export var Style = {
             // (e.g. an overzoomed raster tile), in which case we need to adjust the
             // raster texture UVs to offset to the appropriate starting point for
             // this geometry tile.
-            if (tile.coords.z > t.coords.z) {
-                let dz = tile.coords.z - t.coords.z; // # of levels raster source is overzoomed
+            if (coords.z > t.coords.z) {
+                let dz = coords.z - t.coords.z; // # of levels raster source is overzoomed
                 let dz2 = Math.pow(2, dz);
                 u_offsets[i] = [
-                    (((tile.coords.x % dz2) + dz2) % dz2) / dz2, // double-modulo to handle negative (wrapped) tile coords
-                    (dz2 - 1 - (tile.coords.y % dz2)) / dz2, // GL texture coords are +Y up
+                    (((coords.x % dz2) + dz2) % dz2) / dz2, // double-modulo to handle negative (wrapped) tile coords
+                    (dz2 - 1 - (coords.y % dz2)) / dz2, // GL texture coords are +Y up
                     1 / dz2
                 ];
             }
@@ -827,10 +866,10 @@ export var Style = {
 
     // Determine which raster tile textures need to load for this tile, load them and return metadata to worker
     // Called on main thread
-    async loadTextures (tile) {
-        let configs = {}; // texture configs to pass to texture builder, keyed by texture name
-        let index = {};   // index into raster sampler array, keyed by texture name
-        let queue = [];
+    async loadTextures (this: StyleRuntime, tile: RasterTextureTile) {
+        let configs: Record<string, import('../gl/texture').TextureOptions & {name: string; coords: RasterTextureInfo['coords']}> = {}; // texture configs to pass to texture builder, keyed by texture name
+        let index: Record<string, number> = {};   // index into raster sampler array, keyed by texture name
+        let queue: Promise<void>[] = [];
 
         // Find raster textures that need to be loaded
         tile.rasters.map(r => this.sources[r]).filter(x => x).forEach((source, i) => {
@@ -846,8 +885,7 @@ export var Style = {
         // Create and load raster textures
         await Texture.createFromObject(this.resource_context, configs);
         let textures = await Promise.all(Object.keys(configs)
-            .map(t => Texture.textures[t] && Texture.textures[t].load())
-            .filter(x => x)
+            .flatMap(name => {const texture = Texture.textures[name]; return texture instanceof Texture ? [texture.load()] : [];})
         );
         textures.forEach(t => t.retain());
 
@@ -864,7 +902,7 @@ export var Style = {
     },
 
     // Setup shader definitions for custom attributes
-    setupCustomAttributes() {
+    setupCustomAttributes(this: StyleRuntime) {
         if (this.shaders.attributes) {
             for (const [aname, attrib] of Object.entries(this.shaders.attributes)) {
                 // alias each custom attribute to the internal attribute name in vertex shader,
@@ -897,7 +935,7 @@ export var Style = {
     },
 
     // Add custom attributes to a list of attributes for initializing a vertex layout
-    addCustomAttributesToAttributeList(attribs) {
+    addCustomAttributesToAttributeList(this: StyleRuntime, attribs: VertexAttribute[]) {
         if (this.shaders.attributes) {
             for (const [aname, attrib] of Object.entries(this.shaders.attributes)) {
                 if (attrib.type === 'float') {
@@ -909,32 +947,35 @@ export var Style = {
     },
 
     // Add current feature values for custom attributes to vertex template
-    addCustomAttributesToVertexTemplate(draw, index) {
+    addCustomAttributesToVertexTemplate(this: StyleRuntime, draw: BuildFeatureStyle, index: number) {
         if (this.shaders.attributes) {
             for (let aname in this.shaders.attributes) {
-                this.vertex_template[index++] = draw.attributes[aname] != null ? draw.attributes[aname] : 0;
+                const value = draw.attributes?.[aname];
+                this.vertex_template[index++] = typeof value === 'number' ? value : 0;
             }
         }
     },
 
     // Setup any GL state for rendering
-    setup () {
+    setup (this: StyleRuntime) {
         this.setUniforms();
         if (this.portable_material_buffer) {
+            if (!(this.material instanceof Material)) throw new Error('Style material has not been initialized');
             this.portable_material_buffer.setUniforms(getPortableMaterialUniforms(this.material));
         } else {
+            if (!(this.material instanceof Material)) throw new Error('Style material has not been initialized');
             this.material.setupProgram(ShaderProgram.current);
         }
     },
 
     // Set style uniforms on currently bound program
-    setUniforms () {
+    setUniforms (this: StyleRuntime) {
         var program = ShaderProgram.current;
         if (!program) {
             return;
         }
 
-        program.setUniforms(this.shaders?.uniforms, true); // reset texture unit to 0
+        program.setUniforms(this.shaders?.uniforms ?? {}, true); // reset texture unit to 0
     },
 
     // Render state settings by blend mode
@@ -957,7 +998,7 @@ export var Style = {
         overlay: 5
     },
 
-    getBlendOrderForDraw (draw) {
+    getBlendOrderForDraw (this: StyleRuntime, draw: {blend_order?: number}): number | undefined {
         // Allow draw block to override blend_order for non-opaque blend styles
         return ((this.blend !== 'opaque' && draw.blend_order != null) ? draw.blend_order : this.blend_order);
     }
@@ -965,7 +1006,7 @@ export var Style = {
 };
 
 // add feature and geometry counts for a single layer
-export function addLayerDebugEntry (target, layer, faeture_count, geom_count, styles, bases) {
+export function addLayerDebugEntry (target: LayerDebugTree, layer: string, faeture_count: number, geom_count: number, styles: Record<string, number>, bases: Record<string, number>) {
     target[layer] = target[layer] || { features: 0, geoms: 0, styles: {}, base: {} };
     target[layer].features += faeture_count;    // feature count
     target[layer].geoms += geom_count;          // geometry count
@@ -981,4 +1022,16 @@ export function addLayerDebugEntry (target, layer, faeture_count, geom_count, st
         target[layer].base[style] = target[layer].base[style] || 0;
         target[layer].base[style] += bases[style];
     }
+}
+
+/** Cache normalization installs the value slot before feature evaluation. */
+function isPropertyCache(value: unknown): value is PropertyCache {
+    return value !== null && typeof value === 'object' && 'value' in value;
+}
+
+/** Mesh construction consumes the initialized geometry identity without cloning authored variant objects. */
+function isGeometryMeshVariant(value: TileMeshVariant | undefined): value is GeometryMeshVariant & TileMeshVariant {
+    return Boolean(value && (typeof value.key === 'string' || typeof value.key === 'number') &&
+        typeof value.selection === 'number' && typeof value.mesh_order === 'number' &&
+        (value.blend_order === undefined || typeof value.blend_order === 'number'));
 }

@@ -173,7 +173,7 @@ describe('standalone text style', () => {
     test('assembles regular, straight, and curved tile label meshes', async () => {
         const style = createTextStyle();
         const tile = {id: 'tile'};
-        const tileData = {meshes: {main: {uniforms: {}}}, textures: []};
+        const tileData = {meshes: {main: {vertex_data: new Uint8Array(), variant: {key: 'main', selection: 0, mesh_order: 0, blend_order: 3}, uniforms: {}}}, textures: [], uniforms: {}};
         vi.spyOn(Style, 'addFeature').mockImplementation(() => {});
         vi.spyOn(Style, 'endData').mockResolvedValue(tileData);
 

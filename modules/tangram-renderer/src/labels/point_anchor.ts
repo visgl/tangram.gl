@@ -9,7 +9,7 @@ const rights = ['right', 'top-right', 'bottom-right'];
 const tops = ['top', 'top-left', 'top-right'];
 const bottoms = ['bottom', 'bottom-left', 'bottom-right'];
 
-type AnchorName = string | undefined;
+type AnchorName = string | string[] | undefined;
 type Point = [number, number];
 type Buffer = [number, number, number, number];
 interface PointAnchorNamespace {
@@ -76,19 +76,19 @@ const PointAnchor = {
     },
 
     isLeftAnchor (anchor: AnchorName): boolean {
-        return (lefts.indexOf(anchor ?? '') > -1);
+        return (lefts.indexOf(typeof anchor === 'string' ? anchor : '') > -1);
     },
 
     isRightAnchor (anchor: AnchorName): boolean {
-        return (rights.indexOf(anchor ?? '') > -1);
+        return (rights.indexOf(typeof anchor === 'string' ? anchor : '') > -1);
     },
 
     isTopAnchor (anchor: AnchorName): boolean {
-        return (tops.indexOf(anchor ?? '') > -1);
+        return (tops.indexOf(typeof anchor === 'string' ? anchor : '') > -1);
     },
 
     isBottomAnchor (anchor: AnchorName): boolean {
-        return (bottoms.indexOf(anchor ?? '') > -1);
+        return (bottoms.indexOf(typeof anchor === 'string' ? anchor : '') > -1);
     },
 
     // Buffers: [left, right, top, bottom]

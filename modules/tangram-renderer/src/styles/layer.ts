@@ -85,7 +85,7 @@ const blacklist = ['any', 'all', 'not', 'none'];
 class Layer {
     declare static id: number;
     declare id: number;
-    declare config_data: unknown;
+    declare config_data: {source?: unknown; layer?: unknown; all_layers?: unknown} | null | undefined;
     declare parent: LayerTree | null | undefined;
     declare name: string;
     declare full_name: string;
@@ -110,7 +110,7 @@ class Layer {
 
     constructor({ layer, name, parent, draw, visible, enabled, filter, exclusive, priority, styles }: LayerConfig) {
         this.id = Layer.id++;
-        this.config_data = layer.data;
+        this.config_data = layer.data == null ? layer.data : isLayerData(layer.data) ? layer.data : undefined;
         this.parent = parent;
         this.name = name;
         this.full_name = this.parent ? (this.parent.full_name + ':' + this.name) : this.name;
@@ -440,6 +440,8 @@ export function calculateDraw(layer: Layer): Array<LayerDrawGroups | undefined> 
     return draw;
 }
 
+export function parseLayerNode(name: string, layer: SceneLayerDefinition | null | undefined, parent: null, styles?: Record<string, unknown>): LayerTree;
+export function parseLayerNode(name: string, layer: SceneLayerDefinition | null | undefined, parent?: LayerTree | null, styles?: Record<string, unknown>): SceneLayer;
 export function parseLayerNode(name: string, layer: SceneLayerDefinition | null | undefined, parent?: LayerTree | null, styles?: Record<string, unknown>): SceneLayer {
 
     layer = (layer == null) ? {} : layer;
@@ -516,9 +518,14 @@ function parseLayerChildren (parent: LayerTree, children: SceneLayerDefinition, 
 }
 
 
-export function parseLayers (layers: Record<string, SceneLayerDefinition | null | undefined>, styles?: Record<string, unknown>): Record<string, SceneLayer> {
+/** Source selectors must be objects; malformed scalar metadata cannot select a source. */
+function isLayerData(value: unknown): value is {source?: unknown; layer?: unknown; all_layers?: unknown} {
+    return value !== null && typeof value === 'object';
+}
+
+export function parseLayers (layers: Record<string, SceneLayerDefinition | null | undefined>, styles?: Record<string, unknown>): Record<string, LayerTree> {
     layer_cache = {}; // clear layer cache
-    let layer_trees: Record<string, SceneLayer> = {};
+    let layer_trees: Record<string, LayerTree> = {};
 
     for (let key in layers) {
         let layer = layers[key];

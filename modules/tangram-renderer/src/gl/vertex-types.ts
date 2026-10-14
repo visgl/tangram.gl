@@ -19,7 +19,7 @@ export interface VertexAttribute {
     static?: number | number[] | null;
     offset?: number;
     byte_size?: number;
-    method?: `vertexAttrib${number}fv`;
+    method?: `vertexAttrib${1 | 2 | 3 | 4}fv`;
 }
 /** Portable layout returned after all dynamic attribute offsets are assigned. */
 export type VertexBufferLayout = BufferLayout & {
@@ -32,4 +32,4 @@ export interface VertexAttributeProgram {
 /** Classic WebGL operations consumed by layouts; portable devices bypass this surface. */
 export type VertexAttributeContext = Pick<WebGLRenderingContext,
     'enableVertexAttribArray' | 'disableVertexAttribArray' | 'vertexAttribPointer'> &
-    Partial<Record<`vertexAttrib${number}fv`, (location: number, value: number[]) => void>>;
+    Partial<Record<`vertexAttrib${1 | 2 | 3 | 4}fv`, (location: number, value: number[]) => void>>;

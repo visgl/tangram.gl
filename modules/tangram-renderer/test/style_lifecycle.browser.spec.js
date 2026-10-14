@@ -12,6 +12,7 @@ import WorkerBroker from '../src/utils/worker_broker';
 import ShaderProgram from '../src/gl/shader_program';
 import debugSettings from '../src/utils/debug_settings';
 import {heightDecode} from '../src/shader-modules/height-decode';
+import Material from '../src/lights/material';
 
 function createStyle(overrides = {}) {
     const style = Object.create(Style);
@@ -130,7 +131,8 @@ describe('generic style data lifecycle', () => {
             layers: ['roads'],
             order: context => context.order
         };
-        const context = {order: 5, tile: {}};
+        const context = {order: 5, source: 'fixture', layer: 'roads', layers: ['roads'],
+            tile: {id: 'tile', key: 'tile', generation: 1, source: 'fixture', style_z: 0, coords: {x: 0, y: 0, z: 0}}};
         expect(style.parseFeature({}, draw, context)).toMatchObject({
             attributes: {speed: 12},
             interactive: true,
@@ -239,7 +241,8 @@ describe('generic style data lifecycle', () => {
 
         const program = {setUniforms: vi.fn()};
         ShaderProgram.current = program;
-        style.material = {setupProgram: vi.fn()};
+        style.material = new Material({});
+        vi.spyOn(style.material, 'setupProgram').mockImplementation(() => {});
         style.setup();
         expect(program.setUniforms).toHaveBeenCalledWith({u_scale: 2}, true);
         expect(style.material.setupProgram).toHaveBeenCalledWith(program);

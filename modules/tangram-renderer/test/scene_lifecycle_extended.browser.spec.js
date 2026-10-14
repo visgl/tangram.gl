@@ -229,7 +229,7 @@ describe('Scene render orchestration', () => {
         const mesh = {geometry_count: 1, variant: {blend_order: 0, mesh_order: 0}};
         const style = {name: 'ground', render: vi.fn().mockReturnValueOnce(true).mockReturnValue(false)};
         const tile = {meshes: {ground: [mesh]}, shouldProxyForStyle: () => true};
-        const scene = {
+        const scene = Object.assign(Object.create(Scene.prototype), {
             device: {type: 'webgpu', createCommandEncoder: () => encoder, submit: vi.fn()},
             selection: {framebuffer: {}, fbo_size: {width: 256, height: 256}, get locked() {return scene.selection_render_pending;}, read: vi.fn()},
             selection_render_pending: false,
@@ -240,7 +240,7 @@ describe('Scene render orchestration', () => {
             renderPass(programKey, options) {
                 return Scene.prototype.renderStyle.call(scene, 'ground', programKey, 0, null, options.renderPass);
             }
-        };
+        });
         Scene.prototype.render.call(scene, {main: false, selection: true});
         expect(scene.selection_render_pending).toBe(true);
         expect(scene.last_selection_render).toBe(0);

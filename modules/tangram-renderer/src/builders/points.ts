@@ -37,10 +37,10 @@ export function buildQuadForPoint (
     vindex: VertexIndex,
     size: number[],
     offset: number[],
-    offsets: number[],
-    pre_angles: number[],
+    offsets: number[] | null,
+    pre_angles: number[] | null,
     angle: number,
-    angles: number[],
+    angles: number[] | null,
     texcoords: number[] | undefined,
     curve: boolean) {
 
@@ -76,6 +76,7 @@ export function buildQuadForPoint (
 
         // Add curved label segment props
         if (curve) {
+            if (!pre_angles || !angles || !offsets) throw new TypeError('Curved quads require per-segment angle and offset samples');
             // 1 byte (signed) range: [-127, 128]
             // actual range: [-2pi, 2pi]
             // total: multiply by 128 / (2 PI)

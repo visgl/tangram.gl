@@ -33,9 +33,9 @@ type ShaderStage = 'vertex' | 'fragment';
 /** Classic context identity is part of the exact-source cache key. */
 type ShaderContext = WebGLRenderingContext & {_tangram_id?: number};
 /** Authored source fragments, either one string or an ordered list. */
-type ShaderBlocks = Record<string, string | string[]>;
+type ShaderBlocks = Record<string, string | string[] | null>;
 /** One injected source fragment with provenance for compiler diagnostics. */
-type ShaderBlock = {key: string; source: string; num: number; scope?: string};
+type ShaderBlock = {key: string; source: string | null; num: number; scope?: string};
 /** Source location within an injected Tangram block. */
 type ShaderBlockLocation = {scope: string; name: string; num: string; line?: number; source?: string};
 /** Compiler diagnostics retain both the original line and legacy block mapping. */
@@ -49,7 +49,7 @@ interface ShaderProgramOptions {
     name?: string;
     defines?: Record<string, unknown>;
     blocks?: ShaderBlocks;
-    block_scopes?: Record<string, string[]>;
+    block_scopes?: Record<string, (string | null)[] | null>;
     extensions?: string[];
     uniforms?: Parameters<typeof GLSL.parseUniforms>[0];
     uniform_blocks?: Record<string, UniformBuffer>;
@@ -77,7 +77,7 @@ export default class ShaderProgram {
     declare error: unknown;
     declare defines: Record<string, unknown>;
     declare blocks: ShaderBlocks;
-    declare block_scopes: Record<string, string[]>;
+    declare block_scopes: Record<string, (string | null)[] | null>;
     declare extensions: string[];
     declare dependent_uniforms: ShaderProgramOptions['uniforms'];
     declare uniforms: Record<string, CachedUniform>;

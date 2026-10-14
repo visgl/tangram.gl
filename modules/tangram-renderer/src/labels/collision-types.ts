@@ -53,11 +53,20 @@ export interface CollisionLabel {
 }
 
 /** Placement container; callers can retain additional renderer-specific payload. */
-export interface CollisionObject {
+export interface PendingCollisionObject {
+    /** Attached text acquires its label before the cross-style completion barrier is released. */
+    label?: CollisionLabel;
+    /** Optional linked queue entry, also prepared before placement begins. */
+    linked?: PendingCollisionObject | null | 0 | '';
+    /** Placement visibility after the shared barrier has completed. */
+    show?: boolean | null;
+}
+
+export interface CollisionObject extends PendingCollisionObject {
     /** Mutable candidate label. */
     label: CollisionLabel;
     /** Optional placement dependency, considered as a pair; legacy falsy IDs are ignored. */
-    linked?: CollisionObject | null | 0 | '';
+    linked?: PendingCollisionObject | null | 0 | '';
     /** Visibility assigned by the collision pass. */
     show?: boolean | null;
 }

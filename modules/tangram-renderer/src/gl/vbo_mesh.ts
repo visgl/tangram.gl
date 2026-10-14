@@ -23,6 +23,8 @@ export default class VBOMesh  {
     terrainQueryMesh?: import('../selection/draped-terrain-surface').DrapedTerrainQueryMesh;
     /** One admitted terrain generation's shared transition origin. */
     terrainVisibleAt?: number;
+    /** Display blend saved for exact terrain query snapshots. */
+    declare terrainBlend?: number;
     /** Next automatically assigned mesh identifier. */
     declare static id: number;
     declare gl: MeshContext | null;

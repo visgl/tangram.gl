@@ -16,6 +16,8 @@ type LabelPointLayout = LabelLayout;
 const typedStyleParser = StyleParser as unknown as {zeroPair: readonly number[]};
 
 export default class LabelPoint extends Label {
+    /** Discriminator used by the checked point/text quad builders. */
+    declare type: 'point';
 
     position: LabelPointCoordinate;
     angle: number;

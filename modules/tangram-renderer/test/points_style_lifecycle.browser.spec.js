@@ -108,7 +108,7 @@ describe('point style lifecycle', () => {
             height: 64
         }};
         vi.spyOn(Texture, 'getSpriteInfo').mockImplementation((texture, sprite) =>
-            sprite === 'cafe' ? {css_size: [16, 16], texture} : undefined);
+            sprite === 'cafe' ? {size: [16, 16], css_size: [16, 16], aspect: 1, texcoords: [0, 0, 0.25, 0.25], texture} : undefined);
         expect(points.hasSprites({texture: 'icons'})).toBeTruthy();
         const info = points.getSpriteInfo({texture: 'icons'}, 'cafe');
         expect(info.sprite).toBe('cafe');

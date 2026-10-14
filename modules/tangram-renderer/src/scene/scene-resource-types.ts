@@ -18,7 +18,7 @@ export interface SceneResourceDefinition extends Record<string, unknown> {
 /** Source fields whose paths are normalized by the scene loader. */
 export interface SceneSourceDefinition extends SceneResourceDefinition {
     /** Optional TileJSON metadata URL. */
-    tilejson?: string;
+    tilejson?: string | Record<string, unknown>;
     /** Legacy raster composite resources. */
     composite?: SceneResourceDefinition[];
     /** Named external scripts, or the legacy list form. */
@@ -165,7 +165,7 @@ export interface SceneLoaderAPI extends SubscriptionMethods {
     /** Hoist inline texture URLs after global substitution; named textures must exist. */
     hoistTextureNodes(config: SceneDefinition, bundle: SceneBundle, nodes?: SceneTextureNodes): void;
     /** Substitute authored globals in merged scene data. */
-    applyGlobalProperties(config: SceneDefinition): SceneDefinition;
+    applyGlobalProperties<Config extends SceneDefinition>(config: Config): Config;
     /** Apply scene-wide defaults without synthesizing host-owned cameras. */
     finalize<Bundle>(scene: {config: SceneDefinition; bundle: Bundle}, options?: SceneLoadOptions):
         {config: FinalizedSceneDefinition; bundle: Bundle};
