@@ -247,6 +247,10 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                     // TerrainMeshSurface owns Float64 XYZ, Float64 physical heights, and Uint32 topology.
                     const geometryBytes = mesh.positions.length * 8 + mesh.heights.length / 2 * 8 + mesh.indices.length * 4;
                     if (geometryBytes > maxProjectedQueryBytes - projectedBytes) {
+                        // A live mesh key must not pin an earlier snapshot's
+                        // projected arrays after this demand is denied residency.
+                        // Older snapshots keep their own admitted surface owner.
+                        projectedQueries.delete(mesh);
                         owner.surface = new StreamingTerrainSurface(mesh, projection, blend, exaggeration);
                     } else {
                         projectedBytes += geometryBytes;

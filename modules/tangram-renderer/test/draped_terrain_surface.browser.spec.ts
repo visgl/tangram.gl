@@ -168,6 +168,22 @@ test('projected geometry is demand-admitted, byte-exact, and shared by repeated 
     expect(surface.getStatistics().queryIndexBytes).toBe(TriangleQueryIndex.getRequiredHierarchyBytes(1));
 });
 
+test('streaming demand evicts older cache residency without invalidating a retained snapshot', () => {
+    const mesh = ground(), entries = [{id: 'ground', mesh, blend: 1}];
+    const ray = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};
+    const previous = new DrapedTerrainSurfaceSnapshot('web-mercator', entries, 0, 0, 1, 0, 108);
+    const expected = previous.intersectRay(ray);
+    expect(previous.getStatistics()).toMatchObject({projectedBytes: 108, projectionBuilds: 1});
+    const streaming = new DrapedTerrainSurfaceSnapshot('web-mercator', entries, 0, 1, 1, 0, 0);
+    expect(streaming.intersectRay(ray)).toEqual(expected);
+    expect(streaming.getStatistics()).toMatchObject({projectedBytes: 0, projectionBuilds: 0, streamingMeshes: 1});
+    expect(previous.intersectRay(ray)).toEqual(expected);
+    const next = new DrapedTerrainSurfaceSnapshot('web-mercator', entries, 0, 2, 1, 0, 108);
+    expect(next.intersectRay(ray)).toEqual(expected);
+    // A fresh build proves the weak cache no longer pins the previous arrays.
+    expect(next.getStatistics()).toMatchObject({projectedBytes: 108, projectionBuilds: 1});
+});
+
 test('streaming-owner validation is counted separately from exact query CPU time', () => {
     const surface = new DrapedTerrainSurfaceSnapshot('web-mercator', [{id: 'ground', mesh: ground(), blend: 1}], 0, 0, 1, 0, 0);
     const clock = vi.spyOn(performance, 'now').mockReturnValueOnce(100).mockReturnValueOnce(107).mockReturnValueOnce(110).mockReturnValueOnce(113);
