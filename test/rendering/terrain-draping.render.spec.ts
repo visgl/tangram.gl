@@ -99,6 +99,7 @@ test.each(['flat', 'globe'] as ViewKind[])('%s canonical ground preserves raster
     const harness = new RenderingHarness(kind, 'stereo-preview'); harnesses.push(harness);
     harness.terrain = canonicalField(20);
     if (kind === 'globe') {harness.globePreloadZoom = 2; harness.tileZoom = 3;}
+    else harness.tileZoom = 15; // z2 DEM + 8 cells + maximum supported 10-level source disparity.
     await harness.initialize(createRasterScene()); await harness.settle();
     expect(coloredPixels(await harness.pixels())).toBeGreaterThan(1000);
     const source = await harness.renderer.getTileSourceStatistics();
