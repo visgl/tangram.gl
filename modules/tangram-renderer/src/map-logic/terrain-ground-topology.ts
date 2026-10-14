@@ -13,6 +13,8 @@ const patchPlans = new WeakMap<readonly TerrainHeightGrid[], readonly TerrainFie
 export interface TerrainGroundTopology {
     /** Absolute unwrapped EPSG:3857 XY, two components per vertex. */
     positions: Float64Array;
+    /** Exact dyadic world fractions: X from the western world edge, Y southward from the northern edge. */
+    normalizedPositions: Float64Array;
     /** Exact periodic sampling XY before whole-world translation; may share the positions array in world zero. */
     samplePositions: Float64Array;
     /** Counterclockwise top triangles, including conforming coarse/fine edge nodes. */
@@ -100,7 +102,7 @@ export function createTerrainGroundTopology(grids: readonly TerrainHeightGrid[],
     const sampleOffset = Math.floor(((bounds[0] + bounds[2]) / 2 + CIRCUMFERENCE / 2) / CIRCUMFERENCE) * CIRCUMFERENCE;
     const localBounds: TerrainFieldBounds = [bounds[0] - sampleOffset, bounds[1], bounds[2] - sampleOffset, bounds[3]];
     const patches = getPatchPlan(grids);
-    const positions: number[] = [], indices: number[] = [], nodes = new Map<string, number>();
+    const positions: number[] = [], normalizedPositions: number[] = [], indices: number[] = [], nodes = new Map<string, number>();
     /** Reuse lattice nodes across DEM patch boundaries and independent source-tile builds. */
     function vertex(patch: TerrainFieldBounds, column: number, row: number): number {
         const zoom = Math.round(Math.log2(CIRCUMFERENCE / (patch[2] - patch[0]))), span = CIRCUMFERENCE / 2 ** zoom;
@@ -112,6 +114,8 @@ export function createTerrainGroundTopology(grids: readonly TerrainHeightGrid[],
         if (index === undefined) {
             if (nodes.size >= maxVertices) throw new Error('Canonical terrain ground vertex budget exceeded');
             index = nodes.size; nodes.set(key, index); positions.push(x, y);
+            normalizedPositions.push((worldColumn + column / resolution) / 2 ** zoom + Math.round(sampleOffset / CIRCUMFERENCE),
+                (worldRow + row / resolution) / 2 ** zoom);
         }
         return index;
     }
@@ -124,7 +128,10 @@ export function createTerrainGroundTopology(grids: readonly TerrainHeightGrid[],
         }
         if (ring.length === 3) indices.push(...ring);
         else {
-            const center = vertex(patch, corners.reduce((sum, point) => sum + point[0] / 3, 0), corners.reduce((sum, point) => sum + point[1] / 3, 0));
+            // Dyadic interior weights keep local positions exactly representable
+            // across independent source zooms; one-third centroids do not.
+            const center = vertex(patch, corners[0][0] / 2 + corners[1][0] / 4 + corners[2][0] / 4,
+                corners[0][1] / 2 + corners[1][1] / 4 + corners[2][1] / 4);
             for (let edge = 0; edge < ring.length; edge++) indices.push(center, ring[edge], ring[(edge + 1) % ring.length]);
         }
     }
@@ -149,5 +156,5 @@ export function createTerrainGroundTopology(grids: readonly TerrainHeightGrid[],
     }
     const samplePositions = Float64Array.from(positions);
     return {positions: sampleOffset ? Float64Array.from(samplePositions, (value, index) => index % 2 ? value : value + sampleOffset) : samplePositions,
-        samplePositions, indices: Uint32Array.from(indices), sampleOffset};
+        samplePositions, normalizedPositions: Float64Array.from(normalizedPositions), indices: Uint32Array.from(indices), sampleOffset};
 }

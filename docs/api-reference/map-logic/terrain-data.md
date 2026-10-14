@@ -105,7 +105,10 @@ exhausted vertex limit throws without publishing partial arrays.
 
 The detached `positions` contain unwrapped absolute XY pairs; `indices` contain
 triangles. `samplePositions` retain exact periodic XY before `sampleOffset` world
-translation, avoiding subtractive precision loss during sampling. Arrays may
+translation, avoiding subtractive precision loss during sampling. `normalizedPositions`
+contain exact dyadic world fractions (X from the western edge, Y southward from
+the northern edge) for source-local packing without Mercator subtraction.
+Interior stitch points use dyadic weights rather than one-third centroids. Arrays may
 alias when no translation is needed. No heights, source fetches, GPU resources or
 provider state are owned. Treat input grids/arrays as immutable; validated patch
 metadata is reused by field-array identity.

@@ -331,17 +331,23 @@ export function drapeTerrainMesh(options: {
             if (![0, 4096].includes(x) || ![0, -4096].includes(y)) throw new Error('Canonical terrain ground requires a full tile raster quad');
             corners.add(`${x},${y}`);
             for (const attribute of baseLayout.dynamic_attribs) {
-                if (attribute.name === 'a_texcoord') continue; // Raster UVs derive from model position.
                 const offset = attribute.offset ?? 0, start = attribute.name === 'a_position' ? 8 : 0;
                 for (let byte = start; byte < (attribute.byte_size ?? 0); byte++) if (floating[index * baseLayout.stride + offset + byte] !== floating[offset + byte]) throw new Error('Canonical terrain ground requires uniform quad attributes');
             }
         }
         if (corners.size !== 4 || originalIndices.length !== 6 || extrusionOffset !== undefined || options.annotations) throw new Error('Canonical terrain ground requires a full tile raster quad');
+        for (const grid of terrain.grids) {
+            if (grid.bounds[2] <= origin[0] || grid.bounds[0] >= origin[0] + 4096 * metersPerUnit ||
+                grid.bounds[3] <= origin[1] - 4096 * metersPerUnit || grid.bounds[1] >= origin[1]) continue;
+            const cellZoom = Math.round(Math.log2(2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (grid.bounds[2] - grid.bounds[0]))) + Math.log2(terrain.groundMeshResolution);
+            const gap = options.tileZoom - cellZoom;
+            if (gap > 10 || gap < -18) throw new Error('Canonical terrain ground source/DEM LOD gap exceeds Float32 precision limits');
+        }
         groundTopology = createTerrainGroundTopology(terrain.grids, [origin[0], origin[1] - 4096 * metersPerUnit, origin[0] + 4096 * metersPerUnit, origin[1]],
             terrain.groundMeshResolution, Math.min(originalCount + terrain.maxAdditionalVertices, Math.floor(terrain.maxMeshBytes / outputLayout.stride)));
         statistics.canonicalGroundResolution = terrain.groundMeshResolution;
     }
-    const refined = groundTopology ? {vertices: createCanonicalGroundVertices(groundTopology, floating, baseLayout, origin, metersPerUnit), indices: groundTopology.indices} :
+    const refined = groundTopology ? {vertices: createCanonicalGroundVertices(groundTopology, floating, baseLayout, origin, options.tileZoom), indices: groundTopology.indices} :
         options.annotations ? {vertices: floating, indices: originalIndices} : refineGlobeMesh(floating, originalIndices, baseLayout,
         {tileZoom: options.tileZoom, maxAngularSpan: Math.min(180, cell / PROJECTION_CONSTANTS.mercatorRadius * 180 / Math.PI), maxAdditionalVertices: terrain.maxAdditionalVertices, splitRemainderShortest: true, getPosition: readPosition});
     const count = refined.vertices.byteLength / baseLayout.stride;
@@ -414,13 +420,18 @@ export function drapeTerrainMesh(options: {
 
 /** Copy constant raster style channels; UVs and ownership use the original source tile coordinate system. */
 function createCanonicalGroundVertices(topology: TerrainGroundTopology, template: Uint8Array, layout: VertexLayout,
-    origin: readonly [number, number], metersPerUnit: number): Uint8Array {
+    origin: readonly [number, number], tileZoom: number): Uint8Array {
     const vertices = new Uint8Array(topology.positions.length / 2 * layout.stride), view = new DataView(vertices.buffer);
+    const circumference = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius, tiles = 2 ** tileZoom;
+    const column = Math.round((origin[0] / circumference + 0.5) * tiles), row = Math.round((0.5 - origin[1] / circumference) * tiles);
     for (let index = 0; index < topology.positions.length / 2; index++) {
         vertices.set(template.subarray(0, layout.stride), index * layout.stride);
         const offset = index * layout.stride + layout.offset.a_position;
-        view.setFloat32(offset, (topology.positions[index * 2] - origin[0]) / metersPerUnit, true);
-        view.setFloat32(offset + 4, (topology.positions[index * 2 + 1] - origin[1]) / metersPerUnit, true);
+        const x = (topology.normalizedPositions[index * 2] * tiles - column) * 4096;
+        const y = (row - topology.normalizedPositions[index * 2 + 1] * tiles) * 4096;
+        if (Math.fround(x) !== x || Math.fround(y) !== y) throw new Error('Canonical terrain ground positions exceed Float32 precision limits');
+        view.setFloat32(offset, x, true);
+        view.setFloat32(offset + 4, y, true);
     }
     return vertices;
 }

@@ -180,3 +180,42 @@ test('nonplanar ground keeps the parent triangle surface through source-detail o
         }
     }
 });
+
+test('canonical packing preserves shared dyadic positions at the precision boundary and rejects excessive LOD gaps', () => {
+    const grids = [grid(), grid(4, 2, 3, 200), grid(4, 3, 3, 300)];
+    const output = getTerrainVertexLayout(layout);
+    const extract = (input: ReturnType<typeof quad>) => {
+        const prepared = drapeTerrainMesh(input);
+        return extractDrapedTerrainQueryMesh(prepared.vertices, prepared.indices, output, input.origin, input.tileZoom, 1024 * 1024);
+    };
+    const parent = extract(quad(1, 1, 2, grids));
+    for (const column of [8190, 8191]) {
+        const detail = extract(quad(column, 4096, 14, grids));
+        for (let vertex = 0; vertex < detail.positions.length; vertex += 3) {
+            expect(Array.from({length: parent.positions.length / 3}, (_, index) => index * 3).some(index =>
+                Math.abs(parent.positions[index] - detail.positions[vertex]) < 1e-7 && Math.abs(parent.positions[index + 1] - detail.positions[vertex + 1]) < 1e-7)).toBe(true);
+        }
+    }
+    expect(() => drapeTerrainMesh(quad(16383, 8192, 15, grids))).toThrow(/LOD gap/);
+    expect(() => drapeTerrainMesh(quad(2 ** 30 - 1, 2 ** 29, 30, [grid(3, 2, 2)]))).toThrow(/LOD gap/);
+    expect(() => drapeTerrainMesh(quad(0, 0, 0, [grid(0, 0, 17)]))).toThrow(/LOD gap/);
+    expect(drapeTerrainMesh(quad(0, 0, 1, [grid(0, 0, 17)])).indices.length).toBeGreaterThan(0);
+    const highZoom = extract(quad(2 ** 30 - 1, 2 ** 29, 30, [grid(2 ** 30 - 1, 2 ** 29, 30)]));
+    expect(highZoom.positions.every(Number.isFinite)).toBe(true);
+    expect(highZoom.indices.length).toBeGreaterThan(0);
+});
+
+test('material UV channels cannot silently collapse to the copied template coordinate', () => {
+    const input = quad(1, 1, 2, [grid()]);
+    const materialLayout = new VertexLayout([{name: 'a_position', size: 4, type: 5122}, {name: 'a_color', size: 4, type: 5121}, {name: 'a_texcoord', size: 2, type: 5123, normalized: true}]);
+    const vertices = new Uint8Array(materialLayout.stride * 4), view = new DataView(vertices.buffer);
+    for (let index = 0; index < 4; index++) {
+        vertices.set(input.vertices.subarray(index * layout.stride, (index + 1) * layout.stride), index * materialLayout.stride);
+        view.setUint16(index * materialLayout.stride + materialLayout.offset.a_texcoord, index % 2 ? 65535 : 0, true);
+    }
+    expect(() => drapeTerrainMesh({...input, vertices, layout: materialLayout})).toThrow(/uniform quad/);
+    for (let index = 0; index < 4; index++) view.setUint16(index * materialLayout.stride + materialLayout.offset.a_texcoord, 100, true);
+    const prepared = drapeTerrainMesh({...input, vertices, layout: materialLayout});
+    const outputLayout = getTerrainVertexLayout(materialLayout), output = new DataView(prepared.vertices.buffer);
+    for (let index = 0; index < prepared.vertices.length / outputLayout.stride; index++) expect(output.getUint16(index * outputLayout.stride + outputLayout.offset.a_texcoord, true)).toBe(100);
+});

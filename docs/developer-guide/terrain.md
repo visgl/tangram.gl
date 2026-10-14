@@ -399,6 +399,15 @@ it does not refetch tiles, resample grids or rebuild topology.
 
 ### Conforming raster ground
 
+Canonical packing uses exact dyadic world fractions and source-tile addresses,
+not subtraction of large Mercator coordinates. The source zoom minus the DEM cell
+zoom (`DEM zoom + log2(groundMeshResolution)`) must be in [-18, 10] for every
+intersecting grid. Larger disparities reject and retain the previous admitted
+field rather than silently rounding shared triangles differently. Interior stitch
+nodes use dyadic weights so the bounded local coordinates are exactly Float32.
+Material UV channels must be uniform; varying material UVs reject rather than
+collapsing to one sample. Basemap raster UVs still derive from source position.
+
 Set `groundMeshResolution: 32` with `querySurfaceStyles: ['ground']` to opt into
 DEM-owned raster ground topology. Zero (the default) keeps legacy refinement.
 Accepted resolutions are 2, 4, 8, 16, 32 and 64 cells per DEM tile axis. The globe
