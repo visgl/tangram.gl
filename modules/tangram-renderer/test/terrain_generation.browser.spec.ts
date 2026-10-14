@@ -76,7 +76,7 @@ test('staged-byte admission fails before allocating GPU owners and keeps the pre
     const error = vi.spyOn(scene, 'tileManagerBuildError').mockImplementation(() => {});
     vi.spyOn(scene.tile_manager, 'tileBuildStop').mockImplementation(() => {});
     vi.spyOn(Tile, 'abortBuild').mockImplementation(() => {});
-    scene.tile_manager.buildTileStylesCompleted({tile: {id: owner.id, key: owner.key, generation: 1, mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12)}}}}}, progress: {done: true}});
+    scene.tile_manager.buildTileStylesCompleted({tile: {...Tile.slice(owner), mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}}}, progress: {done: true}});
     expect(error).toHaveBeenCalledWith(expect.objectContaining({message: 'Terrain staged mesh-byte budget exceeded'}));
     expect(previous.destroy).not.toHaveBeenCalled(); expect(owner.meshes.ground[0]).toBe(previous);
     scene.tile_manager.tiles = {}; owner.freeResources(); scene.destroy();
@@ -91,7 +91,7 @@ test('a staged GPU upload failure releases unattached new buffers, aborts the ra
     vi.spyOn(scene.tile_manager, 'tileBuildStop').mockImplementation(() => {});
     const abort = vi.spyOn(Tile, 'abortBuild').mockImplementation(() => {});
     const batch = {first: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}, second: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}};
-    scene.tile_manager.buildTileStylesCompleted({tile: {id: owner.id, key: owner.key, generation: 1, loaded: true, mesh_data: batch}, progress: {done: true}});
+    scene.tile_manager.buildTileStylesCompleted({tile: {...Tile.slice(owner), loaded: true, mesh_data: batch}, progress: {done: true}});
     expect(error).toHaveBeenCalledWith(expect.objectContaining({message: 'allocation'}));
     expect(uploaded.destroy).toHaveBeenCalledOnce(); expect(previous.destroy).not.toHaveBeenCalled();
     expect(abort).toHaveBeenCalledWith(expect.objectContaining({mesh_data: batch}));

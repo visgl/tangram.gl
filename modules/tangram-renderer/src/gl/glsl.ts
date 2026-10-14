@@ -13,9 +13,9 @@ type ParsedUniform = {
 };
 
 interface GLSLNamespace {
-    parseUniforms(uniforms?: Record<string, UniformValue>): ParsedUniform[];
-    defineVariable(name: string, value: UniformValue): string | undefined;
-    defineUniform(name: string, value: UniformValue): string | undefined;
+    parseUniforms(uniforms?: Record<string, unknown>): ParsedUniform[];
+    defineVariable(name: string, value: unknown): string | undefined;
+    defineUniform(name: string, value: unknown): string | undefined;
     expandVec3(value: UniformValue, z?: number): number[] | undefined;
     expandVec4(value: UniformValue, w?: number): number[] | undefined;
 }
@@ -39,7 +39,7 @@ export default GLSL;
     for actually setting the uniforms). For example, this could be used as a key into a dictionary of
     known texture names, or it could simply be used as a URL to dynamically load the texture from.
 */
-GLSL.parseUniforms = function (uniforms: Record<string, UniformValue> = {}): ParsedUniform[] {
+GLSL.parseUniforms = function (uniforms: Record<string, unknown> = {}): ParsedUniform[] {
     const parsed: ParsedUniform[] = [];
 
     for (const [name, uniform] of Object.entries(uniforms)) {
@@ -137,7 +137,7 @@ GLSL.parseUniforms = function (uniforms: Record<string, UniformValue> = {}): Par
 /**
     Generate a GLSL variable definition from a JS object
 */
-GLSL.defineVariable = function (name: string, value: UniformValue): string | undefined {
+GLSL.defineVariable = function (name: string, value: unknown): string | undefined {
     let type: string | undefined;
     let array: number | undefined;
 
@@ -200,7 +200,7 @@ GLSL.defineVariable = function (name: string, value: UniformValue): string | und
 /**
     Generate a GLSL uniform definition from a JS object
 */
-GLSL.defineUniform = function (name: string, value: UniformValue): string | undefined {
+GLSL.defineUniform = function (name: string, value: unknown): string | undefined {
     var def = GLSL.defineVariable(name, value);
     if (!def) {
         return;

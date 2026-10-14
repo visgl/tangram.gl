@@ -3,8 +3,6 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-// @ts-nocheck
-
 import Tile from './tile';
 import {TileID} from './tile_id';
 import TilePyramid from './tile_pyramid';
@@ -22,14 +20,67 @@ import TangramTileset2D from './tangram_tileset_2d';
 import type {ResourceTile} from './tile_resource_cache';
 import type {TileCoordinate} from './tile_id';
 import type {HostTileResourceOptions, TileResourceStatistics} from '../types';
+import type DataSource from '../sources/data_source';
+import type {TileBuildStyle, TileBuildProgress, TileStylePayload, TileDebug, WorkerBuildTile} from './tile-build-types';
+import type {BrokerWorker} from '../utils/worker-types';
+import type {TaskRecord} from '../utils/task';
+import type {TerrainDrapingSnapshot} from '../procedures/terrain-draping';
 
-export default class TileManager<TileT extends ResourceTile = Tile> {
+/** Manager-facing camera operations; no classic camera implementation is required. */
+interface TileManagerView {
+    center: {meters?: {x: number; y: number} | null; tile?: {z: number} | null} | null;
+    tile_zoom: number | undefined;
+    zoom: number | null;
+    zoom_direction: number;
+    camera_mode: string;
+    projection: {type: string};
+    findVisibleTileCoordinates(): TileCoordinate[];
+    findPreloadedTileCoordinates?(): TileCoordinate[];
+    pruneTilesForView(): void;
+}
+/** Scene services consumed by tile residency, upload, and collision. */
+interface TileManagerScene {
+    id: number | string;
+    generation: number;
+    view: TileManagerView;
+    sources: Record<string, DataSource & {builds_geometry_tiles?: boolean}>;
+    workers: BrokerWorker[] | null | undefined;
+    styles: Record<string, TileBuildStyle & {base?: string}> | null;
+    style_manager: {updateActiveStyles(tiles: Tile[]): void; updateActiveBlendOrders(tiles: Tile[]): void};
+    terrain?: TerrainDrapingSnapshot | null;
+    terrainTransaction?: unknown;
+    terrainExaggeration?: number;
+    terrainFrameTime?: number;
+    building?: {initial?: boolean} | null;
+    requestRedraw(): void;
+    withWebGLContext<Result>(callback: () => Result): Result;
+    tileManagerBuildError?(error: unknown): void;
+    tileManagerBuildDone(): void;
+}
+/** Serialized completion metadata never claims ownership of a live Tile's methods. */
+type TileBuildReply = Pick<WorkerBuildTile, 'mesh_data' | 'debug'> & {
+    id: number; key: string; loading: boolean; loaded: boolean; generation: number | null; error: string | null;
+};
+/** Main-thread allocation failures and serialized worker failures share identity only. */
+type TileBuildFailure = {id: number | string; key: string; generation: number | null; error: unknown; mesh_data?: Record<string, TileStylePayload>};
+
+export default class TileManager {
+    /** Scene and proxy ownership are released on destruction. */
+    declare scene: TileManagerScene | null;
+    declare pyramid: TilePyramid<Tile> | null;
+    declare queued_coords: TileCoordinate[];
+    declare preloaded_coords: TileCoordinate[] | undefined;
+    declare preload_zoom: number | undefined;
+    declare building_tiles: Record<string, boolean> | null;
+    declare renderable_tiles: Tile[];
+    declare main_thread_target: string;
+    declare collision: {tile_keys: string | null; mesh_set: string | null; zoom: string | null; zoom_steps: number; task?: TaskRecord | null};
     /** Current eye-union logical coordinates. */
     declare visible_coords: Record<string, TileCoordinate>;
     /** Coarse source/style tiles pinned by the current globe preload policy. */
     declare preloaded_keys: Set<string>;
     /** Resident metadata and shared resource policy; renderer work stays in this adapter. */
-    declare tileset: TangramTileset2D<TileT>;
+    declare tileset: TangramTileset2D<Tile>;
 
     /** Temporary keyed-table compatibility for existing renderer and test adapters. */
     get tiles() { return this.tileset.tileRecords; }
@@ -38,7 +89,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     /** Worker reply/cancellation bridge into the shared scheduler. */
     get build_queue() { return this.tileset.buildQueue; }
 
-    constructor({ scene }) {
+    constructor({ scene }: {scene: TileManagerScene}) {
         this.scene = scene;
         this.tileset = new TangramTileset2D();
         this.pyramid = new TilePyramid();
@@ -56,7 +107,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         };
 
         // Provide a hook for this object to be called from worker threads
-        this.main_thread_target = ['TileManager', this.scene.id].join('_');
+        this.main_thread_target = ['TileManager', this.activeScene.id].join('_');
         WorkerBroker.addTarget(this.main_thread_target, this);
     }
 
@@ -71,29 +122,37 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     get view () {
-        return this.scene.view;
+        return this.activeScene.view;
     }
 
     get style_manager () {
-        return this.scene.style_manager;
+        return this.activeScene.style_manager;
     }
 
-    keepTile(tile) {
+    /** Calls after teardown cannot use released scene services. */
+    private get activeScene(): TileManagerScene {
+        if (!this.scene) throw new Error('TileManager has been destroyed');
+        return this.scene;
+    }
+
+    keepTile(tile: Tile) {
+        const pyramid = this.pyramid;
+        if (!pyramid) throw new Error('TileManager has been destroyed');
         this.tileset.setTile(tile);
-        this.pyramid.addTile(tile);
+        pyramid.addTile(tile);
     }
 
-    hasTile(key) {
+    hasTile(key: string) {
         return this.tileset.getTile(key) !== undefined;
     }
 
-    forgetTile(key) {
-        this.tileset.forgetTile(key, tile => this.pyramid.removeTile(tile));
+    forgetTile(key: string) {
+        this.tileset.forgetTile(key, tile => this.pyramid?.removeTile(tile));
         this.tileBuildStop(key);
     }
 
     // Remove a single tile
-    removeTile(key) {
+    removeTile(key: string) {
         log('trace', `tile unload for ${key}`);
 
         var tile = this.tiles[key];
@@ -103,18 +162,18 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         }
 
         this.forgetTile(key);
-        this.scene.requestRedraw();
+        this.activeScene.requestRedraw();
     }
 
     // Run a function on each tile
-    forEachTile(func) {
+    forEachTile(func: (tile: Tile) => void) {
         for (let t in this.tiles) {
             func(this.tiles[t]);
         }
     }
 
     // Remove tiles that pass a filter condition
-    removeTiles(filter) {
+    removeTiles(filter: (tile: Tile) => boolean) {
         let remove_tiles = [];
         for (let t in this.tiles) {
             let tile = this.tiles[t];
@@ -129,11 +188,13 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     updateTilesForView() {
+        const styleZoom = this.view.tile_zoom;
+        if (styleZoom === undefined) return;
         this.build_queue.suspend();
         try {
             // Find visible tiles and load new ones
             this.visible_coords = {};
-            let tile_coords = this.view.findVisibleTileCoordinates().filter(coords => !this.scene.terrain || hasTerrainTileCoverage(this.scene.terrain.grids, coords));
+            let tile_coords = this.view.findVisibleTileCoordinates().filter(coords => !this.activeScene.terrain || hasTerrainTileCoverage(this.activeScene.terrain.grids, coords));
             for (let c=0; c < tile_coords.length; c++) {
                 const coords = tile_coords[c];
                 this.queueCoordinate(coords);
@@ -141,13 +202,13 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
             }
 
             this.preloaded_keys.clear();
-            const preloaded = (this.view.findPreloadedTileCoordinates?.() || []).filter(coords => !this.scene.terrain || hasTerrainTileCoverage(this.scene.terrain.grids, coords));
+            const preloaded = (this.view.findPreloadedTileCoordinates?.() || []).filter(coords => !this.activeScene.terrain || hasTerrainTileCoverage(this.activeScene.terrain.grids, coords));
             this.preloaded_coords = preloaded;
             this.preload_zoom = preloaded[0]?.z;
             for (const coords of preloaded) {
-                for (const source of Object.values(this.scene.sources || {})) {
-                    if (!source.builds_geometry_tiles || !source.includesTile(coords, this.view.tile_zoom)) continue;
-                    const key = getGlobePreloadKey(coords, source, this.view.tile_zoom, coords.z);
+                for (const source of Object.values(this.activeScene.sources || {})) {
+                    if (!source.builds_geometry_tiles || !source.includesTile(coords, styleZoom)) continue;
+                    const key = getGlobePreloadKey(coords, source, styleZoom, coords.z);
                     if (key) this.preloaded_keys.add(key);
                 }
             }
@@ -161,7 +222,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     /** Keep only the current source/style generation's global coarse tiles resident. */
-    isTilePreloaded(key) {
+    isTilePreloaded(key: string) {
         return this.preloaded_keys.has(key);
     }
 
@@ -194,7 +255,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     /** Visible detail precedes global fallback, which precedes retained off-screen builds. */
-    getBuildPriority(tile): number {
+    getBuildPriority(tile: Pick<Tile, 'visible' | 'key'>): number {
         return tile.visible ? 0 : this.isTilePreloaded(tile.key) ? 1 : 2;
     }
 
@@ -212,9 +273,9 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     updateProjectedLabels(frame: HostFrame, clockwiseRotation: boolean, terrainSurface?: import('../selection/terrain_surface').TerrainSurfaceCollection): void {
         const tiles = this.renderable_tiles.filter(tile => tile.valid && tile.built && !tile.fallback_for);
         const pending = tiles.some(tile => tile.pending_label_meshes !== null);
-        const layoutOptions = {clockwiseRotation, terrainSurface, terrainExaggeration: this.scene.terrainExaggeration ?? 1,
-            terrainTime: this.scene.terrainFrameTime,
-            terrainTransitionDuration: this.scene.terrain?.transitionDuration ?? 0};
+        const layoutOptions = {clockwiseRotation, terrainSurface, terrainExaggeration: this.activeScene.terrainExaggeration ?? 1,
+            terrainTime: this.activeScene.terrainFrameTime,
+            terrainTransitionDuration: this.activeScene.terrain?.transitionDuration ?? 0};
         if (layoutProjectedAnnotations(tiles, frame, layoutOptions)) {
             if (pending) {
                 // Swapped child styles can retire proxies. Relayout before this same frame draws,
@@ -225,7 +286,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
             }
             this.style_manager.updateActiveStyles(this.renderable_tiles);
             this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
-            this.scene.requestRedraw();
+            this.activeScene.requestRedraw();
         }
     }
 
@@ -274,7 +335,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
                 mesh.terrainVisibleAt ??= time;
                 const blend = mesh.terrainVisibleAt === undefined || !duration ? 1 : Math.max(0, Math.min(1, (time - mesh.terrainVisibleAt) / duration));
                 const scale = tile.span.x / 4096;
-                const clips = tile.fallback_for ? Array.from(tile.fallback_for.values(), bounds => [tile.min.x + bounds[0] * scale, tile.min.y + bounds[1] * scale, tile.min.x + bounds[2] * scale, tile.min.y + bounds[3] * scale]) : undefined;
+                const clips = tile.fallback_for ? Array.from(tile.fallback_for.values(), (bounds): [number, number, number, number] => [tile.min.x + bounds[0] * scale, tile.min.y + bounds[1] * scale, tile.min.x + bounds[2] * scale, tile.min.y + bounds[3] * scale]) : undefined;
                 entries.push({id: `${tile.key}/${style}/${mesh.id}`, mesh: mesh.terrainQueryMesh, blend, clips});
             }
         }
@@ -282,10 +343,12 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     updateLabels () {
+        const viewZoom = this.view.zoom;
+        if (viewZoom === null) return Promise.resolve({});
         // Projected candidates need actual screen cameras, not Mercator zoom/boxes.
         // Renderer lays them out synchronously across the complete HostFrame before drawing.
         if (this.view.projection.type === 'projected' || this.view.camera_mode === 'external') return Promise.resolve({});
-        if (this.scene.building && !this.scene.building.initial) {
+        if (this.activeScene.building && !this.activeScene.building.initial) {
             // log('debug', `Skip label layout due to on-going scene rebuild`);
             return Promise.resolve({});
         }
@@ -308,7 +371,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         // if not, bail so that the existing collision task can carry on
         // if so, carry on and start a new collision task
         if (// 1st: check if same zoom level (rounded to a configurable precision)
-            this.collision.zoom === roundPrecision(this.view.zoom, this.collision.zoom_steps) &&
+            this.collision.zoom === roundPrecision(viewZoom, this.collision.zoom_steps) &&
             // 2nd: check if same set of tiles
             this.collision.tile_keys === JSON.stringify(tiles.map(t => t.key)) &&
             // 3rd: check if same set of meshes
@@ -319,7 +382,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
 
         // update collision if not already updating
         if (!this.collision.task) {
-            this.collision.zoom = roundPrecision(this.view.zoom, this.collision.zoom_steps);
+            this.collision.zoom = roundPrecision(viewZoom, this.collision.zoom_steps);
             this.collision.tile_keys = JSON.stringify(tiles.map(t => t.key));
             this.collision.mesh_set = meshSetString(tiles);
             // log('debug', `Update label collisions (zoom ${this.collision.zoom}, ${this.collision.tile_keys})`);
@@ -329,8 +392,8 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
                 type: 'tileManagerUpdateLabels',
                 run: async task => {
                     // Do collision pass, then update view
-                    const results = await mainThreadLabelCollisionPass(tiles, this.collision.zoom, this.isLoadingVisibleTiles());
-                    this.scene.requestRedraw();
+                    const results = await mainThreadLabelCollisionPass(tiles, Number(this.collision.zoom), this.isLoadingVisibleTiles());
+                    this.activeScene.requestRedraw();
 
                     // Clear state to allow another collision pass to start
                     this.collision.task = null;
@@ -364,12 +427,12 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         let proxy = false;
         this.forEachTile(tile => {
             if (tile.visible && !tile.labeled) {
-                const parent = this.pyramid.getAncestor(tile);
+                const parent = this.pyramid?.getAncestor(tile);
                 if (parent) {
                     parent.setProxyFor(tile);
                     proxy = true;
                 } else {
-                    const descendants = this.pyramid.getDescendants(tile);
+                    const descendants = this.pyramid?.getDescendants(tile) ?? [];
                     for (let i=0; i < descendants.length; i++) {
                         descendants[i].setProxyFor(tile);
                         proxy = true;
@@ -383,7 +446,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         }
     }
 
-    updateVisibility(tile) {
+    updateVisibility(tile: Tile) {
         tile.visible = false;
         if (tile.style_z === this.view.tile_zoom) {
             const direct = this.visible_coords[tile.coords.key];
@@ -405,17 +468,20 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     /** Fill missing visible detail, even when rotation does not change the zoom. */
     updateGlobeFallbackTiles() {
         this.forEachTile(tile => { tile.fallback_for = null; tile.fallback_pending = false; });
-        if (this.preload_zoom === undefined) return;
+        const styleZoom = this.view.tile_zoom;
+        if (this.preload_zoom === undefined || styleZoom === undefined) return;
         for (const coords of Object.values(this.visible_coords)) {
-            for (const source of Object.values(this.scene.sources || {})) {
-                const key = TileID.normalizedKey(coords, source, this.view.tile_zoom);
+            for (const source of Object.values(this.activeScene.sources || {})) {
+                const key = TileID.normalizedKey(coords, source, styleZoom);
+                if (!key) continue;
                 const detail = this.tiles[key];
                 if (!detail || detail.built) continue;
-                const fallbackKey = getGlobePreloadKey(detail.coords, source, this.view.tile_zoom, this.preload_zoom);
+                const fallbackKey = getGlobePreloadKey(detail.coords, source, styleZoom, this.preload_zoom);
+                if (!fallbackKey) continue;
                 const fallback = this.tiles[fallbackKey];
                 if (!fallback || fallback === detail || !fallback.built) continue;
                 if (!Object.keys(fallback.meshes || {}).some(name => fallback.meshes[name]?.length &&
-                    isGlobeFallbackStyle(name, this.scene.styles?.[name]?.base))) continue;
+                    isGlobeFallbackStyle(name, this.activeScene.styles?.[name]?.base))) continue;
                 fallback.visible = true;
                 fallback.fallback_for = fallback.fallback_for || new Map();
                 fallback.fallback_for.set(detail.key, getGlobeFallbackClipBounds(fallback.coords, detail.coords));
@@ -453,7 +519,7 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     // Queue a tile for load
-    queueCoordinate(coords) {
+    queueCoordinate(coords: TileCoordinate) {
         this.queued_coords[this.queued_coords.length] = coords;
     }
 
@@ -465,7 +531,8 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
 
         // Sort queued tiles from center tile
         this.queued_coords.sort((a, b) => {
-            let center = this.view.center.meters;
+            let center = this.view.center?.meters;
+            if (!center) return 0;
             let half_span = Geo.metersPerTile(a.z) / 2;
 
             let ac = Geo.metersForTile(a);
@@ -489,32 +556,36 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     // Load all tiles to cover a given logical tile coordinate
-    loadCoordinate(coords, preload = false) {
+    loadCoordinate(coords: TileCoordinate, preload = false) {
+        const styleZoom = this.view.tile_zoom;
+        if (styleZoom === undefined) return;
         // A queued coordinate can outlive a field update; do not start uncovered work.
-        if (this.scene.terrain && !hasTerrainTileCoverage(this.scene.terrain.grids, coords)) return;
+        if (this.activeScene.terrain && !hasTerrainTileCoverage(this.activeScene.terrain.grids, coords)) return;
         // Skip if not at current scene zoom
-        if (!preload && coords.z !== this.view.center.tile.z) {
+        if (!preload && coords.z !== this.view.center?.tile?.z) {
             return;
         }
 
         // Determine necessary tiles for each source
-        for (let s in this.scene.sources) {
-            let source = this.scene.sources[s];
+        for (let s in this.activeScene.sources) {
+            let source = this.activeScene.sources[s];
             // Check if data source should build this tile
-            if (!source.builds_geometry_tiles || !source.includesTile(coords, this.view.tile_zoom)) {
+            if (!source.builds_geometry_tiles || !source.includesTile(coords, styleZoom)) {
                 continue;
             }
 
-            let key = TileID.normalizedKey(coords, source, this.view.tile_zoom);
-            if (preload && !this.preloaded_keys.has(key)) continue;
+            let key = TileID.normalizedKey(coords, source, styleZoom);
+            if (preload && (!key || !this.preloaded_keys.has(key))) continue;
             if (key && !this.hasTile(key)) {
+                const workers = this.activeScene.workers;
+                if (!workers) throw new Error('TileManager loading requires an initialized worker pool');
                 log('trace', `load tile ${key}, distance from view center: ${coords.center_dist}`);
                 let tile = new Tile({
                     source,
                     coords,
-                    workers: this.scene.workers,
+                    workers,
                     // Data LOD can be coarser than style zoom in a host frame.
-                    style_z: this.view.tile_zoom,
+                    style_z: styleZoom,
                     view: this.view
                 });
 
@@ -525,11 +596,11 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     // Start tile build process
-    buildTile(tile, options) {
-        if (this.scene.terrainTransaction && !tile.terrainStage) tile.beginTerrainStage();
+    buildTile(tile: Tile, options?: Parameters<Tile['build']>[1]) {
+        if (this.activeScene.terrainTransaction && !tile.terrainStage) tile.beginTerrainStage();
         this.tileBuildStart(tile.key);
         this.updateVisibility(tile);
-        const generation = this.scene.generation;
+        const generation = this.activeScene.generation;
         const token = `${tile.id}/${generation}`;
         this.build_queue.enqueue({key: tile.key, token, priority: this.getBuildPriority(tile),
             start: () => {
@@ -544,14 +615,16 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     // Called on main thread when a web worker completes processing for a single tile (initial load, or rebuild)
-    buildTileStylesCompleted({ tile, progress }) {
-        if (this.scene.terrainTransaction && tile.generation === this.scene.generation && this.tiles[tile.key]?.id === tile.id) {
+    buildTileStylesCompleted({tile: incomingTile, progress}: {tile: TileBuildReply; progress: TileBuildProgress}) {
+        const reply = incomingTile;
+        let tile: TileBuildReply | Tile = reply;
+        if (this.activeScene.terrainTransaction && tile.generation === this.activeScene.generation && this.tiles[tile.key]?.id === tile.id) {
             let incoming = 0;
             for (const data of Object.values(tile.mesh_data ?? {})) for (const mesh of Object.values(data.meshes ?? {})) {
                 const query = mesh.terrain_surface;
-                incoming += (mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements?.byteLength ?? 0) + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+                incoming += (mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements ? mesh.vertex_elements.byteLength : 0) + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
             }
-            if (this.getStagedTerrainBytes() + incoming > this.scene.terrain.maxStagedMeshBytes) {
+            if (this.activeScene.terrain && this.getStagedTerrainBytes() + incoming > this.activeScene.terrain.maxStagedMeshBytes) {
                 this.buildTileError({...tile, error: new Error('Terrain staged mesh-byte budget exceeded')}); return;
             }
         }
@@ -562,15 +635,16 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
             this.updateTileStates();
         }
         // Built with an outdated scene configuration?
-        else if (tile.generation !== this.scene.generation) {
+        else if (tile.generation !== this.activeScene.generation) {
             log('trace', `discarded tile ${tile.key} in TileManager.buildTileStylesCompleted because built with ` +
-                `scene config gen ${tile.generation}, current ${this.scene.generation}`);
+                `scene config gen ${tile.generation}, current ${this.activeScene.generation}`);
             Tile.abortBuild(tile);
             this.updateTileStates();
         }
         else {
             // Update tile with properties from worker
-            if (this.tiles[tile.key]) {
+            const retained = this.tiles[tile.key];
+            if (retained) {
                 // Ignore if from a previously discarded tile
                 if (tile.id < this.tiles[tile.key].id) {
                     log('trace', `discarded tile ${tile.key} for id ${tile.id} in TileManager.buildTileStylesCompleted because built for discarded tile id`);
@@ -578,23 +652,29 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
                     return;
                 }
 
-                tile = this.tiles[tile.key].merge(tile);
+                tile = retained.merge(reply);
             }
+            const uploadedTile = this.tiles[reply.key];
+            if (!uploadedTile) return;
 
             if (progress.done) {
-                if (tile.terrainStage) tile.terrainStage.done = true;
-                else tile.built = true;
+                if (uploadedTile.terrainStage) uploadedTile.terrainStage.done = true;
+                else uploadedTile.built = true;
             }
 
             const batch = tile.mesh_data;
-            try {this.scene.withWebGLContext(() => tile.buildMeshes(this.scene.styles, progress));}
+            try {
+                const styles = this.activeScene.styles;
+                if (!styles) throw new Error('TileManager uploads require loaded scene styles');
+                this.activeScene.withWebGLContext(() => uploadedTile.buildMeshes(styles, progress));
+            }
             catch (error) {
-                if (!this.scene.terrainTransaction) throw error;
+                if (!this.activeScene.terrainTransaction) throw error;
                 delete tile.mesh_data;
-                this.buildTileError({...Tile.slice(tile), mesh_data: batch, error}); return;
+                this.buildTileError({...Tile.slice(uploadedTile), mesh_data: batch, error}); return;
             }
             this.updateTileStates();
-            this.scene.requestRedraw();
+            this.activeScene.requestRedraw();
         }
 
         if (progress.done) {
@@ -605,10 +685,10 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     // Called on main thread when web worker encounters an error building a tile
-    buildTileError(tile) {
+    buildTileError(tile: TileBuildFailure) {
         const current = this.tiles[tile.key];
         if (!current || current.id !== tile.id || current.generation !== tile.generation ||
-            tile.generation !== this.scene.generation) {
+            tile.generation !== this.activeScene.generation) {
             Tile.abortBuild(tile);
             this.tileBuildStop(tile.key, `${tile.id}/${tile.generation}`);
             return;
@@ -616,8 +696,8 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         log('error', `Error building tile ${tile.key}:`, tile.error);
         // Record the failure before releasing work: the last release may settle
         // the scene rebuild synchronously. Stale generations never reach here.
-        this.scene.tileManagerBuildError?.(tile.error);
-        if (this.scene.terrainTransaction) {
+        this.activeScene.tileManagerBuildError?.(tile.error);
+        if (this.activeScene.terrainTransaction) {
             current.discardTerrainStage();
             current.loading = false;
             Tile.abortBuild(tile);
@@ -634,13 +714,13 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     // Track tile build state
-    tileBuildStart(key) {
+    tileBuildStart(key: string) {
         this.building_tiles = this.building_tiles || {};
         this.building_tiles[key] = true;
         log('trace', `tileBuildStart for ${key}: ${Object.keys(this.building_tiles).length}`);
     }
 
-    tileBuildStop(key, token) {
+    tileBuildStop(key: string, token?: string) {
         if (token !== undefined) this.build_queue.finish(key, token);
         // Done building?
         if (this.building_tiles) {
@@ -655,12 +735,12 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
         this.build_queue.pump();
         if (!this.building_tiles || Object.keys(this.building_tiles).length === 0) {
             this.building_tiles = null;
-            this.scene.tileManagerBuildDone();
+            this.activeScene.tileManagerBuildDone();
         }
     }
 
     // Get a debug property across tiles
-    getDebugProp(prop, filter) {
+    getDebugProp(prop: keyof TileDebug, filter?: (tile: Tile) => boolean) {
         var vals = [];
         for (var t in this.tiles) {
             if (this.tiles[t].debug[prop] != null && (typeof filter !== 'function' || filter(this.tiles[t]) === true)) {
@@ -671,18 +751,18 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
     }
 
     // Sum of a debug property across tiles
-    getDebugSum(prop, filter) {
+    getDebugSum(prop: 'building' | 'feature_count' | 'geometry_count' | 'buffer_size', filter?: (tile: Tile) => boolean) {
         var sum = 0;
         for (var t in this.tiles) {
             if (this.tiles[t].debug[prop] != null && (typeof filter !== 'function' || filter(this.tiles[t]) === true)) {
-                sum += this.tiles[t].debug[prop];
+                sum += this.tiles[t].debug[prop] ?? 0;
             }
         }
         return sum;
     }
 
     // Average of a debug property across tiles
-    getDebugAverage(prop, filter) {
+    getDebugAverage(prop: Parameters<TileManager['getDebugSum']>[0], filter?: (tile: Tile) => boolean) {
         return this.getDebugSum(prop, filter) / Object.keys(this.tiles).length;
     }
 
@@ -690,13 +770,13 @@ export default class TileManager<TileT extends ResourceTile = Tile> {
 
 // Round a number to given number of decimal divisions
 // e.g. roundPrecision(x, 4) rounds a number to increments of 0.25
-function roundPrecision (x, d, places = 2) {
+function roundPrecision (x: number, d: number, places = 2) {
     return (Math.floor(x * d) / d).toFixed(places);
 }
 
 // Create a string representing the current set of meshes for a given set of tiles,
 // based on their created timestamp. Used to determine when tiles should be re-collided.
-function meshSetString (tiles) {
+function meshSetString (tiles: Tile[]) {
     return JSON.stringify(
         Object.entries(tiles).map(([,t]) => {
             return Object.entries(t.meshes).map(([,s]) => {

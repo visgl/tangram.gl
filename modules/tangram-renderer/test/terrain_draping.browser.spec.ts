@@ -414,7 +414,9 @@ test('annotation collision shares morph heights with both eyes and recovers visi
     const tile: LabelTile = {coords: {z: 16}, style_z: 16, build_id: 1, min: {x: 0, y: 0}, span: {x: 1}, meshes: {points: [mesh]}, pending_label_meshes: null, isProxy: () => false, swapPendingLabels() {}};
     const camera = {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 10] as const};
     const frame = new HostFrame({viewport: {width: 200, height: 100}, geographicAnchor: {longitude: 0, latitude: 0, zoom: 16}, renderViews: [{id: 'left', viewport: {width: 100, height: 100}, camera}, {id: 'right', viewport: {x: 100, width: 100, height: 100}, camera}]});
-    const data = new DataView(prepared.vertices.buffer); const shown = () => data.getInt16(mesh.vertex_layout.offset.a_shape + 6, true);
+    const shapeOffset = mesh.vertex_layout.offset?.a_shape;
+    if (shapeOffset === undefined) throw new Error('Fixture terrain label must have a shape offset');
+    const data = new DataView(prepared.vertices.buffer); const shown = () => data.getInt16(shapeOffset + 6, true);
     layoutProjectedAnnotations([tile], frame, {terrainTransitionDuration: 100, terrainTime: 100}); expect(shown()).toBe(1);
     layoutProjectedAnnotations([tile], frame, {terrainTransitionDuration: 100, terrainTime: 200}); expect(shown()).toBe(0);
     layoutProjectedAnnotations([tile], frame, {terrainTransitionDuration: 100, terrainTime: 200, terrainExaggeration: 0}); expect(shown()).toBe(1);

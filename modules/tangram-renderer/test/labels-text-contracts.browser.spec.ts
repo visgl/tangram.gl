@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 /** Mesh fixture using the actual worker serialization contract. */
-function createLabelMesh(label: LabelPoint | LabelLineStraight): LabelMesh {
+function createLabelMesh(label: LabelPoint | LabelLineStraight): LabelMesh & {vertex_data: Uint8Array} {
     return {
         valid: true, labels: {[label.id]: {container: {label: label.toJSON(), linked: null}, ranges: [[0, 2]]}},
         vertex_layout: {offset: {a_shape: 0}, stride: 8},

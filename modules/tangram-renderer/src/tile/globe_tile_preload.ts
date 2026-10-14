@@ -25,7 +25,7 @@ export function getGlobePreloadKey(coordinates: TileCoordinates, source: TileSou
 }
 
 /** Clip a fallback mesh in its local packed tile units to one missing detail tile. */
-export function getGlobeFallbackClipBounds(parent: TileCoordinates, child: TileCoordinates): number[] {
+export function getGlobeFallbackClipBounds(parent: TileCoordinates, child: TileCoordinates): [number, number, number, number] {
     const scale = 2 ** (child.z - parent.z);
     const width = Geo.tile_scale / scale;
     const horizontal = child.x - parent.x * scale;

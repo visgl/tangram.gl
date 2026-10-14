@@ -2,24 +2,124 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {afterEach, beforeEach, expect, test} from 'vitest';
+import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import ShaderProgram from '../src/gl/shader_program';
+import VertexLayout from '../src/gl/vertex_layout';
 
 let context: WebGL2RenderingContext;
 const programs: ShaderProgram[] = [];
 const vertexSource = 'attribute vec4 a_position; void main() { gl_Position = a_position; }';
 
 beforeEach(() => {
-    context = document.createElement('canvas').getContext('webgl2')!;
-    expect(context).not.toBeNull();
+    const created = document.createElement('canvas').getContext('webgl2');
+    if (!created) throw new Error('Fixture requires WebGL 2');
+    context = created;
     Object.assign(context, {_tangram_id: 20001});
     ShaderProgram.reset();
 });
 
 afterEach(() => {
+    vi.restoreAllMocks();
     for (const program of programs.splice(0)) program.destroy();
     ShaderProgram.reset();
     context.getExtension('WEBGL_lose_context')?.loseContext();
+});
+
+test('classic vector and matrix dispatch preserves numeric storage identity and cached restoration', () => {
+    const program = new ShaderProgram(context, `
+        attribute vec4 a_position;
+        uniform mat4 matrix4; uniform mat3 matrix3;
+        uniform vec2 vector2; uniform vec3 vector3; uniform vec4 vector4;
+        uniform int integer; uniform ivec3 integers; uniform bool enabled;
+        uniform float scalars[5];
+        void main() {
+            vec3 offset = vec3(vector2, 0.0) + vector3 + vector4.xyz + vec3(integers);
+            float scale = float(integer) + scalars[0] + scalars[4] + (enabled ? 1.0 : 0.0);
+            gl_Position = matrix4 * vec4(matrix3 * a_position.xyz + offset, scale);
+        }`, 'void main() { gl_FragColor = vec4(1.0); }', {glsl_version: 300});
+    programs.push(program); program.compile();
+    const vector = new Float32Array([1, 2, 3]);
+    const integers = new Int32Array([4, 5, 6]);
+    const floatWrite = vi.spyOn(context, 'uniform3fv'), integerWrite = vi.spyOn(context, 'uniform3iv');
+    program.uniform('3fv', 'vector3', vector);
+    program.uniform('3iv', 'integers', integers);
+    expect(floatWrite.mock.calls[0][1]).toBe(vector); expect(integerWrite.mock.calls[0][1]).toBe(integers);
+    program.setUniforms({vector2: [1, 2], vector4: [1, 2, 3, 4], enabled: true, scalars: [1, 2, 3, 4, 5]});
+    program.uniform('1i', 'integer', 7);
+    program.uniform('Matrix3fv', 'matrix3', [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    program.uniform('Matrix4fv', 'matrix4', new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]));
+    program.saveUniforms({vector3: true, integer: true});
+    program.uniform('3f', 'vector3', [9, 8, 7]); program.uniform('1i', 'integer', 99);
+    program.restoreUniforms({vector3: true, integer: true});
+    expect(program.getUniformValues()).toMatchObject({vector3: vector, integer: 7, enabled: true, scalars: [1, 2, 3, 4, 5]});
+    program.refreshUniforms();
+    expect(context.getError()).toBe(context.NO_ERROR);
+});
+
+test('failed allocation is explicit and compiler diagnostics preserve the original error and composed sources', () => {
+    const allocation = vi.spyOn(context, 'createShader').mockReturnValue(null);
+    expect(() => ShaderProgram.createShader(context, 'void main() {}', context.VERTEX_SHADER)).toThrow(/allocation failed/);
+    allocation.mockRestore();
+    const program = new ShaderProgram(context, vertexSource, '#pragma tangram: color\nvoid main() { gl_FragColor = missingColor; }', {
+        glsl_version: 300, blocks: {color: ['float diagnosticFixture = ;']}, block_scopes: {color: ['fixture']}
+    });
+    programs.push(program);
+    let failure: unknown;
+    try {program.compile();} catch (error) {failure = error;}
+    expect(program.error).toBe(failure); expect(failure).toBeInstanceOf(Error);
+    expect(failure).toMatchObject({type: 'fragment', fragment_shader_source: expect.stringContaining('tangram-block-start: fixture')});
+    expect(program.compiling).toBe(false); expect(program.compiled).toBe(false);
+    expect(program.shader_errors.length).toBeGreaterThan(0);
+});
+
+test('portable rejection preserves primitive failure identity without touching a raw context', () => {
+    const program = new ShaderProgram(null, 'vertex', 'fragment', {shaderLanguage: 'wgsl', shaderFactory() {throw 'fixture shader rejection';}});
+    programs.push(program);
+    let failure: unknown;
+    try {program.compile();} catch (error) {failure = error;}
+    expect(failure).toBe('fixture shader rejection'); expect(program.error).toBe(failure);
+    expect(program.compiling).toBe(false); expect(program.program).toBeNull();
+    expect(program.attribute('a_position')).toBeUndefined();
+});
+
+test('classic context and raw program allocation guards fail explicitly before acquiring invalid owners', () => {
+    const opaque = new ShaderProgram({}, vertexSource, 'void main() {}');
+    expect(opaque.source('vertex')).toBeUndefined();
+    expect(() => opaque.destroy()).toThrow(/Classic shaders require/);
+    const allocationContext = new Proxy(context, {get(target, property) {
+        if (property === 'createProgram') return () => null;
+        const value: unknown = Reflect.get(target, property, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+    }});
+    expect(() => ShaderProgram.updateProgram(allocationContext, null, vertexSource,
+        'precision highp float; void main() { gl_FragColor = vec4(1.0); }')).toThrow(/program allocation failed/);
+});
+
+test('checked attribute lookup drives dynamic and static bindings and skips an uncompiled program', () => {
+    const program = new ShaderProgram(context,
+        'attribute vec4 a_position; attribute vec4 a_color; varying vec4 color; void main() {gl_Position = a_position; color = a_color;}',
+        'varying vec4 color; void main() {gl_FragColor = color;}', {glsl_version: 300});
+    programs.push(program); program.compile();
+    const layout = new VertexLayout([{name: 'a_position', size: 4, type: context.FLOAT},
+        {name: 'a_color', size: 4, type: context.FLOAT, static: [1, 0, 0, 1]}]);
+    const attributes = {enableVertexAttribArray: context.enableVertexAttribArray.bind(context),
+        disableVertexAttribArray: context.disableVertexAttribArray.bind(context), vertexAttribPointer: context.vertexAttribPointer.bind(context),
+        vertexAttrib4fv: context.vertexAttrib4fv.bind(context)};
+    const buffer = context.createBuffer();
+    if (!buffer) throw new Error('Fixture requires a vertex buffer');
+    VertexLayout.enabled_attribs = {};
+    try {
+        context.bindBuffer(context.ARRAY_BUFFER, buffer); context.bufferData(context.ARRAY_BUFFER, new Float32Array(4), context.STATIC_DRAW);
+        layout.enableDynamicAttributes(attributes, program); layout.enableStaticAttributes(attributes, program);
+        const position = program.attribute('a_position'), color = program.attribute('a_color');
+        if (!position || !color) throw new Error('Fixture requires both active attributes');
+        expect(context.getVertexAttrib(position.location, context.VERTEX_ATTRIB_ARRAY_ENABLED)).toBe(true);
+        expect(Array.from(context.getVertexAttrib(color.location, context.CURRENT_VERTEX_ATTRIB))).toEqual([1, 0, 0, 1]);
+        const inactive = new ShaderProgram(context, '', '');
+        layout.enableDynamicAttributes(attributes, inactive); layout.enableStaticAttributes(attributes, inactive);
+        expect(context.getVertexAttrib(position.location, context.VERTEX_ATTRIB_ARRAY_ENABLED)).toBe(false);
+        expect(context.getError()).toBe(context.NO_ERROR);
+    } finally {context.deleteBuffer(buffer); VertexLayout.enabled_attribs = {};}
 });
 
 /** Compile a minimal real program through the same legacy path as the classic map. */

@@ -57,11 +57,11 @@ export interface MixedStyleShaders extends StyleShaderDefinition {
 
 /** Tile mesh metadata used for active styles and ascending blend passes. */
 export interface StyleManagerTile {
-    meshes: Record<string, {variant: {blend_order: number}}[]>;
+    meshes: Record<string, {variant: {blend_order?: number}}[]>;
 }
 
 /** Styles sharing one mesh blend-order pass. */
 export interface ActiveStyleBlendOrder {
-    blend_order: number;
+    blend_order?: number;
     styles: string[];
 }

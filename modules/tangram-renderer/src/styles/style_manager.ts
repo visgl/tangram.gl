@@ -145,7 +145,7 @@ export class StyleManager {
         });
 
         // sort ascending by blend order
-        this.active_blend_orders = orders.sort((a, b) => a.blend_order - b.blend_order);
+        this.active_blend_orders = orders.sort((a, b) => Number(a.blend_order) - Number(b.blend_order));
     }
 
     mix (style: StyleDefinition, styles: Record<string, StyleDefinition>): StyleDefinition {

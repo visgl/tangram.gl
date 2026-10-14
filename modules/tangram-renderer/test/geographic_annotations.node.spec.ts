@@ -88,7 +88,9 @@ function createTile(id: number, position: [number, number, number], options: {
 
 /** Read the same packed mask that GLSL/WGSL and their selection programs consume. */
 function isVisible(tile: LabelTile): boolean {
-    return new DataView(tile.meshes.points[0].vertex_data.buffer).getInt16(14, true) === 1;
+    const vertices = tile.meshes.points[0].vertex_data;
+    if (!vertices) throw new Error('Fixture label must retain packed bytes');
+    return new DataView(vertices.buffer).getInt16(14, true) === 1;
 }
 
 /** Real camera composition conventions with deterministic CSS-pixel extents. */

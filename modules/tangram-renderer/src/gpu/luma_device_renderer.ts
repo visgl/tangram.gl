@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import { Buffer, Texture } from '@luma.gl/core';
-import type {Bindings, BufferProps, Device, PrimitiveTopology, RenderPipeline, RenderPipelineParameters,
+import type {Binding, Bindings, BufferProps, Device, PrimitiveTopology, RenderPipeline, RenderPipelineParameters,
     RenderPipelineProps, RenderPass, ShaderProps, TextureFormat, TextureFormatDepthStencil, VertexArray} from '@luma.gl/core';
 import type {TangramDrawableMesh, TangramDrawableProgram, TangramGPUBackend, TangramGPUSceneOptions,
     TangramDrawableUniformBlock, TangramMeshBufferOptions, TangramMeshDrawDescriptor, TangramMeshDrawOptions, TangramRenderStateOptions,
@@ -12,10 +12,30 @@ import {observeGPUResourceDisposal} from './resource_lifecycle';
 
 /** Per-topology pipelines indexed by normalized render state. */
 type PipelineStates = Map<PrimitiveTopology, Map<string, RenderPipeline>>;
+/** Resource kinds accepted by luma render-pass bindings, shared without per-draw list allocations. */
+const BINDING_RESOURCE_TAGS: readonly string[] = ['Buffer', 'Texture', 'TextureView', 'ExternalTexture', 'Sampler'];
+/** Buffer-only discriminator for subrange bindings. */
+const BUFFER_RESOURCE_TAGS: readonly string[] = ['Buffer'];
 
 /** Distinguish luma depth/stencil formats without casting arbitrary texture formats. */
 function isDepthStencilFormat(format: TextureFormat): format is TextureFormatDepthStencil {
     return format.startsWith('depth') || format.startsWith('stencil');
+}
+
+/** Accept host-device luma bindings, including resources from another core bundle copy. */
+function isNativeBinding(resource: object, device: Device): resource is Binding {
+    if (isDeviceResource(resource, device, BINDING_RESOURCE_TAGS)) return true;
+    return 'buffer' in resource && isDeviceResource(resource.buffer, device, BUFFER_RESOURCE_TAGS) &&
+        (!('offset' in resource) || resource.offset === undefined || typeof resource.offset === 'number') &&
+        (!('size' in resource) || resource.size === undefined || typeof resource.size === 'number');
+}
+
+/** luma's stable Resource tag and device identity do not inspect raw handles or depend on instanceof. */
+function isDeviceResource(resource: unknown, device: Device, tags: readonly string[]): boolean {
+    if (!resource || typeof resource !== 'object' || !('device' in resource) || resource.device !== device ||
+        !('destroy' in resource) || typeof resource.destroy !== 'function') return false;
+    const tag: unknown = Reflect.get(resource, Symbol.toStringTag);
+    return typeof tag === 'string' && tags.includes(tag);
 }
 
 /** Resource record deliberately contains no reference to its shader-program owner. */
@@ -54,6 +74,8 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
     declare private mesh_resources: Set<MeshResources>;
     /** A destroyed backend cannot reuse cached or host resources. */
     declare private destroyed: boolean;
+    /** Restore native types at the capability-only wrapper boundary, without asserting a resource facade. */
+    private readonly bindingResources = new WeakMap<object, Buffer | Texture>();
 
     constructor(device: Device) {
         validateDevice(device);
@@ -100,11 +122,13 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
         if (options.usage !== 'uniform') {
             throw new Error(`unsupported Tangram buffer usage '${options.usage}'`);
         }
-        return this.device.createBuffer({
+        const buffer = this.device.createBuffer({
             id: `tangram-${options.id}`,
             byteLength: options.byteLength,
             usage: Buffer.UNIFORM | Buffer.COPY_DST
         });
+        this.bindingResources.set(buffer, buffer);
+        return buffer;
     }
 
     /** Creates a shader in the language supported by the active device. */
@@ -191,6 +215,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
                 addressModeV: options.repeat ? 'repeat' : 'clamp-to-edge'
             }
         });
+        this.bindingResources.set(texture, texture);
 
         try {
             if (options.data != null) {
@@ -282,8 +307,15 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
 
         try {
             program.uniform('1f', 'u_visible_time', visibleTime);
-            const bindings = program.getBindings();
-            this.snapshotMeshUniformBindings(mesh, program, bindings);
+            const wrapperBindings = program.getBindings();
+            this.snapshotMeshUniformBindings(mesh, program, wrapperBindings);
+            const bindings: Bindings = {};
+            for (const [name, resource] of Object.entries(wrapperBindings)) {
+                const native = this.bindingResources.get(resource);
+                if (native) bindings[name] = native;
+                else if (isNativeBinding(resource, this.device)) bindings[name] = resource;
+                else throw new Error(`Tangram binding '${name}' requires a native luma resource`);
+            }
             assertPipelineBindings(pipeline, bindings);
             const vertex_array = this.getVertexArray(mesh, pipeline, descriptor);
             renderPass.setPipeline(pipeline);
@@ -315,7 +347,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
     }
 
     /** Copies mutable uniform blocks into storage unique to the encoded mesh draw. */
-    snapshotMeshUniformBindings(mesh: TangramDrawableMesh, program: TangramDrawableProgram, bindings: Bindings) {
+    snapshotMeshUniformBindings(mesh: TangramDrawableMesh, program: TangramDrawableProgram, bindings: Record<string, object>) {
         const uniform_blocks = program.uniform_blocks || {};
         const snapshot_blocks = Object.entries(uniform_blocks)
             .filter((entry): entry is [string, TangramDrawableUniformBlock & {data: ArrayBuffer}] =>
@@ -334,6 +366,7 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
                     byteLength: uniform_buffer.byteLength,
                     usage: Buffer.UNIFORM | Buffer.COPY_DST
                 });
+                this.bindingResources.set(buffer, buffer);
                 snapshot?.buffer.destroy();
                 snapshot = {buffer, byteLength: uniform_buffer.byteLength};
                 mesh_buffers.set(name, snapshot);
@@ -386,8 +419,8 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
         if (!pipeline) {
             const pipeline_options: RenderPipelineProps = {
                 id: `tangram-${program.name || program.id}-${descriptor.topology}-${states.size}`,
-                vs: program.vertex_shader_resource,
-                fs: program.fragment_shader_resource,
+                vs: program.vertex_shader_resource ?? undefined,
+                fs: program.fragment_shader_resource ?? undefined,
                 bufferLayout: [descriptor.bufferLayout],
                 topology: descriptor.topology,
                 disableWarnings: true,

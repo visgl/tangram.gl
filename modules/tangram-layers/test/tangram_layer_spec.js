@@ -423,7 +423,7 @@ describe('TangramLayer', function () {
 
         const vertex_buffer = { id: 'vertices' };
         const index_buffer = { id: 'indices' };
-        const view_buffer = { id: 'view' };
+        const view_buffer = scene.options.uniformBufferFactory({id: 'view', usage: 'uniform', byteLength: 16});
         const vertex_layout = {};
         const descriptor = {
             topology: 'triangle-list',
@@ -531,7 +531,7 @@ describe('TangramLayer', function () {
     it('binds luma texture resources without falling back to raw WebGL drawing', function () {
         const { device } = createLayer();
         const scene = FakeScene.instances[0];
-        const texture = { id: 'texture' };
+        const texture = scene.options.textureFactory({id: 'texture', width: 1, height: 1});
         device.pipelineShaderLayout = {
             attributes: [],
             bindings: [{ type: 'texture', name: 'u_texture' }]

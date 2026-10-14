@@ -66,7 +66,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
             // A resident proxy may no longer draw this style once its child labels are ready.
             if (tile.isProxy() && tile.shouldProxyForStyle?.(style) === false) continue;
             for (const mesh of parts) {
-                if (!mesh.valid || !mesh.labels || mesh.vertex_layout.offset.a_shape === undefined ||
+                if (!mesh.valid || !mesh.labels || !mesh.vertex_data || !mesh.vertex_layout.offset || mesh.vertex_layout.offset.a_shape === undefined ||
                     (mesh.vertex_layout.offset.a_projected_position === undefined && mesh.vertex_layout.offset.a_position === undefined)) continue;
                 for (const label of Object.values(mesh.labels)) {
                     const id = String(label.container.label.id);
@@ -108,6 +108,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
     });
     const uploads = new Set<LabelMesh>();
     for (const candidate of sorted) for (const {mesh, label} of candidate.parts) {
+        if (!mesh.vertex_data || !mesh.vertex_layout.offset) continue;
         const view = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
         for (const [start, count] of label.ranges) for (let index = 0; index < count; index++) {
             const offset = start + index * mesh.vertex_layout.stride + mesh.vertex_layout.offset.a_shape + 6;
@@ -131,6 +132,7 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
     terrainSurface?: TerrainSurfaceCollection, terrainCache?: Map<string, boolean>, inverse?: Matrix4, eyeId?: string): Bounds | null {
     let eligibility = eligible.get(mesh);
     if (!eligibility) eligible.set(mesh, eligibility = new Map());
+    if (!mesh.vertex_data || !mesh.vertex_layout.offset) return null;
     const data = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
     const {stride, offset} = mesh.vertex_layout;
     const first = label.ranges[0]?.[0];

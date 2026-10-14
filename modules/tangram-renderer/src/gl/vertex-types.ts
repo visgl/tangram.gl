@@ -27,7 +27,7 @@ export type VertexBufferLayout = BufferLayout & {
 };
 /** Shader-side attribute lookup consumed by the classic binding path. */
 export interface VertexAttributeProgram {
-    attribute(name: string): {location: number};
+    attribute(name: string): {location: number} | undefined;
 }
 /** Classic WebGL operations consumed by layouts; portable devices bypass this surface. */
 export type VertexAttributeContext = Pick<WebGLRenderingContext,

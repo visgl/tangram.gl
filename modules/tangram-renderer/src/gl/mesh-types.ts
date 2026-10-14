@@ -19,6 +19,8 @@ export type MeshContext = Pick<WebGLRenderingContext, 'STATIC_DRAW' | 'ELEMENT_A
 /** Layout capabilities shared by device meshes and their classic attribute bindings. */
 export interface MeshVertexLayout {
     stride: number;
+    /** Packed attribute offsets, absent only for minimal non-annotation layouts. */
+    offset?: Record<string, number>;
     dynamic_attribs?: VertexAttribute[];
     getBufferLayout(): TangramMeshDrawDescriptor['bufferLayout'];
     getStaticAttributes(): {attribute: string; value: number[]}[];

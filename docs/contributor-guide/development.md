@@ -109,9 +109,10 @@ transferred worker batches, uploaded mesh owners, and pending/live renderer reco
 Texture ownership and worker metadata are now checked separately, with typed
 portable factories, DOM/raw uploads, sprite metadata and generic host context scopes.
 The proxy pyramid also distinguishes traversal metadata from retained live tiles.
-Six lifecycle files remain on the suppression allowlist; the tile manager,
-scene/worker, shader program and base/point styles still need checked
-ownership contracts. Removing a directive means checking the complete module,
+Shader programs and tile management now have checked resource, uniform,
+worker-reply, upload, queue, proxy, and collision contracts. Four lifecycle files
+remain on the suppression allowlist: the scene, scene worker, and base/point
+styles. Removing a directive means checking the complete module,
 not replacing it with unchecked property bags or widening assertions.
 
 Keep authored values `unknown` until normalized. Distinguish source data,

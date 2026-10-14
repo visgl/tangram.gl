@@ -8,7 +8,7 @@ export type TileCoordinates = {
     y: number;
     z: number;
 };
-export type TileCoordinate = TileCoordinates & {key: string};
+export type TileCoordinate = TileCoordinates & {key: string; center_dist?: number};
 
 export type TileSource = {
     id: string | number;

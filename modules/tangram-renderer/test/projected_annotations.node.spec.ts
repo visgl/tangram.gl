@@ -44,6 +44,7 @@ function frame(rightScale?: number, translation = 0): HostFrame {
 /** Inspect the entire signed-short mask, not only its low byte. */
 function mask(value: LabelTile): number[] {
     const mesh = value.meshes.points[0];
+    if (!mesh.vertex_data) throw new Error('Fixture label must retain packed bytes');
     const data = new DataView(mesh.vertex_data.buffer);
     return Array.from({length: 4}, (_, index) => data.getInt16(index * 24 + 18, true));
 }

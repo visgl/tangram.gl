@@ -6,12 +6,33 @@ import {Matrix4} from '@math.gl/core';
 import {afterEach, expect, test, vi} from 'vitest';
 import HostFrame from '../src/scene/host_frame';
 import Renderer from '../src/scene/renderer';
+import Scene from '../src/scene/scene';
 import TileManager from '../src/tile/tile_manager';
 import Tile from '../src/tile/tile';
 import {TileID} from '../src/tile/tile_id';
 import {NetworkTileSource} from '../src/sources/data_source';
 
-afterEach(() => vi.restoreAllMocks());
+const fixtureScenes: Scene[] = [];
+afterEach(() => {
+    for (const scene of fixtureScenes.splice(0)) {
+        // These are transport-only fixtures, not native worker owners.
+        scene.workers = null;
+        scene.destroy();
+    }
+    vi.restoreAllMocks();
+});
+
+test('typed wire slicing reads each default property once and preserves requested extension keys', () => {
+    const owner = new Tile({coords: {x: 0, y: 0, z: 0}, style_z: 0, source: {id: 0, name: 'slice', zooms: [0]},
+        workers: [{postMessage: vi.fn(), addEventListener: vi.fn()}], view: {}});
+    const key = owner.key;
+    let reads = 0;
+    Object.defineProperty(owner, 'key', {get() {reads++; return key;}});
+    expect(Tile.slice(owner)).toMatchObject({id: owner.id, key, loaded: false, debug: {}});
+    expect(reads).toBe(1);
+    expect(Tile.slice(owner, ['style_z']).style_z).toBe(0);
+    expect(reads).toBe(2);
+});
 
 /** Typed real frame with independently selectable resource limits. */
 function createFrame(tileResources: unknown = undefined) {
@@ -61,9 +82,13 @@ test('resource policies are copied, frozen, applied without camera movement and 
 function createManager() {
     const source = new NetworkTileSource({id: 1, name: 'fixture', url: 'data:application/json,{}', max_zoom: 2});
     source.builds_geometry_tiles = true;
-    const scene = {id: 'resource-lifecycle', generation: 1, workers: [{}], sources: {fixture: source}, styles: {},
-        view: {tile_zoom: 2, center: {tile: TileID.coord({x: 2, y: 2, z: 2})}},
-        tileManagerBuildDone: vi.fn(), tileManagerBuildError: vi.fn(), requestRedraw: vi.fn(), withWebGLContext: (callback: () => void) => callback()};
+    const renderer = new Renderer({});
+    const nativeScene = renderer.scene;
+    if (!(nativeScene instanceof Scene)) throw new Error('Fixture requires the native Scene implementation');
+    fixtureScenes.push(nativeScene);
+    const scene = Object.assign(nativeScene, {generation: 1, workers: [{postMessage: vi.fn(), addEventListener: vi.fn()}], sources: {fixture: source}, styles: {},
+        view: Object.assign(renderer.scene.view, {tile_zoom: 2, center: {tile: TileID.coord({x: 2, y: 2, z: 2})}}),
+        tileManagerBuildDone: vi.fn(), tileManagerBuildError: vi.fn(), requestRedraw: vi.fn(), withWebGLContext: <Result>(callback: () => Result) => callback()});
     const tiles: Record<string, Tile> = {};
     const manager = Object.assign(new TileManager({scene}), {tiles});
     const workerMessage = vi.spyOn(Tile.prototype, 'workerMessage').mockResolvedValue(undefined);
@@ -78,6 +103,31 @@ function completeTile(manager: TileManager, tile: Tile) {
     manager.buildTileStylesCompleted({tile: {...Tile.slice(tile), loading: false, loaded: true},
         progress: {start: true, done: true}});
 }
+
+test('destroyed managers cannot admit new tile ownership', () => {
+    const {manager} = createManager();
+    const owner = new Tile({coords: {x: 0, y: 0, z: 0}, style_z: 0, source: {id: 0, name: 'retired', zooms: [0]},
+        workers: [{postMessage: vi.fn(), addEventListener: vi.fn()}], view: {}});
+    manager.destroy();
+    expect(() => manager.keepTile(owner)).toThrow(/destroyed/);
+    expect(manager.hasTile(owner.key)).toBe(false);
+});
+
+test('global preload admission keeps supported geometry sources and excludes filtered or non-geometry sources', () => {
+    const {manager, scene} = createManager();
+    const excluded = new NetworkTileSource({id: 2, name: 'excluded', url: 'data:application/json,{}', max_zoom: 2});
+    const nonGeometry = new NetworkTileSource({id: 3, name: 'nonGeometry', url: 'data:application/json,{}', max_zoom: 2});
+    excluded.builds_geometry_tiles = true; nonGeometry.builds_geometry_tiles = false;
+    vi.spyOn(excluded, 'includesTile').mockReturnValue(false);
+    scene.sources = {...scene.sources, excluded, nonGeometry};
+    vi.spyOn(scene.view, 'findVisibleTileCoordinates').mockReturnValue([]);
+    vi.spyOn(scene.view, 'findPreloadedTileCoordinates').mockReturnValue([TileID.coord({x: 0, y: 0, z: 0})]);
+    try {
+        manager.updateTilesForView();
+        expect([...manager.preloaded_keys]).toEqual(['fixture/0/0/0/2']);
+        expect(excluded.includesTile).toHaveBeenCalledWith(expect.objectContaining({z: 0}), 2);
+    } finally {manager.destroy();}
+});
 
 test('source-normalized deduplication, partial replies, completion and removal share one worker budget', () => {
     const {manager, scene, workerMessage} = createManager();
