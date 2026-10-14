@@ -425,6 +425,10 @@ remain valid and retain their original sampling domain; quadtree previous fields
 receive the same periodic neighborhood as current ground. This permits migration
 from a legacy arbitrary height field without imposing new topology restrictions
 on its historical samples.
+Previous heights and slopes are sampled in the source's absolute world domain;
+periodic quadtree copies shift to that domain while generic footprints stay put.
+At most three previous-world indexes are retained per field, sharing source arrays
+and retaining no mask prefixes. Current ground keeps its one periodic sampler.
 
 Ground cells are independent of vector/raster source zoom. Coarse DEM boundaries
 include fine-neighbor knots. Raster tile/detail/fallback boundaries never crop

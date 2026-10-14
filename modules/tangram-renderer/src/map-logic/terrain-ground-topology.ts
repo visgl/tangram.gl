@@ -44,7 +44,7 @@ export function getTerrainEdgeNodes(bounds: TerrainFieldBounds, neighbors: reado
 }
 
 /** Snap a decoded tile footprint to one world lattice; opt-in ground topology requires square quadtree tiles. */
-function snapTileBounds(bounds: TerrainFieldBounds): TerrainFieldBounds {
+function snapTileBounds(bounds: TerrainFieldBounds, normalizeToPrimaryWorld = false): TerrainFieldBounds {
     if (bounds.length !== 4) throw new Error('Canonical terrain ground requires quadtree DEM footprints');
     const edge = bounds[2] - bounds[0], zoom = Math.round(Math.log2(CIRCUMFERENCE / edge));
     if (!Number.isSafeInteger(zoom) || zoom < 0 || zoom > 30) throw new Error('Canonical terrain ground requires quadtree DEM footprints');
@@ -53,6 +53,10 @@ function snapTileBounds(bounds: TerrainFieldBounds): TerrainFieldBounds {
     const snapped: TerrainFieldBounds = [column * span - CIRCUMFERENCE / 2, CIRCUMFERENCE / 2 - (row + 1) * span,
         (column + 1) * span - CIRCUMFERENCE / 2, CIRCUMFERENCE / 2 - row * span];
     if (row < 0 || row >= 2 ** zoom || bounds.some((value, index) => !Number.isFinite(value) || Math.abs(value - snapped[index]) > Math.max(1e-6, span * 1e-8))) throw new Error('Canonical terrain ground requires quadtree DEM footprints');
+    if (normalizeToPrimaryWorld) {
+        const normalizedColumn = ((column % 2 ** zoom) + 2 ** zoom) % 2 ** zoom;
+        return [normalizedColumn * span - CIRCUMFERENCE / 2, snapped[1], (normalizedColumn + 1) * span - CIRCUMFERENCE / 2, snapped[3]];
+    }
     return snapped;
 }
 
@@ -61,9 +65,8 @@ function getPatchPlan(grids: readonly TerrainHeightGrid[]): readonly TerrainFiel
     const cached = patchPlans.get(grids);
     if (cached) return cached;
     const patches = grids.flatMap(grid => {
-        const bounds = snapTileBounds(grid.bounds);
-        const offset = Math.floor(((bounds[0] + bounds[2]) / 2 + CIRCUMFERENCE / 2) / CIRCUMFERENCE) * CIRCUMFERENCE;
-        return [-1, 0, 1].map(world => [bounds[0] - offset + world * CIRCUMFERENCE, bounds[1], bounds[2] - offset + world * CIRCUMFERENCE, bounds[3]] as const);
+        const bounds = snapTileBounds(grid.bounds, true);
+        return [-1, 0, 1].map(world => [bounds[0] + world * CIRCUMFERENCE, bounds[1], bounds[2] + world * CIRCUMFERENCE, bounds[3]] as const);
     });
     for (let index = 0; index < patches.length; index++) for (let previous = 0; previous < index; previous++) {
         const patch = patches[index], other = patches[previous], tolerance = Math.max(patch[2] - patch[0], other[2] - other[0]) * 1e-10;
@@ -79,14 +82,13 @@ function getPatchPlan(grids: readonly TerrainHeightGrid[]): readonly TerrainFiel
     return patches;
 }
 
-/** Quadtree fields wrap periodically; optional generic previous fields retain their original sampling domain. */
-export function wrapTerrainGroundGrids(grids: readonly TerrainHeightGrid[], requireQuadtree = true): TerrainHeightGrid[] {
+/** Quadtree copies shift to the sampling world; optional generic previous fields retain their absolute domain. */
+export function wrapTerrainGroundGrids(grids: readonly TerrainHeightGrid[], requireQuadtree = true, samplingWorldOffset = 0): TerrainHeightGrid[] {
     return grids.flatMap(grid => {
         let bounds: TerrainFieldBounds;
-        try {bounds = snapTileBounds(grid.bounds);}
+        try {bounds = snapTileBounds(grid.bounds, true);}
         catch (error) {if (requireQuadtree) throw error; return [grid];}
-        const offset = Math.floor(((bounds[0] + bounds[2]) / 2 + CIRCUMFERENCE / 2) / CIRCUMFERENCE) * CIRCUMFERENCE;
-        return [-1, 0, 1].map(world => ({...grid, bounds: [bounds[0] - offset + world * CIRCUMFERENCE, bounds[1], bounds[2] - offset + world * CIRCUMFERENCE, bounds[3]] as const}));
+        return [-1, 0, 1].map(world => ({...grid, bounds: [bounds[0] + world * CIRCUMFERENCE + samplingWorldOffset, bounds[1], bounds[2] + world * CIRCUMFERENCE + samplingWorldOffset, bounds[3]] as const}));
     });
 }
 

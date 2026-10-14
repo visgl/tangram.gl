@@ -251,3 +251,34 @@ test('canonical field replacement preserves generic previous-field sampling with
         expect(mesh.heights[vertex + 1]).toBeCloseTo(100, 5);
     }
 });
+
+test.each([-2, -1, 1, 2])('generic previous heights and slopes retain their absolute domain in world %s', world => {
+    const column = 1 + world * 4, current = grid(column, 1, 2, 500);
+    const previous: TerrainHeightGrid = {...grid(column, 1, 2),
+        bounds: [current.bounds[0] - 1, current.bounds[1] - 1, current.bounds[2] + 1, current.bounds[3] + 1],
+        heights: new Float32Array([10, 30, 50, 10, 30, 50, 10, 30, 50])};
+    const input = quad(column, 1, 2, [current], [previous]), prepared = drapeTerrainMesh(input), outputLayout = getTerrainVertexLayout(layout);
+    const mesh = extractDrapedTerrainQueryMesh(prepared.vertices, prepared.indices, outputLayout, input.origin, input.tileZoom, 1024 * 1024, prepared.groundPositions);
+    const oracle = new TerrainHeightField([previous]), packed = new DataView(prepared.vertices.buffer);
+    expect(mesh.indices).toHaveLength(96); // World normalization must not drop edge cells through subtractive ulps.
+    for (let vertex = 0; vertex < mesh.positions.length / 3; vertex++) {
+        const coordinate = [mesh.positions[vertex * 3], mesh.positions[vertex * 3 + 1]] as const;
+        expect(mesh.heights[vertex * 2 + 1]).toBeCloseTo(oracle.sampleHeight(coordinate)!, 5);
+        const slope = 40 / (previous.bounds[2] - previous.bounds[0]) * Math.cosh(coordinate[1] / 6378137);
+        expect(packed.getFloat32(vertex * outputLayout.stride + outputLayout.offset.a_terrain_previous + 4, true)).toBeCloseTo(slope, 9);
+    }
+});
+
+test('periodic previous fields remain valid across bounded-cache world eviction and reuse', () => {
+    const current = grid(1, 1, 2, 500), previous = grid(1, 1, 2, 100);
+    const terrain = normalizeTerrainDraping({grids: [current], previousGrids: [previous], groundMeshResolution: 4});
+    for (const world of [-2, -1, 0, 1, 2, -2]) {
+        const input = {...quad(1 + world * 4, 1, 2, [current]), terrain}, prepared = drapeTerrainMesh(input);
+        const mesh = extractDrapedTerrainQueryMesh(prepared.vertices, prepared.indices, getTerrainVertexLayout(layout), input.origin, input.tileZoom, 1024 * 1024, prepared.groundPositions);
+        expect(mesh.indices.length).toBeGreaterThan(0);
+        for (let vertex = 0; vertex < mesh.heights.length; vertex += 2) {
+            expect(mesh.heights[vertex]).toBeCloseTo(500, 5);
+            expect(mesh.heights[vertex + 1]).toBeCloseTo(100, 5);
+        }
+    }
+});

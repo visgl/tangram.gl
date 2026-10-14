@@ -188,17 +188,31 @@ export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uin
 const layouts = new WeakMap<VertexLayout, VertexLayout>();
 /** One immutable current/previous sampling index per worker field, shared by every style mesh. */
 const heightFields = new WeakMap<TerrainDrapingSnapshot, {current: TerrainHeightField; previous: TerrainHeightField}>();
-/** Periodic ground neighborhoods have separate bounded mask owners; source arrays are shared. */
-const groundHeightFields = new WeakMap<TerrainDrapingSnapshot, {current: TerrainHeightField; previous: TerrainHeightField}>();
+/** One periodic current field and at most three absolute-world previous indexes; source arrays remain shared. */
+const groundHeightFields = new WeakMap<TerrainDrapingSnapshot, {current: TerrainHeightField; previous: Map<number, TerrainHeightField>}>();
 
 /** Reuse bounded masks and spatial lookup across styles; replaced field identities release the cache. */
-function getHeightFields(terrain: TerrainDrapingSnapshot, ground = false): {current: TerrainHeightField; previous: TerrainHeightField} {
-    const cache = ground ? groundHeightFields : heightFields;
-    let fields = cache.get(terrain);
+function getHeightFields(terrain: TerrainDrapingSnapshot, ground = false, samplingWorldOffset = 0): {current: TerrainHeightField; previous: TerrainHeightField} {
+    if (ground) {
+        let fields = groundHeightFields.get(terrain);
+        if (!fields) {
+            fields = {current: new TerrainHeightField(wrapTerrainGroundGrids(terrain.grids)), previous: new Map()};
+            groundHeightFields.set(terrain, fields);
+        }
+        let previous = fields.previous.get(samplingWorldOffset);
+        if (!previous) {
+            // All previous samples share one absolute domain, retaining generic/
+            // quadtree boundary averaging. Previous fields need no mask prefixes.
+            previous = new TerrainHeightField(wrapTerrainGroundGrids(terrain.previousGrids, false, samplingWorldOffset), {maxMaskBytes: 0});
+            fields.previous.set(samplingWorldOffset, previous);
+            while (fields.previous.size > 3) fields.previous.delete(fields.previous.keys().next().value!);
+        }
+        return {current: fields.current, previous};
+    }
+    let fields = heightFields.get(terrain);
     if (!fields) {
-        fields = {current: new TerrainHeightField(ground ? wrapTerrainGroundGrids(terrain.grids) : terrain.grids),
-            previous: new TerrainHeightField(ground ? wrapTerrainGroundGrids(terrain.previousGrids, false) : terrain.previousGrids)};
-        cache.set(terrain, fields);
+        fields = {current: new TerrainHeightField(terrain.grids), previous: new TerrainHeightField(terrain.previousGrids)};
+        heightFields.set(terrain, fields);
     }
     return fields;
 }
@@ -360,7 +374,7 @@ export function drapeTerrainMesh(options: {
     const required = count * outputLayout.stride + refined.indices.byteLength;
     if (required > terrain.maxMeshBytes) throw new Error('Terrain draping mesh-byte budget exceeded');
     const vertices = new Uint8Array(count * outputLayout.stride);
-    const fields = getHeightFields(terrain, canonicalGround);
+    const fields = getHeightFields(terrain, canonicalGround, groundTopology?.sampleOffset);
     const view = new DataView(vertices.buffer);
     const valid = new Uint8Array(count);
     const coordinates: [number, number][] = [];
@@ -382,12 +396,15 @@ export function drapeTerrainMesh(options: {
         }
         const current = fields.current.sampleHeight(sampleCoordinate);
         valid[index] = Number(current !== null);
-        const previousSample = fields.previous.sampleHeight(sampleCoordinate);
+        const previousCoordinate: [number, number] = groundTopology ? [groundTopology.positions[index * 2] + nominalOffset[0] * metersPerUnit,
+            groundTopology.positions[index * 2 + 1] + nominalOffset[1] * metersPerUnit] : sampleCoordinate;
+        const previousSample = fields.previous.sampleHeight(previousCoordinate);
         const previous = previousSample ?? current;
         const latitudeCosine = 1 / Math.cosh(sampleCoordinate[1] / PROJECTION_CONSTANTS.mercatorRadius);
-        for (const [field, height, attribute] of [[fields.current, current, 'a_terrain'], [previousSample === null ? fields.current : fields.previous, previous, 'a_terrain_previous']] as const) {
+        for (const [field, height, attribute, samplingCoordinate] of [[fields.current, current, 'a_terrain', sampleCoordinate],
+            [previousSample === null ? fields.current : fields.previous, previous, 'a_terrain_previous', previousSample === null ? sampleCoordinate : previousCoordinate]] as const) {
             const slope = [0, 1].map(axis => {
-                const negative: [number, number] = [...sampleCoordinate], positive: [number, number] = [...sampleCoordinate];
+                const negative: [number, number] = [...samplingCoordinate], positive: [number, number] = [...samplingCoordinate];
                 negative[axis] -= cell; positive[axis] += cell;
                 const before = field.sampleHeight(negative), after = field.sampleHeight(positive);
                 return height === null ? 0 : before !== null && after !== null ? (after - before) / (2 * cell * latitudeCosine) : after !== null ? (after - height) / (cell * latitudeCosine) : before !== null ? (height - before) / (cell * latitudeCosine) : 0;
