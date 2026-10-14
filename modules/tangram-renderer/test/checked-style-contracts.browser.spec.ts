@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {Style} from '../src/styles/style';
 import VertexLayout from '../src/gl/vertex_layout';
 import {getFeatureRenderedGeneration} from '../src/styles/feature_annotations';
+import FeatureSelection from '../src/selection/selection';
 import type {StyleRuntime} from '../src/styles/style-runtime-types';
 
 /** Create the actual inherited lifecycle without a GPU, worker, or replacement implementation. */
@@ -78,4 +79,20 @@ test('abstract and empty geometry cannot mark a feature rendered in the current 
         expect(getFeatureRenderedGeneration(feature)).toBeUndefined();
         expect(style.tile_data.empty?.meshes).toEqual({});
     } finally {style.destroy();}
+});
+
+test('interactive default GeoJSON collections retain their absent source-layer name', () => {
+    const style = createStyle();
+    style.selection = true;
+    style._parseFeature = () => ({});
+    const color = vi.spyOn(FeatureSelection, 'makeColor').mockReturnValue([1, 2, 3, 4]);
+    const feature = {geometry: {type: 'Point' as const, coordinates: [0, 0] as [number, number]}, properties: {}};
+    const context = {source: 'geojson', layers: ['markers'], tile: {id: 'default', key: 'default',
+        coords: {x: 0, y: 0, z: 0, key: '0/0/0'}, source: 'geojson', generation: 1, style_z: 0}};
+    try {
+        expect(style.parseFeature(feature, {order: 0, interactive: true}, context)?.selection_color).toEqual([1, 2, 3, 4]);
+        expect(color).toHaveBeenCalledOnce();
+        expect(color.mock.calls[0][2].layer).toBeUndefined();
+        expect(color.mock.calls[0][2].source).toBe('geojson');
+    } finally {color.mockRestore(); style.destroy();}
 });

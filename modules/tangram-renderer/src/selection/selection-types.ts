@@ -28,14 +28,16 @@ export interface SelectionSourceFeature {
 /** Source and matched scene layers attached to a selection entry. */
 export interface SelectionContext {
     source: string;
-    layer: string;
+    /** Unnamed GeoJSON/default collections do not supply a source-layer name. */
+    layer?: string;
     layers: string[];
 }
 
 /** Public feature metadata produced by the built-in worker selection map. */
 export interface SelectedFeature extends SelectionSourceFeature {
     source_name: string;
-    source_layer: string;
+    /** Absent for an unnamed default source collection. */
+    source_layer?: string;
     layers: string[];
     tile: SelectionTile;
 }

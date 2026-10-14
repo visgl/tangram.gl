@@ -402,7 +402,7 @@ export var Style: StyleMethods = {
             if (style.interactive === true) {
                 const tile = context.tile;
                 if (tile.generation == null || !tile.key || !tile.coords || tile.style_z === undefined || !tile.source) throw new Error('Interactive style tile is incomplete');
-                if (typeof context.source !== 'string' || typeof context.layer !== 'string') throw new Error('Interactive style context has no source layer');
+                if (typeof context.source !== 'string' || (context.layer !== undefined && typeof context.layer !== 'string')) throw new Error('Interactive style context has invalid source metadata');
                 style.selection_color = FeatureSelection.makeColor(feature, {...tile, key: tile.key, coords: tile.coords, style_z: tile.style_z, source: tile.source, generation: tile.generation}, {...context, layers: context.layers ?? [], source: context.source, layer: context.layer});
             }
             else {
