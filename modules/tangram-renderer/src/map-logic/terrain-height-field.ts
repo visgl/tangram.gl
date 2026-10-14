@@ -113,7 +113,7 @@ export class TerrainHeightField {
         if (bounds.length !== 4 || !bounds.every(Number.isFinite) || bounds[0] > bounds[2] || bounds[1] > bounds[3] ||
             !Number.isFinite(bounds[2] - bounds[0]) || !Number.isFinite(bounds[3] - bounds[1])) throw new Error('Invalid terrain field probe bounds');
         const width = bounds[2] - bounds[0], height = bounds[3] - bounds[1];
-        if (!Number.isFinite(width * height)) throw new Error('Terrain field probe area must be finite');
+        if (!Number.isFinite(width * height) || width > 0 && height > 0 && width * height === 0) throw new Error('Terrain field probe area must be finite and representable');
         if (!width && !height) return this.sampleHeight([bounds[0], bounds[1]]) !== null;
         const clipped: TerrainFieldBounds[] = [];
         for (const entry of this.findEntries(bounds)) {
@@ -124,7 +124,9 @@ export class TerrainHeightField {
             clipped.push([left, bottom, right, top]);
         }
         // Union, not additive area: overlapping footprints must not hide an unloaded gap.
-        const covered = width && height ? unionArea(clipped) : unionLength(clipped.map(rectangle => width ? [rectangle[0], rectangle[2]] : [rectangle[1], rectangle[3]]));
+        const single = clipped.length === 1 ? clipped[0] : null;
+        const covered = single ? width && height ? (single[2] - single[0]) * (single[3] - single[1]) : width ? single[2] - single[0] : single[3] - single[1] :
+            width && height ? unionArea(clipped) : unionLength(clipped.map(rectangle => width ? [rectangle[0], rectangle[2]] : [rectangle[1], rectangle[3]]));
         return covered >= (width && height ? width * height : width || height) * (1 - 1e-10);
     }
 

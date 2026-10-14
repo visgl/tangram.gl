@@ -59,6 +59,19 @@ test('preserves source accumulation order despite spatial sorting, overlap and t
     expect(new TerrainHeightField([grid([0, 0, 10, 10]), grid([10, 0, 20, 10], 'grid-node', 4)]).sampleHeight([10, 5])).toBeNull();
 });
 
+test.each([16, 17, 96])('direct/tree sampling preserves legacy boundaries and source order for %i grids', count => {
+    const sources = Array.from({length: count}, (_, index) => grid([index % 12 * 10, Math.floor(index / 12) * 10,
+        index % 12 * 10 + 10, Math.floor(index / 12) * 10 + 10], index % 2 ? 'pixel-center' : 'grid-node', index % 5 ? -1 : 5));
+    const field = new TerrainHeightField(sources);
+    for (const source of sources) for (const offset of [0, 1e-10, 5, 10]) {
+        const point: [number, number] = [source.bounds[0] + offset, source.bounds[1] + offset];
+        expect(field.sampleHeight(point)).toBe(sampleTerrainNeighborhood(sources, point));
+    }
+    const overlaps = Array.from({length: count}, () => grid());
+    overlaps[0].heights.fill(1e20); overlaps[1].heights.fill(-1e20);
+    expect(new TerrainHeightField(overlaps).sampleHeight([5, 5])).toBe(sampleTerrainNeighborhood(overlaps, [5, 5]));
+});
+
 test.each(['grid-node', 'pixel-center'] as const)('cached and zero-budget %s masks match conservative legacy coverage', registration => {
     const sources = [grid([0, 0, 10, 10], registration, 5), grid([10, 0, 20, 10], registration)];
     const cached = new TerrainHeightField(sources), streaming = new TerrainHeightField(sources, {maxMaskBytes: 0});
@@ -141,5 +154,5 @@ test.each([
 test('rejects incompatible vertical datums and invalid query rectangles', () => {
     expect(() => new TerrainHeightField([grid(), {...grid(), verticalDatum: 'orthometric'}])).toThrow(/datum/);
     const field = new TerrainHeightField([grid()]);
-    for (const bounds of [[10, 0, 0, 10], [0, 10, 10, 0], [0, 0, NaN, 10], [0, 0, 1e200, 1e200]] as const) expect(() => field.coversBounds(bounds)).toThrow(/probe/);
+    for (const bounds of [[10, 0, 0, 10], [0, 10, 10, 0], [0, 0, NaN, 10], [0, 0, 1e200, 1e200], [0, 0, 1e-200, 1e-200]] as const) expect(() => field.coversBounds(bounds)).toThrow(/probe/);
 });
