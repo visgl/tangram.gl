@@ -26,7 +26,7 @@ export interface TerrainDrapingOptions {
     maxMeshBytes?: number;
     /** Owned current/previous grid arrays per scene/worker, default 32 MiB. */
     maxGridBytes?: number;
-    /** Height and slope interpolation duration per newly displayed mesh, default 200 ms. */
+    /** Shared height/slope interpolation duration per admitted terrain field, default 200 ms. */
     transitionDuration?: number;
     /** Ground style names whose exact final triangles are retained for physical queries; default empty. */
     querySurfaceStyles?: readonly string[];
