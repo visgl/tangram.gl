@@ -621,7 +621,8 @@ all current/previous grids must use one datum and non-overlapping footprints.
   `snapshot.getStatistics()` reports input/projected bytes, prepared mesh count,
   projection builds and snapshot-local preparation/traversal times. Cache hits do
   not count as projection builds; these measurements are not full-frame or GPU costs.
-  Settled queries warm indexes cooperatively; `queryIndexBytes`,
+  Settled queries reserve index budget on demand and warm owners in round-robin
+  cooperative slices; `queryIndexBytes`,
   `reservedQueryIndexBytes` and `preparationFailures` report acceleration ownership.
 - `getTerrainAt(pixel)` uses that ground display when no explicit surface is supplied.
   Positions include visual exaggeration; returned coordinate heights remain physical.

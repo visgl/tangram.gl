@@ -151,15 +151,17 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
     readonly inputBytes: number;
     /** Admitted membership, blend and exaggeration key for skipping repeated settled host probes. */
     readonly displayKey: string;
-    /** Aggregate index reservation for this snapshot, excluding separately retained host snapshots. */
-    readonly reservedQueryIndexBytes: number;
+    /** Demand-admitted index bytes; unqueried display entries never reserve acceleration. */
+    get reservedQueryIndexBytes(): number {return this.indexBudget.reserved;}
+    /** Snapshot-local reservation state shared by repeated clip leases. */
+    private readonly indexBudget: {reserved: number};
 
     /** Capture displacement without copying/projecting every mesh until it is queried. */
     constructor(projection: TerrainSurface['projection'], entries: readonly DrapedTerrainQueryEntry[], generation: number, frameTime: number, exaggeration: number, maxQueryIndexBytes = 16 * 1024 * 1024) {
         if (!Number.isSafeInteger(generation) || generation < 0 || !Number.isFinite(frameTime) || !Number.isFinite(exaggeration) || exaggeration < 0 || exaggeration > 1000) throw new Error('Invalid terrain surface frame');
         if (!Number.isSafeInteger(maxQueryIndexBytes) || maxQueryIndexBytes < 0) throw new Error('Invalid terrain query index budget');
         const queryOwners: DrapedTerrainSurfaceSnapshot['queryOwners'] = [];
-        let reservedQueryIndexBytes = 0;
+        const indexBudget = {reserved: 0};
         const indexLimits = new Map<DrapedTerrainQueryMesh, number>();
         const surfaces: TerrainSurfaceEntry[] = entries.map(entry => {
             if (!Number.isFinite(entry.blend) || entry.blend < 0 || entry.blend > 1) throw new Error('Invalid terrain surface blend');
@@ -167,11 +169,14 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
             if (mesh.positions.length % 3 || mesh.heights.length !== mesh.positions.length / 3 * 2) throw new Error('Invalid terrain query channels');
             const blend = entry.blend, clips = entry.clips?.map(bounds => [...bounds]);
             const required = TriangleQueryIndex.getRequiredHierarchyBytes(mesh.indices.length / 3);
-            const indexLimit = blend !== 1 ? 0 : indexLimits.get(mesh) ?? (required <= maxQueryIndexBytes - reservedQueryIndexBytes ? required : 0);
-            if (blend === 1 && !indexLimits.has(mesh)) {indexLimits.set(mesh, indexLimit); reservedQueryIndexBytes += indexLimit;}
             if (clips?.some(bounds => bounds.length !== 4 || !bounds.every(Number.isFinite) || bounds[0] > bounds[2] || bounds[1] > bounds[3])) throw new Error('Invalid terrain query clip');
+            let displayBounds: TerrainSurfaceBounds | null | undefined;
             const owner: DrapedTerrainSurfaceSnapshot['queryOwners'][number] = {blend, projectionBuilds: 0, preparationMs: 0, queryMs: 0, prepare() {
                 if (!owner.surface) {
+                    // Near-first collection admission chooses the first demanded owner, not
+                    // constructor membership order. Clip leases of the same settled mesh share it.
+                    const indexLimit = blend !== 1 ? 0 : indexLimits.get(mesh) ?? (required <= maxQueryIndexBytes - indexBudget.reserved ? required : 0);
+                    if (blend === 1 && !indexLimits.has(mesh)) {indexLimits.set(mesh, indexLimit); indexBudget.reserved += indexLimit;}
                     const cached = projectedQueries.get(mesh), started = performance.now();
                     owner.projectionBuilds = Number(cached?.projection !== projection || cached.blend !== blend || cached.exaggeration !== exaggeration || cached.indexLimit !== indexLimit);
                     owner.surface = getProjectedSurface(mesh, projection, blend, exaggeration, indexLimit);
@@ -180,7 +185,10 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
                 return owner.surface;
             }};
             queryOwners.push(owner);
-            return {id: entry.id, surface: {projection, getBounds() {return getDisplayBounds(mesh, projection, exaggeration, clips);}, intersectRay(ray, maximum) {
+            return {id: entry.id, surface: {projection, getBounds() {
+                if (displayBounds === undefined) displayBounds = getDisplayBounds(mesh, projection, exaggeration, clips);
+                return displayBounds ? {minimum: [...displayBounds.minimum], maximum: [...displayBounds.maximum]} : null;
+            }, intersectRay(ray, maximum) {
                 if (clips?.length === 0 || !mesh.indices.length) return null;
                 if (projection === 'web-mercator' && !intersectsFootprint(ray, maximum, mesh.bounds)) return null;
                 const surface = owner.prepare();
@@ -198,32 +206,40 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
         super(projection, surfaces);
         this.generation = generation; this.frameTime = frameTime; this.exaggeration = exaggeration;
         this.queryOwners = queryOwners;
-        this.reservedQueryIndexBytes = reservedQueryIndexBytes;
+        this.indexBudget = indexBudget;
         this.inputBytes = [...new Set(entries.map(entry => entry.mesh))].reduce((bytes, mesh) => bytes + mesh.positions.byteLength + mesh.heights.byteLength + mesh.indices.byteLength, 0);
         this.displayKey = `${projection}/${generation}/${exaggeration}/${maxQueryIndexBytes}/${entries.map(entry => `${entry.id}:${getMeshIdentity(entry.mesh)}:${entry.blend}:${JSON.stringify(entry.clips)}`).join(',')}`;
     }
 
-    /** Warm only already-queried settled owners; closing the iterator releases partially built indexes. */
+    /** Fairly warm demanded settled owners; closing releases every partial hierarchy. */
     *prepareQueryIndexSteps(): Generator<void, void, void> {
         const warmed = new Set<TerrainMeshSurface>();
+        const pending: {owner: DrapedTerrainSurfaceSnapshot['queryOwners'][number]; steps: Generator<void, void, void>}[] = [];
         for (const owner of this.queryOwners) {
             const surface = owner.surface;
             if (!surface || owner.blend !== 1 || warmed.has(surface) || failedPreparation.has(surface)) continue;
             warmed.add(surface);
-            const steps = surface.prepareQueryIndexSteps();
-            try {
-                while (true) {
+            pending.push({owner, steps: surface.prepareQueryIndexSteps()});
+        }
+        try {
+            while (pending.length) {
+                for (let index = 0; index < pending.length;) {
+                    const {owner, steps} = pending[index];
                     const started = performance.now();
                     let done: boolean | undefined;
                     try {done = steps.next().done;}
+                    catch (error) {
+                        if (owner.surface) failedPreparation.add(owner.surface);
+                        log('warn', 'Terrain query acceleration failed; retaining exact linear queries', error);
+                        done = true;
+                    }
                     finally {owner.preparationMs += performance.now() - started;}
-                    if (done) break;
-                    yield;
+                    if (done) {steps.return(); pending.splice(index, 1);}
+                    else {index++; yield;}
                 }
-            } catch (error) {
-                failedPreparation.add(surface);
-                log('warn', 'Terrain query acceleration failed; retaining exact linear queries', error);
-            } finally {steps.return();}
+            }
+        } finally {
+            for (const {steps} of pending) steps.return();
         }
     }
 
