@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {sampleTerrainNeighborhood} from '../map-logic/terrain-neighborhood';
+import {TerrainHeightField} from '../map-logic/terrain-height-field';
 import type {TerrainHeightGrid} from '../map-logic/terrain-data';
 import {PROJECTION_CONSTANTS} from '../scene/projection_math';
 import {refineGlobeMesh} from '../gl/globe_mesh';
@@ -171,6 +171,18 @@ export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uin
 }
 
 const layouts = new WeakMap<VertexLayout, VertexLayout>();
+/** One immutable current/previous sampling index per worker field, shared by every style mesh. */
+const heightFields = new WeakMap<TerrainDrapingSnapshot, {current: TerrainHeightField; previous: TerrainHeightField}>();
+
+/** Reuse bounded masks and spatial lookup across styles; replaced field identities release the cache. */
+function getHeightFields(terrain: TerrainDrapingSnapshot): {current: TerrainHeightField; previous: TerrainHeightField} {
+    let fields = heightFields.get(terrain);
+    if (!fields) {
+        fields = {current: new TerrainHeightField(terrain.grids), previous: new TerrainHeightField(terrain.previousGrids)};
+        heightFields.set(terrain, fields);
+    }
+    return fields;
+}
 /** Admit source work only where current physical heights can produce drawable geometry. */
 export function hasTerrainTileCoverage(grids: readonly TerrainHeightGrid[], coordinates: {x: number; y: number; z: number}): boolean {
     const circumference = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius;
@@ -300,6 +312,7 @@ export function drapeTerrainMesh(options: {
     const required = count * outputLayout.stride + refined.indices.byteLength;
     if (required > terrain.maxMeshBytes) throw new Error('Terrain draping mesh-byte budget exceeded');
     const vertices = new Uint8Array(count * outputLayout.stride);
+    const fields = getHeightFields(terrain);
     const view = new DataView(vertices.buffer);
     const valid = new Uint8Array(count);
     const coordinates: [number, number][] = [];
@@ -318,16 +331,16 @@ export function drapeTerrainMesh(options: {
             const vertical = 2 * ribbonScale * (Math.abs(input.getFloat32(extrude + 4, true)) + (offset === undefined ? 0 : Math.abs(input.getFloat32(offset + 4, true)))) * metersPerUnit;
             ribbonBounds.push([[coordinate[0] - horizontal, coordinate[1] - vertical], [coordinate[0] + horizontal, coordinate[1] + vertical]]);
         }
-        const current = sampleTerrainNeighborhood(terrain.grids, sampleCoordinate);
+        const current = fields.current.sampleHeight(sampleCoordinate);
         valid[index] = Number(current !== null);
-        const previousSample = sampleTerrainNeighborhood(terrain.previousGrids, sampleCoordinate);
+        const previousSample = fields.previous.sampleHeight(sampleCoordinate);
         const previous = previousSample ?? current;
         const latitudeCosine = 1 / Math.cosh(sampleCoordinate[1] / PROJECTION_CONSTANTS.mercatorRadius);
-        for (const [grids, height, attribute] of [[terrain.grids, current, 'a_terrain'], [previousSample === null ? terrain.grids : terrain.previousGrids, previous, 'a_terrain_previous']] as const) {
+        for (const [field, height, attribute] of [[fields.current, current, 'a_terrain'], [previousSample === null ? fields.current : fields.previous, previous, 'a_terrain_previous']] as const) {
             const slope = [0, 1].map(axis => {
                 const negative: [number, number] = [...sampleCoordinate], positive: [number, number] = [...sampleCoordinate];
                 negative[axis] -= cell; positive[axis] += cell;
-                const before = sampleTerrainNeighborhood(grids, negative), after = sampleTerrainNeighborhood(grids, positive);
+                const before = field.sampleHeight(negative), after = field.sampleHeight(positive);
                 return height === null ? 0 : before !== null && after !== null ? (after - before) / (2 * cell * latitudeCosine) : after !== null ? (after - height) / (cell * latitudeCosine) : before !== null ? (height - before) / (cell * latitudeCosine) : 0;
             });
             const offset = index * outputLayout.stride + outputLayout.offset[attribute];
@@ -341,7 +354,9 @@ export function drapeTerrainMesh(options: {
         }
     }
     const indices: number[] = [];
-    const coverage = createCoverageTest(terrain.grids);
+    const coverage = (positions: readonly (readonly [number, number])[]) => fields.current.coversBounds([
+        Math.min(...positions.map(position => position[0])), Math.min(...positions.map(position => position[1])),
+        Math.max(...positions.map(position => position[0])), Math.max(...positions.map(position => position[1]))]);
     for (let index = 0; index < refined.indices.length; index += 3) {
         const triangle = [refined.indices[index], refined.indices[index + 1], refined.indices[index + 2]];
         if (triangle.every(vertex => valid[vertex]) && (options.annotations || coverage(extrusionOffset === undefined ? triangle.map(vertex => coordinates[vertex]) : triangle.flatMap(vertex => ribbonBounds[vertex])))) indices.push(...triangle);
@@ -350,46 +365,4 @@ export function drapeTerrainMesh(options: {
     const byteLength = vertices.byteLength + elements.byteLength;
     Object.assign(statistics, {vertices: count, triangles: elements.length / 3, suppressedTriangles: (refined.indices.length - elements.length) / 3, meshBytes: byteLength, preparationMs: performance.now() - started});
     return {vertices, indices: elements, byteLength, statistics};
-}
-
-/** Conservative footprint/mask admission: no triangle may bridge an unloaded or invalid cell. */
-function createCoverageTest(grids: readonly TerrainHeightGrid[]): (positions: readonly (readonly [number, number])[]) => boolean {
-    // Prefix sums make sparse no-data checks independent of triangle size. Scratch is
-    // at most four bytes per height sample, plus one border row/column per grid.
-    const masks = grids.map(grid => {
-        if (grid.valid.every(Boolean)) return null;
-        const stride = grid.width + 1;
-        const sums = new Uint32Array(stride * (grid.height + 1));
-        for (let row = 0; row < grid.height; row++) for (let column = 0; column < grid.width; column++) {
-            const index = (row + 1) * stride + column + 1;
-            sums[index] = Number(!grid.valid[row * grid.width + column]) + sums[index - 1] + sums[index - stride] - sums[index - stride - 1];
-        }
-        return sums;
-    });
-    return positions => {
-        const west = Math.min(...positions.map(position => position[0])), east = Math.max(...positions.map(position => position[0]));
-        const south = Math.min(...positions.map(position => position[1])), north = Math.max(...positions.map(position => position[1]));
-        const width = east - west, height = north - south;
-        if (!width && !height) return true; // All anchor samples were already validated.
-        const total = width && height ? width * height : width || height;
-        let covered = 0;
-        for (const [index, grid] of grids.entries()) {
-            const left = Math.max(west, grid.bounds[0]), right = Math.min(east, grid.bounds[2]);
-            const bottom = Math.max(south, grid.bounds[1]), top = Math.min(north, grid.bounds[3]);
-            if (left > right || bottom > top || width && left === right || height && bottom === top) continue;
-            const mask = masks[index];
-            if (mask) {
-                const pixel = grid.registration === 'pixel-center';
-                const column = (x: number) => Math.max(0, Math.min(grid.width - 1, (x - grid.bounds[0]) / (grid.bounds[2] - grid.bounds[0]) * (pixel ? grid.width : grid.width - 1) - (pixel ? 0.5 : 0)));
-                const row = (y: number) => Math.max(0, Math.min(grid.height - 1, (grid.bounds[3] - y) / (grid.bounds[3] - grid.bounds[1]) * (pixel ? grid.height : grid.height - 1) - (pixel ? 0.5 : 0)));
-                const firstColumn = Math.floor(column(left)), lastColumn = Math.ceil(column(right)) + 1;
-                const firstRow = Math.floor(row(top)), lastRow = Math.ceil(row(bottom)) + 1;
-                const stride = grid.width + 1;
-                if (mask[lastRow * stride + lastColumn] - mask[firstRow * stride + lastColumn] - mask[lastRow * stride + firstColumn] + mask[firstRow * stride + firstColumn]) return false;
-            }
-            covered += width && height ? (right - left) * (top - bottom) : width ? right - left : top - bottom;
-        }
-        // Non-overlap is validated on admission; additive footprint area is safe.
-        return covered >= total * (1 - 1e-10);
-    };
 }

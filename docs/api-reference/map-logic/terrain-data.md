@@ -66,6 +66,35 @@ inputs retain their dimensions. Neighbor dimensions, extents and datums must
 match. Invalid nodes retain a zero validity byte and NaN height. These helpers
 define physical data continuity, not mesh simplification or mixed-LOD stitching.
 
+## Reusable indexed height fields
+
+For repeated lookups, create `new TerrainHeightField(grids, {maxMaskBytes})` and
+call `sampleHeight([x, y])`. It produces the same ordered bilinear arithmetic as
+`sampleTerrainNeighborhood`, including touching-edge averaging and holes, but
+indexes footprints before visiting samples; fields of 16 grids or fewer use a
+direct lookup to avoid tree overhead. Mixed resolutions and overlapping
+footprints are allowed for sampling; datums must match. No implicit wrapping,
+datum conversion or higher-resolution preference is introduced.
+
+`coversBounds([west, south, east, north])` conservatively requires loaded coverage
+and valid bilinear-support samples across a rectangle or finite line. A point uses
+the normal height sampler. Overlapping footprints are unioned, never counted twice
+to fill an unloaded gap. This is rectangular admission, not an exact triangle mask
+or a guarantee about interpolated draw geometry.
+
+The default `maxMaskBytes` is 8 MiB of **retained prefix arrays** per field. Prefixes
+are lazy and reused; fully valid sources keep no array. Zero or insufficient budget
+scans the exact sample support without allocating a prefix, preserving results.
+Construction retains source arrays rather than copying them: membership and bounds
+are snapshotted, but callers must keep decoded heights/validity immutable. Replace
+the field when arrays change. Prefix scans/construction are synchronous; sources,
+tree metadata and temporary work are outside the byte cap.
+
+`getStatistics()` returns detached scalar counts: `grids`, `maskBytes`, `maskBuilds`,
+`maskSamples`, `boundsTests` and `candidateGrids`. Counts accumulate for the owner;
+they measure work and retention, not elapsed time or whole-pipeline memory.
+These helpers remain CPU-only and are exported from the existing `map-logic` entry.
+
 ## Globe display meshes
 
 `buildGlobeTerrainMesh(grid, {exaggeration, resolution, neighbors})` resamples a

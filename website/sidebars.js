@@ -20,6 +20,7 @@ module.exports = {
         'get-started/getting-started',
         'developer-guide/working-with-ai',
         'developer-guide/architecture',
+        'developer-guide/roadmap',
         'developer-guide/map-logic',
         'developer-guide/view-integration',
         'developer-guide/projection-conventions',

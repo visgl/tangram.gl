@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {worldToLngLat} from '@math.gl/web-mercator';
-import {sampleTerrainNeighborhood} from './terrain-neighborhood';
+import {TerrainHeightField} from './terrain-height-field';
 import type {TerrainHeightGrid} from './terrain-data';
 
 /** Spherical deck.gl common-space radius and physical reference radius, in meters. */
@@ -134,6 +134,7 @@ export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: 
     const circumference = 2 * Math.PI * MERCATOR_RADIUS;
     const samplingGrids = grids.flatMap(candidate => [-1, 0, 1].map((world): TerrainHeightGrid => ({...candidate, bounds: [candidate.bounds[0] + world * circumference, candidate.bounds[1], candidate.bounds[2] + world * circumference, candidate.bounds[3]]})))
         .filter(candidate => candidate.bounds[0] <= grid.bounds[2] && candidate.bounds[2] >= grid.bounds[0] && candidate.bounds[1] <= grid.bounds[3] && candidate.bounds[3] >= grid.bounds[1]);
+    const heightField = new TerrainHeightField(samplingGrids);
     const missingRegions: {grid: TerrainHeightGrid; prefix: Uint32Array}[] = [];
     for (const candidate of samplingGrids) {
         const prefix = yield* buildMissingTerrainPrefix(candidate);
@@ -163,7 +164,7 @@ export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: 
         if (retained !== undefined) return retained;
         const index = physicalHeights.length; nodes.set(key, index);
         const x = west + (east - west) * column / resolution, y = north - (north - south) * row / resolution;
-        const height = sampleTerrainNeighborhood(samplingGrids, [x, y]);
+        const height = heightField.sampleHeight([x, y]);
         if (height !== null && !Number.isFinite(height)) throw new Error('Invalid globe terrain elevation');
         valid.push(height !== null); physicalHeights.push(height ?? NaN); samplePositions.push([x, y]);
         const coordinate = worldToLngLat([x * worldScale + 256, y * worldScale + 256]);
@@ -245,8 +246,8 @@ export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: 
         const distanceX = Math.min(...touching.map(candidate => (candidate.bounds[2] - candidate.bounds[0]) / (candidate.registration === 'pixel-center' ? candidate.width : candidate.width - 1)));
         const distanceY = Math.min(...touching.map(candidate => (candidate.bounds[3] - candidate.bounds[1]) / (candidate.registration === 'pixel-center' ? candidate.height : candidate.height - 1)));
         const physicalScale = Math.cos(latitude) * EARTH_RADIUS / MERCATOR_RADIUS;
-        gradients[index * 2] = !valid[index] ? 0 : slope(sampleTerrainNeighborhood(samplingGrids, [x - distanceX, y]), sampleTerrainNeighborhood(samplingGrids, [x + distanceX, y]), height, distanceX * physicalScale);
-        gradients[index * 2 + 1] = !valid[index] ? 0 : slope(sampleTerrainNeighborhood(samplingGrids, [x, y - distanceY]), sampleTerrainNeighborhood(samplingGrids, [x, y + distanceY]), height, distanceY * physicalScale);
+        gradients[index * 2] = !valid[index] ? 0 : slope(heightField.sampleHeight([x - distanceX, y]), heightField.sampleHeight([x + distanceX, y]), height, distanceX * physicalScale);
+        gradients[index * 2 + 1] = !valid[index] ? 0 : slope(heightField.sampleHeight([x, y - distanceY]), heightField.sampleHeight([x, y + distanceY]), height, distanceY * physicalScale);
         if (index % 128 === 127) yield;
     }
     const buffers = {

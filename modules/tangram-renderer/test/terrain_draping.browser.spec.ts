@@ -14,6 +14,7 @@ import {PROJECTION_CONSTANTS} from '../src/scene/projection_math';
 import {Style} from '../src/styles/style';
 import Scene from '../src/scene/scene';
 import TileManager from '../src/tile/tile_manager';
+import {TerrainHeightField} from '../src/map-logic/terrain-height-field';
 
 const layout = new VertexLayout([{name: 'a_position', size: 4, type: 5122}, {name: 'a_color', size: 4, type: 5121}, {name: 'a_selection_color', size: 4, type: 5121}]);
 const meters = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** 16);
@@ -48,6 +49,26 @@ test('tile admission excludes unloaded and edge-only footprints without hiding p
     expect(hasTerrainTileCoverage([field], {x: 0, y: 0, z: 1})).toBe(false);
     expect(hasTerrainTileCoverage([field], {x: 1, y: 1, z: 1})).toBe(false);
     expect(hasTerrainTileCoverage([grid(1, [-100, 1, 0, 100])], {x: 1, y: 0, z: 1})).toBe(false);
+});
+
+test('style meshes reuse immutable field masks, while replacement generations create new owners', () => {
+    const input = request();
+    const coverage = vi.spyOn(TerrainHeightField.prototype, 'coversBounds');
+    try {
+        const first = drapeTerrainMesh(input);
+        const owner = coverage.mock.contexts[0];
+        if (!(owner instanceof TerrainHeightField)) throw new Error('Expected a terrain sampling owner');
+        expect(owner.getStatistics().maskSamples).toBe(9);
+        coverage.mockClear();
+        const repeated = drapeTerrainMesh(input);
+        expect(coverage.mock.contexts.every(context => context === owner)).toBe(true);
+        expect(owner.getStatistics().maskSamples).toBe(9);
+        expect(repeated.vertices).toEqual(first.vertices);
+        expect(repeated.indices).toEqual(first.indices);
+        coverage.mockClear();
+        drapeTerrainMesh({...input, terrain: normalizeTerrainDraping({grids: [grid(200)]})});
+        expect(coverage.mock.contexts[0]).not.toBe(owner);
+    } finally {coverage.mockRestore();}
 });
 
 test('worker style completion remaps annotation bytes and avoids raster acquisition for empty terrain', async () => {

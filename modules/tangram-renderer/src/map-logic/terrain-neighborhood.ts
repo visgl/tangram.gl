@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {sampleTerrainHeight, type TerrainHeightGrid} from './terrain-data';
+import {TerrainHeightField} from './terrain-height-field';
 
 /** Sample touching footprints with shared-edge averaging; callers validate datum and topology. */
 export function sampleTerrainNeighborhood(grids: readonly TerrainHeightGrid[], position: readonly [number, number]): number | null {
@@ -31,9 +32,10 @@ export function resampleTerrainNodes(grid: TerrainHeightGrid, neighbors: readonl
     const columns = grid.registration === 'pixel-center' ? grid.width : grid.width - 1;
     const rows = grid.registration === 'pixel-center' ? grid.height : grid.height - 1;
     const width = columns + 1, height = rows + 1;
+    const field = new TerrainHeightField(grids);
     const heights = new Float32Array(width * height), valid = new Uint8Array(width * height);
     for (let row = 0; row < height; row++) for (let column = 0; column < width; column++) {
-        const value = sampleTerrainNeighborhood(grids, [west + column / columns * (east - west), north - row / rows * (north - south)]);
+        const value = field.sampleHeight([west + column / columns * (east - west), north - row / rows * (north - south)]);
         const index = row * width + column;
         heights[index] = value ?? NaN; valid[index] = Number(value !== null);
     }
