@@ -87,6 +87,20 @@ production query index remain unchanged. math.gl's BVH is a separate candidate:
 cooperative construction, accepted-hit filtering, exact linear fallback and memory
 admission must be compared before replacing the current index.
 
+To verify built candidate working copies together, without a release or network:
+
+```sh
+TANGRAM_TERRAIN_LOADERS_ROOT=/path/to/loaders.gl \
+TANGRAM_TERRAIN_COMMUNITY_ROOT=/path/to/deck.gl-community \
+yarn test-terrain-contracts
+```
+
+Build all three repositories first. This explicit Vitest project compares the
+actual package implementations on 2,646 sampling cases, routes a shared query
+through both consumer adapters and checks emitted public declaration assignability.
+It is separate from ordinary CI because the other candidate checkouts are required;
+each repository's normal tests exercise its own boundary without sibling repositories.
+
 ## Neighbor reconstruction
 
 `sampleTerrainNeighborhood(grids, [x, y])` averages all touching footprints at a
