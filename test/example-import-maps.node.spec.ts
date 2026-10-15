@@ -4,6 +4,7 @@
 
 import {existsSync, readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
+import {pathToFileURL} from 'node:url';
 import {transpileModule, ModuleKind} from 'typescript';
 import {expect, test} from 'vitest';
 
@@ -137,4 +138,21 @@ test('renderer loaders use pinned v5 alphas and layer math peers match the rende
   const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
   expect(layerPackage.peerDependencies['@math.gl/core']).toBe(mathVersion);
   expect(xrPackage.dependencies['@math.gl/core']).toBe(mathVersion);
+});
+
+test('math resolutions align only the older v5 alpha and preserve deck math 4', () => {
+  const repositoryPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const resolutions = Object.entries(repositoryPackage.resolutions).filter(([name]) => name.startsWith('@math.gl/'));
+  expect(resolutions.length).toBeGreaterThan(0);
+  for (const [descriptor, version] of resolutions) {
+    expect(descriptor).toMatch(/^@math\.gl\/[a-z-]+@npm:5\.0\.0-alpha\.15$/);
+    expect(version).toBe(mathVersion);
+  }
+  const rendererRequire = createRequire(new URL('../modules/tangram-renderer/package.json', import.meta.url));
+  const deckRequire = createRequire(rendererRequire.resolve('@deck.gl/core'));
+  const readMathVersion = (require: ReturnType<typeof createRequire>) =>
+    JSON.parse(readFileSync(new URL('../package.json', pathToFileURL(require.resolve('@math.gl/core'))), 'utf8')).version;
+  expect(readMathVersion(rendererRequire)).toBe(mathVersion);
+  expect(readMathVersion(deckRequire)).toMatch(/^4\./);
+  expect(repositoryPackage.devDependencies['@math.gl/spatial-index']).toBe(mathVersion);
 });

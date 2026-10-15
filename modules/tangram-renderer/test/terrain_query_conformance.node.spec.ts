@@ -29,3 +29,36 @@ test('math.gl and the retained terrain query index agree on triangle identity, c
         }
     }
 });
+
+test('published math.gl accepted-hit filtering agrees with retained terrain fallback', () => {
+    const positions = [0, 0, 3, 2, 0, 3, 0, 2, 3, 0, 0, 1, 2, 0, 1, 0, 2, 1];
+    const indices = [0, 1, 2, 3, 4, 5, 0, 1, 2];
+    const candidate = new TriangleBVH({positions, indices, leafSize: 1});
+    for (const maxHierarchyBytes of [0, 1024]) {
+        const retained = new TriangleQueryIndex(positions, indices, 1, {maxHierarchyBytes});
+        for (const maxDistance of [0, 2, 4, Infinity]) for (const rejected of [-1, 0, 1, 2]) {
+            const origin = [0.5, 0.5, 5] as const, direction = [0, 0, -7] as const;
+            const expected = retained.queryRay(origin, direction, maxDistance / 7, hit => hit.triangleIndex !== rejected).hit;
+            const actual = candidate.intersectRay(origin, direction, {maxDistance, acceptHit: hit => hit.index !== rejected});
+            expect(actual?.index ?? null).toBe(expected?.triangleIndex ?? null);
+            if (!expected || !actual) continue;
+            expect(actual.distance).toBeCloseTo(expected.parameter * 7, 12);
+            expect(actual.barycentric).toEqual(expected.barycentric);
+        }
+    }
+});
+
+test.each([1e-8, 1, 1e8])('published math.gl preserves exact hit cutoffs despite slab rounding at scale %s', scale => {
+    const positions = [0, 0, 0, 0.1 * scale, 0, 0, 0, 0.1 * scale, 0];
+    const candidate = new TriangleBVH({positions, leafSize: 1});
+    const origin = [0.01 * scale, 0.01 * scale, 0.3 * scale] as const, direction = [0, 0, -1] as const;
+    const retained = new TriangleQueryIndex(positions, [0, 1, 2], 1, {maxHierarchyBytes: 0});
+    const expected = retained.queryRay(origin, direction, Infinity).hit;
+    const actual = candidate.intersectRay(origin, direction);
+    expect(actual).not.toBeNull();
+    expect(expected).not.toBeNull();
+    if (!actual || !expected) return;
+    expect(actual.distance / scale).toBeCloseTo(expected.parameter / scale, 12);
+    expect(candidate.intersectRay(origin, direction, {maxDistance: actual.distance})).toEqual(actual);
+    expect(candidate.intersectRay(origin, direction, {maxDistance: actual.distance * (1 - Number.EPSILON)})).toBeNull();
+});

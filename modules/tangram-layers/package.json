@@ -61,7 +61,7 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@math.gl/culling": "5.0.0-alpha.15",
+    "@math.gl/culling": "5.0.0-alpha.18",
     "@vis.gl/tangram-renderer": "workspace:^"
   },
   "peerDependencies": {
@@ -69,8 +69,8 @@
     "@deck.gl/mesh-layers": "^9.4.0",
     "@luma.gl/core": "^9.4.2",
     "@luma.gl/experimental": "^9.4.2",
-    "@math.gl/core": "5.0.0-alpha.15",
-    "@math.gl/projection": "5.0.0-alpha.15",
+    "@math.gl/core": "5.0.0-alpha.18",
+    "@math.gl/projection": "5.0.0-alpha.18",
     "mjolnir.js": "^3.1.0"
   },
   "peerDependenciesMeta": {
