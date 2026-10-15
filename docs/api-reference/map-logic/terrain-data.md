@@ -53,6 +53,40 @@ This is a data lookup, not a simplified mesh query. Use TerrainMeshSurface to
 intersect the actual rendered triangles. See [terrain integration](../../developer-guide/terrain.md)
 for the loaders.gl/deck.gl reference and remaining limitations.
 
+## Shared data and query contracts
+
+`TerrainHeightGrid` is structurally compatible with the proposed loaders.gl terrain
+height-grid contract: physical Float32 samples, explicit validity, unwrapped
+EPSG:3857 bounds, registration and vertical datum. A decoded grid can enter
+`TerrainHeightField` directly without an RGB re-encode, another image parse, or
+display exaggeration. Treat its sample arrays as immutable while shared.
+
+`adaptTerrainQuerySource(source)` accepts a read-only external surface and returns
+Tangram's existing `TerrainSurface` interface. Import it and `TerrainQuerySource`
+from `@vis.gl/tangram-renderer/map-logic`. No loaders.gl version upgrade is required.
+
+```ts
+const surface = adaptTerrainQuerySource(externalTerrainSurface);
+const hit = tangramLayer.getTerrainAt({x, y}, surface, {renderViewId: 'left'});
+```
+
+The source supplies `projection`, `intersectRay(ray, maxDistance?)`, and optionally
+`getBounds()`. Rays and displayed positions use the same content units (Mercator
+XYZ meters or Tangram's radius-256 globe convention). Hit `coordinate` is longitude,
+latitude and **physical source elevation meters**, independently of displayed
+exaggeration. Distance is in content units, not the unnormalized ray parameter.
+
+The adapter borrows the provider, preserves receiver identity and detaches returned
+tuples; it does not dispose resources, build an index or cache a geometry generation.
+Optional bounds distinguish unknown (method absent) from empty (null). A query miss
+does not certify coverage. The provider must publish draw/query generations together.
+
+The structural boundary deliberately avoids unpublished loaders.gl exports and a
+dependency on community's layer package. Tangram's worker mesh compilation and
+production query index remain unchanged. math.gl's BVH is a separate candidate:
+cooperative construction, accepted-hit filtering, exact linear fallback and memory
+admission must be compared before replacing the current index.
+
 ## Neighbor reconstruction
 
 `sampleTerrainNeighborhood(grids, [x, y])` averages all touching footprints at a
