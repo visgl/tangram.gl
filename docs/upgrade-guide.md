@@ -8,10 +8,12 @@ Copyright (c) vis.gl contributors
 
 ## Dependency compatibility
 
-The development line uses math.gl `5.0.0-alpha.15` and the renderer's optional
+The development line uses math.gl `5.0.0-alpha.18` and the renderer's optional
 loaders.gl packages use `5.0.0-alpha.11`. The layer's math.gl peer dependency and
 the standalone and embedded examples use the same math.gl version. These are
 prerelease dependencies; the production YAML and MVT parser selection is unchanged.
+Root resolutions align loaders.gl's exact math.gl alpha.15 pins with alpha.18.
+They do not redirect math.gl 4.x: deck.gl 9.4 still needs its private 4.x APIs.
 
 The `9.4-release` branch preserves the previous dependency stack. The development
 line uses deck.gl and luma.gl 9.4. Published deck.gl 9.4 depends on luma.gl 9.4; installing

@@ -8,6 +8,11 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- math.gl 5.x dependencies and browser imports now use `5.0.0-alpha.18`.
+  Targeted resolutions align loaders.gl's older 5.x alpha pins without overriding
+  deck.gl's math.gl 4.x dependencies. Published BVH conformance covers accepted-hit
+  filtering and ray-distance rounding; the production terrain index is unchanged.
+
 - Terrain ground drawing, physical queries and camera clearance can share the final
   worker triangles and temporal heights. Terrain field replacements stage complete
   mesh generations and start their morphs together; feature queries wait for worker
@@ -93,7 +98,7 @@ Copyright (c) vis.gl contributors
 - OpenFreeMap supplies the default vector examples; NASA Blue Marble supplies
   overview imagery. Hosts display source-driven attribution.
 - Renderer and example dependencies use luma.gl 9.4.2 with deck.gl 9.4.0,
-  math.gl 5.0.0-alpha.15 and optional loaders.gl 5.0.0-alpha.11 adapters.
+  math.gl 5.0.0-alpha.18 and optional loaders.gl 5.0.0-alpha.11 adapters.
   The community playground uses loaders.gl 4.5.3; its Arrow dependency is
   patched to the same release to avoid the older package's stale 4.4 core peer.
 

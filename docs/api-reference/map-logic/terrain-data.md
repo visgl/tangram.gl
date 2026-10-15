@@ -83,9 +83,11 @@ does not certify coverage. The provider must publish draw/query generations toge
 
 The structural boundary deliberately avoids unpublished loaders.gl exports and a
 dependency on community's layer package. Tangram's worker mesh compilation and
-production query index remain unchanged. math.gl's BVH is a separate candidate:
-cooperative construction, accepted-hit filtering, exact linear fallback and memory
-admission must be compared before replacing the current index.
+production query index remain unchanged. The published math.gl `5.0.0-alpha.18`
+BVH is compared in ordinary Node CI, including accepted-hit rejection, nearest-face
+ties, non-unit rays and exact distance cutoffs at multiple scales. It remains a
+development-only candidate: cooperative construction, exact linear fallback and
+memory admission still need matching contracts before replacing the current index.
 
 To verify built candidate working copies together, without a release or network:
 
