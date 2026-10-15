@@ -7,6 +7,7 @@ import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {transpileModule, ModuleKind} from 'typescript';
 import {expect, test} from 'vitest';
+import {MATH_BROWSER_ASSETS} from '../examples/browser-dependencies/math-assets.mjs';
 
 /** Collect runtime package imports from the source graph, without generating dist. */
 function collectPackageImports(entry: URL, visited = new Set<string>()): Set<string> {
@@ -50,7 +51,8 @@ test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'
         new RegExp(`["']${importName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']\\s*:`)
       );
     }
-    expect(source).toContain(`https://esm.sh/@math.gl/culling@${mathVersion}?bundle&external=@math.gl/core`);
+    expect(source).not.toContain('https://esm.sh/@math.gl/');
+    expect(source).toContain('culling.js');
   });
 
 test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'])(
@@ -61,7 +63,7 @@ test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'
     expect(source).not.toContain('external=@luma.gl/core,@math.gl/core');
     expect(source).toContain('deck.gl@9.4.0?bundle&external=@luma.gl/core');
     expect(source).toContain(`https://esm.sh/@luma.gl/core@${lumaVersion}?bundle`);
-    expect(source).toContain(`https://esm.sh/@math.gl/core@${mathVersion}?bundle`);
+    expect(source).toContain('browser-dependencies/dist/');
   });
 
 test('projected example resolves its caller-owned factory and the engine spheroid leaf', () => {
@@ -69,10 +71,11 @@ test('projected example resolves its caller-owned factory and the engine spheroi
   const factoryImports = collectPackageImports(new URL('../examples/projected/projection-engine.js', import.meta.url));
   for (const importName of factoryImports) {
     expect(source).toContain(`"${importName}":`);
-    const subpath = importName.replace('@math.gl/projection/', '');
-    expect(source).toContain(`https://esm.sh/@math.gl/projection@${mathVersion}/${subpath}?bundle`);
+    const filename = new Map(Object.entries(MATH_BROWSER_ASSETS)).get(importName);
+    expect(filename).toBeDefined();
+    expect(source).toContain(`"${importName}": "../browser-dependencies/dist/${filename}"`);
   }
-  expect(source).toContain(`"@math.gl/core/spheroid": "https://esm.sh/@math.gl/core@${mathVersion}/spheroid?bundle"`);
+  expect(source).toContain('"@math.gl/core/spheroid": "../browser-dependencies/dist/spheroid.js"');
 });
 
 test.each([
@@ -90,7 +93,8 @@ test.each([
       new RegExp(`["']${importName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']\\s*:`)
     );
   }
-  expect(source).toContain(`https://esm.sh/@math.gl/core@${mathVersion}?bundle`);
+  expect(source).not.toContain('https://esm.sh/@math.gl/');
+  expect(source).toContain('browser-dependencies/dist/');
   const lumaImports = [...source.matchAll(/https:\/\/esm\.sh\/(@luma\.gl\/[a-z-]+)@([^?'"]+)/g)];
   expect(lumaImports.length).toBeGreaterThan(0);
   for (const [, , version] of lumaImports) expect(version).toBe(lumaVersion);

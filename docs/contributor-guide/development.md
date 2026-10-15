@@ -21,7 +21,8 @@ The shared Ocular toolchain provides orchestration, Vitest and Biome:
 
 ```sh
 yarn build          # clean, build modules, then classic playground
-yarn build:modules  # renderer, layer and artifact-contract checks
+yarn build:modules  # renderer, layer, browser math assets and artifact checks
+yarn build:browser-dependencies # same-origin math.gl assets only
 yarn typecheck      # strict TypeScript, no emitted files
 yarn lint           # licenses, Biome and TypeScript/suppression scope
 yarn lint:fix       # license fixes and safe Biome fixes
@@ -56,6 +57,13 @@ self-contained worker scripts, not application UMD bundles.
 Build the renderer before the layer. Optional worker graphs must not require
 prebuilt layer output or import deck.gl. Clean-checkout CI builds the website,
 packs the renderer and checks all required artifacts without committed bundles.
+
+The private `examples/browser-dependencies` workspace builds math.gl browser
+entries from the lockfile using Ocular's target policy. Standalone import maps,
+embedded deck/WebXR examples and the homepage hero load these same-origin assets;
+releases no longer depend on a CDN compiling that math.gl version. Website
+preparation builds and copies them, including third-party notices. Other CDN
+imports remain, and deck.gl's math.gl 4.x dependency is deliberately separate.
 
 ## Website and examples
 

@@ -38,6 +38,7 @@ export default function WebXRExample({viewMode = 'globe'}) {
   const layersUrl = useBaseUrl('/modules/tangram-layers/dist/index.js');
   const webXRUrl = useBaseUrl('/modules/tangram-layers/dist/experimental/webxr.js');
   const rendererUrl = useBaseUrl('/modules/tangram-renderer/dist/index.js');
+  const mathDependenciesUrl = useBaseUrl('/examples/browser-dependencies/dist/');
   const [errorMessage, setErrorMessage] = useState(null);
   const appendedElements = useRef([]);
   const viewLabel = VIEW_LABELS[viewMode] || VIEW_LABELS.globe;
@@ -65,8 +66,8 @@ export default function WebXRExample({viewMode = 'globe'}) {
           'https://esm.sh/@luma.gl/webgl@9.4.2?bundle&external=@luma.gl/core',
         '@luma.gl/webgpu':
           'https://esm.sh/@luma.gl/webgpu@9.4.2?bundle&external=@luma.gl/core',
-        '@math.gl/core': 'https://esm.sh/@math.gl/core@5.0.0-alpha.18?bundle',
-        '@math.gl/culling': 'https://esm.sh/@math.gl/culling@5.0.0-alpha.18?bundle&external=@math.gl/core',
+        '@math.gl/core': `${mathDependenciesUrl}core.js`,
+        '@math.gl/culling': `${mathDependenciesUrl}culling.js`,
         '@mediapipe/tasks-vision':
           'https://esm.sh/@mediapipe/tasks-vision@0.10.22-rc.20250304?bundle',
         react: 'https://esm.sh/react@19.1.1?bundle',
@@ -107,7 +108,7 @@ export default function WebXRExample({viewMode = 'globe'}) {
       delete window.tangramWebXRExampleDestroy;
       delete window.tangramWebXRViewMode;
     };
-  }, [exampleBaseUrl, layersUrl, rendererUrl, viewMode, webXRUrl]);
+  }, [exampleBaseUrl, layersUrl, rendererUrl, mathDependenciesUrl, viewMode, webXRUrl]);
 
   return (
     <div className="webxr-example-embed">

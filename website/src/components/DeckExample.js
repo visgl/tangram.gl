@@ -34,6 +34,7 @@ export default function DeckExample({
   const deckExampleBaseUrl = useBaseUrl('/examples/deck/');
   const tangramLayersUrl = useBaseUrl('/modules/tangram-layers/dist/index.js');
   const tangramRendererUrl = useBaseUrl('/modules/tangram-renderer/dist/index.js');
+  const mathCoreUrl = useBaseUrl('/examples/browser-dependencies/dist/core.js');
   const [errorMessage, setErrorMessage] = useState(null);
   const scriptElements = useRef([]);
   const stylesheetElement = useRef(null);
@@ -54,7 +55,7 @@ export default function DeckExample({
         '@deck.gl/core': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@deck.gl/layers': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
         '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.2?bundle',
-        '@math.gl/core': 'https://esm.sh/@math.gl/core@5.0.0-alpha.18?bundle',
+        '@math.gl/core': mathCoreUrl,
         '@vis.gl/tangram-layers': `${tangramLayersUrl}?embedded=1`,
         '@vis.gl/tangram-renderer': `${tangramRendererUrl}?embedded=1`,
         '@vis.gl/tangram-renderer/core': `${tangramRendererUrl.replace('/index.js', '/core.js')}?embedded=1`
@@ -94,7 +95,7 @@ export default function DeckExample({
         delete window.tangramDeckExampleDestroy;
       }
     };
-  }, [deckExampleBaseUrl, tangramLayersUrl, tangramRendererUrl, viewMode]);
+  }, [deckExampleBaseUrl, tangramLayersUrl, tangramRendererUrl, mathCoreUrl, viewMode]);
 
   return (
     <div className="deck-example-embed">

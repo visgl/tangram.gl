@@ -5,7 +5,7 @@
 import {cp, mkdir, rm} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {copyExampleAssets} from './copy-example-assets.mjs';
+import {copyExampleAssets, copyBrowserMathAssets} from './copy-example-assets.mjs';
 
 const websiteDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryDirectory = resolve(websiteDirectory, '..');
@@ -16,6 +16,8 @@ await rm(resolve(staticDirectory, 'modules'), {recursive: true, force: true});
 await mkdir(resolve(staticDirectory, 'examples'), {recursive: true});
 await mkdir(resolve(staticDirectory, 'modules/tangram-renderer/dist'), {recursive: true});
 await mkdir(resolve(staticDirectory, 'modules/tangram-layers/dist'), {recursive: true});
+await copyBrowserMathAssets(resolve(repositoryDirectory, 'examples/browser-dependencies/dist'),
+  resolve(staticDirectory, 'examples/browser-dependencies/dist'));
 await mkdir(resolve(staticDirectory, 'modules/tangram-layers/dist/experimental'), {
   recursive: true
 });

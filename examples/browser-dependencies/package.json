@@ -1,0 +1,19 @@
+{
+  "name": "@vis.gl/tangram-browser-dependencies",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "description": "Same-origin math.gl assets for standalone and website examples",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@math.gl/core": "5.0.0-alpha.18",
+    "@math.gl/culling": "5.0.0-alpha.18",
+    "@math.gl/projection": "5.0.0-alpha.18",
+    "@vis.gl/dev-tools": "2.0.0-alpha.8",
+    "esbuild": "^0.28.1",
+    "playwright": "^1.58.0",
+    "vitest": "^4.0.18"
+  }
+}
