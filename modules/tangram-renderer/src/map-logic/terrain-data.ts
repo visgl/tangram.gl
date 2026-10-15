@@ -83,8 +83,8 @@ export function sampleTerrainHeight(grid: TerrainHeightGrid, position: readonly 
     const [west, south, east, north] = grid.bounds;
     if (!position.every(Number.isFinite) || position[0] < west || position[0] > east || position[1] < south || position[1] > north) return null;
     const pixelCenter = grid.registration === 'pixel-center';
-    const column = Math.max(0, Math.min(grid.width - 1, (position[0] - west) / (east - west) * (pixelCenter ? grid.width : grid.width - 1) - (pixelCenter ? 0.5 : 0)));
-    const row = Math.max(0, Math.min(grid.height - 1, (north - position[1]) / (north - south) * (pixelCenter ? grid.height : grid.height - 1) - (pixelCenter ? 0.5 : 0)));
+    const column = snapTerrainSample(Math.max(0, Math.min(grid.width - 1, (position[0] - west) / (east - west) * (pixelCenter ? grid.width : grid.width - 1) - (pixelCenter ? 0.5 : 0))), position[0], west, east, grid.width);
+    const row = snapTerrainSample(Math.max(0, Math.min(grid.height - 1, (north - position[1]) / (north - south) * (pixelCenter ? grid.height : grid.height - 1) - (pixelCenter ? 0.5 : 0))), position[1], south, north, grid.height);
     const left = Math.floor(column), top = Math.floor(row);
     const horizontal = column - left, vertical = row - top;
     const samples = [top * grid.width + left, top * grid.width + Math.min(left + 1, grid.width - 1),
@@ -97,4 +97,11 @@ export function sampleTerrainHeight(grid: TerrainHeightGrid, position: readonly 
         height += grid.heights[samples[index]] * weights[index];
     }
     return height;
+}
+
+/** Match shared-grid exact-sample semantics at world-scale bounds; do not broaden support beyond 1e-6 pixels. */
+function snapTerrainSample(value: number, coordinate: number, minimum: number, maximum: number, size: number): number {
+    const nearest = Math.round(value);
+    const tolerance = Math.min(1e-6, 8 * Number.EPSILON * Math.max(1, Math.abs(coordinate), Math.abs(minimum), Math.abs(maximum)) / (maximum - minimum) * size);
+    return Math.abs(value - nearest) <= tolerance ? nearest : value;
 }

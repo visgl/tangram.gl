@@ -13,9 +13,20 @@ test('a loaders.gl-shaped physical grid enters the existing field without decodi
         bounds: [0, 0, 2, 2], registration: 'grid-node', verticalDatum: 'unknown'};
     const field = new TerrainHeightField([grid]);
     for (const position of [[0, 2], [2, 0], [1, 1], [0.5, 1.5], [-1, 0]] as const) expect(field.sampleHeight(position)).toBe(sampleTerrainHeight(grid, position));
-    grid.valid[1] = 0;
-    expect(field.sampleHeight([1, 1])).toBeNull();
-    expect(field.sampleHeight([0, 2])).toBe(0);
+    const missing = new TerrainHeightField([{...grid, valid: new Uint8Array([1, 0, 1, 1])}]);
+    expect(missing.sampleHeight([1, 1])).toBeNull();
+    expect(missing.sampleHeight([0, 2])).toBe(0);
+});
+
+test.each(['pixel-center', 'grid-node'] as const)('exact %s samples survive world-coordinate roundoff near missing neighbors', registration => {
+    const halfWorld = Math.PI * 6378137, heights = new Float32Array(512), valid = new Uint8Array(512);
+    heights[0] = 42; valid[0] = 1;
+    const grid: TerrainHeightGrid = {width: 256, height: 2, heights, valid, bounds: [-halfWorld, -halfWorld, halfWorld, halfWorld], registration, verticalDatum: 'unknown'};
+    const horizontal = -halfWorld + (registration === 'pixel-center' ? halfWorld / 256 : 0);
+    const vertical = halfWorld - (registration === 'pixel-center' ? halfWorld / 2 : 0);
+    expect(sampleTerrainHeight(grid, [horizontal, vertical])).toBe(42);
+    expect(new TerrainHeightField([grid]).sampleHeight([horizontal, vertical])).toBe(42);
+    expect(sampleTerrainHeight(grid, [horizontal + halfWorld / 256 * 1e-5, vertical])).toBeNull();
 });
 
 test('read-only providers retain physical height, finite clipping, receiver identity and caller ownership', () => {

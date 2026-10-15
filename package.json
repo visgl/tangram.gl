@@ -57,6 +57,7 @@
   },
   "devDependencies": {
     "@deck.gl/core": "^9.4.0",
+    "@math.gl/spatial-index": "5.0.0-alpha.15",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "@vitest/coverage-v8": "^4.0.18",
     "chai": "^4.5.0",
