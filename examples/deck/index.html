@@ -109,19 +109,6 @@ Copyright (c) vis.gl contributors
         | <a href="https://openfreemap.org">OpenFreeMap</a>
       </p>
     </div>
-    <script type="importmap">
-      {
-        "imports": {
-          "@deck.gl/core": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
-          "@deck.gl/layers": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
-          "@luma.gl/core": "https://esm.sh/@luma.gl/core@9.4.2?bundle",
-          "@math.gl/core": "../browser-dependencies/dist/core.js",
-          "@vis.gl/tangram-layers": "../../modules/tangram-layers/dist/index.js?monorepo=1",
-          "@vis.gl/tangram-renderer": "../../modules/tangram-renderer/dist/index.js?monorepo=1",
-          "@vis.gl/tangram-renderer/core": "../../modules/tangram-renderer/dist/core.js?monorepo=1"
-        }
-      }
-    </script>
-    <script type="module" src="./app.js?monorepo=1"></script>
+    <script type="module" src="../dist/deck.js"></script>
   </body>
 </html>

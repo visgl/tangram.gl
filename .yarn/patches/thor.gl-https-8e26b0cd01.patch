@@ -1,0 +1,34 @@
+diff --git a/src/emit/navigation.ts b/src/emit/navigation.ts
+index bf2cbcff4c25a59e2e8c51acad339407dca08a07..acbc9a95781618df0ad4f6edb12d563898dbd97a 100644
+--- a/src/emit/navigation.ts
++++ b/src/emit/navigation.ts
+@@ -15,4 +15,5 @@
+ export interface EventManagerLike {
+   emit?: (event: { type: string; [key: string]: unknown }) => void;
++  _onOtherEvent?: (event: { type: string; [key: string]: unknown }) => void;
+   getElement(): HTMLElement | null;
+ }
+@@ -75,3 +76,3 @@
+-    const em = eventManager as Record<string, unknown>;
++    const em = eventManager;
+     if (typeof em._onOtherEvent === "function") {
+-      return (em._onOtherEvent as (event: Record<string, unknown>) => void).bind(em);
++      return em._onOtherEvent.bind(em);
+@@ -111,2 +112,2 @@
+-    const event: Record<string, unknown> = {
++    const event: { type: string; [key: string]: unknown } = {
+       type: eventType,
+diff --git a/src/emit/picking.ts b/src/emit/picking.ts
+index cd1f1b2e2efd6e8a16f521b72d8d1ff6287df131..1d9185c1a9590ba9990fe336965e7434df1438b1 100644
+--- a/src/emit/picking.ts
++++ b/src/emit/picking.ts
+@@ -15,2 +15,3 @@
+ export interface DeckLike {
++  readonly props?: Record<string, unknown>;
+   pickObject(opts: {
+@@ -104,4 +105,2 @@
+-    const deckProps = (deck as Record<string, unknown>).props as
+-      | Record<string, unknown>
+-      | undefined;
++    const deckProps = deck.props;
+     if (deckProps && typeof deckProps[callbackName] === "function") {

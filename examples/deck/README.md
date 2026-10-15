@@ -16,7 +16,7 @@ From the repository root:
 
 ```sh
 yarn install --immutable
-yarn build:modules
+yarn build
 yarn start
 ```
 
@@ -32,7 +32,7 @@ bounded flat-ground footprint. Globe rendering is experimental and Mercator
 tiles do not cover the poles.
 
 The default uses WebGPU when available. Select `?device=webgl` to compare WebGL 2.
-Pinned deck.gl and luma.gl browser modules share one luma runtime. See
+Installed deck.gl and luma.gl packages are bundled together and share one luma runtime. See
 [view integration](../../docs/developer-guide/view-integration.md) for supported
 geometry, culling and remaining limitations.
 

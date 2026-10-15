@@ -59,9 +59,17 @@ const config = {
     function nativeExamples() {
       return {
         name: 'native-example-chunks',
-        configureWebpack(_configuration, isServer) {
-          if (isServer) return {};
-          return {optimization: {splitChunks: {cacheGroups: {
+        configureWebpack(_configuration, isServer, {getJSLoader}) {
+          // Thor's pinned Git package exposes TypeScript source, not dist. Reuse
+          // Docusaurus's normal JS/TS loader for that package (node_modules is
+          // otherwise excluded), in both client and server compilations.
+          const module = {rules: [{
+            test: /\.[jt]sx?$/i,
+            include: path.dirname(require.resolve('thor.gl', {paths: [path.resolve(__dirname, '../examples/webxr')]})),
+            use: [getJSLoader({isServer})]
+          }]};
+          if (isServer) return {module};
+          return {module, optimization: {splitChunks: {cacheGroups: {
             nativeExampleShared: {
               name: 'example-runtime-shared', chunks: 'async', minChunks: 2,
               // Share the renderer and installed vis.gl dependencies between native demos.

@@ -10,7 +10,7 @@ const example = mountProjectedExample(host, {
   parameters: new URLSearchParams(location.search),
   workerUrl: new URL(
     '../../modules/tangram-renderer/dist/projected-basemaps-worker.js',
-    import.meta.url
+    window.location.href
   ).href,
   onParametersChange(parameters) {
     history.replaceState(history.state, '', `${location.pathname}?${parameters}`);

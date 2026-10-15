@@ -13,25 +13,11 @@ function appendStylesheet(url) {
   return linkElement;
 }
 
-function appendScript(url, type = 'text/javascript') {
-  return new Promise((resolve, reject) => {
-    const scriptElement = document.createElement('script');
-    scriptElement.src = url;
-    scriptElement.type = type;
-    scriptElement.onload = () => resolve(scriptElement);
-    scriptElement.onerror = () => reject(new Error(`Unable to load ${url}`));
-    document.body.appendChild(scriptElement);
-  });
-}
-
 let heroMountId = 0;
 
 /** Mounts the vector-backed, animated TRON deck example behind the homepage hero. */
 export default function TronHeroBackground() {
   const deckExampleBaseUrl = useBaseUrl('/examples/deck/');
-  const tangramLayersUrl = useBaseUrl('/modules/tangram-layers/dist/index.js');
-  const tangramRendererUrl = useBaseUrl('/modules/tangram-renderer/dist/index.js');
-  const mathCoreUrl = useBaseUrl('/examples/browser-dependencies/dist/core.js');
   const backgroundElement = useRef(null);
 
   useEffect(() => {
@@ -42,7 +28,6 @@ export default function TronHeroBackground() {
     }
 
     const stylesheetElements = [appendStylesheet(`${deckExampleBaseUrl}main.css`)];
-    const scriptElements = [];
     document.body.classList.add('tangram-deck-embedded');
     window.tangramExampleBaseUrl = new URL(deckExampleBaseUrl, window.location.origin).href;
     window.tangramExampleViewMode = 'mapPerspective';
@@ -50,40 +35,15 @@ export default function TronHeroBackground() {
     window.tangramExampleShowOverlays = false;
     window.tangramDeckExampleMountId = mountId;
 
-    const importMapElement = document.createElement('script');
-    importMapElement.type = 'importmap';
-    importMapElement.textContent = JSON.stringify({
-      imports: {
-        '@deck.gl/core': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
-        '@deck.gl/layers': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
-        '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.2?bundle',
-        '@math.gl/core': mathCoreUrl,
-        '@vis.gl/tangram-layers': `${tangramLayersUrl}?homepage=1`,
-        '@vis.gl/tangram-renderer': `${tangramRendererUrl}?homepage=1`,
-        '@vis.gl/tangram-renderer/core': `${tangramRendererUrl.replace('/index.js', '/core.js')}?homepage=1`
-      }
-    });
-    document.head.appendChild(importMapElement);
-    scriptElements.push(importMapElement);
-
-    (async () => {
-      try {
-        const scriptElement = await appendScript(
-          `${deckExampleBaseUrl}app.js?homepage=1&mount=${mountId}`,
-          'module'
-        );
-        scriptElements.push(scriptElement);
-        if (cancelled) {
-          scriptElement.remove();
+    import(/* webpackChunkName: "deck-example" */ '@vis.gl/tangram-deck-example/app-runtime')
+      .then(({initializeDeckExample}) => {
+        if (!cancelled && window.tangramDeckExampleMountId === mountId) {
+          initializeDeckExample({embeddedViewMode: 'mapPerspective', basemapId: 'tron', showOverlays: false});
         }
-      } catch (error) {
-        if (!cancelled) {
-          // The live visual is progressive enhancement; keep the hero usable
-          // if a browser cannot initialize the requested GPU backend.
-          console.warn(error);
-        }
-      }
-    })();
+      })
+      .catch(error => {
+        if (!cancelled) console.warn(error);
+      });
 
     return () => {
       cancelled = true;
@@ -92,9 +52,6 @@ export default function TronHeroBackground() {
       }
       stylesheetElements.forEach((linkElement) => {
         linkElement.remove();
-      });
-      scriptElements.forEach((scriptElement) => {
-        scriptElement.remove();
       });
       document.body.classList.remove('tangram-deck-embedded');
       if (window.tangramDeckExampleMountId === mountId) {
@@ -106,7 +63,7 @@ export default function TronHeroBackground() {
         delete window.tangramDeckExampleDestroy;
       }
     };
-  }, [deckExampleBaseUrl, tangramLayersUrl, tangramRendererUrl, mathCoreUrl]);
+  }, [deckExampleBaseUrl]);
 
   return (
     <>

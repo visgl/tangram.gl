@@ -12,25 +12,9 @@ Copyright (c) vis.gl contributors
     <title>Experimental projected basemaps</title>
     <link rel="stylesheet" href="../mounted-example.css">
     <style>html, body, #example {width: 100%; height: 100%; margin: 0;}</style>
-    <script type="importmap">
-      {"imports": {
-        "@deck.gl/core": "https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core",
-        "@luma.gl/core": "https://esm.sh/@luma.gl/core@9.4.2?bundle",
-        "@luma.gl/webgpu": "https://esm.sh/@luma.gl/webgpu@9.4.2?bundle&external=@luma.gl/core",
-        "@math.gl/core": "../browser-dependencies/dist/core.js",
-        "@math.gl/core/spheroid": "../browser-dependencies/dist/spheroid.js",
-        "@math.gl/projection/core": "../browser-dependencies/dist/projection-core.js",
-        "@math.gl/projection/projections/eqearth": "../browser-dependencies/dist/eqearth.js",
-        "@math.gl/projection/projections/aea": "../browser-dependencies/dist/aea.js",
-        "@math.gl/projection/projections/eqc": "../browser-dependencies/dist/eqc.js",
-        "@math.gl/projection/projections/merc": "../browser-dependencies/dist/merc.js",
-        "@vis.gl/tangram-renderer/core": "../../modules/tangram-renderer/dist/core.js",
-        "@vis.gl/tangram-layers/experimental/projected-basemaps": "../../modules/tangram-layers/dist/experimental/projected-basemaps.js"
-      }}
-    </script>
   </head>
   <body class="tangram-deck-standalone">
     <div id="example"></div>
-    <script type="module" src="./standalone.js"></script>
+    <script type="module" src="../dist/projected.js"></script>
   </body>
 </html>

@@ -7,7 +7,6 @@ import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {transpileModule, ModuleKind} from 'typescript';
 import {expect, test} from 'vitest';
-import {MATH_BROWSER_ASSETS} from '../examples/browser-dependencies/math-assets.mjs';
 
 /** Collect runtime package imports from the source graph, without generating dist. */
 function collectPackageImports(entry: URL, visited = new Set<string>()): Set<string> {
@@ -39,67 +38,6 @@ const rendererPackage = JSON.parse(readFileSync(new URL('../modules/tangram-rend
 const mathVersion = rendererPackage.dependencies['@math.gl/core'];
 const lumaVersion = rendererPackage.dependencies['@luma.gl/core'].replace(/^\^/, '');
 
-test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'])(
-  '%s resolves optional WebXR shape queries without coupling the root layer to culling', filePath => {
-    const source = readFileSync(new URL(`../${filePath}`, import.meta.url), 'utf8');
-    const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
-    expect(layerPackage.dependencies['@math.gl/culling']).toBe(mathVersion);
-    expect(webXRPackageImports).toContain('@math.gl/culling');
-    expect(packageImports).not.toContain('@math.gl/culling');
-    for (const importName of webXRPackageImports) {
-      expect(source, `Missing WebXR browser mapping for ${importName}`).toMatch(
-        new RegExp(`["']${importName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']\\s*:`)
-      );
-    }
-    expect(source).not.toContain('https://esm.sh/@math.gl/');
-    expect(source).toContain('culling.js');
-  });
-
-test.each(['examples/webxr/index.html', 'website/src/components/WebXRExample.js'])(
-  '%s preserves deck/luma 9.4 private math dependencies alongside Tangram math 5', filePath => {
-    const source = readFileSync(new URL(`../${filePath}`, import.meta.url), 'utf8');
-    // Those releases still import gl-matrix namespaces that math.gl 5 removed.
-    // Do not redirect their internal imports to Tangram's public math.gl mapping.
-    expect(source).not.toContain('external=@luma.gl/core,@math.gl/core');
-    expect(source).toContain('deck.gl@9.4.0?bundle&external=@luma.gl/core');
-    expect(source).toContain(`https://esm.sh/@luma.gl/core@${lumaVersion}?bundle`);
-    expect(source).toContain('browser-dependencies/dist/');
-  });
-
-test('projected example resolves its caller-owned factory and the engine spheroid leaf', () => {
-  const source = readFileSync(new URL('../examples/projected/index.html', import.meta.url), 'utf8');
-  const factoryImports = collectPackageImports(new URL('../examples/projected/projection-engine.js', import.meta.url));
-  for (const importName of factoryImports) {
-    expect(source).toContain(`"${importName}":`);
-    const filename = new Map(Object.entries(MATH_BROWSER_ASSETS)).get(importName);
-    expect(filename).toBeDefined();
-    expect(source).toContain(`"${importName}": "../browser-dependencies/dist/${filename}"`);
-  }
-  expect(source).toContain('"@math.gl/core/spheroid": "../browser-dependencies/dist/spheroid.js"');
-});
-
-test.each([
-  'examples/deck/index.html',
-  'examples/webxr/index.html',
-  'examples/projected/index.html',
-  'website/src/components/DeckExample.js',
-  'website/src/components/TronHeroBackground.js',
-  'website/src/components/WebXRExample.js'
-])('%s resolves every TangramLayer runtime source import', filePath => {
-  const source = readFileSync(new URL(`../${filePath}`, import.meta.url), 'utf8');
-  expect(packageImports).toContain('@math.gl/core');
-  for (const importName of packageImports) {
-    expect(source, `Missing browser mapping for ${importName}`).toMatch(
-      new RegExp(`["']${importName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']\\s*:`)
-    );
-  }
-  expect(source).not.toContain('https://esm.sh/@math.gl/');
-  expect(source).toContain('browser-dependencies/dist/');
-  const lumaImports = [...source.matchAll(/https:\/\/esm\.sh\/(@luma\.gl\/[a-z-]+)@([^?'"]+)/g)];
-  expect(lumaImports.length).toBeGreaterThan(0);
-  for (const [, , version] of lumaImports) expect(version).toBe(lumaVersion);
-});
-
 test('renderer, layer peers and WebXR use one luma release, including the lazy WebGPU adapter', () => {
   const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
   const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
@@ -111,7 +49,7 @@ test('renderer, layer peers and WebXR use one luma release, including the lazy W
     if (name.startsWith('@luma.gl/')) expect(version).toBe(lumaVersion);
   }
   const adapter = readFileSync(new URL('../examples/deck/app-runtime.js', import.meta.url), 'utf8');
-  expect(adapter).toContain(`https://esm.sh/@luma.gl/webgpu@${lumaVersion}?bundle&external=@luma.gl/core`);
+  expect(adapter).toContain("from '@luma.gl/webgpu'");
 });
 
 test('deck.gl and the renderer resolve the same installed luma Device runtime', () => {
@@ -159,4 +97,42 @@ test('math resolutions align only the older v5 alpha and preserve deck math 4', 
   expect(readMathVersion(rendererRequire)).toBe(mathVersion);
   expect(readMathVersion(deckRequire)).toMatch(/^4\./);
   expect(repositoryPackage.devDependencies['@math.gl/spatial-index']).toBe(mathVersion);
+});
+
+test('installed workspace dependencies cover the layer and optional WebXR source graphs', () => {
+  const deckPackage = JSON.parse(readFileSync(new URL('../examples/deck/package.json', import.meta.url), 'utf8'));
+  const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
+  const packageName = (name: string) => name.startsWith('@') ? name.split('/').slice(0, 2).join('/') : name.split('/')[0];
+  for (const name of packageImports) expect(deckPackage.dependencies[packageName(name)], name).toBeDefined();
+  for (const name of webXRPackageImports) {
+    // Culling is an ordinary dependency of the layer package, not a peer.
+    const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
+    expect(xrPackage.dependencies[packageName(name)] || layerPackage.dependencies[packageName(name)], name).toBeDefined();
+  }
+});
+
+test.each(['deck', 'webxr', 'projected', 'terrain'])('%s standalone entry uses a built application, not an import map', name => {
+  const html = readFileSync(new URL(`../examples/${name}/index.html`, import.meta.url), 'utf8');
+  expect(html).not.toContain('importmap');
+  expect(html).not.toContain('esm.sh');
+  expect(html).toContain(name === 'terrain' ? './dist/app.js' : `../dist/${name}.js`);
+});
+
+test.each(['DeckExample', 'TronHeroBackground', 'WebXRExample'])('%s imports installed source through the website bundler', name => {
+  const source = readFileSync(new URL(`../website/src/components/${name}.js`, import.meta.url), 'utf8');
+  expect(source).not.toContain('importmap');
+  expect(source).not.toContain('appendScript');
+  expect(source).not.toContain('esm.sh');
+  expect(source).toContain('webpackChunkName');
+  expect(source).toContain(name === 'WebXRExample' ? '@vis.gl/tangram-webxr-example/app' : '@vis.gl/tangram-deck-example/app-runtime');
+  expect(source).toContain('cancelled');
+});
+
+test('Thor is installed at its existing pinned revision and stays example-local and lazy', () => {
+  const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
+  expect(xrPackage.dependencies['thor.gl']).toContain('https%3A//github.com/NEW-HEAT/thor.gl.git%23commit=1f85d87d52bbd30af34626fa17d3193f7e24dff5');
+  expect(xrPackage.dependencies['thor.gl']).toContain('.yarn/patches/thor.gl-');
+  expect(readFileSync(new URL('../examples/webxr/thor-adapter.js', import.meta.url), 'utf8')).toContain("import('thor.gl')");
+  expect(readFileSync(new URL('../examples/webxr/app.js', import.meta.url), 'utf8')).toContain("import('./thor-adapter.js')");
+  expect(rendererPackage.dependencies['thor.gl']).toBeUndefined();
 });

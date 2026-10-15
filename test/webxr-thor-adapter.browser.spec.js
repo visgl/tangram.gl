@@ -6,6 +6,11 @@ import {describe, expect, it, vi} from 'vitest';
 import {createThorDeckAdapter, startThorGestures} from '../examples/webxr/thor-adapter.js';
 
 describe('Thor WebXR example adapter', () => {
+  it('loads the installed Thor module without a JavaScript CDN or webcam permission', async () => {
+    const {Thor} = await import('thor.gl');
+    expect(Thor).toBeTypeOf('function');
+  });
+
   it('uses the logical center-eye viewport for picking', () => {
     const unproject = vi.fn(() => [-74, 40.7]);
     const presentation = {

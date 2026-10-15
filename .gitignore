@@ -28,7 +28,7 @@ modules/tangram-layers/dist
 modules/tangram-renderer/dist
 examples/classic/dist
 examples/terrain/dist
-examples/browser-dependencies/dist
+examples/dist
 
 # OS misc
 .DS_Store

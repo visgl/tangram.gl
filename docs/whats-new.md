@@ -8,10 +8,9 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
-- Standalone examples, embedded deck/WebXR examples and the homepage hero load
-  lockfile-built math.gl assets from the same origin, removing the math.gl CDN
-  availability gate. Browser conformance exercises the emitted modules offline;
-  generated assets and installed third-party notices remain outside Git.
+- Website examples lazy-load installed workspace modules through Docusaurus.
+  Standalone Deck, WebXR, projected and terrain pages bundle their npm dependencies
+  normally, without import maps, esm.sh or a separate math.gl asset build.
 
 - math.gl 5.x dependencies and browser imports now use `5.0.0-alpha.18`.
   Targeted resolutions align loaders.gl's older 5.x alpha pins without overriding

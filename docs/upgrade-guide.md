@@ -14,11 +14,10 @@ the standalone and embedded examples use the same math.gl version. These are
 prerelease dependencies; the production YAML and MVT parser selection is unchanged.
 Root resolutions align loaders.gl's exact math.gl alpha.15 pins with alpha.18.
 They do not redirect math.gl 4.x: deck.gl 9.4 still needs its private 4.x APIs.
-Keep these scoped overrides until the installed loaders.gl release updates its
-math.gl requirements; they are not a reason to override all math.gl versions.
-Example math.gl import maps now point at generated same-origin assets. Run
-`yarn build` before serving a standalone checkout; website preparation builds
-and copies these assets automatically.
+
+Standalone examples now require the application build (`yarn build`), rather than
+loading package sources with import maps. Website examples import the same installed
+workspace runtimes through Docusaurus. Remove old import maps when adapting an example.
 
 The `9.4-release` branch preserves the previous dependency stack. The development
 line uses deck.gl and luma.gl 9.4. Published deck.gl 9.4 depends on luma.gl 9.4; installing

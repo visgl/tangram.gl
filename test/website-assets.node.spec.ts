@@ -6,31 +6,12 @@ import {mkdtemp, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, expect, test} from 'vitest';
-import {copyExampleAssets, copyBrowserMathAssets} from '../website/scripts/copy-example-assets.mjs';
-import {MATH_BROWSER_ASSETS} from '../examples/browser-dependencies/math-assets.mjs';
+import {copyExampleAssets} from '../website/scripts/copy-example-assets.mjs';
 
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map(directory => rm(directory, {recursive: true, force: true})));
-});
-
-test.each(['complete', 'core.js', 'THIRD-PARTY-NOTICES.txt', 'empty'])('browser math copy validates all artifacts before publishing: %s', async missing => {
-  const directory = await mkdtemp(join(tmpdir(), 'tangram-browser-math-copy-'));
-  temporaryDirectories.push(directory);
-  const source = join(directory, 'dist'), destination = join(directory, 'static');
-  await mkdir(source);
-  const filenames = [...Object.values(MATH_BROWSER_ASSETS), 'THIRD-PARTY-NOTICES.txt'];
-  for (const filename of filenames) {
-    if (filename !== missing) await writeFile(join(source, filename), missing === 'empty' && filename === 'core.js' ? '' : filename);
-  }
-  if (missing !== 'complete') {
-    await expect(copyBrowserMathAssets(source, destination)).rejects.toThrow();
-    await expect(readFile(join(destination, 'core.js'))).rejects.toMatchObject({code: 'ENOENT'});
-    return;
-  }
-  await copyBrowserMathAssets(source, destination);
-  for (const filename of filenames) expect(await readFile(join(destination, filename), 'utf8')).toBe(filename);
 });
 
 test.each(['classic', 'deck', 'webxr', 'projected', 'terrain'])('%s assets do not shadow the integrated example route', async example => {
