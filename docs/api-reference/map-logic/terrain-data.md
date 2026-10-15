@@ -92,12 +92,17 @@ To verify built candidate working copies together, without a release or network:
 ```sh
 TANGRAM_TERRAIN_LOADERS_ROOT=/path/to/loaders.gl \
 TANGRAM_TERRAIN_COMMUNITY_ROOT=/path/to/deck.gl-community \
+TANGRAM_TERRAIN_MATH_ROOT=/path/to/math.gl \
 yarn test-terrain-contracts
 ```
 
-Build all three repositories first. This explicit Vitest project compares the
+Build all four repositories first. This explicit Vitest project compares the
 actual package implementations on 2,646 sampling cases, routes a shared query
 through both consumer adapters and checks emitted public declaration assignability.
+It also compares retained/upstream neighborhood fields, reconstructed seam nodes,
+and accepted triangle hits against both accelerated and zero-budget legacy queries.
+The upstream coverage field intentionally rejects representable gaps and missing
+support on closed probe edges more strictly than the retained area-tolerance path.
 It is separate from ordinary CI because the other candidate checkouts are required;
 each repository's normal tests exercise its own boundary without sibling repositories.
 
