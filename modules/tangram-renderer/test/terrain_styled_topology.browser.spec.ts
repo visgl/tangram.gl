@@ -167,6 +167,13 @@ test('styled source/DEM precision admission also rejects excessive repeated-worl
     expect(() => drapeTerrainMesh(request)).toThrow(/LOD gap/);
 });
 
+test.each([false, true])('corner-only DEM contacts do not reject an otherwise valid canonical styled=%s source', styled => {
+    const grids = [grid(0, 0, 2), grid(2 ** 22, 2 ** 22, 24)], request = input(false, 2, 0, 0, grids, []);
+    if (!styled) for (let vertex = 1; vertex < 4; vertex++) request.vertices.set(request.vertices.subarray(8, polygonLayout.stride), vertex * polygonLayout.stride + 8);
+    const result = drapeTerrainMesh({...request, styled, ground: !styled});
+    expect(result.indices.length).toBeGreaterThan(0);
+});
+
 test('feature boundaries never weld flat IDs, and invalid varying-flat channels fail explicitly', () => {
     const request = input();
     const combined = new Uint8Array(request.vertices.length * 2); combined.set(request.vertices); combined.set(request.vertices, request.vertices.length);

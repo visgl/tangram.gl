@@ -377,10 +377,11 @@ export function drapeTerrainMesh(options: {
                 bounds[axis] = Math.min(bounds[axis], value); bounds[axis + 2] = Math.max(bounds[axis + 2], value);
             }
         }
-        groundTopology = createTerrainGroundTopology(terrain.grids, [Math.min(bounds[0], origin[0]), Math.min(bounds[1], origin[1] - 4096 * metersPerUnit),
-            Math.max(bounds[2], origin[0] + 4096 * metersPerUnit), Math.max(bounds[3], origin[1])], terrain.groundMeshResolution,
+        const topologyBounds = [Math.min(bounds[0], origin[0]), Math.min(bounds[1], origin[1] - 4096 * metersPerUnit),
+            Math.max(bounds[2], origin[0] + 4096 * metersPerUnit), Math.max(bounds[3], origin[1])] as const;
+        groundTopology = createTerrainGroundTopology(terrain.grids, topologyBounds, terrain.groundMeshResolution,
             Math.min(originalCount + terrain.maxAdditionalVertices, Math.floor(terrain.maxMeshBytes / outputLayout.stride)));
-        validateCanonicalSourceLOD(terrain, options.tileZoom, bounds, groundTopology.sampleOffset);
+        validateCanonicalSourceLOD(terrain, options.tileZoom, topologyBounds, groundTopology.sampleOffset);
         const canonical = createCanonicalGroundVertices(groundTopology, floating, baseLayout, origin, options.tileZoom);
         const canonicalView = new DataView(canonical.buffer), surfacePositions = new Float64Array(groundTopology.positions.length);
         for (let index = 0; index < surfacePositions.length / 2; index++) for (let axis = 0; axis < 2; axis++) surfacePositions[index * 2 + axis] = canonicalView.getFloat32(index * baseLayout.stride + baseLayout.offset.a_position + axis * 4, true);
@@ -489,7 +490,7 @@ export function drapeTerrainMesh(options: {
 /** Apply the same explicit source/cell precision envelope to primary and repeated-world owners. */
 function validateCanonicalSourceLOD(terrain: TerrainDrapingSnapshot, tileZoom: number, bounds: readonly number[], sampleOffset: number): void {
     for (const grid of wrapTerrainGroundGrids(terrain.grids)) {
-        if (grid.bounds[2] < bounds[0] - sampleOffset || grid.bounds[0] > bounds[2] - sampleOffset || grid.bounds[3] < bounds[1] || grid.bounds[1] > bounds[3]) continue;
+        if (grid.bounds[2] <= bounds[0] - sampleOffset || grid.bounds[0] >= bounds[2] - sampleOffset || grid.bounds[3] <= bounds[1] || grid.bounds[1] >= bounds[3]) continue;
         const cellZoom = Math.round(Math.log2(2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (grid.bounds[2] - grid.bounds[0]))) + Math.log2(terrain.groundMeshResolution);
         const gap = tileZoom - cellZoom;
         if (gap > 10 || gap < -18) throw new Error('Canonical terrain ground source/DEM LOD gap exceeds Float32 precision limits');

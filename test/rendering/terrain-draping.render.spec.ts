@@ -98,6 +98,7 @@ function canonicalField(height: number): TerrainDrapingOptions {
 test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s canonical polygon walls and wide roads retain color, feature selection and shared stereo transitions', async kind => {
     const harness = new RenderingHarness(kind, 'stereo-preview'); harnesses.push(harness);
     if (kind === 'first-person') harness.presentation.setViewState({position: [0, 0, 400]});
+    if (kind === 'globe') harness.presentation.setViewState({zoom: 6});
     const field = canonicalField(20);
     // City-scale fields exercise actual cell crossings, not an almost planar world-sized face.
     if (kind !== 'globe') {
@@ -108,7 +109,9 @@ test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s canonical 
     } else {harness.tileZoom = 3; harness.globePreloadZoom = 2;}
     harness.terrain = {...field, querySurfaceStyles: []};
     const scene = createScene(harness.sourceUrl, undefined, false, harness.scale);
-    scene.layers.roads.draw.traffic.width = '24px';
+    Object.assign(scene.layers.roads.draw.traffic, {width: '24px', interactive: true});
+    // Scale geographic fixture extent, not physical extrusion: 80 km would wrap signed-short height packing.
+    scene.layers.buildings.draw.polygons.extrude = 80;
     await harness.initialize(scene); await harness.settle();
     const pixels = await harness.pixels();
     expect(coloredPixels(pixels, 0, 256)).toBeGreaterThan(50);
@@ -120,9 +123,11 @@ test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s canonical 
     const frame = harness.presentation.createFrame({width: 512, height: 320});
     for (const eye of frame.renderViews) {
         if (!eye.deckViewport) throw new Error('Expected stereo viewport');
-        const pixel = eye.deckViewport.project([-0.001 * harness.scale, 0.001 * harness.scale, 120 + 80 * harness.scale]);
+        const pixel = eye.deckViewport.project([-0.001 * harness.scale, 0.001 * harness.scale, 200]);
         await expect.poll(() => harness.pick(pixel[0] + eye.deckViewport!.x, pixel[1] + eye.deckViewport!.y), {timeout: 5000, interval: 50})
             .toMatchObject({feature: {properties: {name: 'fixture-building'}}});
+        const road = eye.deckViewport.project([0, 0, 120]);
+        expect(await harness.pick(road[0] + eye.deckViewport.x, road[1] + eye.deckViewport.y)).toMatchObject({feature: {properties: {kind: 'road'}}});
     }
     expect(harness.errors).toEqual([]);
 }, 45000);
