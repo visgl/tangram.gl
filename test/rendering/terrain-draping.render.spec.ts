@@ -95,6 +95,38 @@ function canonicalField(height: number): TerrainDrapingOptions {
     return {grids, querySurfaceStyles: ['raster'], groundMeshResolution: 8, transitionDuration: 200};
 }
 
+test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s canonical polygon walls and wide roads retain color, feature selection and shared stereo transitions', async kind => {
+    const harness = new RenderingHarness(kind, 'stereo-preview'); harnesses.push(harness);
+    if (kind === 'first-person') harness.presentation.setViewState({position: [0, 0, 400]});
+    const field = canonicalField(20);
+    // City-scale fields exercise actual cell crossings, not an almost planar world-sized face.
+    if (kind !== 'globe') {
+        const span = 2 * Math.PI * 6378137 / 4096;
+        field.grids = [-1, 0].flatMap(column => [-1, 0].map(row => ({width: 2, height: 2,
+            bounds: [column * span, row * span, (column + 1) * span, (row + 1) * span] as const,
+            heights: new Float32Array(4).fill(20), valid: new Uint8Array(4).fill(1), registration: 'grid-node' as const, verticalDatum: 'orthometric' as const})));
+    } else {harness.tileZoom = 3; harness.globePreloadZoom = 2;}
+    harness.terrain = {...field, querySurfaceStyles: []};
+    const scene = createScene(harness.sourceUrl, undefined, false, harness.scale);
+    scene.layers.roads.draw.traffic.width = '24px';
+    await harness.initialize(scene); await harness.settle();
+    const pixels = await harness.pixels();
+    expect(coloredPixels(pixels, 0, 256)).toBeGreaterThan(50);
+    expect(coloredPixels(pixels, 256, 512)).toBeGreaterThan(50);
+    const source = await harness.renderer.getTileSourceStatistics();
+    await harness.renderer.setTerrain({...harness.terrain, grids: field.grids.map(grid => ({...grid, heights: new Float32Array(4).fill(120)})), previousGrids: field.grids});
+    await harness.settle();
+    expect(await harness.renderer.getTileSourceStatistics()).toEqual(source);
+    const frame = harness.presentation.createFrame({width: 512, height: 320});
+    for (const eye of frame.renderViews) {
+        if (!eye.deckViewport) throw new Error('Expected stereo viewport');
+        const pixel = eye.deckViewport.project([-0.001 * harness.scale, 0.001 * harness.scale, 120 + 80 * harness.scale]);
+        await expect.poll(() => harness.pick(pixel[0] + eye.deckViewport!.x, pixel[1] + eye.deckViewport!.y), {timeout: 5000, interval: 50})
+            .toMatchObject({feature: {properties: {name: 'fixture-building'}}});
+    }
+    expect(harness.errors).toEqual([]);
+}, 45000);
+
 test.each(['flat', 'globe'] as ViewKind[])('%s canonical ground preserves raster color, ownership and atomic query morphs through the packaged worker', async kind => {
     const harness = new RenderingHarness(kind, 'stereo-preview'); harnesses.push(harness);
     harness.terrain = canonicalField(20);
