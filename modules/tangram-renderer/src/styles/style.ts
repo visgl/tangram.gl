@@ -206,6 +206,7 @@ export var Style: StyleMethods = {
                     const draped = drapeTerrainMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements || false,
                         layout: originalLayout, origin: [tile.min!.x, tile.min!.y], tileZoom: tile.coords!.z, styleZoom: tile.style_z,
                         annotations: ['points', 'text'].includes(this.baseStyle()),
+                        styled: ['polygons', 'lines'].includes(this.baseStyle()),
                         ground: this.baseStyle() === 'raster' && this.terrain.querySurfaceStyles.includes(this.name), terrain: this.terrain});
                     mesh.vertex_data = draped.vertices; mesh.vertex_elements = draped.indices;
                     if (mesh.labels) {

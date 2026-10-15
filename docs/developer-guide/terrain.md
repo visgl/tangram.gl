@@ -418,8 +418,9 @@ Current DEM footprints must be non-overlapping square EPSG:3857 quadtree tiles
 with balanced 2:1 edges; tiny coordinate roundoff is snapped to the world lattice.
 Selected ground styles must render one full source-tile raster quad with constant
 style channels. Partial georeferenced images, varying quad colors/elevations,
-ribbons and annotation quads are rejected on this path rather than silently
-claiming seam conformity. Other styles keep their original tessellation.
+ribbons and annotation quads are rejected as raster owners rather than silently
+claiming seam conformity. Polygon and line styles use the adapter described below;
+annotations keep their original vertex ranges.
 Only current footprints determine canonical topology. Generic `previousGrids`
 remain valid and retain their original sampling domain; quadtree previous fields
 receive the same periodic neighborhood as current ground. This permits migration
@@ -458,8 +459,49 @@ oversized work, and failed staged admission keeps the previous display. Canonica
 positions/topology and periodic metadata are preparation scratch outside completed
 draw/query byte caps. Ground and legacy style samplers have separate 8 MiB prefix
 owners per current/previous field; they are not one total pipeline budget.
-There are no skirts. This does not guarantee polygon/wide-road draping parity,
-polar coverage, whole-frame performance or native headset behavior.
+There are no skirts. This does not guarantee polar coverage, whole-frame
+performance or native headset behavior.
+
+### Conforming polygons and wide roads
+
+A nonzero `groundMeshResolution` also cuts built-in polygon and line style faces
+against the same complete DEM triangles. It does not require registering these
+styles in `querySurfaceStyles`; physical ground queries remain raster-only.
+Source feature triangles, including triangulated holes, keep their authored
+coverage and winding. Vertical extrusion walls are split along cell boundaries;
+a wall coincident with a shared terrain edge is emitted by one incident cell.
+
+Each cut vertex carries barycentric references to the canonical triangle.
+Current and previous physical heights and slope channels interpolate its packed
+endpoints instead of independently resampling the bilinear DEM at feature/source
+cuts. This keeps the same Mercator height plane across different source diagonals,
+source zooms and balanced coarse/fine DEM edges, including during field morphs.
+Periodic sampling and the raster path's source/cell precision envelope apply.
+Feature IDs and layer order remain flat; UVs, colors, normals and extrusion fields
+follow Tangram's existing packed interpolation. Unknown varying flat channels
+reject rather than changing identity. No vertices are welded across features.
+World-tile buffers are partitioned at whole-world boundaries, retaining road and
+polygon geometry beyond the source edge rather than clamping it away. Shared
+lattice nodes reunite the pieces. Envelopes outside the three-world sampler or
+over the combined vertex budget reject, including at zoom zero.
+
+Roads intersect at their expanded **nominal corners**, including authored width
+and offset, not at their collapsed centerline. Width/offset scale factors must be
+uniform within a source face so expansion is affine. Original extrusion and
+screen-space width channels remain available to both color and selection shaders.
+Between style-zoom rebuilds, changing width still uses the existing local tangent
+height correction; it is not a fresh intersection with neighboring terrain cells.
+Conservative dynamic-ribbon coverage can suppress extra triangles near missing
+data. Procedural position/width blocks remain unsupported for draped styles.
+
+Clipping adds feature/source cut nodes. On the globe, projecting those extra nodes
+can change spherical chord approximation relative to a raster face with no cut;
+this is not exact cross-style curved-surface coplanarity or older-topology replay.
+Both backends share the adapter and field clock. Completed draw-byte and vertex
+caps reject entire oversized meshes; the mesh-local bounds tree, surface references,
+clipping records and canonical-node sample cache are temporary preparation scratch,
+not covered by a claimed total-pipeline memory cap. Resolution is still explicit,
+not a certified screen-space error bound.
 
 Missing DEM footprints and invalid bilinear neighborhoods suppress triangles.
 Conservative footprint/mask checks can remove extra triangles near holes; they

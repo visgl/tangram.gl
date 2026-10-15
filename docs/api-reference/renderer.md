@@ -636,6 +636,11 @@ ground cells with half-open source/fallback ownership. Current footprints requir
 balanced quadtree tiles and uniform quad style channels. This explicit resolution
 is independent of source zoom and is not a certified error bound. See
 [conforming raster ground](../developer-guide/terrain.md#conforming-raster-ground).
+The same nonzero resolution conforms polygon faces and nominal expanded road
+corners to those terrain planes while preserving feature IDs, packed material
+channels and shader-controlled width. It does not make polygons query surfaces.
+Dynamic-width tangent correction and globe chord differences remain explicit
+limits; see [conforming polygons and wide roads](../developer-guide/terrain.md#conforming-polygons-and-wide-roads).
 `maxStagedMeshBytes` defaults to 64 MiB for additional replacement draw/query buffers.
 `maxQueryIndexBytes` defaults to 16 MiB per snapshot, and
 `maxProjectedQueryBytes` defaults to 32 MiB of retained projected query geometry
@@ -653,7 +658,7 @@ late detail inherits it instead of restarting its blend. Feature
 queries wait for worker selection tables to be replaced. These caps exclude scratch,
 clones, lazy query copies, textures and GPU overhead. Coordinated replacement alone
 does not imply spatial mixed-LOD conformity; canonical raster ground is an explicit
-opt-in. Polygon/ribbon seams and exact older-topology replay remain separate.
+opt-in. Exact older-topology replay and cross-style globe chord conformity remain separate.
 See [terrain integration](../developer-guide/terrain.md#worker-side-basemap-draping)
 for precision, missing-data, query-surface and projection restrictions.
 
