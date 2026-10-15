@@ -5,6 +5,7 @@
 import {worldToLngLat} from '@math.gl/web-mercator';
 import {TerrainHeightField} from './terrain-height-field';
 import type {TerrainHeightGrid} from './terrain-data';
+import {getTerrainEdgeNodes} from './terrain-ground-topology';
 
 /** Spherical deck.gl common-space radius and physical reference radius, in meters. */
 const GLOBE_RADIUS = 256, EARTH_RADIUS = 6370972, MERCATOR_RADIUS = 6378137;
@@ -193,22 +194,11 @@ export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: 
         triangles.push(vertices[0], vertices[sign === 1 ? 1 : 2], vertices[sign === 1 ? 2 : 1]);
     }
     /** Include neighbor edge nodes so fine half-steps also exist on the coarse mesh. */
-    function edgeNodes(start: readonly number[], end: readonly number[]): number[] {
-        const vertical = start[0] === end[0], axis = vertical ? 1 : 0;
-        if (!(vertical && (start[0] === 0 || start[0] === resolution) || start[1] === end[1] && (start[1] === 0 || start[1] === resolution))) return [];
-        const fixed = vertical ? west + start[0] / resolution * (east - west) : north - start[1] / resolution * (north - south), values = new Set<number>();
-        for (const candidate of samplingGrids) {
-            const bounds = candidate.bounds;
-            if (vertical ? Math.min(Math.abs(fixed - bounds[0]), Math.abs(fixed - bounds[2])) > tolerance : Math.min(Math.abs(fixed - bounds[1]), Math.abs(fixed - bounds[3])) > tolerance) continue;
-            for (let step = 0; step <= resolution; step++) {
-                const value = vertical ? (north - (bounds[3] - step / resolution * (bounds[3] - bounds[1]))) / (north - south) * resolution : (bounds[0] + step / resolution * (bounds[2] - bounds[0]) - west) / (east - west) * resolution;
-                if (value > Math.min(start[axis], end[axis]) + 1e-8 && value < Math.max(start[axis], end[axis]) - 1e-8) values.add(Math.round(value * 1e8) / 1e8);
-            }
-        }
-        return [...values].sort((first, second) => (first - second) * Math.sign(end[axis] - start[axis])).map(value => vertical ? vertex(start[0], value) : vertex(value, start[1]));
+    function edgeNodes(start: readonly [number, number], end: readonly [number, number]): number[] {
+        return getTerrainEdgeNodes(grid.bounds, samplingGrids.map(candidate => candidate.bounds), resolution, start, end).map(point => vertex(...point));
     }
     /** Only boundary triangles with extra edge nodes need a center fan. */
-    function reconstruct(corners: readonly number[][]): void {
+    function reconstruct(corners: readonly [number, number][]): void {
         const ring: number[] = [];
         for (let edge = 0; edge < 3; edge++) {
             const start = corners[edge], end = corners[(edge + 1) % 3];

@@ -630,6 +630,12 @@ all current/previous grids must use one datum and non-overlapping footprints.
 Defaults: 250 m requested Mercator edge target, 131072 additional vertices and
 16 MiB completed output per mesh, 32 MiB owned grid arrays per scene/worker copy,
 and 200 ms morph duration. Optional query inputs are limited to 8 MiB per mesh;
+`groundMeshResolution` defaults to zero (legacy refinement). Values 2, 4, 8, 16,
+32 or 64 opt selected full-tile query raster styles into DEM-owned conforming
+ground cells with half-open source/fallback ownership. Current footprints require
+balanced quadtree tiles and uniform quad style channels. This explicit resolution
+is independent of source zoom and is not a certified error bound. See
+[conforming raster ground](../developer-guide/terrain.md#conforming-raster-ground).
 `maxStagedMeshBytes` defaults to 64 MiB for additional replacement draw/query buffers.
 `maxQueryIndexBytes` defaults to 16 MiB per snapshot, and
 `maxProjectedQueryBytes` defaults to 32 MiB of retained projected query geometry
@@ -642,10 +648,12 @@ Opt-in `occludeAnnotations` defaults to false: it enables point/text scene-depth
 tests in color and selection, plus loaded-ground anchor occlusion for collision
 when query styles are enabled. See the terrain guide for missing-data, stereo and
 custom-style limits. The resident summary adds optional `annotationQueries` costs.
-`setTerrain` admits complete batches together with one transition origin; feature
+`setTerrain` admits complete batches together with one field transition origin;
+late detail inherits it instead of restarting its blend. Feature
 queries wait for worker selection tables to be replaced. These caps exclude scratch,
-clones, lazy query copies, textures and GPU overhead. Spatial mixed-LOD edge conformity
-is not implied by coordinated replacement.
+clones, lazy query copies, textures and GPU overhead. Coordinated replacement alone
+does not imply spatial mixed-LOD conformity; canonical raster ground is an explicit
+opt-in. Polygon/ribbon seams and exact older-topology replay remain separate.
 See [terrain integration](../developer-guide/terrain.md#worker-side-basemap-draping)
 for precision, missing-data, query-surface and projection restrictions.
 

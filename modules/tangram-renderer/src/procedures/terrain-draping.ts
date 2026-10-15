@@ -10,6 +10,7 @@ import VertexLayout from '../gl/vertex_layout';
 import type {DrapedTerrainQueryMesh} from '../selection/draped-terrain-surface';
 import {summarizeDrapedTerrainBounds} from '../map-logic/draped-terrain-bounds';
 import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
+import {createTerrainGroundTopology, wrapTerrainGroundGrids, type TerrainGroundTopology} from '../map-logic/terrain-ground-topology';
 
 /** Opt-in physical-height basemap displacement, independent of deck, providers and GPU ownership. */
 export interface TerrainDrapingOptions {
@@ -25,10 +26,12 @@ export interface TerrainDrapingOptions {
     maxMeshBytes?: number;
     /** Owned current/previous grid arrays per scene/worker, default 32 MiB. */
     maxGridBytes?: number;
-    /** Height and slope interpolation duration per newly displayed mesh, default 200 ms. */
+    /** Shared height/slope interpolation duration per admitted terrain field, default 200 ms. */
     transitionDuration?: number;
     /** Ground style names whose exact final triangles are retained for physical queries; default empty. */
     querySurfaceStyles?: readonly string[];
+    /** Opt-in DEM-owned raster ground cells per tile axis (2, 4, 8, 16, 32, 64); zero keeps legacy refinement. */
+    groundMeshResolution?: number;
     /** Retained query channels per mesh, default 8 MiB; separate from completed draw bytes. */
     maxQueryMeshBytes?: number;
     /** Additional staged draw/query buffers across a replacement generation; default 64 MiB, excluding GPU overhead. */
@@ -45,6 +48,8 @@ export interface TerrainDrapingOptions {
 
 /** Validated, detached physical input; typed-array contents are immutable by contract. */
 export interface TerrainDrapingSnapshot extends Required<TerrainDrapingOptions> {
+    /** Renderer-owned field epoch; unrelated scene/source rebuilds preserve this identity. */
+    transitionGeneration: number;
     /** Exact owned height/mask array bytes; excludes structured-clone and scratch allocations. */
     byteLength: number;
     /** Lowest valid current/previous height for safe spherical exaggeration. */
@@ -65,10 +70,12 @@ export interface TerrainMeshPreparation {
     meshBytes: number;
     /** Monotonic worker wall time for topology, sampling and mask admission. */
     preparationMs: number;
-    /** Effective Mercator edge target, not a certified terrain error. */
+    /** Effective Mercator edge target; canonical ground reports its maximum admitted edge, not a certified error. */
     edgeTarget: number;
     /** The per-tile detail floor prevented the requested edge target. */
     detailLimited: boolean;
+    /** Explicit source-independent ground resolution; absent on legacy polygons/ribbons/annotations. */
+    canonicalGroundResolution?: number;
 }
 
 /** Resident preparation counters useful to compare detail policies on a real host. */
@@ -107,6 +114,7 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     const meshBytes = options.maxMeshBytes ?? 16 * 1024 * 1024;
     const duration = options.transitionDuration ?? 200;
     const querySurfaceStyles = options.querySurfaceStyles ?? [];
+    const groundMeshResolution = options.groundMeshResolution ?? 0;
     const maxQueryMeshBytes = options.maxQueryMeshBytes ?? 8 * 1024 * 1024;
     const maxStagedMeshBytes = options.maxStagedMeshBytes ?? 64 * 1024 * 1024;
     const maxQueryIndexBytes = options.maxQueryIndexBytes ?? 16 * 1024 * 1024;
@@ -119,6 +127,7 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
         ![maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes].every(value => Number.isSafeInteger(value) && value >= 0) ||
         !Number.isFinite(queryPreparationBudgetMs) || queryPreparationBudgetMs < 0 || queryPreparationBudgetMs > 20 ||
         typeof occludeAnnotations !== 'boolean' ||
+        !Number.isSafeInteger(groundMeshResolution) || groundMeshResolution !== 0 && (groundMeshResolution < 2 || groundMeshResolution > 64 || (groundMeshResolution & (groundMeshResolution - 1)) !== 0) ||
         querySurfaceStyles.some(name => typeof name !== 'string' || !name.length) || new Set(querySurfaceStyles).size !== querySurfaceStyles.length) throw new Error('Invalid terrain draping limits');
     const previous = options.previousGrids ?? [];
     let bytes = 0;
@@ -144,21 +153,27 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     if (minimumHeight <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain height would invert the globe radius');
     const copy = (grids: readonly TerrainHeightGrid[]): TerrainHeightGrid[] => grids.map(grid => ({...grid, bounds: [...grid.bounds], heights: Float32Array.from(grid.heights), valid: Uint8Array.from(grid.valid)}));
     return {grids: copy(options.grids), previousGrids: copy(previous), maxSegmentLength: segment, maxAdditionalVertices: vertices,
-        maxGridBytes: maximum, maxMeshBytes: meshBytes, transitionDuration: duration, byteLength: bytes, minimumHeight,
-        querySurfaceStyles: [...querySurfaceStyles], maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes, queryPreparationBudgetMs, occludeAnnotations};
+        maxGridBytes: maximum, maxMeshBytes: meshBytes, transitionDuration: duration, transitionGeneration: 0, byteLength: bytes, minimumHeight,
+        querySurfaceStyles: [...querySurfaceStyles], groundMeshResolution, maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes, queryPreparationBudgetMs, occludeAnnotations};
 }
 
-/** Retain only the final draw's ground channels and topology, never reconstruct another DEM mesh. */
+/**
+ * Retain the final draw's ground channels and topology, never another DEM mesh.
+ * @param canonicalPositions - Optional exact lattice XY, avoiding source-origin reconstruction ulps at terminal bounds.
+ */
 export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uint16Array | Uint32Array, layout: VertexLayout,
-    origin: readonly [number, number], tileZoom: number, byteLimit: number): DrapedTerrainQueryMesh {
+    origin: readonly [number, number], tileZoom: number, byteLimit: number, canonicalPositions?: Float64Array): DrapedTerrainQueryMesh {
     const count = vertices.byteLength / layout.stride;
     if (!Number.isInteger(count) || count * 32 + indices.byteLength > byteLimit) throw new Error('Terrain query mesh-byte budget exceeded');
+    if (canonicalPositions && (canonicalPositions.length !== count * 2 || !canonicalPositions.every(Number.isFinite))) throw new Error('Invalid canonical terrain query positions');
     const positions = new Float64Array(count * 3), heights = new Float32Array(count * 2);
     const data = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
     const scale = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** tileZoom);
     for (let vertex = 0; vertex < count; vertex++) {
         const position = vertex * layout.stride + layout.offset.a_position;
-        positions.set([origin[0] + data.getFloat32(position, true) * scale, origin[1] + data.getFloat32(position + 4, true) * scale, data.getFloat32(position + 8, true) / PACKED_HEIGHT_SCALE], vertex * 3);
+        positions.set([canonicalPositions?.[vertex * 2] ?? origin[0] + data.getFloat32(position, true) * scale,
+            canonicalPositions?.[vertex * 2 + 1] ?? origin[1] + data.getFloat32(position + 4, true) * scale,
+            data.getFloat32(position + 8, true) / PACKED_HEIGHT_SCALE], vertex * 3);
         heights.set([data.getFloat32(vertex * layout.stride + layout.offset.a_terrain, true), data.getFloat32(vertex * layout.stride + layout.offset.a_terrain_previous, true)], vertex * 2);
     }
     const bounds: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -173,9 +188,27 @@ export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uin
 const layouts = new WeakMap<VertexLayout, VertexLayout>();
 /** One immutable current/previous sampling index per worker field, shared by every style mesh. */
 const heightFields = new WeakMap<TerrainDrapingSnapshot, {current: TerrainHeightField; previous: TerrainHeightField}>();
+/** One periodic current field and at most three absolute-world previous indexes; source arrays remain shared. */
+const groundHeightFields = new WeakMap<TerrainDrapingSnapshot, {current: TerrainHeightField; previous: Map<number, TerrainHeightField>}>();
 
 /** Reuse bounded masks and spatial lookup across styles; replaced field identities release the cache. */
-function getHeightFields(terrain: TerrainDrapingSnapshot): {current: TerrainHeightField; previous: TerrainHeightField} {
+function getHeightFields(terrain: TerrainDrapingSnapshot, ground = false, samplingWorldOffset = 0): {current: TerrainHeightField; previous: TerrainHeightField} {
+    if (ground) {
+        let fields = groundHeightFields.get(terrain);
+        if (!fields) {
+            fields = {current: new TerrainHeightField(wrapTerrainGroundGrids(terrain.grids)), previous: new Map()};
+            groundHeightFields.set(terrain, fields);
+        }
+        let previous = fields.previous.get(samplingWorldOffset);
+        if (!previous) {
+            // All previous samples share one absolute domain, retaining generic/
+            // quadtree boundary averaging. Previous fields need no mask prefixes.
+            previous = new TerrainHeightField(wrapTerrainGroundGrids(terrain.previousGrids, false, samplingWorldOffset), {maxMaskBytes: 0});
+            fields.previous.set(samplingWorldOffset, previous);
+            while (fields.previous.size > 3) fields.previous.delete(fields.previous.keys().next().value!);
+        }
+        return {current: fields.current, previous};
+    }
     let fields = heightFields.get(terrain);
     if (!fields) {
         fields = {current: new TerrainHeightField(terrain.grids), previous: new TerrainHeightField(terrain.previousGrids)};
@@ -232,12 +265,15 @@ export function drapeTerrainMesh(options: {
     styleZoom?: number;
     /** Do not refine screen-space annotation quads. */
     annotations?: boolean;
+    /** Explicit full-tile raster ground owner; source clipping, not triangle cropping, partitions cells. */
+    ground?: boolean;
     /** Validated immutable current/previous heights and resource policy. */
     terrain: TerrainDrapingSnapshot;
-}): {vertices: Uint8Array; indices: Uint16Array | Uint32Array; byteLength: number; statistics: TerrainMeshPreparation} {
+}): {vertices: Uint8Array; indices: Uint16Array | Uint32Array; byteLength: number; statistics: TerrainMeshPreparation; groundClip?: boolean; groundPositions?: Float64Array} {
     const started = performance.now();
     const statistics: TerrainMeshPreparation = {inputVertices: 0, vertices: 0, triangles: 0, suppressedTriangles: 0, meshBytes: 0, preparationMs: 0, edgeTarget: 0, detailLimited: false};
     const {terrain, layout, origin} = options;
+    const canonicalGround = Boolean(options.ground && terrain.groundMeshResolution);
     if (!Number.isInteger(options.tileZoom) || options.tileZoom < 0 || options.tileZoom > 30 || !origin.every(Number.isFinite)) throw new Error('Invalid terrain draping tile');
     const styleZoom = options.styleZoom ?? options.tileZoom;
     if (!Number.isFinite(styleZoom) || styleZoom < 0 || styleZoom > 30) throw new Error('Invalid terrain draping style zoom');
@@ -257,7 +293,7 @@ export function drapeTerrainMesh(options: {
     // Bound full-tile refinement independently of provider resolution. Floating
     // positions retain skinny source triangles; this floor is a detail policy,
     // not a packed-precision workaround or a certified terrain error bound.
-    const cell = Math.max(requestedCell, 64 * metersPerUnit);
+    const cell = canonicalGround ? requestedCell : Math.max(requestedCell, 64 * metersPerUnit);
     statistics.edgeTarget = cell; statistics.detailLimited = cell > requestedCell;
     const outputLayout = getTerrainVertexLayout(layout);
     const baseLayout = getTerrainBaseLayout(layout);
@@ -291,7 +327,7 @@ export function drapeTerrainMesh(options: {
             bounds[axis + 2] = Math.max(bounds[axis + 2], coordinate[axis] + extent);
         }
     }
-    if (!terrain.grids.some(grid => bounds[0] <= grid.bounds[2] && bounds[2] >= grid.bounds[0] && bounds[1] <= grid.bounds[3] && bounds[3] >= grid.bounds[1])) {
+    if (!canonicalGround && !terrain.grids.some(grid => bounds[0] <= grid.bounds[2] && bounds[2] >= grid.bounds[0] && bounds[1] <= grid.bounds[3] && bounds[3] >= grid.bounds[1])) {
         statistics.suppressedTriangles = originalIndices.length / 3;
         statistics.preparationMs = performance.now() - started;
         return {vertices: new Uint8Array(), indices: new Uint16Array(), byteLength: 0, statistics};
@@ -306,13 +342,39 @@ export function drapeTerrainMesh(options: {
         if (promoted) for (let component = 0; component < attribute.size; component++) floatingView.setFloat32(to + component * 4, source.getInt16(from + component * 2, true), true);
         else floating.set(options.vertices.subarray(from, from + attribute.byte_size!), to);
     }
-    const refined = options.annotations ? {vertices: floating, indices: originalIndices} : refineGlobeMesh(floating, originalIndices, baseLayout,
+    let groundTopology: TerrainGroundTopology | undefined;
+    if (canonicalGround) {
+        const corners = new Set<string>();
+        for (let index = 0; index < originalCount; index++) {
+            const point = new DataView(floating.buffer, index * baseLayout.stride, baseLayout.stride);
+            const x = point.getFloat32(baseLayout.offset.a_position, true), y = point.getFloat32(baseLayout.offset.a_position + 4, true);
+            if (![0, 4096].includes(x) || ![0, -4096].includes(y)) throw new Error('Canonical terrain ground requires a full tile raster quad');
+            corners.add(`${x},${y}`);
+            for (const attribute of baseLayout.dynamic_attribs) {
+                const offset = attribute.offset ?? 0, start = attribute.name === 'a_position' ? 8 : 0;
+                for (let byte = start; byte < (attribute.byte_size ?? 0); byte++) if (floating[index * baseLayout.stride + offset + byte] !== floating[offset + byte]) throw new Error('Canonical terrain ground requires uniform quad attributes');
+            }
+        }
+        if (corners.size !== 4 || originalIndices.length !== 6 || extrusionOffset !== undefined || options.annotations) throw new Error('Canonical terrain ground requires a full tile raster quad');
+        for (const grid of terrain.grids) {
+            if (grid.bounds[2] <= origin[0] || grid.bounds[0] >= origin[0] + 4096 * metersPerUnit ||
+                grid.bounds[3] <= origin[1] - 4096 * metersPerUnit || grid.bounds[1] >= origin[1]) continue;
+            const cellZoom = Math.round(Math.log2(2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (grid.bounds[2] - grid.bounds[0]))) + Math.log2(terrain.groundMeshResolution);
+            const gap = options.tileZoom - cellZoom;
+            if (gap > 10 || gap < -18) throw new Error('Canonical terrain ground source/DEM LOD gap exceeds Float32 precision limits');
+        }
+        groundTopology = createTerrainGroundTopology(terrain.grids, [origin[0], origin[1] - 4096 * metersPerUnit, origin[0] + 4096 * metersPerUnit, origin[1]],
+            terrain.groundMeshResolution, Math.min(originalCount + terrain.maxAdditionalVertices, Math.floor(terrain.maxMeshBytes / outputLayout.stride)));
+        statistics.canonicalGroundResolution = terrain.groundMeshResolution;
+    }
+    const refined = groundTopology ? {vertices: createCanonicalGroundVertices(groundTopology, floating, baseLayout, origin, options.tileZoom), indices: groundTopology.indices} :
+        options.annotations ? {vertices: floating, indices: originalIndices} : refineGlobeMesh(floating, originalIndices, baseLayout,
         {tileZoom: options.tileZoom, maxAngularSpan: Math.min(180, cell / PROJECTION_CONSTANTS.mercatorRadius * 180 / Math.PI), maxAdditionalVertices: terrain.maxAdditionalVertices, splitRemainderShortest: true, getPosition: readPosition});
     const count = refined.vertices.byteLength / baseLayout.stride;
     const required = count * outputLayout.stride + refined.indices.byteLength;
     if (required > terrain.maxMeshBytes) throw new Error('Terrain draping mesh-byte budget exceeded');
     const vertices = new Uint8Array(count * outputLayout.stride);
-    const fields = getHeightFields(terrain);
+    const fields = getHeightFields(terrain, canonicalGround, groundTopology?.sampleOffset);
     const view = new DataView(vertices.buffer);
     const valid = new Uint8Array(count);
     const coordinates: [number, number][] = [];
@@ -320,7 +382,8 @@ export function drapeTerrainMesh(options: {
     for (let index = 0; index < count; index++) {
         const input = new DataView(refined.vertices.buffer, refined.vertices.byteOffset + index * baseLayout.stride, baseLayout.stride);
         vertices.set(refined.vertices.subarray(index * baseLayout.stride, (index + 1) * baseLayout.stride), index * outputLayout.stride);
-        const coordinate: [number, number] = [origin[0] + input.getFloat32(baseLayout.offset.a_position, true) * metersPerUnit, origin[1] + input.getFloat32(baseLayout.offset.a_position + 4, true) * metersPerUnit];
+        const coordinate: [number, number] = groundTopology ? [groundTopology.samplePositions[index * 2], groundTopology.samplePositions[index * 2 + 1]] :
+            [origin[0] + input.getFloat32(baseLayout.offset.a_position, true) * metersPerUnit, origin[1] + input.getFloat32(baseLayout.offset.a_position + 4, true) * metersPerUnit];
         coordinates.push(coordinate);
         const nominalOffset: [number, number] = [getNominalOffset(input, 0), getNominalOffset(input, 1)];
         const sampleCoordinate: [number, number] = [coordinate[0] + nominalOffset[0] * metersPerUnit, coordinate[1] + nominalOffset[1] * metersPerUnit];
@@ -333,12 +396,15 @@ export function drapeTerrainMesh(options: {
         }
         const current = fields.current.sampleHeight(sampleCoordinate);
         valid[index] = Number(current !== null);
-        const previousSample = fields.previous.sampleHeight(sampleCoordinate);
+        const previousCoordinate: [number, number] = groundTopology ? [groundTopology.positions[index * 2] + nominalOffset[0] * metersPerUnit,
+            groundTopology.positions[index * 2 + 1] + nominalOffset[1] * metersPerUnit] : sampleCoordinate;
+        const previousSample = fields.previous.sampleHeight(previousCoordinate);
         const previous = previousSample ?? current;
         const latitudeCosine = 1 / Math.cosh(sampleCoordinate[1] / PROJECTION_CONSTANTS.mercatorRadius);
-        for (const [field, height, attribute] of [[fields.current, current, 'a_terrain'], [previousSample === null ? fields.current : fields.previous, previous, 'a_terrain_previous']] as const) {
+        for (const [field, height, attribute, samplingCoordinate] of [[fields.current, current, 'a_terrain', sampleCoordinate],
+            [previousSample === null ? fields.current : fields.previous, previous, 'a_terrain_previous', previousSample === null ? sampleCoordinate : previousCoordinate]] as const) {
             const slope = [0, 1].map(axis => {
-                const negative: [number, number] = [...sampleCoordinate], positive: [number, number] = [...sampleCoordinate];
+                const negative: [number, number] = [...samplingCoordinate], positive: [number, number] = [...samplingCoordinate];
                 negative[axis] -= cell; positive[axis] += cell;
                 const before = field.sampleHeight(negative), after = field.sampleHeight(positive);
                 return height === null ? 0 : before !== null && after !== null ? (after - before) / (2 * cell * latitudeCosine) : after !== null ? (after - height) / (cell * latitudeCosine) : before !== null ? (height - before) / (cell * latitudeCosine) : 0;
@@ -363,6 +429,32 @@ export function drapeTerrainMesh(options: {
     }
     const elements = count > 65535 ? Uint32Array.from(indices) : Uint16Array.from(indices);
     const byteLength = vertices.byteLength + elements.byteLength;
+    if (groundTopology) {
+        let maximum = 0;
+        for (let index = 0; index < elements.length; index += 3) for (let edge = 0; edge < 3; edge++) {
+            const first = elements[index + edge] * 2, second = elements[index + (edge + 1) % 3] * 2;
+            maximum = Math.max(maximum, Math.hypot(groundTopology.positions[first] - groundTopology.positions[second], groundTopology.positions[first + 1] - groundTopology.positions[second + 1]));
+        }
+        statistics.edgeTarget = maximum; statistics.detailLimited = maximum > requestedCell;
+    }
     Object.assign(statistics, {vertices: count, triangles: elements.length / 3, suppressedTriangles: (refined.indices.length - elements.length) / 3, meshBytes: byteLength, preparationMs: performance.now() - started});
-    return {vertices, indices: elements, byteLength, statistics};
+    return {vertices, indices: elements, byteLength, statistics, ...(groundTopology ? {groundClip: true, groundPositions: groundTopology.positions} : {})};
+}
+
+/** Copy constant raster style channels; UVs and ownership use the original source tile coordinate system. */
+function createCanonicalGroundVertices(topology: TerrainGroundTopology, template: Uint8Array, layout: VertexLayout,
+    origin: readonly [number, number], tileZoom: number): Uint8Array {
+    const vertices = new Uint8Array(topology.positions.length / 2 * layout.stride), view = new DataView(vertices.buffer);
+    const circumference = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius, tiles = 2 ** tileZoom;
+    const column = Math.round((origin[0] / circumference + 0.5) * tiles), row = Math.round((0.5 - origin[1] / circumference) * tiles);
+    for (let index = 0; index < topology.positions.length / 2; index++) {
+        vertices.set(template.subarray(0, layout.stride), index * layout.stride);
+        const offset = index * layout.stride + layout.offset.a_position;
+        const x = (topology.normalizedPositions[index * 2] * tiles - column) * 4096;
+        const y = (row - topology.normalizedPositions[index * 2 + 1] * tiles) * 4096;
+        if (Math.fround(x) !== x || Math.fround(y) !== y) throw new Error('Canonical terrain ground positions exceed Float32 precision limits');
+        view.setFloat32(offset, x, true);
+        view.setFloat32(offset + 4, y, true);
+    }
+    return vertices;
 }

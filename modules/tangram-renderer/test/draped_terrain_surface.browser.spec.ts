@@ -9,6 +9,19 @@ import {getGeographicProjectionProcedure} from '../src/scene/projection_math';
 import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
 import {TerrainMeshSurface} from '../src/selection/terrain_surface';
 
+test('half-open ownership is snapshotted and keeps a shared clip edge assigned to exactly one owner', () => {
+    const mesh = ground(), entry = {id: 'left', mesh, blend: 1, clips: [[-1, -1, 0, 1] as const], halfOpenClips: true};
+    const left = new DrapedTerrainSurfaceSnapshot('web-mercator', [entry], 1, 0, 1);
+    entry.halfOpenClips = false;
+    const ray = {origin: [0, 0, 500] as const, direction: [0, 0, -1] as const};
+    expect(left.intersectRay(ray)).toBeNull();
+    const both = new DrapedTerrainSurfaceSnapshot('web-mercator', [
+        {...entry, halfOpenClips: true}, {id: 'right', mesh, blend: 1, clips: [[0, -1, 1, 1]], halfOpenClips: true}
+    ], 1, 0, 1);
+    expect(both.intersectRay(ray)?.surfaceId).toBe('right');
+    expect(new DrapedTerrainSurfaceSnapshot('web-mercator', [entry], 1, 0, 1).displayKey).not.toBe(left.displayKey);
+});
+
 test('settled queries stay linear until cooperative warming and obey an aggregate hierarchy budget', () => {
     const mesh = ground(), required = TriangleQueryIndex.getRequiredHierarchyBytes(1);
     const ray = {origin: [0, -1, 500] as const, direction: [0, 0, -1] as const};

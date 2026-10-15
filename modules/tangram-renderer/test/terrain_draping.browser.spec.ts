@@ -113,7 +113,7 @@ test('draw and selection passes share the mesh clock across portable and classic
     const setUniforms = vi.fn(); const uniform = vi.fn();
     scene.styles = {ground: {render: vi.fn(() => false)}};
     scene.setupStyle = () => ({uniform}); scene.requestRedraw = vi.fn();
-    scene.tile_manager = {getRenderableTiles: () => [{meshes: {ground: [mesh]}, shouldProxyForStyle: () => true}]};
+    scene.tile_manager = Object.assign(Object.create(TileManager.prototype), {getRenderableTiles: () => [{meshes: {ground: [mesh]}, shouldProxyForStyle: () => true}]});
     scene.view = {setupTile: vi.fn(), projection: {type: 'web-mercator'}};
     scene.uniform_buffers = {TangramTile: {setUniforms}};
     scene.terrain = normalizeTerrainDraping({grids: [], transitionDuration: 100});

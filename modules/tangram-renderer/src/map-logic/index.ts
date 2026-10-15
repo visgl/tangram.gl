@@ -17,6 +17,8 @@ export {TERRARIUM_DECODER, TERRAIN_RGB_DECODER, decodeTerrainHeightGrid, sampleT
 export {sampleTerrainNeighborhood, resampleTerrainNodes} from './terrain-neighborhood';
 export {TerrainHeightField} from './terrain-height-field';
 export type {TerrainFieldBounds, TerrainHeightFieldOptions, TerrainHeightFieldStatistics} from './terrain-height-field';
+export {createTerrainGroundTopology} from './terrain-ground-topology';
+export type {TerrainGroundTopology} from './terrain-ground-topology';
 export type {ElevationDecoder, TerrainGridOptions, TerrainHeightGrid} from './terrain-data';
 export {TriangleQueryIndex} from './triangle-query-index';
 export type {IndexedTriangleHit, TriangleQueryResult, TriangleQueryIndexOptions} from './triangle-query-index';

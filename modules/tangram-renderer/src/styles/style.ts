@@ -205,17 +205,19 @@ export var Style: StyleMethods = {
                     if (!originalLayout) throw new Error('Style has no terrain vertex layout');
                     const draped = drapeTerrainMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements || false,
                         layout: originalLayout, origin: [tile.min!.x, tile.min!.y], tileZoom: tile.coords!.z, styleZoom: tile.style_z,
-                        annotations: ['points', 'text'].includes(this.baseStyle()), terrain: this.terrain});
+                        annotations: ['points', 'text'].includes(this.baseStyle()),
+                        ground: this.baseStyle() === 'raster' && this.terrain.querySurfaceStyles.includes(this.name), terrain: this.terrain});
                     mesh.vertex_data = draped.vertices; mesh.vertex_elements = draped.indices;
                     if (mesh.labels) {
                         const stride = getTerrainVertexLayout(originalLayout).stride;
                         for (const label of Object.values(mesh.labels)) label.ranges = label.ranges.map(([offset, count]) => [offset / originalLayout.stride * stride, count]);
                     }
-                    mesh.variant = {...mesh.variant, terrain: true, terrainStatistics: draped.statistics, terrainTransitionDuration: this.terrain.transitionDuration};
+                    mesh.variant = {...mesh.variant, terrain: true, terrainStatistics: draped.statistics, terrainTransitionDuration: this.terrain.transitionDuration,
+                        terrainGeneration: this.terrain.transitionGeneration, terrainGroundClip: draped.groundClip};
                     if (!draped.indices.length) {delete tile_data.meshes[variant]; delete transferredMeshes[variant]; continue;}
                     if (this.terrain.querySurfaceStyles.includes(this.name)) {
                         if (this.baseStyle() !== 'raster') throw new Error('Terrain query surfaces require a ground raster style');
-                        mesh.terrain_surface = extractDrapedTerrainQueryMesh(draped.vertices, draped.indices, getTerrainVertexLayout(originalLayout), [tile.min!.x, tile.min!.y], tile.coords!.z, this.terrain.maxQueryMeshBytes);
+                        mesh.terrain_surface = extractDrapedTerrainQueryMesh(draped.vertices, draped.indices, getTerrainVertexLayout(originalLayout), [tile.min!.x, tile.min!.y], tile.coords!.z, this.terrain.maxQueryMeshBytes, draped.groundPositions);
                     }
                 }
                 if (this.cpu_projection) {
