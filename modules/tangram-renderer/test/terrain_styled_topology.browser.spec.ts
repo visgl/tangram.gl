@@ -174,6 +174,35 @@ test.each([false, true])('corner-only DEM contacts do not reject an otherwise va
     expect(result.indices.length).toBeGreaterThan(0);
 });
 
+test.each([false, true])('zoom-zero %s buffers retain geometry across world edges, including repeated worlds', road => {
+    const grids = Array.from({length: 16}, (_value, index) => grid(index % 4, Math.floor(index / 4)));
+    let reference: ReturnType<typeof drapeTerrainMesh> | undefined;
+    for (const world of [0, -2, 2]) {
+        const request = input(road, 0, world, 0, grids, grids);
+        if (!road) {
+            const view = new DataView(request.vertices.buffer);
+            [[-128, -1024], [4224, -1024], [4224, -3072], [-128, -3072]].forEach(([x, y], vertex) => {
+                view.setInt16(vertex * polygonLayout.stride, x, true); view.setInt16(vertex * polygonLayout.stride + 2, y, true);
+            });
+        }
+        const result = drapeTerrainMesh(request), layout = getTerrainVertexLayout(request.layout), view = new DataView(result.vertices.buffer);
+        const positions = Array.from(result.indices, vertex => view.getFloat32(vertex * layout.stride, true) + (road ? view.getFloat32(vertex * layout.stride + layout.offset.a_terrain + 12, true) : 0));
+        expect(Math.max(...positions)).toBeGreaterThan(4096);
+        if (!road) expect(Math.min(...positions)).toBeLessThan(0);
+        expect(heightAt(result, request.layout, [road ? 4160 : -64, -2048], 1, road)).not.toBeNull();
+        if (reference) {expect(result.vertices).toEqual(reference.vertices); expect(result.indices).toEqual(reference.indices);}
+        reference = result;
+    }
+});
+
+test('world-buffer topology still rejects exhausted budgets and envelopes beyond its periodic sampler', () => {
+    const grids = Array.from({length: 16}, (_value, index) => grid(index % 4, Math.floor(index / 4))), request = input(true, 0, 0, 0, grids, grids);
+    expect(() => drapeTerrainMesh({...request, terrain: {...request.terrain, maxAdditionalVertices: 0}})).toThrow(/budget/);
+    expect(() => drapeTerrainMesh({...request, terrain: {...request.terrain, maxAdditionalVertices: 296}})).toThrow(/styled terrain vertex budget/);
+    for (let vertex = 0; vertex < 4; vertex++) new DataView(request.vertices.buffer).setInt16(vertex * roadLayout.stride + roadLayout.offset.a_extrude, vertex < 2 ? 8000 : -8000, true);
+    expect(() => drapeTerrainMesh(request)).toThrow(/three-world/);
+});
+
 test('feature boundaries never weld flat IDs, and invalid varying-flat channels fail explicitly', () => {
     const request = input();
     const combined = new Uint8Array(request.vertices.length * 2); combined.set(request.vertices); combined.set(request.vertices, request.vertices.length);

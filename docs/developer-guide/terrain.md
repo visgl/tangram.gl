@@ -480,6 +480,10 @@ Periodic sampling and the raster path's source/cell precision envelope apply.
 Feature IDs and layer order remain flat; UVs, colors, normals and extrusion fields
 follow Tangram's existing packed interpolation. Unknown varying flat channels
 reject rather than changing identity. No vertices are welded across features.
+World-tile buffers are partitioned at whole-world boundaries, retaining road and
+polygon geometry beyond the source edge rather than clamping it away. Shared
+lattice nodes reunite the pieces. Envelopes outside the three-world sampler or
+over the combined vertex budget reject, including at zoom zero.
 
 Roads intersect at their expanded **nominal corners**, including authored width
 and offset, not at their collapsed centerline. Width/offset scale factors must be

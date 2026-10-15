@@ -379,7 +379,7 @@ export function drapeTerrainMesh(options: {
         }
         const topologyBounds = [Math.min(bounds[0], origin[0]), Math.min(bounds[1], origin[1] - 4096 * metersPerUnit),
             Math.max(bounds[2], origin[0] + 4096 * metersPerUnit), Math.max(bounds[3], origin[1])] as const;
-        groundTopology = createTerrainGroundTopology(terrain.grids, topologyBounds, terrain.groundMeshResolution,
+        groundTopology = createStyledGroundTopology(terrain.grids, topologyBounds, terrain.groundMeshResolution,
             Math.min(originalCount + terrain.maxAdditionalVertices, Math.floor(terrain.maxMeshBytes / outputLayout.stride)));
         validateCanonicalSourceLOD(terrain, options.tileZoom, topologyBounds, groundTopology.sampleOffset);
         const canonical = createCanonicalGroundVertices(groundTopology, floating, baseLayout, origin, options.tileZoom);
@@ -485,6 +485,39 @@ export function drapeTerrainMesh(options: {
     }
     Object.assign(statistics, {vertices: count, triangles: elements.length / 3, suppressedTriangles: (refined.indices.length - elements.length) / 3, meshBytes: byteLength, preparationMs: performance.now() - started});
     return {vertices, indices: elements, byteLength, statistics, ...(groundTopology && !styledTopology ? {groundClip: true, groundPositions: groundTopology.positions} : {})};
+}
+
+/** Preserve world-tile buffers without broadening the public one-world topology contract.
+ * Split only at world/DEM boundaries; complete cells and shared lattice nodes remain unchanged.
+ * The existing periodic sampler owns three worlds, so larger envelopes reject explicitly.
+ */
+function createStyledGroundTopology(grids: readonly TerrainHeightGrid[], bounds: readonly [number, number, number, number], resolution: number, maxVertices: number): TerrainGroundTopology {
+    const circumference = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius;
+    if (bounds[2] - bounds[0] <= circumference) return createTerrainGroundTopology(grids, bounds, resolution, maxVertices);
+    const firstWorld = Math.floor(bounds[0] / circumference + 0.5), lastWorld = Math.ceil(bounds[2] / circumference + 0.5) - 1;
+    if (!Number.isSafeInteger(firstWorld) || !Number.isSafeInteger(lastWorld) || lastWorld - firstWorld > 2) throw new Error('Canonical styled terrain exceeds the three-world sampling envelope');
+    const sampleOffset = Math.floor((bounds[0] + bounds[2]) / (2 * circumference) + 0.5) * circumference;
+    const positions: number[] = [], normalized: number[] = [], samples: number[] = [], indices: number[] = [], nodes = new Map<string, number>();
+    for (let world = firstWorld; world <= lastWorld; world++) {
+        const part = createTerrainGroundTopology(grids, [Math.max(bounds[0], (world - 0.5) * circumference), bounds[1],
+            Math.min(bounds[2], (world + 0.5) * circumference), bounds[3]], resolution, maxVertices);
+        const remapping = new Uint32Array(part.positions.length / 2);
+        for (let vertex = 0; vertex < remapping.length; vertex++) {
+            const x = part.normalizedPositions[vertex * 2], y = part.normalizedPositions[vertex * 2 + 1], key = `${x},${y}`;
+            let index = nodes.get(key);
+            if (index === undefined) {
+                if (nodes.size >= maxVertices) throw new Error('Canonical styled terrain vertex budget exceeded');
+                const sampleX = part.samplePositions[vertex * 2] + (Math.round(part.sampleOffset / circumference) - Math.round(sampleOffset / circumference)) * circumference;
+                if (Math.abs(sampleX) > 1.5 * circumference) throw new Error('Canonical styled terrain exceeds the three-world sampling envelope');
+                index = nodes.size; nodes.set(key, index);
+                positions.push(part.positions[vertex * 2], part.positions[vertex * 2 + 1]);
+                normalized.push(x, y); samples.push(sampleX, part.samplePositions[vertex * 2 + 1]);
+            }
+            remapping[vertex] = index;
+        }
+        for (const vertex of part.indices) indices.push(remapping[vertex]);
+    }
+    return {positions: Float64Array.from(positions), normalizedPositions: Float64Array.from(normalized), samplePositions: Float64Array.from(samples), indices: Uint32Array.from(indices), sampleOffset};
 }
 
 /** Apply the same explicit source/cell precision envelope to primary and repeated-world owners. */
