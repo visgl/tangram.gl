@@ -74,6 +74,9 @@ export default getVitestConfig({
       : undefined
   },
   projects: {
+    'terrain-conformance': {
+      test: {include: ['test/conformance/terrain-upstream.spec.ts']}
+    },
     node: {
       test: {
         include: ['test/**/*.node.spec.{js,ts}', 'modules/**/test/**/*.node.spec.{js,ts}']

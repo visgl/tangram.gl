@@ -42,6 +42,7 @@
     "test": "yarn lint && yarn test-node && yarn test-headless",
     "test-fast": "yarn lint && yarn test-node",
     "test-node": "ocular-test node",
+    "test-terrain-contracts": "ocular-test terrain-conformance",
     "test-browser": "yarn build:modules && yarn test-build-worker && yarn workspace @vis.gl/tangram-classic build:editor-workers && ocular-test browser",
     "test-headless": "yarn build:modules && yarn test-build-worker && yarn workspace @vis.gl/tangram-classic build:editor-workers && ocular-test headless",
     "test-rendering": "yarn build:modules && yarn test-rendering:run",
@@ -57,6 +58,7 @@
   },
   "devDependencies": {
     "@deck.gl/core": "^9.4.0",
+    "@math.gl/spatial-index": "5.0.0-alpha.15",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "@vitest/coverage-v8": "^4.0.18",
     "chai": "^4.5.0",
