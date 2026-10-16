@@ -38,7 +38,7 @@
     "clean": "ocular-clean",
     "website:start": "yarn workspace tangram-layers-website start",
     "website:build": "yarn workspace tangram-layers-website build",
-    "build": "yarn clean && yarn build:modules && yarn workspace @vis.gl/tangram-classic build && yarn workspace @vis.gl/tangram-terrain-example build",
+    "build": "yarn clean && yarn build:modules && yarn workspace @vis.gl/tangram-classic build && yarn workspace @vis.gl/tangram-terrain-example build && yarn build:examples",
     "build:modules": "yarn workspace @vis.gl/tangram-renderer build && yarn workspace @vis.gl/tangram-layers build && yarn build:artifacts",
     "build:artifacts": "node scripts/check-renderer-artifacts.mjs",
     "build:packages": "yarn build",
@@ -66,7 +66,8 @@
     "test-website": "yarn website:build",
     "test-build-worker": "yarn workspace @vis.gl/tangram-renderer test-build-worker && yarn workspace @vis.gl/tangram-terrain-example build",
     "publish:beta": "ocular-publish version-only-beta",
-    "publish:prod": "ocular-publish version-only-prod"
+    "publish:prod": "ocular-publish version-only-prod",
+    "build:examples": "node scripts/build-examples.mjs"
   },
   "devDependencies": {
     "@deck.gl/core": "^9.4.0",
@@ -74,6 +75,7 @@
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "@vitest/coverage-v8": "^4.0.18",
     "chai": "^4.5.0",
+    "esbuild": "^0.28.1",
     "playwright": "^1.58.0",
     "sinon": "^19.0.2",
     "typescript": "^6.0.3",

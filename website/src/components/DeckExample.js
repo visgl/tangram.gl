@@ -13,17 +13,6 @@ function appendStylesheet(url) {
   return linkElement;
 }
 
-function appendScript(url, type = 'text/javascript') {
-  return new Promise((resolve, reject) => {
-    const scriptElement = document.createElement('script');
-    scriptElement.src = url;
-    scriptElement.type = type;
-    scriptElement.onload = () => resolve(scriptElement);
-    scriptElement.onerror = () => reject(new Error(`Unable to load ${url}`));
-    document.body.appendChild(scriptElement);
-  });
-}
-
 let deckExampleMountId = 0;
 
 export default function DeckExample({
@@ -32,10 +21,7 @@ export default function DeckExample({
   description = 'deck.gl owns the camera and supplies its matrices to the Tangram renderer.'
 }) {
   const deckExampleBaseUrl = useBaseUrl('/examples/deck/');
-  const tangramLayersUrl = useBaseUrl('/modules/tangram-layers/dist/index.js');
-  const tangramRendererUrl = useBaseUrl('/modules/tangram-renderer/dist/index.js');
   const [errorMessage, setErrorMessage] = useState(null);
-  const scriptElements = useRef([]);
   const stylesheetElement = useRef(null);
 
   useEffect(() => {
@@ -47,33 +33,14 @@ export default function DeckExample({
     window.tangramDeckExampleMountId = mountId;
     stylesheetElement.current = appendStylesheet(`${deckExampleBaseUrl}main.css`);
 
-    const importMapElement = document.createElement('script');
-    importMapElement.type = 'importmap';
-    importMapElement.textContent = JSON.stringify({
-      imports: {
-        '@deck.gl/core': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
-        '@deck.gl/layers': 'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
-        '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.2?bundle',
-        '@math.gl/core': 'https://esm.sh/@math.gl/core@5.0.0-alpha.18?bundle',
-        '@vis.gl/tangram-layers': `${tangramLayersUrl}?embedded=1`,
-        '@vis.gl/tangram-renderer': `${tangramRendererUrl}?embedded=1`,
-        '@vis.gl/tangram-renderer/core': `${tangramRendererUrl.replace('/index.js', '/core.js')}?embedded=1`
-      }
-    });
-    document.head.appendChild(importMapElement);
-    scriptElements.current.push(importMapElement);
-
-    appendScript(`${deckExampleBaseUrl}app.js?embedded=1&mount=${mountId}`, 'module')
-      .then((scriptElement) => {
-        scriptElements.current.push(scriptElement);
-        if (cancelled) {
-          scriptElement.remove();
+    import(/* webpackChunkName: "deck-example" */ '@vis.gl/tangram-deck-example/app-runtime')
+      .then(({initializeDeckExample}) => {
+        if (!cancelled && window.tangramDeckExampleMountId === mountId) {
+          initializeDeckExample({embeddedViewMode: viewMode});
         }
       })
-      .catch((error) => {
-        if (!cancelled) {
-          setErrorMessage(error.message);
-        }
+      .catch(error => {
+        if (!cancelled) setErrorMessage(error.message);
       });
 
     return () => {
@@ -82,10 +49,6 @@ export default function DeckExample({
         window.tangramDeckExampleDestroy?.();
       }
       stylesheetElement.current?.remove();
-      scriptElements.current.forEach((scriptElement) => {
-        scriptElement.remove();
-      });
-      scriptElements.current = [];
       document.body.classList.remove('tangram-deck-embedded');
       if (window.tangramDeckExampleMountId === mountId) {
         delete window.tangramExampleBaseUrl;
@@ -94,7 +57,7 @@ export default function DeckExample({
         delete window.tangramDeckExampleDestroy;
       }
     };
-  }, [deckExampleBaseUrl, tangramLayersUrl, tangramRendererUrl, viewMode]);
+  }, [deckExampleBaseUrl, viewMode]);
 
   return (
     <div className="deck-example-embed">

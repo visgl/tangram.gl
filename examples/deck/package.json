@@ -11,5 +11,22 @@
     "index.html",
     "main.css",
     "README.md"
-  ]
+  ],
+  "exports": {
+    "./app-runtime": "./app-runtime.js"
+  },
+  "dependencies": {
+    "@deck.gl/core": "9.4.0",
+    "@deck.gl/layers": "9.4.0",
+    "@loaders.gl/core": "^4.5.3",
+    "@luma.gl/core": "9.4.2",
+    "@luma.gl/engine": "9.4.2",
+    "@luma.gl/experimental": "9.4.2",
+    "@luma.gl/shadertools": "9.4.2",
+    "@luma.gl/webgpu": "9.4.2",
+    "@math.gl/core": "5.0.0-alpha.18",
+    "@vis.gl/tangram-layers": "workspace:^",
+    "@vis.gl/tangram-renderer": "workspace:^",
+    "mjolnir.js": "^3.1.1"
+  }
 }

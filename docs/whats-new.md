@@ -8,6 +8,10 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- Website examples lazy-load installed workspace modules through Docusaurus.
+  Standalone Deck, WebXR, projected and terrain pages bundle their npm dependencies
+  normally, without import maps, esm.sh or a separate math.gl asset build.
+
 - math.gl 5.x dependencies and browser imports now use `5.0.0-alpha.18`.
   Targeted resolutions align loaders.gl's older 5.x alpha pins without overriding
   deck.gl's math.gl 4.x dependencies. Published BVH conformance covers accepted-hit

@@ -14,6 +14,7 @@ const staticDirectory = resolve(websiteDirectory, 'static');
 await rm(resolve(staticDirectory, 'examples'), {recursive: true, force: true});
 await rm(resolve(staticDirectory, 'modules'), {recursive: true, force: true});
 await mkdir(resolve(staticDirectory, 'examples'), {recursive: true});
+await cp(resolve(repositoryDirectory, 'examples/dist'), resolve(staticDirectory, 'examples/dist'), {recursive: true});
 await mkdir(resolve(staticDirectory, 'modules/tangram-renderer/dist'), {recursive: true});
 await mkdir(resolve(staticDirectory, 'modules/tangram-layers/dist'), {recursive: true});
 await mkdir(resolve(staticDirectory, 'modules/tangram-layers/dist/experimental'), {
@@ -36,6 +37,7 @@ await copyExampleAssets(resolve(repositoryDirectory, 'examples/projected'), reso
 await mkdir(resolve(staticDirectory, 'examples/terrain'), {recursive: true});
 await cp(resolve(repositoryDirectory, 'examples/terrain/index.html'), resolve(staticDirectory, 'examples/terrain/standalone.htm'));
 await cp(resolve(repositoryDirectory, 'examples/terrain/dist/app.js'), resolve(staticDirectory, 'examples/terrain/app.js'));
+await cp(resolve(repositoryDirectory, 'examples/terrain/dist'), resolve(staticDirectory, 'examples/terrain/dist'), {recursive: true});
 await cp(resolve(repositoryDirectory, 'examples/terrain/dist/terrain-worker.js'), resolve(staticDirectory, 'examples/terrain/terrain-worker.js'));
 await cp(resolve(repositoryDirectory, 'modules/tangram-renderer/dist/map-logic.js'), resolve(staticDirectory, 'modules/tangram-renderer/dist/map-logic.js'));
 await cp(resolve(repositoryDirectory, 'examples/mounted-example.css'), resolve(staticDirectory, 'examples/mounted-example.css'));

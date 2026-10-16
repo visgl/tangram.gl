@@ -2,9 +2,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-const THOR_COMMIT = '1f85d87d52bbd30af34626fa17d3193f7e24dff5';
-const THOR_MODULE_URL = `https://esm.sh/gh/NEW-HEAT/thor.gl@${THOR_COMMIT}?bundle&external=@deck.gl/core,@mediapipe/tasks-vision,react`;
-
 /**
  * Start example-only Thor webcam gestures against one logical WebXR presentation.
  *
@@ -15,7 +12,7 @@ export async function startThorGestures({
   presentation,
   canvas,
   onIntent = () => {},
-  loadThor = () => import(/* @vite-ignore */ THOR_MODULE_URL)
+  loadThor = () => import('thor.gl')
 }) {
   if (!presentation.eventManager) {
     throw new Error('Attach the deck.gl controller before starting Thor gestures');

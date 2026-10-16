@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useState} from 'react';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
 function appendStylesheet(url) {
@@ -13,17 +13,6 @@ function appendStylesheet(url) {
   return linkElement;
 }
 
-function appendScript(url, type = 'text/javascript') {
-  return new Promise((resolve, reject) => {
-    const scriptElement = document.createElement('script');
-    scriptElement.src = url;
-    scriptElement.type = type;
-    scriptElement.onload = () => resolve(scriptElement);
-    scriptElement.onerror = () => reject(new Error(`Unable to load ${url}`));
-    document.body.appendChild(scriptElement);
-  });
-}
-
 const VIEW_LABELS = {
   globe: 'GlobeView',
   map: 'MapView',
@@ -31,83 +20,32 @@ const VIEW_LABELS = {
   thor: 'Thor gestures'
 };
 
-let webXRExampleMountId = 0;
-
 export default function WebXRExample({viewMode = 'globe'}) {
   const exampleBaseUrl = useBaseUrl('/examples/webxr/');
-  const layersUrl = useBaseUrl('/modules/tangram-layers/dist/index.js');
-  const webXRUrl = useBaseUrl('/modules/tangram-layers/dist/experimental/webxr.js');
-  const rendererUrl = useBaseUrl('/modules/tangram-renderer/dist/index.js');
   const [errorMessage, setErrorMessage] = useState(null);
-  const appendedElements = useRef([]);
   const viewLabel = VIEW_LABELS[viewMode] || VIEW_LABELS.globe;
 
   useEffect(() => {
     let cancelled = false;
-    const mountId = String(++webXRExampleMountId);
-    window.tangramWebXRViewMode = viewMode;
+    let destroyRuntime;
     document.body.classList.add('tangram-webxr-embedded');
     const stylesheetElement = appendStylesheet(`${exampleBaseUrl}main.css`);
-    appendedElements.current.push(stylesheetElement);
 
-    const importMapElement = document.createElement('script');
-    importMapElement.type = 'importmap';
-    importMapElement.textContent = JSON.stringify({
-      imports: {
-        '@deck.gl/core':
-          'https://esm.sh/deck.gl@9.4.0?bundle&external=@luma.gl/core',
-        '@luma.gl/core': 'https://esm.sh/@luma.gl/core@9.4.2?bundle',
-        '@luma.gl/engine':
-          'https://esm.sh/@luma.gl/engine@9.4.2?bundle&external=@luma.gl/core',
-        '@luma.gl/experimental':
-          'https://esm.sh/@luma.gl/experimental@9.4.2?bundle&external=@luma.gl/core',
-        '@luma.gl/webgl':
-          'https://esm.sh/@luma.gl/webgl@9.4.2?bundle&external=@luma.gl/core',
-        '@luma.gl/webgpu':
-          'https://esm.sh/@luma.gl/webgpu@9.4.2?bundle&external=@luma.gl/core',
-        '@math.gl/core': 'https://esm.sh/@math.gl/core@5.0.0-alpha.18?bundle',
-        '@math.gl/culling': 'https://esm.sh/@math.gl/culling@5.0.0-alpha.18?bundle&external=@math.gl/core',
-        '@mediapipe/tasks-vision':
-          'https://esm.sh/@mediapipe/tasks-vision@0.10.22-rc.20250304?bundle',
-        react: 'https://esm.sh/react@19.1.1?bundle',
-        '@vis.gl/tangram-layers': `${layersUrl}?embedded=webxr`,
-        '@vis.gl/tangram-layers/experimental/webxr': `${webXRUrl}?embedded=webxr`,
-        '@vis.gl/tangram-renderer': `${rendererUrl}?embedded=webxr`,
-        '@vis.gl/tangram-renderer/core': `${rendererUrl.replace('/index.js', '/core.js')}?embedded=webxr`,
-        'mjolnir.js': 'https://esm.sh/mjolnir.js@3.1.1?bundle'
-      }
-    });
-    document.head.appendChild(importMapElement);
-    appendedElements.current.push(importMapElement);
-
-    appendScript(
-      `${exampleBaseUrl}app.js?embedded=1&view=${encodeURIComponent(viewMode)}&mount=${mountId}`,
-      'module'
-    )
-      .then((scriptElement) => {
-        appendedElements.current.push(scriptElement);
-        if (cancelled) {
-          scriptElement.remove();
-        }
+    import(/* webpackChunkName: "webxr-example" */ '@vis.gl/tangram-webxr-example/app')
+      .then(({initializeWebXRExample}) => {
+        if (!cancelled) destroyRuntime = initializeWebXRExample({viewMode});
       })
-      .catch((error) => {
-        if (!cancelled) {
-          setErrorMessage(error.message);
-        }
+      .catch(error => {
+        if (!cancelled) setErrorMessage(error.message);
       });
 
     return () => {
       cancelled = true;
-      window.tangramWebXRExampleDestroy?.();
-      appendedElements.current.forEach((element) => {
-        element.remove();
-      });
-      appendedElements.current = [];
+      destroyRuntime?.();
+      stylesheetElement.remove();
       document.body.classList.remove('tangram-webxr-embedded');
-      delete window.tangramWebXRExampleDestroy;
-      delete window.tangramWebXRViewMode;
     };
-  }, [exampleBaseUrl, layersUrl, rendererUrl, viewMode, webXRUrl]);
+  }, [exampleBaseUrl, viewMode]);
 
   return (
     <div className="webxr-example-embed">

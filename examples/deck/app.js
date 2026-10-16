@@ -4,6 +4,8 @@
 
 import {initializeCurrentDeckExample} from './app-loader.js';
 
+window.tangramExampleBaseUrl = new URL('./', window.location.href).href;
+
 await initializeCurrentDeckExample({
   moduleUrl: import.meta.url,
   getActiveMountId: () => window.tangramDeckExampleMountId,

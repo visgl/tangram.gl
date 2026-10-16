@@ -5,7 +5,7 @@
   "description": "Documentation and examples website for Tangram layers",
   "packageManager": "yarn@4.18.0",
   "scripts": {
-    "prepare-assets": "yarn workspace @vis.gl/tangram-renderer build && yarn workspace @vis.gl/tangram-layers build && yarn workspace @vis.gl/tangram-classic build && yarn workspace @vis.gl/tangram-terrain-example build && node scripts/copy-assets.mjs",
+    "prepare-assets": "yarn workspace @vis.gl/tangram-renderer build && yarn workspace @vis.gl/tangram-layers build && yarn workspace @vis.gl/tangram-classic build && yarn workspace @vis.gl/tangram-terrain-example build && yarn --cwd .. build:examples && node scripts/copy-assets.mjs",
     "start": "yarn prepare-assets && docusaurus start",
     "build": "yarn prepare-assets && docusaurus build && node scripts/prepare-llm-output.mjs",
     "serve": "docusaurus serve",
@@ -17,8 +17,10 @@
     "@docusaurus/preset-classic": "^3.10.2",
     "@mdx-js/react": "^3.1.1",
     "@signalwire/docusaurus-plugin-llms-txt": "1.2.2",
+    "@vis.gl/tangram-deck-example": "workspace:^",
     "@vis.gl/tangram-projected-example": "workspace:^",
     "@vis.gl/tangram-terrain-example": "workspace:^",
+    "@vis.gl/tangram-webxr-example": "workspace:^",
     "prism-react-renderer": "^2.4.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

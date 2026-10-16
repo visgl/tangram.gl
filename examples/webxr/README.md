@@ -6,6 +6,13 @@ Copyright (c) vis.gl contributors
 
 # Tangram WebXR example
 
+Run `yarn install --immutable`, `yarn build` and `yarn start` at the repository
+root, then open `/examples/webxr/` on the local server. The standalone app bundles
+its installed dependencies; the website lazy-loads the same source with Docusaurus.
+The optional Thor integration uses a pinned Git dependency because Thor is not
+published on npm. Webcam models and WASM are downloaded only when gestures start.
+Builds include Thor's MIT notice in `examples/dist/thor.LICENSE.txt`.
+
 This experimental renderer example uses `WebXRManager` and
 `WebXRAnimationFrameProvider` from `@luma.gl/experimental`. A single Tangram
 scene and tile cache are rendered once per XR view using luma.gl's per-eye

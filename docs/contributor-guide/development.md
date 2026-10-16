@@ -67,7 +67,7 @@ yarn workspace tangram-layers-website serve --host 127.0.0.1 --port 3000
 ```
 
 Open `http://127.0.0.1:3000/tangram.gl/`. Asset assembly builds the packages and
-classic playground, copies assets, and leaves Docusaurus in control of example
+classic playground and standalone applications, copies assets, and leaves Docusaurus in control of example
 routes. Standalone `index.html` files are deliberately not copied over those
 routes. Example canvases resize beside the sidebar; info cards can collapse
 without discarding editor/control state, and fullscreen stays inside the example.
@@ -77,6 +77,17 @@ command serves the repository at `http://127.0.0.1:8000/` (override with `PORT`)
 It watches renderer bundles only; rebuild layer or playground output after
 changing those sources. The classic workspace also has
 `yarn workspace @vis.gl/tangram-classic start`, which builds its prerequisites.
+
+Deck, WebXR, projected and terrain examples import installed npm packages;
+they need no import maps or esm.sh modules. Docusaurus lazy-loads their source
+and shares dependency chunks. The legacy classic Leaflet scripts are unchanged.
+`yarn build:examples` rebuilds the standalone Deck, WebXR and projected apps in
+`examples/dist`; the terrain workspace builds its app and CPU decoder together.
+These generated applications are not a separately maintained vendor bundle.
+After editing an example, rebuild its application before using the static server.
+Tile services and optional Thor webcam models/WASM still require network access.
+Thor is not published on npm, so its example-only dependency is pinned to the
+same Git revision previously loaded through esm.sh and bundled during the build.
 
 The canonical public host is [vis.gl/tangram.gl](https://vis.gl/tangram.gl/).
 This repository validates the website but does not deploy GitHub Pages.

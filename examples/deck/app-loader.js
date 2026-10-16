@@ -21,7 +21,7 @@ export async function initializeCurrentDeckExample({
   getActiveMountId,
   embeddedViewMode,
   runtimeOptions,
-  loadRuntime = (runtimeUrl) => import(runtimeUrl)
+  loadRuntime = () => import('./app-runtime.js')
 }) {
   const loaderUrl = new URL(moduleUrl);
   const moduleMountId = loaderUrl.searchParams.get('mount');

@@ -9,7 +9,6 @@ import {getOcularConfig} from '@vis.gl/dev-tools';
 
 const repositoryDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const configuration = await getOcularConfig({root: repositoryDirectory});
-const external = ['@deck.gl/core', '@deck.gl/geo-layers', '@luma.gl/core', '@luma.gl/webgpu', '@vis.gl/tangram-renderer', '@vis.gl/tangram-layers'];
 
 // The dedicated decoder contains CPU helpers only and has no import-map/CDN dependency.
 const worker = await build({absWorkingDir: repositoryDirectory,
@@ -24,23 +23,20 @@ if (Object.keys(worker.metafile.inputs).some(path => /modules\/tangram-renderer\
   throw new Error('Terrain worker unexpectedly embeds drawing or scene infrastructure');
 }
 
-// ocular-bundle's package ESM preset externalizes all npm imports. This browser
-// application instead bundles its parsers and only externalizes the import map.
+// Unlike a published library entry, the standalone browser app bundles its npm
+// dependencies. The website imports the same source through Docusaurus instead.
 const result = await build({
   absWorkingDir: repositoryDirectory,
   entryPoints: ['examples/terrain/standalone.ts'],
   outfile: 'examples/terrain/dist/app.js',
   bundle: true, format: 'esm', platform: 'browser', minify: true,
-  target: configuration.bundle.target, external,
+  target: configuration.bundle.target,
   sourcemap: true, sourcesContent: false, metafile: true, logLevel: 'info'
 });
 for (const output of Object.values(result.metafile.outputs)) {
   for (const dependency of output.imports) {
-    if (dependency.external && !external.some(name => dependency.path === name || dependency.path.startsWith(`${name}/`))) {
+    if (dependency.external) {
       throw new Error(`Terrain browser bundle has an unresolved import: ${dependency.path}`);
     }
   }
-}
-if (Object.keys(result.metafile.inputs).some(path => path.startsWith('modules/tangram-renderer/'))) {
-  throw new Error('Terrain browser bundle unexpectedly embeds the renderer');
 }

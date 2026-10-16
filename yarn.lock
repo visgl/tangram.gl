@@ -5172,6 +5172,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@mediapipe/tasks-vision@npm:0.10.22-rc.20250304":
+  version: 0.10.22-rc.20250304
+  resolution: "@mediapipe/tasks-vision@npm:0.10.22-rc.20250304"
+  checksum: 10c0/fd59ecd8777a218b859506b28002b127129c6a50b92d9729f5bb1286765d862008cd788e4a1c4b059fc6522984809769701053e66df747658ac330fa32e08525
+  languageName: node
+  linkType: hard
+
 "@module-federation/error-codes@npm:0.22.0":
   version: 0.22.0
   resolution: "@module-federation/error-codes@npm:0.22.0"
@@ -7625,9 +7632,22 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@vis.gl/tangram-deck-example@workspace:examples/deck":
+"@vis.gl/tangram-deck-example@workspace:^, @vis.gl/tangram-deck-example@workspace:examples/deck":
   version: 0.0.0-use.local
   resolution: "@vis.gl/tangram-deck-example@workspace:examples/deck"
+  dependencies:
+    "@deck.gl/core": "npm:9.4.0"
+    "@deck.gl/layers": "npm:9.4.0"
+    "@loaders.gl/core": "npm:^4.5.3"
+    "@luma.gl/core": "npm:9.4.2"
+    "@luma.gl/engine": "npm:9.4.2"
+    "@luma.gl/experimental": "npm:9.4.2"
+    "@luma.gl/shadertools": "npm:9.4.2"
+    "@luma.gl/webgpu": "npm:9.4.2"
+    "@math.gl/core": "npm:5.0.0-alpha.18"
+    "@vis.gl/tangram-layers": "workspace:^"
+    "@vis.gl/tangram-renderer": "workspace:^"
+    mjolnir.js: "npm:^3.1.1"
   languageName: unknown
   linkType: soft
 
@@ -7752,7 +7772,7 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@vis.gl/tangram-webxr-example@workspace:examples/webxr":
+"@vis.gl/tangram-webxr-example@workspace:^, @vis.gl/tangram-webxr-example@workspace:examples/webxr":
   version: 0.0.0-use.local
   resolution: "@vis.gl/tangram-webxr-example@workspace:examples/webxr"
   dependencies:
@@ -7764,9 +7784,12 @@ __metadata:
     "@luma.gl/webgl": "npm:9.4.2"
     "@luma.gl/webgpu": "npm:9.4.2"
     "@math.gl/core": "npm:5.0.0-alpha.18"
+    "@mediapipe/tasks-vision": "npm:0.10.22-rc.20250304"
     "@vis.gl/tangram-layers": "workspace:^"
     "@vis.gl/tangram-renderer": "workspace:^"
     mjolnir.js: "npm:^3.1.1"
+    react: "npm:^19.2.8"
+    thor.gl: "patch:thor.gl@https%3A//github.com/NEW-HEAT/thor.gl.git%23commit=1f85d87d52bbd30af34626fa17d3193f7e24dff5#~/.yarn/patches/thor.gl-https-8e26b0cd01.patch"
   languageName: unknown
   linkType: soft
 
@@ -19266,6 +19289,7 @@ __metadata:
     "@vis.gl/dev-tools": "npm:2.0.0-alpha.8"
     "@vitest/coverage-v8": "npm:^4.0.18"
     chai: "npm:^4.5.0"
+    esbuild: "npm:^0.28.1"
     playwright: "npm:^1.58.0"
     sinon: "npm:^19.0.2"
     typescript: "npm:^6.0.3"
@@ -19289,8 +19313,10 @@ __metadata:
     "@types/node": "npm:^24.0.0"
     "@types/react": "npm:^19.2.18"
     "@types/react-dom": "npm:^19.2.5"
+    "@vis.gl/tangram-deck-example": "workspace:^"
     "@vis.gl/tangram-projected-example": "workspace:^"
     "@vis.gl/tangram-terrain-example": "workspace:^"
+    "@vis.gl/tangram-webxr-example": "workspace:^"
     prism-react-renderer: "npm:^2.4.1"
     react: "npm:^19.2.8"
     react-dom: "npm:^19.2.8"
@@ -19401,6 +19427,28 @@ __metadata:
   peerDependencies:
     tslib: ^2
   checksum: 10c0/eaf83b2a77dc105ff724c04777a56cea40e945a73bd50cc7554694702ad3d09d1d1843ed32315723ea45490106e8a0f972d9c12dc60d3081c551b4eb4235b24f
+  languageName: node
+  linkType: hard
+
+"thor.gl@https://github.com/NEW-HEAT/thor.gl.git#commit=1f85d87d52bbd30af34626fa17d3193f7e24dff5":
+  version: 0.1.0
+  resolution: "thor.gl@https://github.com/NEW-HEAT/thor.gl.git#commit=1f85d87d52bbd30af34626fa17d3193f7e24dff5"
+  peerDependencies:
+    "@deck.gl/core": ^9.0.0
+    "@mediapipe/tasks-vision": ^0.10.0
+    react: ">=18"
+  checksum: 10c0/fcc09c0de7d5295902af82e281bc3abc8f5349d0e1043de1112d92519838b46eb9e4d6767056ffb702fb50fe384b3ac087a8b9cfbbae00b9e0a06678957c487e
+  languageName: node
+  linkType: hard
+
+"thor.gl@patch:thor.gl@https%3A//github.com/NEW-HEAT/thor.gl.git%23commit=1f85d87d52bbd30af34626fa17d3193f7e24dff5#~/.yarn/patches/thor.gl-https-8e26b0cd01.patch":
+  version: 0.1.0
+  resolution: "thor.gl@patch:thor.gl@https%3A//github.com/NEW-HEAT/thor.gl.git%23commit=1f85d87d52bbd30af34626fa17d3193f7e24dff5#~/.yarn/patches/thor.gl-https-8e26b0cd01.patch::version=0.1.0&hash=8fdb94"
+  peerDependencies:
+    "@deck.gl/core": ^9.0.0
+    "@mediapipe/tasks-vision": ^0.10.0
+    react: ">=18"
+  checksum: 10c0/f9429f66eefa2291bcdab759d315c4afd7657913126d1dcaf0ce812c62d93e1fd957b49a4a58b1dc1ac1d20b72cf921511978e249082ad3ec0e2e0fb7537aa90
   languageName: node
   linkType: hard
 

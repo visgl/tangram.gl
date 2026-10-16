@@ -4,7 +4,7 @@
 
 import {Deck, FirstPersonView, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {PathLayer, ScatterplotLayer} from '@deck.gl/layers';
-import {webgpuAdapter} from 'https://esm.sh/@luma.gl/webgpu@9.4.2?bundle&external=@luma.gl/core';
+import {webgpuAdapter} from '@luma.gl/webgpu';
 import {TangramLayer} from '@vis.gl/tangram-layers';
 import {resolveDeckExampleViewMode} from './app-loader.js';
 import {createCollapsibleInfoCard} from './info-card.js';
@@ -17,7 +17,7 @@ export function initializeDeckExample({
   basemapId: configuredBasemapId,
   showOverlays = true
 } = {}) {
-  const exampleBaseUrl = window.tangramExampleBaseUrl || new URL('./', import.meta.url).href;
+  const exampleBaseUrl = window.tangramExampleBaseUrl || new URL('./', window.location.href).href;
 
   function resolveExampleAsset(relativePath) {
     return new URL(relativePath, exampleBaseUrl).href;

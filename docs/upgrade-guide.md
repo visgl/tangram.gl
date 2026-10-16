@@ -15,6 +15,10 @@ prerelease dependencies; the production YAML and MVT parser selection is unchang
 Root resolutions align loaders.gl's exact math.gl alpha.15 pins with alpha.18.
 They do not redirect math.gl 4.x: deck.gl 9.4 still needs its private 4.x APIs.
 
+Standalone examples now require the application build (`yarn build`), rather than
+loading package sources with import maps. Website examples import the same installed
+workspace runtimes through Docusaurus. Remove old import maps when adapting an example.
+
 The `9.4-release` branch preserves the previous dependency stack. The development
 line uses deck.gl and luma.gl 9.4. Published deck.gl 9.4 depends on luma.gl 9.4; installing
 an independent luma.gl 10 device alongside it is not a supported migration.
