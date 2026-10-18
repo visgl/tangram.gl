@@ -10,7 +10,7 @@ import {resolveDeckExampleViewMode} from './app-loader.js';
 import {createCollapsibleInfoCard} from './info-card.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
-import {createBasemapBackground} from './basemap-background';
+import {createBasemapBackground} from './basemap-background.ts';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
 import {readComparisonPreference, writeComparisonPreference} from './comparison-settings.ts';
