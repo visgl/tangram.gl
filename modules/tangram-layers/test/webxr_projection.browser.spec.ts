@@ -30,7 +30,7 @@ test.each([0, 179.8, -179.8].flatMap(longitude => [0.7, 1.7].map(eyeHeight => ({
   }))};
   try {
     const frame = presentation.createFrame({width: 512, height: 320, frameState, mode: 'immersive-vr'});
-    const bounds = frame.hostFrame.projection.visibleBounds;
+    const bounds = frame.hostFrame.projection?.visibleBounds;
     if (!bounds) throw new Error('Missing immersive globe bounds');
     expect(bounds[0]).toBeLessThan(longitude); expect(bounds[2]).toBeGreaterThan(longitude);
     expect(bounds[1]).toBeLessThan(0); expect(bounds[3]).toBeGreaterThan(0);
