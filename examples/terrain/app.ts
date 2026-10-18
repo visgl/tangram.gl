@@ -233,7 +233,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     if (!tileset || disposed) return;
     const drawable = tileset.getDrawableTiles();
     const selectedGrids = drawable.flatMap(tile => tile.data ? [tile.data.grid] : []);
-    if (selectedGrids.length !== navigationGrids.length || selectedGrids.some((grid, index) => grid !== navigationGrids[index])) {
+    if (firstPerson && (selectedGrids.length !== navigationGrids.length || selectedGrids.some((grid, index) => grid !== navigationGrids[index]))) {
       navigationGrids = selectedGrids; navigationField = new TerrainHeightField(selectedGrids);
     }
     const visible = new Set(drawable.map(tile => tile.key));
