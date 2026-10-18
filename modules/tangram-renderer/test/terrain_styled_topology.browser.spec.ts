@@ -99,6 +99,17 @@ test('a coarser new field retains the old canonical triangle planes throughout t
     }
 });
 
+test('previous no-data cells never invent a phantom transition floor for newly covered ground', () => {
+    const previous = grid(1, 1, 2, true); previous.valid[4] = 0;
+    const current = {...grid(), heights: new Float32Array(9).fill(100)};
+    const request = input(false, 2, 1, 1, [current], [previous]);
+    for (let vertex = 1; vertex < 4; vertex++) request.vertices.set(request.vertices.subarray(8, polygonLayout.stride), vertex * polygonLayout.stride + 8);
+    const transition = drapeTerrainMesh({...request, styled: false, ground: true, terrain: normalizeTerrainDraping({grids: [current], previousGrids: [previous],
+        groundMeshResolution: 2, previousGroundMeshResolution: 4, conformTransitions: true})});
+    expect(heightAt(transition, polygonLayout, [2048, -2048], 0)).toBeCloseTo(100, 4);
+    expect(heightAt(transition, polygonLayout, [2048, -2048], 1)).toBeCloseTo(100, 4);
+});
+
 test('mixed source zoom and different source diagonals agree on a nonplanar shared terrain seam', () => {
     const parentInput = input(), childInput = input(false, 4, 5, 5);
     childInput.indices = new Uint16Array([0, 1, 3, 1, 2, 3]);

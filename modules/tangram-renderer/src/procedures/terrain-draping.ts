@@ -436,6 +436,20 @@ export function drapeTerrainMesh(options: {
     const canonicalSamples = new Map<number, ReturnType<typeof sampleTerrainChannels>>();
     const canonicalCoverage = new Map<string, boolean>();
     const endpointSamples = [new Map<number, ReturnType<typeof sampleTerrainChannels>>(), new Map<number, ReturnType<typeof sampleTerrainChannels>>()];
+    const endpointCoverage = [new Map<string, boolean>(), new Map<string, boolean>()];
+    /** Endpoint visibility follows the original triangle's conservative mask, not smaller replacement cuts. */
+    const endpointCovered = (topology: TerrainGroundTopology, reference: TerrainFaceReference, endpoint: 0 | 1): boolean => {
+        const key = reference.indices.join(',');
+        let covered = endpointCoverage[endpoint].get(key);
+        if (covered === undefined) {
+            const positions = endpoint === 0 ? topology.samplePositions : topology.positions;
+            covered = (endpoint === 0 ? fields.current : fields.previous).coversBounds([
+                Math.min(...reference.indices.map(index => positions[index * 2])), Math.min(...reference.indices.map(index => positions[index * 2 + 1])),
+                Math.max(...reference.indices.map(index => positions[index * 2])), Math.max(...reference.indices.map(index => positions[index * 2 + 1]))]);
+            endpointCoverage[endpoint].set(key, covered);
+        }
+        return covered;
+    };
     /** Sample unchanged endpoint nodes once; interpolate their planes at newly introduced cuts. */
     const interpolateEndpoint = (topology: TerrainGroundTopology, reference: TerrainFaceReference, endpoint: 0 | 1): ReturnType<typeof sampleTerrainChannels> => {
         const samples = reference.indices.map(index => {
@@ -447,7 +461,8 @@ export function drapeTerrainMesh(options: {
             }
             return sample;
         });
-        return {valid: samples.every(sample => sample.valid), channels: Array.from({length: 6}, (_value, channel) => samples.reduce((sum, sample, corner) => sum + sample.channels[channel] * reference.weights[corner], 0))};
+        return {valid: samples.every(sample => sample.valid) && endpointCovered(topology, reference, endpoint),
+            channels: Array.from({length: 6}, (_value, channel) => samples.reduce((sum, sample, corner) => sum + sample.channels[channel] * reference.weights[corner], 0))};
     };
     const getCanonicalSample = (index: number) => {
         let sample = canonicalSamples.get(index);
@@ -456,7 +471,7 @@ export function drapeTerrainMesh(options: {
                 [groundTopology!.positions[index * 2], groundTopology!.positions[index * 2 + 1]], cell);
             if (transitionTopology) {
                 const reference = transitionTopology.previous[index];
-                const previous = reference ? interpolateEndpoint(previousGroundTopology!, reference, 1).channels.slice(3) : sample.channels.slice(0, 3);
+                const previous = reference && endpointCovered(previousGroundTopology!, reference, 1) ? interpolateEndpoint(previousGroundTopology!, reference, 1).channels.slice(3) : sample.channels.slice(0, 3);
                 sample.channels.splice(3, 3, ...previous);
             }
             sample.channels = sample.channels.map(Math.fround);
