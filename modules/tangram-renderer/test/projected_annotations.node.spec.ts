@@ -7,6 +7,7 @@ import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import {layoutProjectedAnnotations} from '../src/labels/projected-pass';
 import type {LabelTile, LabelMesh} from '../src/labels/main-pass-types';
+import {TerrainMeshSurface, TerrainSurfaceCollection} from '../src/selection/terrain_surface';
 
 /** Hermetic projected point quad and its worker snapshot; no canvas or service is needed. */
 function tile(id: number, x = 0, properties: {identity?: string; priority?: number; collide?: boolean;
@@ -48,6 +49,22 @@ function mask(value: LabelTile): number[] {
     const data = new DataView(mesh.vertex_data.buffer);
     return Array.from({length: 4}, (_, index) => data.getInt16(index * 24 + 18, true));
 }
+
+test('an occluded anchor does not hide visible billboard corners, including a second stereo eye', () => {
+    const blocker = (extent: number) => new TerrainSurfaceCollection('web-mercator', [{id: 'ridge', surface: new TerrainMeshSurface({projection: 'web-mercator',
+        positions: [-extent, -extent, -0.5, extent, -extent, -0.5, extent, extent, -0.5, -extent, extent, -0.5], indices: [0, 1, 2, 0, 2, 3]})}]);
+    const partial = tile(1);
+    layoutProjectedAnnotations([partial], frame(), {terrainSurface: blocker(0.05)});
+    expect(mask(partial)).toEqual([1, 1, 1, 1]);
+    const value = tile(2), terrainSurface = blocker(0.15);
+    layoutProjectedAnnotations([value], frame(), {terrainSurface});
+    expect(mask(value)).toEqual([0, 0, 0, 0]);
+    layoutProjectedAnnotations([value], frame(0.1), {terrainSurface});
+    expect(mask(value)).toEqual([1, 1, 1, 1]);
+    const uploads = vi.mocked(value.meshes.points[0].upload).mock.calls.length;
+    layoutProjectedAnnotations([value], frame(0.1), {terrainSurface});
+    expect(value.meshes.points[0].upload).toHaveBeenCalledTimes(uploads);
+});
 
 test('priority, rotation and padding resolve in screen space, independent of tile/style zoom', () => {
     const low = tile(1, 0, {priority: 10, rotation: Math.PI / 4});

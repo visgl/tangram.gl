@@ -23,6 +23,8 @@ export type TangramLayerProps = LayerProps & {
   scene: SceneDefinition;
   /** Opt-in physical-height draping; host owns DEM acquisition and supplies immutable grids. */
   terrain?: import('@vis.gl/tangram-renderer/core').RendererOptions['terrain'];
+  /** Borrowed application admission pool, shared with terrain acquisition; changing it recreates the renderer. */
+  terrainResourceBudget?: import('@vis.gl/tangram-renderer/core').RendererOptions['terrainResourceBudget'];
   /** Visual terrain relief multiplier; changing it does not refetch or rebuild meshes. */
   terrainExaggeration?: number;
   /** Caller-owned CRS factory for CPU-projected basemaps; omitted keeps worker-local math.gl transforms. */
@@ -157,6 +159,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}:
         record.projectionEngine !== (props.projectionEngine ?? undefined) ||
         record.projectionEngineExecution !== (props.projectionEngineExecution ?? undefined) ||
         Boolean(record.terrain) !== Boolean(props.terrain) ||
+        record.terrainResourceBudget !== (props.terrainResourceBudget ?? undefined) ||
         record.maxConcurrentTileLoadsPerWorker !== (props.maxConcurrentTileLoadsPerWorker ?? undefined);
 
       if (shouldCreateScene) {
@@ -330,6 +333,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}:
         apiKey: props.apiKey,
         projectionEngine: props.projectionEngine ?? undefined,
         terrain: props.terrain,
+        terrainResourceBudget: props.terrainResourceBudget ?? undefined,
         terrainPendingRevision: 0,
         projectionEngineExecution: props.projectionEngineExecution ?? undefined,
         maxConcurrentTileLoadsPerWorker: props.maxConcurrentTileLoadsPerWorker ?? undefined,
@@ -354,6 +358,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}:
           canvas: deckCanvas,
           projectionEngine: record.projectionEngine,
           terrain: record.terrain,
+          terrainResourceBudget: record.terrainResourceBudget,
           projectionEngineExecution: record.projectionEngineExecution,
           maxConcurrentTileLoadsPerWorker: record.maxConcurrentTileLoadsPerWorker,
           requestRedraw: () => {
@@ -583,6 +588,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}:
     maxConcurrentTileLoadsPerWorker: null,
     firstPersonMaxGroundExtent: 20000,
     terrain: {type: 'object', value: null, compare: false},
+    terrainResourceBudget: {type: 'object', value: null, compare: false},
     terrainExaggeration: {type: 'number', value: 1, min: 0, max: 1000},
     firstPersonElevationRange: {type: 'array', value: [0, 0], compare: true},
     onSceneLoad: () => {},

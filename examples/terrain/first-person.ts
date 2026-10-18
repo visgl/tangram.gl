@@ -7,6 +7,7 @@ import type {LoadedTerrain} from './load-terrain';
 import {sampleTerrainAnchor} from './ground-following';
 import {TerrainSurfaceCollection, projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
 import type {TerrainSurface} from '@vis.gl/tangram-renderer/core';
+import {TerrainHeightField, guardTerrainMotion} from '@vis.gl/tangram-renderer/map-logic';
 
 /** Geographic FirstPerson state with a required meter offset and finite anchor. */
 export type TerrainEyeState = FirstPersonViewState & {
@@ -42,7 +43,14 @@ export function constrainTerrainEye(state: TerrainEyeState, tiles: Iterable<Load
  * when translation is blocked. This is a point-clearance guard, not avatar physics
  * or a certification that every intermediate footprint has loaded coverage.
  */
-export function constrainTerrainMotion(previous: TerrainEyeState, proposed: TerrainEyeState, tiles: Iterable<LoadedTerrain>, clearance: number, displayedSurface?: TerrainSurface): {state: TerrainEyeState; available: boolean; blocked: boolean} {
+export function constrainTerrainMotion(previous: TerrainEyeState, proposed: TerrainEyeState, tiles: Iterable<LoadedTerrain>, clearance: number, displayedSurface?: TerrainSurface, footprint?: {
+    /** Physical horizontal avatar radius; square envelope is conservative. */
+    radius: number;
+    /** Physical minimum body/eye height; omission uses the target-following clearance. */
+    clearance?: number;
+    /** Optional host-owned field matching the supplied visible grids, reused across controller events. */
+    field?: TerrainHeightField;
+}): {state: TerrainEyeState; available: boolean; blocked: boolean} {
     const loaded = [...tiles];
     const clamped = constrainTerrainEye(proposed, loaded, clearance, previous.position[2], displayedSurface);
     const start = getTerrainEyeCoordinate(previous), end = getTerrainEyeCoordinate(clamped.state);
@@ -56,6 +64,16 @@ export function constrainTerrainMotion(previous: TerrainEyeState, proposed: Terr
     const collection = new TerrainSurfaceCollection('web-mercator', displayedSurface ? [{id: 'displayed', surface: displayedSurface}] : loaded.map((tile, index) => ({id: String(index), surface: tile.surface})));
     const rayStart = projectGeographicPosition([start[0], start[1], start[2] - clearance], 'web-mercator');
     const rayEnd = projectGeographicPosition([end[0], end[1], end[2] - clearance], 'web-mercator');
+    if (footprint) {
+        if (!Number.isFinite(footprint.radius) || footprint.radius < 0) throw new Error('Invalid terrain avatar radius');
+        const field = footprint.field ?? new TerrainHeightField(loaded.map(tile => tile.grid));
+        // Bound Mercator scale across the path and the physical body radius.
+        const latitude = Math.min(85.0511287798066, Math.max(Math.abs(start[1]), Math.abs(end[1])) + footprint.radius / 110000);
+        const scale = 1 / Math.cos(latitude * Math.PI / 180);
+        const guarded = guardTerrainMotion(field, [rayStart[0], rayStart[1], start[2]], [rayEnd[0], rayEnd[1], end[2]],
+            {radius: footprint.radius * scale, clearance: footprint.clearance ?? clearance, maxStep: 2 * scale});
+        if (guarded.blocked) return {state: hold(), available: guarded.available, blocked: true};
+    }
     const hit = collection.intersectSegment(rayStart, rayEnd, {startInset: 1e-4, endInset: 1e-4});
     return hit ? {state: hold(), available: true, blocked: true} : {...clamped, blocked: false};
 }

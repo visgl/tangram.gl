@@ -12,6 +12,7 @@ import {summarizeDrapedTerrainBounds} from '../map-logic/draped-terrain-bounds';
 import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 import {createTerrainGroundTopology, wrapTerrainGroundGrids, type TerrainGroundTopology} from '../map-logic/terrain-ground-topology';
 import {conformTerrainStyledMesh, type TerrainStyledTopology} from './terrain-styled-topology';
+import {refineTerrainTransitionTopology, type TerrainTransitionTopology, type TerrainFaceReference} from '../map-logic/terrain-transition-topology';
 
 /** Opt-in physical-height basemap displacement, independent of deck, providers and GPU ownership. */
 export interface TerrainDrapingOptions {
@@ -33,10 +34,16 @@ export interface TerrainDrapingOptions {
     querySurfaceStyles?: readonly string[];
     /** Opt-in DEM-owned ground cells per tile axis (2, 4, 8, 16, 32, 64), also conforming polygons/roads; zero keeps legacy refinement. */
     groundMeshResolution?: number;
+    /** Previous admitted ground resolution; Renderer supplies it automatically for field replacement. */
+    previousGroundMeshResolution?: number;
+    /** Opt-in common planar refinement against previous canonical ground triangles; default false preserves arbitrary legacy previous fields. */
+    conformTransitions?: boolean;
     /** Retained query channels per mesh, default 8 MiB; separate from completed draw bytes. */
     maxQueryMeshBytes?: number;
     /** Additional staged draw/query buffers across a replacement generation; default 64 MiB, excluding GPU overhead. */
     maxStagedMeshBytes?: number;
+    /** Peak retained draw/query arrays plus estimated GPU vertex/index copies, including incumbent and staged generations; default 256 MiB. Excludes textures, driver overhead and worker scratch. */
+    maxResidentMeshBytes?: number;
     /** Aggregate acceleration reservation for the current draped query snapshot; default 16 MiB. */
     maxQueryIndexBytes?: number;
     /** Retained projected picking geometry per snapshot; default 32 MiB, with exact streaming fallback. */
@@ -79,6 +86,8 @@ export interface TerrainMeshPreparation {
     canonicalGroundResolution?: number;
     /** Canonical cell resolution used to cut authored polygons or nominal expanded road faces. */
     canonicalStyledResolution?: number;
+    /** Shared planar transition triangles after cutting against the previous generation's faces. */
+    transitionTriangles?: number;
 }
 
 /** Resident preparation counters useful to compare detail policies on a real host. */
@@ -105,6 +114,10 @@ export interface TerrainDrapingStatistics {
     queryBytes: number;
     /** New draw/query buffers waiting for all worker batches to complete. */
     stagedMeshBytes: number;
+    /** Draw/query arrays plus estimated GPU vertex/index copies in both admitted and staged generations. */
+    residentMeshBytes: number;
+    /** Peak mesh-domain admission limit; source, worker scratch and driver overhead remain separate. */
+    residentMeshByteLimit: number;
     /** Snapshot-local annotation query costs; excludes separately retained host snapshots. */
     annotationQueries?: import('../selection/draped-terrain-surface').DrapedTerrainQueryStatistics;
 }
@@ -118,8 +131,11 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     const duration = options.transitionDuration ?? 200;
     const querySurfaceStyles = options.querySurfaceStyles ?? [];
     const groundMeshResolution = options.groundMeshResolution ?? 0;
+    const previousGroundMeshResolution = options.previousGroundMeshResolution ?? groundMeshResolution;
+    const conformTransitions = options.conformTransitions ?? false;
     const maxQueryMeshBytes = options.maxQueryMeshBytes ?? 8 * 1024 * 1024;
     const maxStagedMeshBytes = options.maxStagedMeshBytes ?? 64 * 1024 * 1024;
+    const maxResidentMeshBytes = options.maxResidentMeshBytes ?? 256 * 1024 * 1024;
     const maxQueryIndexBytes = options.maxQueryIndexBytes ?? 16 * 1024 * 1024;
     const maxProjectedQueryBytes = options.maxProjectedQueryBytes ?? 32 * 1024 * 1024;
     const queryPreparationBudgetMs = options.queryPreparationBudgetMs ?? 2;
@@ -127,10 +143,11 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     if (!Number.isSafeInteger(maximum) || maximum < 0 || !Number.isFinite(segment) || segment < 1 ||
         !Number.isSafeInteger(vertices) || vertices < 0 || vertices > 262144 || !Number.isSafeInteger(meshBytes) || meshBytes < 0 ||
         !Number.isFinite(duration) || duration < 0 || duration > 5000 ||
-        ![maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes].every(value => Number.isSafeInteger(value) && value >= 0) ||
+        ![maxQueryMeshBytes, maxStagedMeshBytes, maxResidentMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes].every(value => Number.isSafeInteger(value) && value >= 0) ||
         !Number.isFinite(queryPreparationBudgetMs) || queryPreparationBudgetMs < 0 || queryPreparationBudgetMs > 20 ||
-        typeof occludeAnnotations !== 'boolean' ||
+        typeof occludeAnnotations !== 'boolean' || typeof conformTransitions !== 'boolean' ||
         !Number.isSafeInteger(groundMeshResolution) || groundMeshResolution !== 0 && (groundMeshResolution < 2 || groundMeshResolution > 64 || (groundMeshResolution & (groundMeshResolution - 1)) !== 0) ||
+        !Number.isSafeInteger(previousGroundMeshResolution) || previousGroundMeshResolution !== 0 && (previousGroundMeshResolution < 2 || previousGroundMeshResolution > 64 || (previousGroundMeshResolution & (previousGroundMeshResolution - 1)) !== 0) ||
         querySurfaceStyles.some(name => typeof name !== 'string' || !name.length) || new Set(querySurfaceStyles).size !== querySurfaceStyles.length) throw new Error('Invalid terrain draping limits');
     const previous = options.previousGrids ?? [];
     let bytes = 0;
@@ -157,7 +174,7 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
     const copy = (grids: readonly TerrainHeightGrid[]): TerrainHeightGrid[] => grids.map(grid => ({...grid, bounds: [...grid.bounds], heights: Float32Array.from(grid.heights), valid: Uint8Array.from(grid.valid)}));
     return {grids: copy(options.grids), previousGrids: copy(previous), maxSegmentLength: segment, maxAdditionalVertices: vertices,
         maxGridBytes: maximum, maxMeshBytes: meshBytes, transitionDuration: duration, transitionGeneration: 0, byteLength: bytes, minimumHeight,
-        querySurfaceStyles: [...querySurfaceStyles], groundMeshResolution, maxQueryMeshBytes, maxStagedMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes, queryPreparationBudgetMs, occludeAnnotations};
+        querySurfaceStyles: [...querySurfaceStyles], groundMeshResolution, previousGroundMeshResolution, conformTransitions, maxQueryMeshBytes, maxStagedMeshBytes, maxResidentMeshBytes, maxQueryIndexBytes, maxProjectedQueryBytes, queryPreparationBudgetMs, occludeAnnotations};
 }
 
 /**
@@ -350,6 +367,20 @@ export function drapeTerrainMesh(options: {
         else floating.set(options.vertices.subarray(from, from + attribute.byte_size!), to);
     }
     let groundTopology: TerrainGroundTopology | undefined;
+    let currentGroundTopology: TerrainGroundTopology | undefined, previousGroundTopology: TerrainGroundTopology | undefined;
+    let transitionTopology: TerrainTransitionTopology | null = null;
+    /** Keep source-independent endpoint planes when DEM footprints or dyadic resolution change. */
+    const prepareTransition = (topology: TerrainGroundTopology, topologyBounds: readonly [number, number, number, number]): TerrainGroundTopology => {
+        currentGroundTopology = topology;
+        if (!terrain.conformTransitions || !terrain.previousGrids.length || !terrain.previousGroundMeshResolution || !terrain.transitionDuration) return topology;
+        // Explicit canonical replacement requires the same validated quadtree contract at both endpoints.
+        previousGroundTopology = createStyledGroundTopology(terrain.previousGrids, topologyBounds, terrain.previousGroundMeshResolution,
+            Math.min(originalCount + terrain.maxAdditionalVertices, Math.floor(terrain.maxMeshBytes / outputLayout.stride)));
+        transitionTopology = refineTerrainTransitionTopology(topology, previousGroundTopology,
+            Math.min(originalCount + terrain.maxAdditionalVertices, Math.floor(terrain.maxMeshBytes / (outputLayout.stride + 12))));
+        if (transitionTopology) statistics.transitionTriangles = transitionTopology.topology.indices.length / 3;
+        return transitionTopology?.topology ?? topology;
+    };
     if (canonicalGround) {
         const corners = new Set<string>();
         for (let index = 0; index < originalCount; index++) {
@@ -365,6 +396,7 @@ export function drapeTerrainMesh(options: {
         if (corners.size !== 4 || originalIndices.length !== 6 || extrusionOffset !== undefined || options.annotations) throw new Error('Canonical terrain ground requires a full tile raster quad');
         groundTopology = createTerrainGroundTopology(terrain.grids, [origin[0], origin[1] - 4096 * metersPerUnit, origin[0] + 4096 * metersPerUnit, origin[1]],
             terrain.groundMeshResolution, Math.min(originalCount + terrain.maxAdditionalVertices, Math.floor(terrain.maxMeshBytes / outputLayout.stride)));
+        groundTopology = prepareTransition(groundTopology, [origin[0], origin[1] - 4096 * metersPerUnit, origin[0] + 4096 * metersPerUnit, origin[1]]);
         validateCanonicalSourceLOD(terrain, options.tileZoom, [origin[0], origin[1] - 4096 * metersPerUnit, origin[0] + 4096 * metersPerUnit, origin[1]], groundTopology.sampleOffset);
         statistics.canonicalGroundResolution = terrain.groundMeshResolution;
     }
@@ -381,6 +413,7 @@ export function drapeTerrainMesh(options: {
             Math.max(bounds[2], origin[0] + 4096 * metersPerUnit), Math.max(bounds[3], origin[1])] as const;
         groundTopology = createStyledGroundTopology(terrain.grids, topologyBounds, terrain.groundMeshResolution,
             Math.min(originalCount + terrain.maxAdditionalVertices, Math.floor(terrain.maxMeshBytes / outputLayout.stride)));
+        groundTopology = prepareTransition(groundTopology, topologyBounds);
         validateCanonicalSourceLOD(terrain, options.tileZoom, topologyBounds, groundTopology.sampleOffset);
         const canonical = createCanonicalGroundVertices(groundTopology, floating, baseLayout, origin, options.tileZoom);
         const canonicalView = new DataView(canonical.buffer), surfacePositions = new Float64Array(groundTopology.positions.length);
@@ -402,11 +435,30 @@ export function drapeTerrainMesh(options: {
     const fields = getHeightFields(terrain, canonicalGround || canonicalStyled, groundTopology?.sampleOffset);
     const canonicalSamples = new Map<number, ReturnType<typeof sampleTerrainChannels>>();
     const canonicalCoverage = new Map<string, boolean>();
+    const endpointSamples = [new Map<number, ReturnType<typeof sampleTerrainChannels>>(), new Map<number, ReturnType<typeof sampleTerrainChannels>>()];
+    /** Sample unchanged endpoint nodes once; interpolate their planes at newly introduced cuts. */
+    const interpolateEndpoint = (topology: TerrainGroundTopology, reference: TerrainFaceReference, endpoint: 0 | 1): ReturnType<typeof sampleTerrainChannels> => {
+        const samples = reference.indices.map(index => {
+            let sample = endpointSamples[endpoint].get(index);
+            if (!sample) {
+                sample = sampleTerrainChannels(fields, [topology.samplePositions[index * 2], topology.samplePositions[index * 2 + 1]],
+                    [topology.positions[index * 2], topology.positions[index * 2 + 1]], cell);
+                sample.channels = sample.channels.map(Math.fround); endpointSamples[endpoint].set(index, sample);
+            }
+            return sample;
+        });
+        return {valid: samples.every(sample => sample.valid), channels: Array.from({length: 6}, (_value, channel) => samples.reduce((sum, sample, corner) => sum + sample.channels[channel] * reference.weights[corner], 0))};
+    };
     const getCanonicalSample = (index: number) => {
         let sample = canonicalSamples.get(index);
         if (!sample) {
-            sample = sampleTerrainChannels(fields, [groundTopology!.samplePositions[index * 2], groundTopology!.samplePositions[index * 2 + 1]],
+            sample = transitionTopology ? interpolateEndpoint(currentGroundTopology!, transitionTopology.current[index], 0) : sampleTerrainChannels(fields, [groundTopology!.samplePositions[index * 2], groundTopology!.samplePositions[index * 2 + 1]],
                 [groundTopology!.positions[index * 2], groundTopology!.positions[index * 2 + 1]], cell);
+            if (transitionTopology) {
+                const reference = transitionTopology.previous[index];
+                const previous = reference ? interpolateEndpoint(previousGroundTopology!, reference, 1).channels.slice(3) : sample.channels.slice(0, 3);
+                sample.channels.splice(3, 3, ...previous);
+            }
             sample.channels = sample.channels.map(Math.fround);
             canonicalSamples.set(index, sample);
         }
@@ -447,7 +499,7 @@ export function drapeTerrainMesh(options: {
             samples = {valid: covered && endpoints.every(endpoint => endpoint.valid), channels: Array.from({length: 6}, (_value, channel) =>
                 endpoints.reduce((sum, endpoint, corner) => sum + endpoint.channels[channel] * weights[corner], 0))};
         }
-        else samples = sampleTerrainChannels(fields, sampleCoordinate, previousCoordinate, cell);
+        else samples = groundTopology ? getCanonicalSample(index) : sampleTerrainChannels(fields, sampleCoordinate, previousCoordinate, cell);
         valid[index] = Number(samples.valid);
         for (const [channel, attribute] of [[0, 'a_terrain'], [3, 'a_terrain_previous']] as const) {
             const offset = index * outputLayout.stride + outputLayout.offset[attribute];
@@ -557,9 +609,17 @@ function createCanonicalGroundVertices(topology: TerrainGroundTopology, template
     for (let index = 0; index < topology.positions.length / 2; index++) {
         vertices.set(template.subarray(0, layout.stride), index * layout.stride);
         const offset = index * layout.stride + layout.offset.a_position;
-        const x = (topology.normalizedPositions[index * 2] * tiles - column) * 4096;
-        const y = (row - topology.normalizedPositions[index * 2 + 1] * tiles) * 4096;
-        if (Math.fround(x) !== x || Math.fround(y) !== y) throw new Error('Canonical terrain ground positions exceed Float32 precision limits');
+        const pack = (value: number): number => {
+            const tolerance = Number.EPSILON * Math.max(4096, Math.abs(value), Math.abs(column * 4096), Math.abs(row * 4096)) * 16;
+            const rounded = Math.abs(value) <= tolerance ? 0 : Math.fround(value);
+            // Common-refinement barycentrics can introduce a few double ulps at
+            // otherwise exactly representable dyadic cuts. Do not admit a full
+            // Float32 ulp: genuinely unsupported source/DEM gaps still reject.
+            if (Math.abs(rounded - value) > tolerance) throw new Error(`Canonical terrain ground positions exceed Float32 precision limits (${value})`);
+            return rounded;
+        };
+        const x = pack((topology.normalizedPositions[index * 2] * tiles - column) * 4096);
+        const y = pack((row - topology.normalizedPositions[index * 2 + 1] * tiles) * 4096);
         view.setFloat32(offset, x, true);
         view.setFloat32(offset + 4, y, true);
     }

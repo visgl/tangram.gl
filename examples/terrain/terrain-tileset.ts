@@ -6,6 +6,7 @@ import {TileBuildQueue, TileCachePolicy, TileResidency} from '@vis.gl/tangram-re
 import type {TerrainTileData, TerrainPayload} from './terrain-payload';
 import {getTerrainParent, getTerrainTileKey, type TerrainTileCoordinate} from './tile-selection';
 import {getTerrainChildren, terrainTileContains, terrainTilesTouch} from './globe-detail';
+import type {TerrainResourceBudget, TerrainResourceLease} from '@vis.gl/tangram-renderer/map-logic';
 
 /** One cached source tile; presentation changes never discard its image bytes. */
 export interface TerrainTileRecord<Data extends TerrainPayload = TerrainTileData> {
@@ -39,6 +40,10 @@ export interface TerrainTilesetOptions<Data extends TerrainPayload = TerrainTile
     maxCachedBytes?: number;
     /** Hard retained source/decoded-array limit, including visible and fallback records. */
     maxResidentBytes?: number;
+    /** Optional shared admission with other application owners, separate from the cache-only limit. */
+    resourceBudget?: TerrainResourceBudget;
+    /** Conservative fetch/decode scratch and output reservation per active job; default 32 MiB. */
+    decodeReservationBytes?: number;
     /** Supported source zoom interval; protects parent fallback from unsupported URLs. */
     minZoom?: number;
     maxZoom?: number;
@@ -69,6 +74,8 @@ export class TerrainTileset<Data extends TerrainPayload = TerrainTileData> {
     private disposed = false;
     /** Idle waiters belong to this host and resolve on completion or teardown. */
     private readonly waiters: (() => void)[] = [];
+    /** Source/decoded arrays share one lease; running jobs retain independent scratch leases. */
+    private readonly retainedLease?: TerrainResourceLease;
 
     /** Construct validated resource limits; no network or worker starts at import time. */
     constructor(private readonly options: TerrainTilesetOptions<Data>) {
@@ -77,8 +84,10 @@ export class TerrainTileset<Data extends TerrainPayload = TerrainTileData> {
             (options.maxCachedBytes !== undefined && (!Number.isSafeInteger(options.maxCachedBytes) || options.maxCachedBytes < 0)) ||
             (options.maxResidentBytes !== undefined && (!Number.isSafeInteger(options.maxResidentBytes) || options.maxResidentBytes < 0))) throw new Error('Invalid terrain resource budget');
         const minimum = options.minZoom ?? 0, maximum = options.maxZoom ?? 12;
+        if (!Number.isSafeInteger(options.decodeReservationBytes ?? 32 * 1024 * 1024) || (options.decodeReservationBytes ?? 0) < 0) throw new Error('Invalid terrain decode reservation');
         if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum < 0 || maximum > 12 || minimum > maximum) throw new Error('Invalid terrain source domain');
         this.queue.setLimit(limit);
+        this.retainedLease = options.resourceBudget?.reserve('retained', 0) ?? undefined;
     }
 
     /** Select bounded detail and its immediate parents; obsolete fetch/CPU work is cancelled. */
@@ -216,6 +225,7 @@ export class TerrainTileset<Data extends TerrainPayload = TerrainTileData> {
         this.disposed = true;
         for (const request of this.active.values()) request.controller.abort();
         this.active.clear(); this.queue.clear(); this.cache.clear(); this.residency.clear(); this.records.clear(); this.priorities.clear(); this.wakeAdmission();
+        this.retainedLease?.release();
         this.resolveIdle();
     }
 
@@ -223,12 +233,17 @@ export class TerrainTileset<Data extends TerrainPayload = TerrainTileData> {
     private async load(record: TerrainTileRecord<Data>, token: string, meshMaxError: number): Promise<void> {
         const controller = new AbortController();
         this.active.set(record.key, {token, controller, meshMaxError});
+        let scratch: TerrainResourceLease | null | undefined;
         try {
+            scratch = this.options.resourceBudget?.reserve('transient', this.options.decodeReservationBytes ?? 32 * 1024 * 1024);
+            if (this.options.resourceBudget && !scratch) throw new Error('Terrain shared resource budget cannot admit fetch/decode');
             const bytes = record.bytes ?? await this.options.fetch(record.coordinate, controller.signal);
             if (controller.signal.aborted || this.disposed) return;
+            if (scratch && bytes.byteLength > (this.options.decodeReservationBytes ?? 32 * 1024 * 1024)) throw new Error('Terrain source exceeds decode reservation');
             this.admit({...record, bytes});
             record.bytes = bytes;
             const data = await this.options.decode(bytes, record.coordinate, meshMaxError, controller.signal);
+            if (scratch && bytes.byteLength * 2 + this.getRecordBytes({key: record.key, coordinate: record.coordinate, data}) > (this.options.decodeReservationBytes ?? 32 * 1024 * 1024)) throw new Error('Terrain output exceeds decode reservation');
             await this.waitForAdmission(record.key, controller.signal);
             if (this.disposed || controller.signal.aborted || this.active.get(record.key)?.token !== token) return;
             this.admit({...record, data});
@@ -236,6 +251,7 @@ export class TerrainTileset<Data extends TerrainPayload = TerrainTileData> {
         } catch (error) {
             if (!this.disposed && !controller.signal.aborted && this.active.get(record.key)?.token === token) record.error = error instanceof Error ? error.message : String(error);
         } finally {
+            scratch?.release();
             if (this.active.get(record.key)?.token === token) {
                 this.active.delete(record.key); this.queue.finish(record.key, token);
                 this.residency.updateConsumer('view', this.residency.getSelectedTileKeys(), this.getDrawableTiles().map(tile => tile.key));
@@ -317,11 +333,14 @@ export class TerrainTileset<Data extends TerrainPayload = TerrainTileData> {
         for (const key of this.cache.selectEvictions(records, {maxCachedTiles: this.options.maxCachedTiles ?? 24, maxCachedBytes: Math.min(this.options.maxCachedBytes ?? 32 * 1024 * 1024, limit - protectedBytes)})) {
             this.records.delete(key); this.cache.forget(key);
         }
+        const bytes = [...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record.key === candidate.key ? candidate : record), 0);
+        if (this.retainedLease && !this.retainedLease.resize(bytes)) throw new Error('Terrain shared resource budget cannot retain decoded replacement');
     }
 
     /** Only release off-screen, inactive records; protected memory is bounded by selection. */
     private evict(): void {
         const records = [...this.records.values()].map(record => ({key: record.key, bytes: this.getRecordBytes(record), protected: this.residency.isProtected(record.key) || this.queue.has(record.key)}));
         for (const key of this.cache.selectEvictions(records, {maxCachedTiles: this.options.maxCachedTiles ?? 24, maxCachedBytes: this.options.maxCachedBytes ?? 32 * 1024 * 1024})) {this.records.delete(key); this.cache.forget(key);}
+        this.retainedLease?.resize([...this.records.values()].reduce((sum, record) => sum + this.getRecordBytes(record), 0));
     }
 }

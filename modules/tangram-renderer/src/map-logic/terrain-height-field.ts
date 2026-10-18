@@ -133,6 +133,39 @@ export class TerrainHeightField {
     /** Scalar counters only; callers cannot mutate cache ownership through diagnostics. */
     getStatistics(): TerrainHeightFieldStatistics {return {...this.statistics};}
 
+    /**
+     * Physical extrema over bilinear cell rectangles in a fully covered probe.
+     * A missing footprint or invalid sample returns null, not a clearance
+     * certificate. Overlapping grids use a conservative per-grid envelope.
+     */
+    getHeightRange(bounds: TerrainFieldBounds): {minimum: number; maximum: number} | null {
+        if (!this.coversBounds(bounds)) return null;
+        let minimum = Infinity, maximum = -Infinity;
+        for (const entry of this.findEntries(bounds)) {
+            const {grid} = entry, pixelCenter = grid.registration === 'pixel-center';
+            const west = Math.max(bounds[0], grid.bounds[0]), east = Math.min(bounds[2], grid.bounds[2]);
+            const south = Math.max(bounds[1], grid.bounds[1]), north = Math.min(bounds[3], grid.bounds[3]);
+            if (west > east || south > north) continue;
+            const columns = [west, east], rows = [south, north];
+            for (let column = 0; column < grid.width; column++) {
+                const x = grid.bounds[0] + (column + (pixelCenter ? 0.5 : 0)) / (pixelCenter ? grid.width : grid.width - 1) * (grid.bounds[2] - grid.bounds[0]);
+                if (x > west && x < east) columns.push(x);
+            }
+            for (let row = 0; row < grid.height; row++) {
+                const y = grid.bounds[3] - (row + (pixelCenter ? 0.5 : 0)) / (pixelCenter ? grid.height : grid.height - 1) * (grid.bounds[3] - grid.bounds[1]);
+                if (y > south && y < north) rows.push(y);
+            }
+            // A bilinear patch has no strict interior maximum/minimum. Its
+            // extrema over an axis-aligned clipped cell occur at these knots.
+            for (const y of rows) for (const x of columns) {
+                const value = sampleTerrainHeight(grid, [x, y]);
+                if (value === null || !Number.isFinite(value)) return null;
+                minimum = Math.min(minimum, value); maximum = Math.max(maximum, value);
+            }
+        }
+        return Number.isFinite(minimum) ? {minimum, maximum} : null;
+    }
+
     /** Traverse closed envelopes, then preserve original source order for floating-point accumulation. */
     private findEntries(bounds: TerrainFieldBounds): FieldEntry[] {
         const entries: FieldEntry[] = [], pending = this.root ? [this.root] : [];

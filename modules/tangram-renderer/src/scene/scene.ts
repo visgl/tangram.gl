@@ -249,6 +249,16 @@ export default class Scene {
     declare styles: Record<string, import('../styles/style-mixing-types').ManagedStyle> | null;
     /** Detached optional worker terrain input; never a deck view or a provider handle. */
     declare terrain: import('../procedures/terrain-draping').TerrainDrapingSnapshot | undefined;
+    /** Borrowed main-thread admission pool, never serialized into worker configuration. */
+    declare terrainResourceBudget: import('../map-logic/terrain-resource-budget').TerrainResourceBudget | undefined;
+    /** Main/worker input copies and internal query-capacity reservation, independent of mesh owners. */
+    private terrainInputLease?: import('../map-logic/terrain-resource-budget').TerrainResourceLease;
+    /** Replacement inputs cannot spend the still-admitted generation's reservation. */
+    private terrainStagedInputLease?: import('../map-logic/terrain-resource-budget').TerrainResourceLease;
+    /** Input identity already admitted for the current workers/query capacities. */
+    private terrainInputSnapshot?: import('../procedures/terrain-draping').TerrainDrapingSnapshot;
+    /** Input identity whose replacement resources are still staged. */
+    private terrainStagedInputSnapshot?: import('../procedures/terrain-draping').TerrainDrapingSnapshot;
     /** Visual multiplier independent of source heights and cache keys. */
     declare terrainExaggeration: number;
     /** Monotonic timestamp shared by color, collision and every submitted eye. */
@@ -322,6 +332,8 @@ export default class Scene {
     constructor(config_source: SceneDefinition | null, options: SceneOptions = {}) {
         options = options || {};
         this.terrain = options.terrain ? normalizeTerrainDraping(options.terrain) : undefined;
+        this.terrainResourceBudget = options.terrainResourceBudget;
+        this.terrainInputLease = this.terrainResourceBudget?.reserve('retained', 0) ?? undefined;
         this.terrainExaggeration = 1;
         validateProjectionEngine(options.projectionEngine);
         normalizeProjectionExecutionOptions(options.projectionEngineExecution);
@@ -579,6 +591,10 @@ export default class Scene {
 
         this.destroyWorkers();
         this.activeTileManager.destroy();
+        this.terrainInputLease?.release();
+        this.terrainStagedInputLease?.release();
+        this.terrain = undefined; this.terrainInputSnapshot = undefined; this.terrainStagedInputSnapshot = undefined;
+        this.terrainResourceBudget = undefined;
         this.tile_manager = null;
         log.reset?.();
     }
@@ -1589,6 +1605,11 @@ export default class Scene {
                 return;
             }
 
+            // Admission can reject before creating a build/stage. Otherwise a
+            // synchronous budget error would leave recovery queued behind a
+            // build that never started and can never settle.
+            if (this.terrain && preserveTileCache && preserveTime) this.reserveTerrainInputs(true);
+
             // Track tile build state
             this.building = { resolve, reject, initial };
             this.terrainTransaction = Boolean(this.terrain && preserveTileCache && preserveTime);
@@ -1655,6 +1676,14 @@ export default class Scene {
             if (this.terrainTransaction) {
                 const time = performance.now();
                 const build = this.building;
+                if (this.terrainStagedInputLease) {
+                    if (build.error) this.terrainStagedInputLease.release();
+                    else {
+                        this.terrainInputLease?.release(); this.terrainInputLease = this.terrainStagedInputLease;
+                        this.terrainInputSnapshot = this.terrainStagedInputSnapshot;
+                    }
+                    this.terrainStagedInputLease = undefined; this.terrainStagedInputSnapshot = undefined;
+                }
                 if (!build.error && this.terrain) this.activeTileManager.startTerrainTransition(this.terrain.transitionGeneration, time);
                 this.activeTileManager.forEachTile(tile => {if (build.error) tile.discardTerrainStage(); else tile.commitTerrainStage(time);});
                 if (!this.building.error) this.terrainDisplayGeneration = this.generation;
@@ -2085,6 +2114,7 @@ export default class Scene {
 
     // Serialize config and send to worker
     syncConfigToWorker({ serialize_funcs = true } = {}) {
+        this.reserveTerrainInputs(this.terrainTransaction === true);
         // Shader specialization only needs the enabled flag on the main thread,
         // but its retained style objects must not pin the initial DEM forever.
         if (this.terrain) for (const style of Object.values(this.styles || {})) style.terrain = this.terrain;
@@ -2099,6 +2129,23 @@ export default class Scene {
             terrain: this.terrain,
             shader_language: this.shader_language
         }, debugSettings);
+    }
+
+    /** Reserve worker-input copies and lazy query capacities before cloning a new field. */
+    private reserveTerrainInputs(staged: boolean): void {
+        const terrain = this.terrain, budget = this.terrainResourceBudget;
+        if (!terrain || !budget || terrain === this.terrainInputSnapshot || terrain === this.terrainStagedInputSnapshot) return;
+        // Renderer retains a submitted picking snapshot and a settled annotation
+        // snapshot. Reserve both capacities even when they happen to share data.
+        const bytes = terrain.byteLength * ((this.workers?.length ?? 0) + 1) + 2 * (terrain.maxQueryIndexBytes + terrain.maxProjectedQueryBytes);
+        const lease = budget.reserve('retained', bytes);
+        if (!lease) throw new Error('Terrain shared input/query capacity budget exceeded');
+        if (staged) {
+            this.terrainStagedInputLease?.release(); this.terrainStagedInputLease = lease;
+            this.terrainStagedInputSnapshot = terrain;
+        } else {
+            this.terrainInputLease?.release(); this.terrainInputLease = lease; this.terrainInputSnapshot = terrain;
+        }
     }
 
     // Listen to related objects

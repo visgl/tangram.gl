@@ -143,7 +143,8 @@ test.each(['flat', 'globe'] as ViewKind[])('%s canonical ground preserves raster
     const before = harness.renderer.getDrapedTerrainSurface();
     if (!before) throw new Error('Expected admitted canonical ground');
     expect(before.inputBytes).toBeGreaterThan(0);
-    await harness.renderer.setTerrain({...canonicalField(120), previousGrids: canonicalField(20).grids});
+    await harness.renderer.setTerrain({...canonicalField(120), groundMeshResolution: 16, previousGroundMeshResolution: 8,
+        conformTransitions: true, previousGrids: canonicalField(20).grids});
     await harness.settle();
     expect(coloredPixels(await harness.pixels())).toBeGreaterThan(1000);
     const after = harness.renderer.getDrapedTerrainSurface();

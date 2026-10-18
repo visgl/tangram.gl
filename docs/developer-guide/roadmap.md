@@ -68,6 +68,15 @@ between rebuilds retains local tangent correction rather than new cell intersect
 
 ## Remaining batches, in priority order
 
+The current combined implementation advances batches 1–4 with opt-in common planar
+transition refinement, DEM-derived height/curvature envelopes, projected dyadic
+ground detail, shared reservation leases and peak mesh admission, billboard-wide
+visibility probes and a bounded swept-height-field footprint guard. These are not
+completion claims: exact cross-style globe chords, dynamic-width re-intersection,
+unregistered/transient resource domains, general avatar physics and full glyph
+occlusion certification remain distinct work. See [terrain integration](./terrain.md#projected-detail-and-picking)
+for the implemented bounds and failure policies.
+
 | Batch | Coherent implementation scope | Gate before claiming completion |
 | --- | --- | --- |
 | 1. Styled terrain seams and replacement | Canonical edge nodes across mixed source LOD and fallback clips; coordinated spatial/temporal transitions; wide-road corner parity. Begin with ground raster triangles, then polygon and ribbon adapters. | Coarse/fine and parent/detail boundaries agree in color, depth, physical picking and both eyes on WebGL 2/WebGPU, including holes and antimeridian wrap. No skirts used to conceal styled-ground cracks. |

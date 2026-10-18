@@ -140,6 +140,8 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
     if (!eligibility.has(label)) eligibility.set(label, data.getInt16(first + offset.a_shape + 6, true) !== 0);
     if (!eligibility.get(label)) return null;
     let bounds: Bounds | undefined;
+    /** A billboard has constant clip depth; probe its rectangle, not only its geographic anchor. */
+    let clipDepth: number | undefined;
     for (const [start, count] of label.ranges) for (let index = 0; index < count; index++) {
         const base = start + index * stride;
         let anchor: [number, number, number];
@@ -171,19 +173,10 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
         }
         const position = matrix.transform([...anchor, 1]);
         if (position[3] <= 0 || position[2] < -position[3] || position[2] > position[3]) return null;
-        if (terrainSurface && terrainCache && inverse) {
-            const key = `${eyeId}/${eye.join(',')}/${anchor.join(',')}`;
-            let blocked = terrainCache.get(key);
-            if (blocked === undefined) {
-                const inset = terrainSurface.projection === 'globe' ? 0.25 * PROJECTION_CONSTANTS.globeRadius / PROJECTION_CONSTANTS.earthRadius : 0.25;
-                const near = inverse.transform([position[0] / position[3], position[1] / position[3], -1, 1]);
-                const start: [number, number, number] = [near[0] / near[3], near[1] / near[3], near[2] / near[3]];
-                blocked = start.every(Number.isFinite) && terrainSurface.intersectSegment(start, anchor, {startInset: inset, endInset: inset}) !== null;
-                if (terrainCache.size >= 10000) terrainCache.clear();
-                terrainCache.set(key, blocked);
-            }
-            if (blocked) return null;
-        }
+        const depth = position[2] / position[3];
+        // Curved labels may have different anchors/depths. Unknown shared depth
+        // keeps them collision-eligible rather than pretending this is a quad.
+        clipDepth = clipDepth === undefined ? depth : clipDepth === depth ? depth : NaN;
         const shape = base + offset.a_shape;
         // Retain the existing GLSL clockwise and WGSL counter-clockwise sprite conventions.
         const angle = data.getInt16(shape + 4, true) / 4096 * (clockwiseRotation ? -1 : 1);
@@ -207,6 +200,24 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
         bounds = unionBounds(bounds, [screenX, screenY, screenX, screenY]);
     }
     if (!bounds) return null;
+    if (terrainSurface && terrainCache && inverse && Number.isFinite(clipDepth)) {
+        const probes = [[bounds[0], bounds[1]], [bounds[0], bounds[3]], [bounds[2], bounds[1]], [bounds[2], bounds[3]],
+            [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2]];
+        const blocked = probes.every(([x, y]) => {
+            const key = `${eyeId}/${width},${height}/${x},${y},${clipDepth}`;
+            const cached = terrainCache.get(key);
+            if (cached !== undefined) return cached;
+            const horizontal = x / width * 2 - 1, vertical = 1 - y / height * 2;
+            const near = inverse.transform([horizontal, vertical, -1, 1]), target = inverse.transform([horizontal, vertical, clipDepth!, 1]);
+            const start: [number, number, number] = [near[0] / near[3], near[1] / near[3], near[2] / near[3]];
+            const end: [number, number, number] = [target[0] / target[3], target[1] / target[3], target[2] / target[3]];
+            const inset = terrainSurface.projection === 'globe' ? 0.25 * PROJECTION_CONSTANTS.globeRadius / PROJECTION_CONSTANTS.earthRadius : 0.25;
+            const hidden = [...start, ...end].every(Number.isFinite) && terrainSurface.intersectSegment(start, end, {startInset: inset, endInset: inset}) !== null;
+            if (terrainCache.size >= 10000) terrainCache.clear();
+            terrainCache.set(key, hidden); return hidden;
+        });
+        if (blocked) return null;
+    }
     const buffer = label.container.label.layout.buffer ?? [0, 0];
     bounds = [bounds[0] - buffer[0] - 1, bounds[1] - buffer[1] - 1,
         bounds[2] + buffer[0] + 1, bounds[3] + buffer[1] + 1];

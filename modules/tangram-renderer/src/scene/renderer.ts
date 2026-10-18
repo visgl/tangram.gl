@@ -178,7 +178,8 @@ export default class Renderer {
                     for (let index = 0; index < grid.heights.length; index++) if (grid.valid[index]) minimum = Math.min(minimum, grid.heights[index]);
                     return minimum;
                 }, 0);
-                terrain = {...terrain, previousGrids: previous.grids, byteLength, minimumHeight: Math.min(terrain.minimumHeight, minimumPreviousHeight)};
+                terrain = {...terrain, previousGrids: previous.grids, previousGroundMeshResolution: previous.groundMeshResolution,
+                    byteLength, minimumHeight: Math.min(terrain.minimumHeight, minimumPreviousHeight)};
             }
             if (terrain.minimumHeight * this.scene.terrainExaggeration <= -PROJECTION_CONSTANTS.earthRadius) throw new Error('Terrain exaggeration would invert the globe radius');
             this.scene.terrain = terrain;

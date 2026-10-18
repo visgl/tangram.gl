@@ -17,23 +17,23 @@ test('terrain blocks loaded annotation sightlines; holes stay visible and settle
     const frame = createFrame('web-mercator');
     const query = vi.spyOn(collection, 'intersectSegment');
     layoutProjectedAnnotations([tile], frame, {terrainSurface: collection});
-    expect(isVisible(tile)).toBe(false); expect(query).toHaveBeenCalledOnce();
+    expect(isVisible(tile)).toBe(false); expect(query).toHaveBeenCalledTimes(5);
     layoutProjectedAnnotations([tile], frame, {terrainSurface: collection});
-    expect(query).toHaveBeenCalledOnce();
+    expect(query).toHaveBeenCalledTimes(5);
     frame.renderViews[0].camera.projection = new Matrix4().translate([0.25, 0, 0]);
     layoutProjectedAnnotations([tile], frame, {terrainSurface: collection});
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenCalledTimes(10);
     layoutProjectedAnnotations([tile], frame, {terrainSurface: new TerrainSurfaceCollection('web-mercator', [])});
     expect(isVisible(tile)).toBe(true);
 });
 
 test('two eyes sharing a position never reuse different matrix sightlines; a visible eye keeps the shared candidate', () => {
     const tile = createTile(1, [0, 0, 0], {collide: false});
-    const surface = new TerrainSurfaceCollection('web-mercator', []);
-    const query = vi.spyOn(surface, 'intersectSegment').mockReturnValueOnce({coordinate: [0, 0, 0], position: [0, 0, -0.5],
-        distance: 0.5, normal: [0, 0, 1], triangleIndex: 0, barycentric: [1, 0, 0], surfaceId: 'ridge'}).mockReturnValue(null);
+    const surface = new TerrainSurfaceCollection('web-mercator', [{id: 'ridge', surface: new TerrainMeshSurface({projection: 'web-mercator',
+        positions: [-0.15, -0.15, -0.5, 0.15, -0.15, -0.5, 0.15, 0.15, -0.5, -0.15, 0.15, -0.5], indices: [0, 1, 2, 0, 2, 3]})}]);
+    const query = vi.spyOn(surface, 'intersectSegment');
     layoutProjectedAnnotations([tile], createFrame('web-mercator', 0.5), {terrainSurface: surface});
-    expect(query).toHaveBeenCalledTimes(2); expect(isVisible(tile)).toBe(true);
+    expect(query).toHaveBeenCalledTimes(6); expect(isVisible(tile)).toBe(true);
 });
 
 test('native point height is physical meters, not polygon height packing, and near-plane occluders do not hide it', () => {
@@ -45,13 +45,18 @@ test('native point height is physical meters, not polygon height packing, and ne
     const query = vi.spyOn(surface, 'intersectSegment');
     layoutProjectedAnnotations([tile], frame, {terrainSurface: surface});
     expect(isVisible(tile)).toBe(true);
-    expect(query).toHaveBeenLastCalledWith([0, 0, -16], [0, 0, 8], {startInset: 0.25, endInset: 0.25});
+    expect(query).toHaveBeenCalled();
+    for (const [start, end, options] of query.mock.calls) {
+        expect(start[2]).toBe(-16); expect(end[2]).toBe(8);
+        expect(start.slice(0, 2)).toEqual(end.slice(0, 2));
+        expect(options).toEqual({startInset: 0.25, endInset: 0.25});
+    }
 });
 
 test('globe loaded relief can hide a front-hemisphere label without changing the sphere horizon contract', () => {
     const tile = createTile(1, [0, 0, 0], {collide: false});
     const surface = new TerrainSurfaceCollection('globe', [{id: 'ridge', surface: new TerrainMeshSurface({
-        projection: 'globe', positions: [-20, -300, -20, 20, -300, -20, 0, -300, 20], indices: [0, 1, 2]})}]);
+        projection: 'globe', positions: [-128, -300, -128, 128, -300, -128, 0, -300, 128], indices: [0, 1, 2]})}]);
     layoutProjectedAnnotations([tile], createFrame('globe'), {terrainSurface: surface});
     expect(isVisible(tile)).toBe(false);
     layoutProjectedAnnotations([tile], createFrame('globe'));

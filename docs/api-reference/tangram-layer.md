@@ -463,6 +463,14 @@ basemaps and custom position/width blocks are currently unsupported. Roads use a
 tangent-plane width correction. `terrain.querySurfaceStyles` optionally retains
 the final ground raster triangles for matching physical queries.
 
+`terrainResourceBudget` optionally borrows an application-owned
+[`TerrainResourceBudget`](./map-logic/terrain-data.md#error-envelopes-and-admission)
+shared with terrain acquisition. It is captured at renderer creation; changing its
+identity recreates the renderer. The pool does not own the caller's sources or GPU
+device. `terrain.maxResidentMeshBytes` separately caps incumbent-plus-staged
+draw/query arrays and estimated GPU buffer copies before replacement uploads.
+Textures, driver overhead and externally retained snapshots are not implied.
+
 ### Inherited presentation properties
 
 The following inherited deck.gl properties are particularly relevant:

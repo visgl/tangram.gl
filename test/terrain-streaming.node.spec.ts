@@ -7,6 +7,7 @@ import {TerrainTileset} from '../examples/terrain/terrain-tileset';
 import {selectTerrainTiles, getTerrainTileKey, getTerrainParent, type TerrainTileCoordinate} from '../examples/terrain/tile-selection';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import type {TerrainTileData, TerrainGridData} from '../examples/terrain/terrain-payload';
+import {TerrainResourceBudget} from '@vis.gl/tangram-renderer/map-logic';
 
 /** Controlled completion without timers or public network. */
 function deferred<T>() {
@@ -16,6 +17,32 @@ function deferred<T>() {
 }
 const child = {zoom: 2, column: 2, row: 2};
 const sibling = {...child, column: 3};
+
+test('shared admission protects external draw owners and releases decode reservations after teardown', async () => {
+  const resourceBudget = new TerrainResourceBudget(500), gpu = resourceBudget.reserve('gpu', 400);
+  const fetch = vi.fn(async () => new ArrayBuffer(8));
+  const tileset = new TerrainTileset({fetch, decode: async () => createTerrainStreamFixture(), minZoom: 2,
+    resourceBudget, decodeReservationBytes: 160, onChange() {}});
+  tileset.update([child]); await tileset.waitForIdle();
+  expect(fetch).not.toHaveBeenCalled(); expect(tileset.getStatistics().failed).toBe(1);
+  gpu?.release(); tileset.retry(); await tileset.waitForIdle();
+  expect(tileset.getStatistics()).toMatchObject({failed: 0, bytes: 132});
+  expect(resourceBudget.getStatistics()).toMatchObject({retainedBytes: 132, transientBytes: 0});
+  tileset.destroy(); expect(resourceBudget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+});
+
+test('an aborted decoder owns its reservation until its late result is discarded', async () => {
+  const resourceBudget = new TerrainResourceBudget(1000), job = deferred<TerrainTileData>();
+  const decode = vi.fn(() => job.promise);
+  const tileset = new TerrainTileset({fetch: async () => new ArrayBuffer(8), decode, minZoom: 2,
+    resourceBudget, decodeReservationBytes: 160, onChange() {}});
+  tileset.update([child]); await vi.waitFor(() => expect(decode).toHaveBeenCalledOnce());
+  tileset.destroy();
+  expect(resourceBudget.getStatistics()).toMatchObject({retainedBytes: 0, transientBytes: 160});
+  job.resolve(createTerrainStreamFixture());
+  await vi.waitFor(() => expect(resourceBudget.getStatistics()).toMatchObject({bytes: 0, leases: 0}));
+  expect(tileset.records.size).toBe(0);
+});
 
 test('grid-only payload admission retains parent coverage without unused mesh bytes and stays warm', async () => {
   const fetch = vi.fn(async () => new ArrayBuffer(8));
