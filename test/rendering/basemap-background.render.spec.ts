@@ -69,3 +69,22 @@ test.each([
   }
   expect(roofPixels).toBeGreaterThan(100);
 });
+
+test('standalone comparison has a viewport-height canvas without relying on a parent HTML height', async () => {
+  const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet';
+  stylesheet.href = new URL('../../examples/deck/main.css', import.meta.url).href;
+  const loaded = new Promise<void>((resolve, reject) => {
+    stylesheet.onload = () => resolve(); stylesheet.onerror = () => reject(new Error('Example stylesheet failed to load'));
+  });
+  const root = document.createElement('div'); root.id = 'deck-container';
+  const previousHeight = document.documentElement.style.height;
+  try {
+    document.documentElement.style.height = 'auto';
+    document.body.classList.add('tangram-deck-standalone');
+    document.head.append(stylesheet); document.body.append(root); await loaded;
+    expect(root.getBoundingClientRect().height).toBeGreaterThan(300);
+  } finally {
+    root.remove(); stylesheet.remove(); document.body.classList.remove('tangram-deck-standalone');
+    document.documentElement.style.height = previousHeight;
+  }
+});
