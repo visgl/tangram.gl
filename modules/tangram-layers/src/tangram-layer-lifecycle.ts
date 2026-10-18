@@ -87,6 +87,8 @@ export interface TangramRecord {
     maxConcurrentTileLoadsPerWorker?: number;
     /** Current asynchronous terrain request and latest relief policy. */
     terrain?: TangramLayerProps['terrain'];
+    /** Immutable borrowed admission-pool identity. */
+    terrainResourceBudget?: TangramLayerProps['terrainResourceBudget'];
     terrainRevision?: number;
     terrainPendingRevision: number;
     /** Current canvas CSS size, assigned during view synchronization. */

@@ -70,3 +70,13 @@ test('finite movement stops at an intervening ridge even when both endpoint floo
     expect(outside.blocked).toBe(true); expect(outside.available).toBe(false); expect(outside.state.position).toEqual(previous.position);
     expect(() => constrainTerrainMotion(previous, proposed, [loaded], NaN)).toThrow();
 });
+
+test('avatar footprint refuses uncovered intermediate ground and retains look changes', () => {
+    const loaded = buildTerrainRenderMesh(createTerrainStreamFixture([-10, -10, 10, 10], [0, 0, 0, 0]), [], 0).loaded;
+    const previous = {longitude: 0, latitude: 0, position: [0, 0, 20] as [number, number, number]};
+    const proposed = {...previous, bearing: 40, position: [9.9, 0, 20] as [number, number, number]};
+    expect(constrainTerrainMotion(previous, proposed, [loaded], 1).blocked).toBe(false);
+    const body = constrainTerrainMotion(previous, proposed, [loaded], 1, undefined, {radius: 0.3});
+    expect(body).toMatchObject({available: false, blocked: true, state: {bearing: 40, position: [0, 0, 20]}});
+    expect(constrainTerrainMotion(previous, {...proposed, position: [5, 0, 20]}, [loaded], 1, undefined, {radius: 0.3}).blocked).toBe(false);
+});

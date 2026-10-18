@@ -5,7 +5,7 @@
 import {Deck, _GlobeView as GlobeView, type GlobeViewState} from '@deck.gl/core';
 import {webgpuAdapter} from '@luma.gl/webgpu';
 import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation, getGlobeScreenRatio, type GlobeTerrainDisplaySnapshot} from '@vis.gl/tangram-layers/experimental/terrain';
-import {GlobeTerrainPreparation, getGlobeTerrainExaggeration, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainPreparation, getGlobeTerrainExaggeration, type TerrainHeightGrid, TerrainResourceBudget, measureTerrainError, selectTerrainMeshResolution, boundProjectedDisplacement} from '@vis.gl/tangram-renderer/map-logic';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainTileset} from './terrain-tileset';
 import {getTerrainTileBounds, getTerrainTileKey} from './tile-selection';
@@ -99,6 +99,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     let BasemapLayer: typeof import('@vis.gl/tangram-layers').TangramLayer | undefined;
     let basemap: InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer> | undefined;
     let terrainInput: TerrainDrapingOptions = {grids: [], querySurfaceStyles: ['ground']};
+    const resourceBudget = new TerrainResourceBudget(768 * 1024 * 1024);
+    let groundResolution = 32, projectedGroundError = 0, groundDetailLimited = false;
     let basemapError = '';
     const detailControl = element<HTMLSelectElement>('detail'); detailControl.value = String(targetPixels);
     exaggeration.value = String(maximum);
@@ -208,12 +210,22 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         for (const tile of drawable) if (tile.data) zoomByGrid.set(tile.data.grid, tile.coordinate.zoom);
         if (draping.checked && BasemapLayer) {
             grids = nextGrids;
-            if (nextGrids.length !== terrainInput.grids.length || nextGrids.some((grid, index) => grid !== terrainInput.grids[index])) {
-                terrainInput = {grids, querySurfaceStyles: ['ground'], groundMeshResolution: 32, transitionDuration: 200, maxSegmentLength: 100000, occludeAnnotations: true,
+            const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
+            const maximumHeight = Math.max(0, ...grids.map(grid => Math.max(Math.abs(measureTerrainError(grid).minimumHeight), Math.abs(measureTerrainError(grid).maximumHeight))));
+            const radius = 256 * (1 + maximumHeight * effective / 6370972);
+            const projectedScale = boundProjectedDisplacement(Array.from(viewport.viewProjectionMatrix), [-radius, -radius, -radius], [radius, radius, radius], viewport);
+            // A whole-globe box crosses the eye plane at close range. Unknown
+            // error must not force a maximum-resolution rebuild on every grid.
+            const quality = projectedScale === null ? {resolution: groundResolution, projectedError: Infinity, limited: true} :
+                selectTerrainMeshResolution(grids, {pixelsPerMeter: projectedScale * 256 / 6370972 * effective,
+                    pixelsPerGlobeUnit: projectedScale * radius / 256, previousResolution: groundResolution, targetPixels: 4});
+            groundResolution = quality.resolution; projectedGroundError = quality.projectedError; groundDetailLimited = quality.limited;
+            if (nextGrids.length !== terrainInput.grids.length || nextGrids.some((grid, index) => grid !== terrainInput.grids[index]) || groundResolution !== terrainInput.groundMeshResolution) {
+                terrainInput = {grids, querySurfaceStyles: ['ground'], groundMeshResolution: groundResolution, transitionDuration: 200, maxSegmentLength: 100000, occludeAnnotations: true,
                     maxGridBytes: 256 * 1024 * 1024, maxStagedMeshBytes: 128 * 1024 * 1024};
             }
-            const effective = getGlobeTerrainExaggeration(getGlobeScreenRatio(viewport), Number(exaggeration.value));
             basemap = new BasemapLayer({id: 'globe-draped-basemap', scene: basemapScene, terrain: terrainInput,
+                terrainResourceBudget: resourceBudget,
                 terrainExaggeration: effective, globeMaxElevation: 12000 * Math.max(1, effective), tileBuffer: 0, globePreloadZoom: 2,
                 maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentBuilds: 2},
                 onAttributionChange: (credits: string[]) => {if (!disposed) updateAttribution(creditValue, credits);},
@@ -221,7 +233,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
             deck.setProps({layers: [basemap]});
             const statistics = tileset.getStatistics();
             element('decoder-status').textContent = formatTerrainDecoderStatus(decoder.getStatistics(), statistics);
-            element('preparation-status').textContent = 'Worker-owned basemap topology; separate elevation-preview preparation is paused';
+            element('preparation-status').textContent = `Requested ${groundResolution}² worker ground cells · ${Number.isFinite(projectedGroundError) ? projectedGroundError.toFixed(1) : 'unbounded'} px error envelope${groundDetailLimited ? ' · detail/coverage limit' : ''} · separate preview preparation paused`;
             element('display-status').textContent = 'Exaggeration is GPU-only; exact ground queries are prepared lazily and reused while displacement is unchanged';
             const highest = Math.max(0, ...grids.map(grid => zoomByGrid.get(grid) ?? 0));
             status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${grids.length} loaded grids · z${highest} detail · ${effective.toFixed(1)}× relief · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(0)} MB cached${statistics.active || statistics.queued ? ` · ${statistics.active} active / ${statistics.queued} queued` : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
@@ -257,7 +269,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         const displayErrorChanged = previousDisplayError !== displayPreparation.getStatistics().error;
         if (displayCommitted || displayErrorChanged || displayPreparation.isPending() || preparation.isPending() && detailTimer === undefined) schedule();
     }
-    tileset = new TerrainTileset<TerrainGridData>({minZoom: 1, maxZoom: source.maxZoom, hierarchical: true, maxResidentBytes: 256 * 1024 * 1024, maxCachedTiles: 48, maxCachedBytes: 64 * 1024 * 1024, fetch: (tile, signal) => source.fetchTile(tile, signal),
+    tileset = new TerrainTileset<TerrainGridData>({minZoom: 1, maxZoom: source.maxZoom, hierarchical: true, maxResidentBytes: 256 * 1024 * 1024, resourceBudget, maxCachedTiles: 48, maxCachedBytes: 64 * 1024 * 1024, fetch: (tile, signal) => source.fetchTile(tile, signal),
         decode: (bytes, tile, _error, signal) => decoder.decodeGrid(bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), signal, source.noData), onChange: schedule});
     const observer = new ResizeObserver(() => {if (!disposed) {deck.setProps({width: container.clientWidth, height: container.clientHeight}); schedule();}});
     observer.observe(container);
@@ -283,7 +295,10 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     detailControl.addEventListener('change', () => {
         parameters.set('detail', detailControl.value); options.onParametersChange?.(new URLSearchParams(parameters)); clearTimeout(detailTimer); detailTimer = undefined; detailCameraSignature = ''; schedule();
     }, {signal: abort.signal});
-    element('retry').addEventListener('click', () => {tileset?.retry(); preparation.retry(); displayPreparation.retry(); schedule();}, {signal: abort.signal});
+    element('retry').addEventListener('click', () => {
+        if (basemapError) {terrainInput = {...terrainInput}; basemapError = '';}
+        tileset?.retry(); preparation.retry(); displayPreparation.retry(); schedule();
+    }, {signal: abort.signal});
     element('clear-target').addEventListener('click', () => {pinnedCoordinate = undefined; pinnedLayer = undefined; pinnedSurfaces = undefined; pinnedSignature = ''; element('terrain-visibility').textContent = 'Click terrain to pin a sightline target';}, {signal: abort.signal});
     element('fullscreen').addEventListener('click', () => {if (document.fullscreenElement === root) void document.exitFullscreen(); else void root.requestFullscreen().catch(error => {status.textContent = `Fullscreen unavailable: ${error.message}`;});}, {signal: abort.signal});
     /** Preserve source/cache ownership when switching GPU devices. */

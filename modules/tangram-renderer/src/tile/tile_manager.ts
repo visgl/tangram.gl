@@ -26,6 +26,7 @@ import type {BrokerWorker} from '../utils/worker-types';
 import type {TaskRecord} from '../utils/task';
 import type {TerrainDrapingSnapshot} from '../procedures/terrain-draping';
 import type VBOMesh from '../gl/vbo_mesh';
+import type {TerrainResourceBudget, TerrainResourceLease} from '../map-logic/terrain-resource-budget';
 
 /** Manager-facing camera operations; no classic camera implementation is required. */
 interface TileManagerView {
@@ -49,6 +50,7 @@ interface TileManagerScene {
     styles: Record<string, TileBuildStyle & {base?: string}> | null;
     style_manager: {updateActiveStyles(tiles: Tile[]): void; updateActiveBlendOrders(tiles: Tile[]): void};
     terrain?: TerrainDrapingSnapshot | null;
+    terrainResourceBudget?: TerrainResourceBudget;
     terrainTransaction?: unknown;
     terrainExaggeration?: number;
     terrainFrameTime?: number;
@@ -66,6 +68,9 @@ type TileBuildReply = Pick<WorkerBuildTile, 'mesh_data' | 'debug'> & {
 type TileBuildFailure = {id: number | string; key: string; generation: number | null; error: unknown; mesh_data?: Record<string, TileStylePayload>};
 
 export default class TileManager {
+    /** Main-thread array and GPU estimates are separate domains in a borrowed application pool. */
+    private terrainRetainedLease?: TerrainResourceLease;
+    private terrainGPULease?: TerrainResourceLease;
     /** At most two active/recent field clocks; late tiles never restart their admitted field's morph. */
     private readonly terrainTransitionOrigins = new Map<number, number>();
     /** Scene and proxy ownership are released on destruction. */
@@ -117,6 +122,7 @@ export default class TileManager {
     destroy() {
         this.terrainTransitionOrigins.clear();
         this.tileset.finalize(tile => tile.destroy());
+        this.terrainRetainedLease?.release(); this.terrainGPULease?.release();
         this.pyramid = null;
         this.visible_coords = {};
         this.queued_coords = [];
@@ -166,6 +172,7 @@ export default class TileManager {
         }
 
         this.forgetTile(key);
+        this.syncTerrainResourceLeases();
         this.activeScene.requestRedraw();
     }
 
@@ -302,7 +309,8 @@ export default class TileManager {
 
     /** Summarize resident worker output, separate from source caches, GPU and transient allocations. */
     getTerrainDrapingStatistics(terrain?: import('../procedures/terrain-draping').TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics {
-        const result = {enabled: Boolean(terrain), gridBytes: terrain?.byteLength ?? 0, meshes: 0, vertices: 0, triangles: 0, suppressedTriangles: 0, meshBytes: 0, maximumPreparationMs: 0, detailLimitedMeshes: 0, queryBytes: 0, stagedMeshBytes: this.getStagedTerrainBytes()};
+        const result = {enabled: Boolean(terrain), gridBytes: terrain?.byteLength ?? 0, meshes: 0, vertices: 0, triangles: 0, suppressedTriangles: 0, meshBytes: 0, maximumPreparationMs: 0, detailLimitedMeshes: 0, queryBytes: 0, stagedMeshBytes: this.getStagedTerrainBytes(),
+            residentMeshBytes: this.getResidentTerrainMeshBytes(), residentMeshByteLimit: terrain?.maxResidentMeshBytes ?? 0};
         for (const tile of Object.values(this.tiles)) for (const parts of Object.values(tile.meshes || {})) for (const mesh of parts) {
             const stats = mesh.variant?.terrainStatistics;
             if (!mesh.valid || !stats) continue;
@@ -326,8 +334,46 @@ export default class TileManager {
         return bytes;
     }
 
+    /** Count each live mesh owner once, including pending labels and replacement stages before retiring the incumbent. */
+    getResidentTerrainMeshBytes(): number {
+        const memory = this.getResidentTerrainMeshMemory();
+        return memory.retained + memory.gpu;
+    }
+
+    /** Estimate GPU buffer copies independently from actual retained CPU input arrays. */
+    private getResidentTerrainMeshMemory(): {retained: number; gpu: number} {
+        const visited = new Set<VBOMesh>();
+        let retained = 0, gpu = 0;
+        for (const tile of Object.values(this.tiles)) {
+            for (const meshes of [tile.meshes ?? {}, tile.pending_label_meshes ?? {}, tile.terrainStage?.meshes ?? {}, tile.terrainStage?.labels ?? {}]) {
+                for (const parts of Object.values(meshes)) for (const mesh of parts) {
+                    if (!mesh.valid || !mesh.variant?.terrain || visited.has(mesh)) continue;
+                    visited.add(mesh);
+                    const query = mesh.terrainQueryMesh;
+                    // Unretained meshes release their CPU inputs after upload;
+                    // keep those distinct from the still-resident GPU estimate.
+                    retained += (mesh.vertex_data?.byteLength ?? 0) + (mesh.element_data ? mesh.element_data.byteLength : 0) +
+                        (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+                    gpu += mesh.buffer_size;
+                }
+            }
+        }
+        return {retained, gpu};
+    }
+
+    /** Reconcile retired mesh owners before reserving replacement storage. */
+    private syncTerrainResourceLeases(): void {
+        const budget = this.activeScene.terrainResourceBudget;
+        if (!budget) return;
+        this.terrainRetainedLease ??= budget.reserve('retained', 0) ?? undefined;
+        this.terrainGPULease ??= budget.reserve('gpu', 0) ?? undefined;
+        const memory = this.getResidentTerrainMeshMemory();
+        if (!this.terrainRetainedLease?.resize(memory.retained) || !this.terrainGPULease?.resize(memory.gpu)) throw new Error('Terrain shared mesh resource budget exceeded');
+    }
+
     /** Refresh draw membership after a commit without starting another worker batch inside queue settlement. */
     publishTerrainDisplay(): void {
+        this.syncTerrainResourceLeases();
         this.updateProxyTiles(); this.updateGlobeFallbackTiles(); this.updateRenderableTiles();
         this.style_manager.updateActiveStyles(this.renderable_tiles);
         this.style_manager.updateActiveBlendOrders(this.renderable_tiles);
@@ -651,6 +697,24 @@ export default class TileManager {
     buildTileStylesCompleted({tile: incomingTile, progress}: {tile: TileBuildReply; progress: TileBuildProgress}) {
         const reply = incomingTile;
         let tile: TileBuildReply | Tile = reply;
+        let sharedReservation: TerrainResourceLease | null | undefined;
+        // Validate ownership before accounting a reply: stale/removed work cannot fail a live generation.
+        if (this.activeScene.terrain && tile.generation === this.activeScene.generation && this.tiles[tile.key]?.id === tile.id) {
+            let incoming = 0;
+            for (const data of Object.values(tile.mesh_data ?? {})) for (const mesh of Object.values(data.meshes ?? {})) {
+                const query = mesh.terrain_surface;
+                incoming += 2 * ((mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements ? mesh.vertex_elements.byteLength : 0)) +
+                    (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+            }
+            if (incoming > this.activeScene.terrain.maxResidentMeshBytes - this.getResidentTerrainMeshBytes()) {
+                this.buildTileError({...tile, error: new Error('Terrain peak resident mesh-byte budget exceeded')}); return;
+            }
+            try {
+                this.syncTerrainResourceLeases();
+                sharedReservation = this.activeScene.terrainResourceBudget?.reserve('transient', incoming);
+                if (this.activeScene.terrainResourceBudget && !sharedReservation) throw new Error('Terrain shared replacement resource budget exceeded');
+            } catch (error) {this.buildTileError({...tile, error}); return;}
+        }
         if (this.activeScene.terrainTransaction && tile.generation === this.activeScene.generation && this.tiles[tile.key]?.id === tile.id) {
             let incoming = 0;
             for (const data of Object.values(tile.mesh_data ?? {})) for (const mesh of Object.values(data.meshes ?? {})) {
@@ -658,6 +722,7 @@ export default class TileManager {
                 incoming += (mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements ? mesh.vertex_elements.byteLength : 0) + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
             }
             if (this.activeScene.terrain && this.getStagedTerrainBytes() + incoming > this.activeScene.terrain.maxStagedMeshBytes) {
+                sharedReservation?.release();
                 this.buildTileError({...tile, error: new Error('Terrain staged mesh-byte budget exceeded')}); return;
             }
         }
@@ -702,10 +767,13 @@ export default class TileManager {
                 this.activeScene.withWebGLContext(() => uploadedTile.buildMeshes(styles, progress));
             }
             catch (error) {
+                sharedReservation?.release();
                 if (!this.activeScene.terrainTransaction) throw error;
                 delete tile.mesh_data;
                 this.buildTileError({...Tile.slice(uploadedTile), mesh_data: batch, error}); return;
             }
+            sharedReservation?.release();
+            this.syncTerrainResourceLeases();
             this.updateTileStates();
             this.activeScene.requestRedraw();
         }

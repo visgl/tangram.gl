@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => {
     const selected: {tiles: TerrainTileCoordinate[] | null} = {tiles: null};
     return {selected, basemap: vi.fn((_properties: unknown) => {}), decoderDestroy: vi.fn(), build: vi.fn((data: object) => ({loaded: data, renderMesh: 'mesh' in data ? data.mesh : null})), construct: vi.fn(), finalize: vi.fn(), setProps: vi.fn(),
     viewport: {id: 'terrain'}, anchor: vi.fn<() => number | null>(() => null), pick: vi.fn(() => ({coordinate: [7, 46, 1234], triangleIndex: 1, rayParameter: 0.5})),
-    parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}, attributes: {}}, grid: {width: 2, height: 2, bounds: [0, 0, 2, 2], heights: new Float32Array(4), valid: new Uint8Array(4)}}))};
+    parse: vi.fn(async () => ({mesh: {indices: {value: new Uint32Array([0, 1, 2])}, attributes: {}}, grid: {width: 2, height: 2, bounds: [0, 0, 2, 2], heights: new Float32Array(4), valid: new Uint8Array(4), registration: 'pixel-center', verticalDatum: 'unknown'}}))};
 });
 vi.mock('@deck.gl/core', async importOriginal => ({
     WebMercatorViewport: (await importOriginal<typeof import('@deck.gl/core')>()).WebMercatorViewport,
@@ -78,6 +78,14 @@ test('draping reuses immutable byte identities through topology changes and rele
     expect(latest).toMatchObject({terrain: field});
     if (!latest || typeof latest !== 'object' || !('terrain' in latest)) throw new Error('Missing updated basemap');
     expect(latest.terrain).toBe(field);
+    if (!('onSceneError' in latest) || typeof latest.onSceneError !== 'function') throw new Error('Missing scene error handler');
+    latest.onSceneError(new Error('resource admission'));
+    host.querySelector<HTMLButtonElement>('[data-example="retry"]')!.click();
+    await expect.poll(() => {
+        const value = mocks.basemap.mock.calls.at(-1)?.[0];
+        return value && typeof value === 'object' && 'terrain' in value ? value.terrain : undefined;
+    }).not.toBe(field);
+    expect(mocks.parse.mock.calls.length).toBeGreaterThanOrEqual(downloads);
     if (!('onAttributionChange' in latest) || typeof latest.onAttributionChange !== 'function') throw new Error('Missing provider credits handler');
     latest.onAttributionChange(['<a href="https://example.com/credits">Custom provider</a><img src="bad" onerror="alert(1)">']);
     expect(host.querySelector('[data-example="attribution"] a[href="https://example.com/credits"]')?.textContent).toBe('Custom provider');

@@ -95,6 +95,8 @@ interface SceneBuildState {
     reject(error: unknown): void;
     initial: boolean;
     error?: Error;
+    /** Worker configuration acknowledgements must precede terrain generation settlement. */
+    terrainConfigPending?: boolean;
     queued?: {resolve(value: void | boolean): void; reject(error: unknown): void; options: RebuildOptions};
 }
 import type {SceneListeners, SceneDefinition, SceneLoadOptions, TileSourceStatistics, FeatureSelectionResult} from '../types';
@@ -249,6 +251,18 @@ export default class Scene {
     declare styles: Record<string, import('../styles/style-mixing-types').ManagedStyle> | null;
     /** Detached optional worker terrain input; never a deck view or a provider handle. */
     declare terrain: import('../procedures/terrain-draping').TerrainDrapingSnapshot | undefined;
+    /** Borrowed main-thread admission pool, never serialized into worker configuration. */
+    declare terrainResourceBudget: import('../map-logic/terrain-resource-budget').TerrainResourceBudget | undefined;
+    /** Main/worker input copies and internal query-capacity reservation, independent of mesh owners. */
+    private terrainInputLease?: import('../map-logic/terrain-resource-budget').TerrainResourceLease;
+    /** Replacement inputs cannot spend the still-admitted generation's reservation. */
+    private terrainStagedInputLease?: import('../map-logic/terrain-resource-budget').TerrainResourceLease;
+    /** Input identity already admitted for the current workers/query capacities. */
+    private terrainInputSnapshot?: import('../procedures/terrain-draping').TerrainDrapingSnapshot;
+    /** Input identity whose replacement resources are still staged. */
+    private terrainStagedInputSnapshot?: import('../procedures/terrain-draping').TerrainDrapingSnapshot;
+    /** Failed worker snapshots remain owned until a complete successful replacement or worker disposal. */
+    private terrainFailedInputs: {lease: import('../map-logic/terrain-resource-budget').TerrainResourceLease; snapshot: import('../procedures/terrain-draping').TerrainDrapingSnapshot}[] = [];
     /** Visual multiplier independent of source heights and cache keys. */
     declare terrainExaggeration: number;
     /** Monotonic timestamp shared by color, collision and every submitted eye. */
@@ -322,6 +336,8 @@ export default class Scene {
     constructor(config_source: SceneDefinition | null, options: SceneOptions = {}) {
         options = options || {};
         this.terrain = options.terrain ? normalizeTerrainDraping(options.terrain) : undefined;
+        this.terrainResourceBudget = options.terrainResourceBudget;
+        this.terrainInputLease = this.terrainResourceBudget?.reserve('retained', 0) ?? undefined;
         this.terrainExaggeration = 1;
         validateProjectionEngine(options.projectionEngine);
         normalizeProjectionExecutionOptions(options.projectionEngineExecution);
@@ -579,6 +595,12 @@ export default class Scene {
 
         this.destroyWorkers();
         this.activeTileManager.destroy();
+        this.terrainInputLease?.release();
+        this.terrainStagedInputLease?.release();
+        for (const input of this.terrainFailedInputs) input.lease.release();
+        this.terrainFailedInputs = [];
+        this.terrain = undefined; this.terrainInputSnapshot = undefined; this.terrainStagedInputSnapshot = undefined;
+        this.terrainResourceBudget = undefined;
         this.tile_manager = null;
         log.reset?.();
     }
@@ -1589,6 +1611,11 @@ export default class Scene {
                 return;
             }
 
+            // Admission can reject before creating a build/stage. Otherwise a
+            // synchronous budget error would leave recovery queued behind a
+            // build that never started and can never settle.
+            if (this.terrain && preserveTileCache && preserveTime) this.reserveTerrainInputs(true);
+
             // Track tile build state
             this.building = { resolve, reject, initial };
             this.terrainTransaction = Boolean(this.terrain && preserveTileCache && preserveTime);
@@ -1616,20 +1643,38 @@ export default class Scene {
                 for (const state of this.selection_views.values()) state.lastRender = -1;
             }
 
-            // Update config (in case JS objects were manipulated directly)
-            this.syncConfigToWorker({ serialize_funcs });
-            this.resetWorkerFeatureSelection(sources);
-            if (!preserveTime) this.resetTime();
-
-            // Rebuild visible tiles
-            if (!preserveTileCache) this.activeTileManager.pruneToVisibleTiles();
-            this.activeTileManager.forEachTile(tile => {
-                if (!sources || sources.indexOf(tile.source.name) > -1) {
-                    this.activeTileManager.buildTile(tile, { fade_in });
-                }
-            });
-            this.activeTileManager.updateTilesForView(); // picks up additional tiles for any new/changed data sources
-            this.activeTileManager.checkBuildQueue();    // resolve immediately if no tiles to build
+            const build = this.building;
+            const rebuildTiles = () => {
+                if (this.building !== build || !this.tile_manager) return;
+                this.resetWorkerFeatureSelection(sources);
+                if (!preserveTime) this.resetTime();
+                // Rebuild visible tiles only after every terrain worker has replaced its inputs.
+                if (!preserveTileCache) this.activeTileManager.pruneToVisibleTiles();
+                this.activeTileManager.forEachTile(tile => {
+                    if (!sources || sources.indexOf(tile.source.name) > -1) this.activeTileManager.buildTile(tile, { fade_in });
+                });
+                this.activeTileManager.updateTilesForView();
+                this.activeTileManager.checkBuildQueue();
+            };
+            const rejectTerrainConfig = (error: unknown) => {
+                if (this.building !== build || !this.tile_manager) return;
+                build.terrainConfigPending = false;
+                this.tileManagerBuildError(error);
+                this.tileManagerBuildDone();
+            };
+            if (this.terrainTransaction) {
+                // An empty tile queue is not proof that workers released a failed snapshot.
+                // Wait for configuration acknowledgements before even a zero-tile recovery settles.
+                build.terrainConfigPending = true;
+                try {Promise.resolve(this.syncConfigToWorker({serialize_funcs})).then(() => {
+                    build.terrainConfigPending = false;
+                    rebuildTiles();
+                }).catch(rejectTerrainConfig);}
+                catch (error) {rejectTerrainConfig(error);}
+            } else {
+                this.syncConfigToWorker({serialize_funcs});
+                rebuildTiles();
+            }
         }).then(() => {
             // Profiling
             if (profile) {
@@ -1648,6 +1693,7 @@ export default class Scene {
     // Tile manager finished building tiles
     // TODO move to tile manager
     tileManagerBuildDone() {
+        if (this.building?.terrainConfigPending) return;
         TextCanvas.pruneTextCache();
 
         if (this.building) {
@@ -1655,6 +1701,18 @@ export default class Scene {
             if (this.terrainTransaction) {
                 const time = performance.now();
                 const build = this.building;
+                if (this.terrainStagedInputLease && this.terrainStagedInputSnapshot) {
+                    if (build.error) this.terrainFailedInputs.push({lease: this.terrainStagedInputLease, snapshot: this.terrainStagedInputSnapshot});
+                    else {
+                        this.terrainInputLease?.release(); this.terrainInputLease = this.terrainStagedInputLease;
+                        this.terrainInputSnapshot = this.terrainStagedInputSnapshot;
+                    }
+                    this.terrainStagedInputLease = undefined; this.terrainStagedInputSnapshot = undefined;
+                }
+                if (!build.error) {
+                    for (const input of this.terrainFailedInputs) input.lease.release();
+                    this.terrainFailedInputs = [];
+                }
                 if (!build.error && this.terrain) this.activeTileManager.startTerrainTransition(this.terrain.transitionGeneration, time);
                 this.activeTileManager.forEachTile(tile => {if (build.error) tile.discardTerrainStage(); else tile.commitTerrainStage(time);});
                 if (!this.building.error) this.terrainDisplayGeneration = this.generation;
@@ -2085,20 +2143,48 @@ export default class Scene {
 
     // Serialize config and send to worker
     syncConfigToWorker({ serialize_funcs = true } = {}) {
+        this.reserveTerrainInputs(this.terrainTransaction === true);
         // Shader specialization only needs the enabled flag on the main thread,
         // but its retained style objects must not pin the initial DEM forever.
         if (this.terrain) for (const style of Object.values(this.styles || {})) style.terrain = this.terrain;
         // Tell workers we're about to rebuild (so they can update styles, etc.)
         let config_serialized =
             serialize_funcs ? Utils.serializeWithFunctions(this.config) : JSON.stringify(this.config);
-        return WorkerBroker.postMessage(this.activeWorkers, 'self.updateConfig', {
+        const configuration = {
             config: config_serialized,
             generation: this.generation,
             introspection: this.introspection,
             projection_target: this.projectionTarget,
             terrain: this.terrain,
             shader_language: this.shader_language
-        }, debugSettings);
+        };
+        if (!this.terrainTransaction) return WorkerBroker.postMessage(this.activeWorkers, 'self.updateConfig', configuration, debugSettings);
+        // Promise.all rejects at the first worker failure while other broker messages
+        // still retain the snapshot. Drain all replies before recovery can release it.
+        return Promise.allSettled(this.activeWorkers.map(worker => Promise.resolve().then(() =>
+            WorkerBroker.postMessage(worker, 'self.updateConfig', configuration, debugSettings)
+        ))).then(results => {
+            const failure = results.find(result => result.status === 'rejected');
+            if (failure?.status === 'rejected') throw failure.reason;
+            return results.map(result => result.status === 'fulfilled' ? result.value : undefined);
+        });
+    }
+
+    /** Reserve worker-input copies and lazy query capacities before cloning a new field. */
+    private reserveTerrainInputs(staged: boolean): void {
+        const terrain = this.terrain, budget = this.terrainResourceBudget;
+        if (!terrain || !budget || terrain === this.terrainInputSnapshot || terrain === this.terrainStagedInputSnapshot) return;
+        // Renderer retains a submitted picking snapshot and a settled annotation
+        // snapshot. Reserve both capacities even when they happen to share data.
+        const bytes = terrain.byteLength * ((this.workers?.length ?? 0) + 1) + 2 * (terrain.maxQueryIndexBytes + terrain.maxProjectedQueryBytes);
+        const lease = budget.reserve('retained', bytes);
+        if (!lease) throw new Error('Terrain shared input/query capacity budget exceeded');
+        if (staged) {
+            this.terrainStagedInputLease?.release(); this.terrainStagedInputLease = lease;
+            this.terrainStagedInputSnapshot = terrain;
+        } else {
+            this.terrainInputLease?.release(); this.terrainInputLease = lease; this.terrainInputSnapshot = terrain;
+        }
     }
 
     // Listen to related objects

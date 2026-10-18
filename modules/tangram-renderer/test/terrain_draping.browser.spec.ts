@@ -244,7 +244,7 @@ test('resident preparation statistics count valid worker outputs without countin
     const manager = Object.create(TileManager.prototype);
     const statistics = {vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, preparationMs: 5, detailLimited: true};
     manager.tileset = {tileRecords: {first: {meshes: {ground: [{valid: true, variant: {terrainStatistics: statistics}}, {valid: false, variant: {terrainStatistics: statistics}}, {valid: true, variant: {}}]}}, empty: {}}};
-    expect(manager.getTerrainDrapingStatistics(normalizeTerrainDraping({grids: [grid()]}))).toEqual({enabled: true, gridBytes: 45, meshes: 1, vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, maximumPreparationMs: 5, detailLimitedMeshes: 1, queryBytes: 0, stagedMeshBytes: 0});
+    expect(manager.getTerrainDrapingStatistics(normalizeTerrainDraping({grids: [grid()]}))).toEqual({enabled: true, gridBytes: 45, meshes: 1, vertices: 3, triangles: 1, suppressedTriangles: 2, meshBytes: 144, maximumPreparationMs: 5, detailLimitedMeshes: 1, queryBytes: 0, stagedMeshBytes: 0, residentMeshBytes: 0, residentMeshByteLimit: 256 * 1024 * 1024});
     manager.tileset = {tileRecords: {}};
     expect(manager.getTerrainDrapingStatistics()).toMatchObject({enabled: false, gridBytes: 0, meshes: 0});
 });

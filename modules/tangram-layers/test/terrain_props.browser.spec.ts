@@ -8,6 +8,25 @@ import {DrapedTerrainSurfaceSnapshot} from '@vis.gl/tangram-renderer/core';
 import {createContextFixture, createRecordFixture, createRendererFixture, getLiveRecord} from './fixtures/lifecycle';
 import type {Scene} from '@vis.gl/tangram-renderer';
 import type {TangramLayerProps} from '../src/tangram-layer';
+import {TerrainResourceBudget} from '@vis.gl/tangram-renderer/map-logic';
+
+test('the borrowed terrain budget reaches the renderer and a different pool recreates its owner', async () => {
+    class BaseLayer {}
+    const construct = vi.fn((_scene: unknown, _options: Record<string, unknown>) => createRendererFixture({}));
+    const Layer = createTangramLayerClass({Layer: BaseLayer, ClassicWebGLRenderer: {create: construct}});
+    const layer = new Layer(); layer.state = {tangramRecord: null}; layer.setState = value => Object.assign(layer.state, value);
+    layer.context = createContextFixture(); layer.setNeedsRedraw = vi.fn(); layer.raiseError = vi.fn(); layer._synchronizeTangramScene = vi.fn();
+    const scene = {}, terrain = {grids: []}, first = new TerrainResourceBudget(100), second = new TerrainResourceBudget(200);
+    try {
+        layer.props = {scene, terrain, terrainResourceBudget: first, onSceneLoad: vi.fn(), onSceneError: vi.fn(), onAttributionChange: vi.fn()}; layer.updateState({props: layer.props});
+        const record = getLiveRecord(layer); await record.loadPromise;
+        expect(construct.mock.calls[0][1].terrainResourceBudget).toBe(first);
+        layer.props = {...layer.props, terrainResourceBudget: second}; layer.updateState({props: layer.props});
+        await getLiveRecord(layer).loadPromise;
+        expect(record.renderer.destroy).toHaveBeenCalledOnce(); expect(construct).toHaveBeenCalledTimes(2);
+        expect(construct.mock.calls[1][1].terrainResourceBudget).toBe(second);
+    } finally {layer.finalizeState();}
+});
 
 test('public scene callbacks accept explicit Scene handlers and retain the supported Scene methods', async () => {
     class BaseLayer {}

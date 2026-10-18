@@ -263,3 +263,41 @@ subphysical values remain fixed rather than fading upward. Physical source heigh
 are unchanged. This helper has no deck.gl, camera or GPU dependency.
 
 See [GlobeTerrainLayer](../globe-terrain-layer.md) for the optional deck.gl adapter.
+
+## Error envelopes and admission
+
+`measureTerrainError(grid)` caches physical extrema and directional bilinear
+gradient bounds by immutable grid identity. `boundTerrainMeshError(envelope,
+resolution)` returns a conservative physical-height bound and radius-256
+spherical curvature bound for dyadic resolutions 2–64. It deliberately
+overestimates ramps; it is not an RMSE fit or an estimate of unloaded source detail.
+
+`selectTerrainMeshResolution(grids, {pixelsPerMeter, pixelsPerGlobeUnit,
+targetPixels, previousResolution})` chooses a bounded dyadic resolution with a
+20% coarsening deadband. The caller must supply conservative projection scales,
+including exaggeration. `limited` remains true when the cap or invalid samples
+prevent satisfying the requested envelope. `boundProjectedDisplacement(matrix,
+minimum, maximum, viewport)` bounds a projective transform over an entire XYZ box;
+it returns null when the box crosses the eye plane rather than certifying a
+center-only projection estimate.
+
+`TerrainResourceBudget(byteLimit)` is an application-owned admission pool.
+`reserve('retained' | 'transient' | 'gpu', bytes)` returns an independent lease or
+null. A lease supports atomic `resize(bytes)` and idempotent `release()`. Rejected
+reservations leave incumbent owners untouched. Diagnostics separate retained CPU,
+transient reservations and GPU estimates and record their simultaneous peak.
+Only registered owners are covered; this is not browser-process measurement.
+
+## Conservative navigation
+
+`TerrainHeightField.getHeightRange(bounds)` returns bilinear cell extrema over a
+fully covered rectangle, or null for gaps and no-data. It uses the
+same registration and missing-support rules as height sampling.
+
+`guardTerrainMotion(field, start, end, {radius, clearance, maxStep, maxProbes})`
+checks the full swept square footprint in bounded slices. XY/radius use absolute
+EPSG:3857 meters; Z/clearance use physical vertical meters. Convert a physical
+horizontal avatar radius to Mercator units at the path latitude. Missing coverage
+and work-budget exhaustion block translation explicitly; a clear endpoint is not
+enough. Range bounds may reject a clear path conservatively. This is a height-field
+guard, not wall, tunnel, gravity or rigid-body physics.

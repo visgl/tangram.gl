@@ -15,7 +15,7 @@ export function createRendererFixture<Overrides extends Omit<Partial<TangramBrid
         setProjectedBasemapProjection: vi.fn(async () => undefined), getFeatureAt: vi.fn(), getTerrainAt: vi.fn(() => null),
         getDrapedTerrainSurface: vi.fn(() => null), getAttributions: vi.fn(async () => []),
         getTerrainDrapingStatistics: vi.fn(() => ({enabled: true, gridBytes: 0, meshes: 0, vertices: 0, triangles: 0,
-            suppressedTriangles: 0, meshBytes: 0, maximumPreparationMs: 0, detailLimitedMeshes: 0, queryBytes: 0, stagedMeshBytes: 0})),
+            suppressedTriangles: 0, meshBytes: 0, maximumPreparationMs: 0, detailLimitedMeshes: 0, queryBytes: 0, stagedMeshBytes: 0, residentMeshBytes: 0, residentMeshByteLimit: 0})),
         ...overrides, scene: completeSceneFixture(overrides.scene)};
 }
 

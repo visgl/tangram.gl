@@ -5,10 +5,140 @@
 import {requireTileManager} from './helpers/scene-owners';
 import {expect, test, vi} from 'vitest';
 import Renderer from '../src/scene/renderer';
+import Scene from '../src/scene/scene';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
 import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import {DrapedTerrainSurfaceSnapshot} from '../src/selection/draped-terrain-surface';
+import {TerrainResourceBudget} from '../src/map-logic/terrain-resource-budget';
+import {normalizeTerrainDraping} from '../src/procedures/terrain-draping';
+import WorkerBroker from '../src/utils/worker_broker';
+
+test('input admission rejects before starting a rebuild and releases all reservations on destruction', async () => {
+    const budget = new TerrainResourceBudget(1);
+    const scene = Scene.create({}, {terrain: {grids: []}, terrainResourceBudget: budget});
+    await expect(scene.rebuild({preserveTileCache: true, preserveTime: true})).rejects.toThrow(/input\/query capacity/);
+    expect(scene.building).toBeFalsy(); expect(scene.terrainTransaction).toBeFalsy();
+    expect(budget.getStatistics()).toMatchObject({bytes: 0});
+    scene.destroy(); expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+});
+
+test.each([false, true])('input leases keep the old generation until staged settlement (failed=%s)', async failed => {
+    const budget = new TerrainResourceBudget(100);
+    const scene = Scene.create({}, {terrain: {grids: [field(0)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1}, terrainResourceBudget: budget});
+    scene.workers = [];
+    const post = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([]);
+    const manager = requireTileManager(scene);
+    vi.spyOn(manager, 'publishTerrainDisplay').mockImplementation(() => {});
+    vi.spyOn(manager, 'updateLabels').mockResolvedValue({});
+    vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
+    try {
+        await scene.syncConfigToWorker();
+        expect(budget.getStatistics().retainedBytes).toBe(28);
+        scene.terrain = normalizeTerrainDraping({grids: [field(10)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1});
+        scene.terrainTransaction = true;
+        await scene.syncConfigToWorker();
+        expect(budget.getStatistics().retainedBytes).toBe(56);
+        Object.assign(scene, {building: {resolve: vi.fn(), reject: vi.fn(), ...(failed ? {error: new Error('fixture')} : {})}});
+        scene.tileManagerBuildDone();
+        expect(budget.getStatistics().retainedBytes).toBe(failed ? 56 : 28);
+    } finally {scene.destroy(); post.mockRestore();}
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0, peakBytes: 56});
+});
+
+test.each([false, true])('failed worker inputs remain reserved through asynchronous recovery (recovery fails=%s)', async failedRecovery => {
+    const budget = new TerrainResourceBudget(120);
+    const options = {grids: [field(0)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1};
+    const renderer = Renderer.create({}, {terrain: options, terrainResourceBudget: budget});
+    const scene = renderer.scene;
+    if (!(scene instanceof Scene)) throw new Error('Missing concrete scene fixture');
+    const manager = requireTileManager(scene);
+    scene.workers = [{postMessage: vi.fn(), addEventListener: vi.fn()}];
+    const post = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([]);
+    vi.spyOn(manager, 'publishTerrainDisplay').mockImplementation(() => {});
+    vi.spyOn(manager, 'updateLabels').mockResolvedValue({});
+    vi.spyOn(manager, 'updateTilesForView').mockImplementation(() => {});
+    vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
+    let acknowledgeRecovery: () => void = () => {}, rejectRecovery: (error: Error) => void = () => {};
+    const recovery = new Promise<unknown[]>((resolve, reject) => {acknowledgeRecovery = () => resolve([]); rejectRecovery = reject;});
+    let recoveryStarted: () => void = () => {};
+    const recovering = new Promise<void>(resolve => {recoveryStarted = resolve;});
+    try {
+        await scene.syncConfigToWorker();
+        expect(budget.getStatistics().retainedBytes).toBe(48);
+        let configurations = 0;
+        post.mockImplementation((_workers, method) => {
+            if (method !== 'self.updateConfig') return Promise.resolve([]);
+            configurations++;
+            if (configurations === 1) return Promise.reject(new Error('replacement worker configuration'));
+            if (configurations === 2) {recoveryStarted(); return recovery;}
+            return Promise.resolve([]);
+        });
+        const replacement = {...options, grids: [field(10)], previousGrids: []};
+        const update = renderer.setTerrain(replacement).catch((error: unknown) => error);
+        await recovering;
+        // Even an empty tile queue cannot release worker copies before configuration acknowledges.
+        scene.tileManagerBuildDone();
+        expect(scene.building).toBeTruthy();
+        expect(budget.getStatistics().retainedBytes).toBe(96);
+        expect(budget.reserve('transient', 25)).toBeNull();
+        if (failedRecovery) {
+            rejectRecovery(new Error('recovery worker configuration'));
+            expect(await update).toBeInstanceOf(AggregateError);
+            expect(budget.getStatistics().retainedBytes).toBe(96);
+            // A third input cannot spend the failed snapshot's reservation. Recovery can reuse
+            // the incumbent reservation, acknowledge it, and make room for an explicit retry.
+            await expect(renderer.setTerrain(replacement)).rejects.toThrow(/input\/query capacity/);
+        } else {
+            acknowledgeRecovery();
+            expect(await update).toMatchObject({message: 'replacement worker configuration'});
+        }
+        expect(budget.getStatistics().retainedBytes).toBe(48);
+        await renderer.setTerrain(replacement);
+        expect(budget.getStatistics().retainedBytes).toBe(48);
+    } finally {renderer.destroy(); post.mockRestore();}
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0, peakBytes: 96});
+});
+
+test('a failed terrain configuration drains every worker reply before recovery can release its inputs', async () => {
+    const budget = new TerrainResourceBudget(200);
+    const scene = Scene.create({}, {terrain: {grids: [field(0)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1}, terrainResourceBudget: budget});
+    scene.workers = Array.from({length: 2}, () => ({postMessage: vi.fn(), addEventListener: vi.fn()}));
+    const post = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([]);
+    const manager = requireTileManager(scene);
+    vi.spyOn(manager, 'publishTerrainDisplay').mockImplementation(() => {});
+    vi.spyOn(manager, 'updateLabels').mockResolvedValue({});
+    vi.spyOn(manager, 'updateTilesForView').mockImplementation(() => {});
+    vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
+    let acknowledgeLateWorker: () => void = () => {}, startedLateWorker: () => void = () => {};
+    const lateWorker = new Promise<unknown[]>(resolve => {acknowledgeLateWorker = () => resolve([]);});
+    const lateWorkerStarted = new Promise<void>(resolve => {startedLateWorker = resolve;});
+    try {
+        await scene.syncConfigToWorker();
+        const original = scene.terrain;
+        scene.terrain = normalizeTerrainDraping({grids: [field(10)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1});
+        let configurations = 0;
+        post.mockImplementation((_worker, method) => {
+            if (method !== 'self.updateConfig') return Promise.resolve([]);
+            configurations++;
+            if (configurations === 1) return Promise.reject(new Error('first worker'));
+            if (configurations === 2) {startedLateWorker(); return lateWorker;}
+            return Promise.resolve([]);
+        });
+        const update = scene.rebuild({preserveTileCache: true, preserveTime: true}).catch((error: unknown) => error);
+        await lateWorkerStarted;
+        manager.checkBuildQueue();
+        expect(scene.building).toBeTruthy();
+        expect(budget.getStatistics().retainedBytes).toBe(136);
+        acknowledgeLateWorker();
+        expect(await update).toMatchObject({message: 'first worker'});
+        expect(budget.getStatistics().retainedBytes).toBe(136);
+        scene.terrain = original;
+        await scene.rebuild({preserveTileCache: true, preserveTime: true});
+        expect(budget.getStatistics().retainedBytes).toBe(68);
+    } finally {scene.destroy(); post.mockRestore();}
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0, peakBytes: 136});
+});
 
 test('query warming advances once per shared stereo frame and releases partial work on load and destruction', () => {
     const renderer = Renderer.create({}, {terrain: {grids: [], occludeAnnotations: true, queryPreparationBudgetMs: 1}});

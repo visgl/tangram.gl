@@ -84,6 +84,32 @@ test.each([false, true])('canonical %s mesh follows terrain planes instead of in
     }
 });
 
+test('a coarser new field retains the old canonical triangle planes throughout the morph', () => {
+    const request = input(false);
+    // Raster inputs have uniform material channels, independent of source UVs.
+    for (let vertex = 1; vertex < 4; vertex++) request.vertices.set(request.vertices.subarray(8, polygonLayout.stride), vertex * polygonLayout.stride + 8);
+    const old = drapeTerrainMesh({...request, styled: false, ground: true, terrain: normalizeTerrainDraping({grids: [grid(1, 1, 2, true)], groundMeshResolution: 4})});
+    const target = drapeTerrainMesh({...request, styled: false, ground: true, terrain: normalizeTerrainDraping({grids: [grid()], groundMeshResolution: 2})});
+    const transition = drapeTerrainMesh({...request, styled: false, ground: true, terrain: normalizeTerrainDraping({grids: [grid()], previousGrids: [grid(1, 1, 2, true)],
+        groundMeshResolution: 2, previousGroundMeshResolution: 4, conformTransitions: true})});
+    expect(transition.statistics.transitionTriangles).toBeGreaterThan(target.indices.length / 3);
+    for (const point of [[600, -750], [1200, -1700], [2900, -3100]] as const) for (const blend of [0, 0.3, 1]) {
+        const before = heightAt(old, polygonLayout, point)!, after = heightAt(target, polygonLayout, point)!;
+        expect(heightAt(transition, polygonLayout, point, blend)).toBeCloseTo(before + (after - before) * blend, 4);
+    }
+});
+
+test('previous no-data cells never invent a phantom transition floor for newly covered ground', () => {
+    const previous = grid(1, 1, 2, true); previous.valid[4] = 0;
+    const current = {...grid(), heights: new Float32Array(9).fill(100)};
+    const request = input(false, 2, 1, 1, [current], [previous]);
+    for (let vertex = 1; vertex < 4; vertex++) request.vertices.set(request.vertices.subarray(8, polygonLayout.stride), vertex * polygonLayout.stride + 8);
+    const transition = drapeTerrainMesh({...request, styled: false, ground: true, terrain: normalizeTerrainDraping({grids: [current], previousGrids: [previous],
+        groundMeshResolution: 2, previousGroundMeshResolution: 4, conformTransitions: true})});
+    expect(heightAt(transition, polygonLayout, [2048, -2048], 0)).toBeCloseTo(100, 4);
+    expect(heightAt(transition, polygonLayout, [2048, -2048], 1)).toBeCloseTo(100, 4);
+});
+
 test('mixed source zoom and different source diagonals agree on a nonplanar shared terrain seam', () => {
     const parentInput = input(), childInput = input(false, 4, 5, 5);
     childInput.indices = new Uint16Array([0, 1, 3, 1, 2, 3]);

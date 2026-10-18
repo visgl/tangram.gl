@@ -36,8 +36,12 @@ the clearance, is also checked against loaded triangles so a large step cannot
 silently pass through an intervening ridge.
 **Lower eye to loaded terrain** explicitly lowers an airborne camera to that floor;
 it does nothing when coverage is missing. These controls do not implement gravity,
-avatar volume, walls, tunnels or continuous world-wide collision. Intermediate
-unloaded areas are not certified safe. Picking uses the actual
+walls, tunnels or continuous world-wide collision. A conservative 0.3 m horizontal
+body footprint additionally checks intermediate DEM coverage and height ranges,
+requiring up to 1.7 m minimum eye/body height independently of the hovering target's clearance.
+Missing/no-data support or the bounded probe limit holds translation, while
+looking remains enabled. This can reject clear paths conservatively; it is not
+rigid-body collision. Picking uses the actual
 Map/FirstPerson projection and canvas-relative viewport offsets, including split
 views, while returning unexaggerated top-triangle height rather than skirt height.
 
@@ -127,7 +131,8 @@ target-following helper now uses this collection/probe boundary while retaining
 its canonical longitude, source domain, highest loaded top triangle and missing-data
 hold behavior. The FirstPerson example integrates point clearance with its controller;
 the example additionally guards finite eye segments against loaded top triangles.
-That guard is not avatar collision, and missing intermediate coverage remains unknown.
+The optional swept-footprint guard also rejects missing intermediate coverage;
+neither helper is a general avatar-physics solver.
 
 This is not a hard frame-time or peak-memory cap: an indivisible chunk can overrun
 its target. Source grids, scratch arrays, the candidate before admission,
@@ -242,6 +247,54 @@ projected-pixel-error LOD algorithm. The initial demonstration is near Zermatt;
 global wrap seams and arbitrarily wide world views are not certified.
 
 ## Projected detail and picking
+
+The draped globe additionally selects **mesh resolution**, independently of source
+zoom, from cached DEM gradient/height envelopes and a spherical curvature bound.
+The whole-globe projection-box bound includes exaggeration; a box crossing the eye
+plane retains the previous requested resolution and reports unbounded error rather
+than forcing a maximum-detail rebuild. Resolutions are
+dyadic 2–64 with a coarsening deadband. A 4 CSS-pixel target is not claimed met
+when source holes or the resolution cap prevent it. The info card distinguishes
+requested resolution/error from the last atomically admitted mesh generation.
+
+Both draped examples share a `TerrainResourceBudget` between source decoding and
+the renderer. Source jobs reserve conservative scratch/output capacity before
+fetch/decode; observed oversized results reject. Input reservations cover main and
+worker grid copies and internal query capacities. Upload admission counts the old
+display, staged replacements, retained draw/query inputs and GPU buffer estimates
+before allocating another GPU owner. `terrain.maxResidentMeshBytes` supplies an
+independent 256 MiB default mesh-domain cap. Failed replacements retain the old
+display and query generation. Failed input snapshots remain reserved through worker
+recovery; even an empty tile queue cannot release them until every worker acknowledges
+the restored configuration. Failed recovery keeps those reservations until a successful
+replacement or renderer disposal. Cancellation releases a decode reservation only when
+the owned decoder has settled, so a late result cannot spend released capacity.
+Decode output transfers into retained ownership without charging the same buffers
+twice. Source buffers stay job-owned until the last decoder settles, even after
+cache eviction. Shared admission preflights eviction/yield plans before changing warm
+cache records; refusal leaves those incumbents available for retry.
+Unregistered preview resources, JavaScript metadata, actual driver overhead,
+Tangram worker scratch and externally retained query snapshots remain outside the
+shared pool. GPU values are estimates, not device-memory measurements.
+
+Opt-in `terrain.conformTransitions` cuts canonical current ground against previous
+canonical faces. Both endpoints retain their planar triangle heights at new cuts;
+it no longer substitutes bilinear sampling for an older coarse triangulation.
+`previousGroundMeshResolution` describes the old endpoint; Renderer supplies it
+automatically when it supplies `previousGrids`. Vertex/work/precision limits reject
+atomically. Coarse/fine fan intersections can produce non-dyadic coordinates that
+the shared Float32 source lattice cannot represent; these explicitly reject rather
+than rounding independent owners into cracks. The examples keep height-only morphing
+as their default; uniform canonical fields have packaged stereo conformance.
+Arbitrary legacy previous fields also keep the default height-only morph.
+This common planar refinement does **not** certify exact cross-style globe chord
+conformity or re-intersect dynamic-width roads between worker rebuilds.
+
+Annotation collision eligibility probes the billboard bounds' corners and center
+at its clip depth. An occluded anchor alone no longer hides a visible corner, and
+visibility in either stereo eye retains the shared candidate. These finite probes
+are a placement heuristic, not proof that every glyph fragment is occluded; GPU
+depth remains responsible for actual color and selection fragment visibility.
 
 The tile-footprint control selects data zoom independently of camera zoom and
 mesh simplification. It projects the local tile's four edges at a 2500 m reference

@@ -50,7 +50,8 @@ Opt-in `groundMeshResolution` gives selected full-tile raster ground styles
 DEM-owned triangles with balanced coarse/fine knots. Complete cells survive
 source-detail and fallback boundaries; half-open draw/query clips partition
 ownership rather than retessellating the surface. Periodic copies reconcile
-antimeridian sampling. The globe reference opts into 32 cells per DEM axis.
+antimeridian sampling. The globe reference selects a bounded dyadic ground
+resolution rather than using a fixed cell count.
 
 Late source tiles inherit the admitted field's shared transition origin, including
 both eyes and CPU queries; successful staged replacement starts the next field
@@ -67,6 +68,15 @@ coplanarity: extra feature cuts can change globe chords. Dynamic-width movement
 between rebuilds retains local tangent correction rather than new cell intersections.
 
 ## Remaining batches, in priority order
+
+The current combined implementation advances batches 1–4 with opt-in common planar
+transition refinement, DEM-derived height/curvature envelopes, projected dyadic
+ground detail, shared reservation leases and peak mesh admission, billboard-wide
+visibility probes and a bounded swept-height-field footprint guard. These are not
+completion claims: exact cross-style globe chords, dynamic-width re-intersection,
+unregistered/transient resource domains, general avatar physics and full glyph
+occlusion certification remain distinct work. See [terrain integration](./terrain.md#projected-detail-and-picking)
+for the implemented bounds and failure policies.
 
 | Batch | Coherent implementation scope | Gate before claiming completion |
 | --- | --- | --- |

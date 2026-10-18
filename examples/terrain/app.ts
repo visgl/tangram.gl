@@ -20,6 +20,7 @@ import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainI
 import {createDrapedBasemap} from './draped-basemap';
 import type {SceneDefinition, TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
 import {TerrainSurfaceCollection} from '@vis.gl/tangram-renderer/core';
+import {TerrainResourceBudget, TerrainHeightField, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 /** One mounted example owns its canvas, controls, workers and GPU resources. */
@@ -104,6 +105,8 @@ export function mountTerrainExample(host: HTMLElement, options: {
   let BasemapLayer: typeof import('@vis.gl/tangram-layers').TangramLayer | undefined;
   let fieldSignature = '';
   let terrain: TerrainDrapingOptions = {grids: [], transitionDuration: 200};
+  const resourceBudget = new TerrainResourceBudget(512 * 1024 * 1024);
+  let navigationGrids: readonly TerrainHeightGrid[] = [], navigationField = new TerrainHeightField([]);
   let activeBasemap: InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer> | undefined;
   let basemapError = '';
   let lastDrapingStatus = 0;
@@ -167,7 +170,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
         const position = viewState.position ?? camera.position;
         camera = {...camera, ...viewState, longitude: viewState.longitude ?? camera.longitude, latitude: viewState.latitude ?? camera.latitude, position: [position[0], position[1], position[2]]};
         if (firstPerson && follow.checked) {
-          const result = constrainTerrainMotion(previousCamera, camera, [...geometry.values()].map(tile => tile.mesh.loaded), Number(clearance.value), displayedSurface());
+          const result = constrainTerrainMotion(previousCamera, camera, [...geometry.values()].map(tile => tile.mesh.loaded), Number(clearance.value), displayedSurface(), {radius: 0.3, clearance: Math.min(1.7, Number(clearance.value)), field: navigationField});
           camera = {...camera, position: result.state.position}; anchorAvailable = result.available;
           camera.longitude = result.state.longitude; camera.latitude = result.state.latitude;
           if (result.blocked) selection.textContent = result.available ? 'Movement blocked by loaded terrain; looking remains enabled' : 'Waiting for loaded terrain; eye translation held';
@@ -229,6 +232,10 @@ export function mountTerrainExample(host: HTMLElement, options: {
   function updateLayers(): void {
     if (!tileset || disposed) return;
     const drawable = tileset.getDrawableTiles();
+    const selectedGrids = drawable.flatMap(tile => tile.data ? [tile.data.grid] : []);
+    if (firstPerson && (selectedGrids.length !== navigationGrids.length || selectedGrids.some((grid, index) => grid !== navigationGrids[index]))) {
+      navigationGrids = selectedGrids; navigationField = new TerrainHeightField(selectedGrids);
+    }
     const visible = new Set(drawable.map(tile => tile.key));
     for (const key of geometry.keys()) if (!visible.has(key)) geometry.delete(key);
     const layers: (TerrainLayer | InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer>)[] = [];
@@ -256,9 +263,9 @@ export function mountTerrainExample(host: HTMLElement, options: {
       const next = drawable.flatMap(tile => tile.data ? [`${tile.key}:${payloadId(tile.bytes ?? tile.data.grid)}`] : []).sort().join(',');
       if (next !== fieldSignature) {
         fieldSignature = next;
-        terrain = {grids, transitionDuration: 200, maxSegmentLength: 250, querySurfaceStyles: ['ground'], occludeAnnotations: true};
+        terrain = {grids, transitionDuration: 200, maxSegmentLength: 250, groundMeshResolution: 32, querySurfaceStyles: ['ground'], occludeAnnotations: true};
       }
-      activeBasemap = new BasemapLayer({id: 'draped-basemap', scene: basemapScene, terrain, terrainExaggeration: 1, tileBuffer: 1,
+      activeBasemap = new BasemapLayer({id: 'draped-basemap', scene: basemapScene, terrain, terrainResourceBudget: resourceBudget, terrainExaggeration: 1, tileBuffer: 1,
         maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentBuilds: 2},
         firstPersonMaxGroundExtent: 20000,
         firstPersonElevationRange: [0, 10000],
@@ -275,7 +282,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
   tileset = new TerrainTileset({
     fetch: (tile, signal) => source.fetchTile(tile, signal), minZoom: source.minZoom, maxZoom: source.maxZoom,
     decode: (bytes, tile, meshMaxError, signal) => decoder.decodeMesh(bytes, getTerrainTileBounds(tile.zoom, tile.column, tile.row), meshMaxError, signal, source.noData),
-    onChange: schedule, maxResidentBytes: options.maxResidentBytes
+    onChange: schedule, maxResidentBytes: options.maxResidentBytes, resourceBudget
   });
   const observer = new ResizeObserver(() => {if (!disposed) {deck.setProps({width: container.clientWidth, height: container.clientHeight}); schedule();}});
   observer.observe(container);
@@ -298,7 +305,10 @@ export function mountTerrainExample(host: HTMLElement, options: {
     camera = {...camera, position: [camera.position[0], camera.position[1], height]};
     freeAnchorHeight = height; deck.setProps({viewState: camera}); schedule();
   }, {signal: abort.signal});
-  element('retry').addEventListener('click', () => tileset?.retry(), {signal: abort.signal});
+  element('retry').addEventListener('click', () => {
+    if (basemapError) {fieldSignature = ''; basemapError = '';}
+    tileset?.retry(); schedule();
+  }, {signal: abort.signal});
   const destroyCard = createCollapsibleInfoCard(element('controls'));
   function updateDeviceTabs(): void {
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-device-type]')) {
@@ -324,6 +334,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
   const ready = Promise.all([tileset.waitForIdle(), basemapReady]).then(() => {if (!disposed) updateLayers();});
   return {ready, destroy() {
     if (disposed) return;
-    disposed = true; abort.abort(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); geometry.clear(); observer.disconnect(); destroyCard(); deck.finalize(); root.remove();
+    disposed = true; abort.abort(); cancelAnimationFrame(animationFrame); tileset?.destroy(); decoder.destroy(); geometry.clear(); observer.disconnect(); destroyCard(); deck.finalize();
+    navigationGrids = []; navigationField = new TerrainHeightField([]); terrain = {grids: []}; activeBasemap = undefined; root.remove();
   }};
 }

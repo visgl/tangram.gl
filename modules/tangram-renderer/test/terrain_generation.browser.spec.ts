@@ -11,6 +11,7 @@ import VertexLayout from '../src/gl/vertex_layout';
 import type {MeshContext} from '../src/gl/mesh-types';
 import TileManager from '../src/tile/tile_manager';
 import Task, {type TaskRecord} from '../src/utils/task';
+import {TerrainResourceBudget} from '../src/map-logic/terrain-resource-budget';
 
 const context = document.createElement('canvas').getContext('webgl2');
 
@@ -113,7 +114,8 @@ test.each([false, true])('scene completion admits or rejects the entire terrain 
 });
 
 test('staged-byte admission fails before allocating GPU owners and keeps the previous ground', () => {
-    const scene = Scene.create({}, {terrain: {grids: [], maxStagedMeshBytes: 1}}), owner = tile();
+    const resourceBudget = new TerrainResourceBudget(100);
+    const scene = Scene.create({}, {terrain: {grids: [], maxStagedMeshBytes: 1}, terrainResourceBudget: resourceBudget}), owner = tile();
     Object.assign(scene, {generation: 1}); scene.terrainTransaction = true; owner.generation = 1; const previous = mesh(); owner.meshes = {ground: [previous]}; owner.beginTerrainStage();
     requireTileManager(scene).tiles = {[owner.key]: owner};
     const error = vi.spyOn(scene, 'tileManagerBuildError').mockImplementation(() => {});
@@ -121,8 +123,32 @@ test('staged-byte admission fails before allocating GPU owners and keeps the pre
     vi.spyOn(Tile, 'abortBuild').mockImplementation(() => {});
     requireTileManager(scene).buildTileStylesCompleted({tile: {...Tile.slice(owner), mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}}}, progress: {done: true}});
     expect(error).toHaveBeenCalledWith(expect.objectContaining({message: 'Terrain staged mesh-byte budget exceeded'}));
+    expect(resourceBudget.getStatistics().transientBytes).toBe(0);
+    // Repeated rejected replacements must not consume an unreachable shared lease.
+    requireTileManager(scene).buildTileStylesCompleted({tile: {...Tile.slice(owner), mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}}}, progress: {done: true}});
+    expect(resourceBudget.getStatistics().transientBytes).toBe(0);
     expect(previous.destroy).not.toHaveBeenCalled(); expect(owner.meshes.ground[0]).toBe(previous);
     requireTileManager(scene).tiles = {}; owner.freeResources(); scene.destroy();
+    expect(resourceBudget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+});
+
+test.each([false, true])('peak admission counts the visible generation before an upload (shared=%s)', shared => {
+    const resourceBudget = new TerrainResourceBudget(32);
+    const scene = Scene.create({}, {terrain: {grids: [], maxResidentMeshBytes: shared ? 1000 : 32}, terrainResourceBudget: shared ? resourceBudget : undefined});
+    const owner = tile(), previous = mesh(); previous.variant = {terrain: true};
+    Object.assign(scene, {generation: 1}); scene.terrainTransaction = true; owner.generation = 1;
+    owner.meshes = {ground: [previous]}; owner.beginTerrainStage();
+    const manager = requireTileManager(scene); manager.tiles = {[owner.key]: owner};
+    const error = vi.spyOn(scene, 'tileManagerBuildError').mockImplementation(() => {});
+    vi.spyOn(manager, 'tileBuildStop').mockImplementation(() => {});
+    vi.spyOn(Tile, 'abortBuild').mockImplementation(() => {});
+    const upload = vi.spyOn(owner, 'buildMeshes');
+    manager.buildTileStylesCompleted({tile: {...Tile.slice(owner), mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {terrain: true}}}}}}, progress: {done: true}});
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({message: shared ? 'Terrain shared replacement resource budget exceeded' : 'Terrain peak resident mesh-byte budget exceeded'}));
+    expect(upload).not.toHaveBeenCalled(); expect(previous.destroy).not.toHaveBeenCalled();
+    expect(manager.getResidentTerrainMeshBytes()).toBe(12);
+    manager.tiles = {}; owner.freeResources(); scene.destroy();
+    expect(resourceBudget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
 });
 
 test('a staged GPU upload failure releases unattached new buffers, aborts the raw batch and preserves admitted owners', () => {
