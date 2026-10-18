@@ -43,13 +43,14 @@ import {heightDecode} from '../shader-modules/height-decode';
 // Base class
 
 export var Style: StyleMethods = {
-    init (this: StyleRuntime, { generation, styles, sources = {}, introspection, shader_language = 'glsl', config, projection_target, terrain }: StyleInitOptions = {}) {
+    init (this: StyleRuntime, { generation, styles, sources = {}, introspection, shader_language = 'glsl', config, projection_target, terrain, terrainRibbonZoom }: StyleInitOptions = {}) {
         this.setGeneration(generation);
         this.styles = styles;                       // styles for scene
         this.sources = sources;                     // data sources for scene
         this.shader_language = shader_language;     // keeps worker-built vertex layouts aligned with the renderer
         this.projection_target = projection_target;
         this.terrain = terrain;
+        this.terrainRibbonZoom = terrainRibbonZoom;
         if (terrain && (config?.scene?.cpu_projection || this.shaders?.blocks?.position || this.shaders?.blocks?.width)) throw new Error('Terrain draping does not support CPU-projected scenes or procedural position/width blocks');
         this.cpu_projection = config?.scene?.cpu_projection === undefined ? undefined :
             normalizeProjectedBasemapOptions(config.scene.cpu_projection);
@@ -204,7 +205,7 @@ export var Style: StyleMethods = {
                     const originalLayout = this.vertexLayoutForMeshVariant(mesh.variant);
                     if (!originalLayout) throw new Error('Style has no terrain vertex layout');
                     const draped = drapeTerrainMesh({vertices: mesh.vertex_data, indices: mesh.vertex_elements || false,
-                        layout: originalLayout, origin: [tile.min!.x, tile.min!.y], tileZoom: tile.coords!.z, styleZoom: tile.style_z,
+                        layout: originalLayout, origin: [tile.min!.x, tile.min!.y], tileZoom: tile.coords!.z, styleZoom: tile.style_z, ribbonZoom: this.terrainRibbonZoom,
                         annotations: ['points', 'text'].includes(this.baseStyle()),
                         styled: ['polygons', 'lines'].includes(this.baseStyle()),
                         ground: this.baseStyle() === 'raster' && this.terrain.querySurfaceStyles.includes(this.name), terrain: this.terrain});

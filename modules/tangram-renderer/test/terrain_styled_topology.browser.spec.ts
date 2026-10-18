@@ -8,6 +8,7 @@ import VertexLayout from '../src/gl/vertex_layout';
 import {conformTerrainStyledMesh} from '../src/procedures/terrain-styled-topology';
 import {drapeTerrainMesh, normalizeTerrainDraping, getTerrainVertexLayout, extractDrapedTerrainQueryMesh} from '../src/procedures/terrain-draping';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
+import {projectTerrainGlobeVertex} from '../src/procedures/terrain-globe';
 
 const circumference = 2 * Math.PI * 6378137;
 const polygonLayout = new VertexLayout([{name: 'a_position', size: 4, type: 5122}, {name: 'a_texcoord', size: 2, type: 5123},
@@ -151,17 +152,70 @@ test('no-data canonical cells suppress both styled ground and road corners witho
     }
 });
 
-test('wide-road width, offset, material coordinates and selection identity remain dynamic channels', () => {
+test('wide-road corners are baked at the admitted width while material/elevation/selection channels survive', () => {
     const request = input(true);
     const result = drapeTerrainMesh(request), layout = getTerrainVertexLayout(roadLayout), view = new DataView(result.vertices.buffer);
-    expect(Array.from({length: result.vertices.length / layout.stride}, (_, index) => view.getFloat32(index * layout.stride + layout.offset.a_extrude + 4, true)).some(value => Math.abs(value) > 0 && Math.abs(value) < 768)).toBe(true);
     for (let vertex = 0; vertex < result.vertices.length / layout.stride; vertex++) {
-        expect(view.getFloat32(vertex * layout.stride + layout.offset.a_offset, true)).toBe(128);
+        expect(view.getFloat32(vertex * layout.stride + layout.offset.a_extrude, true)).toBe(0);
+        expect(view.getFloat32(vertex * layout.stride + layout.offset.a_extrude + 4, true)).toBe(0);
+        expect(view.getFloat32(vertex * layout.stride + layout.offset.a_offset, true)).toBe(0);
         expect(view.getInt16(vertex * layout.stride + layout.offset.a_z_and_offset_scale, true)).toBe(40);
     }
     const invalid = input(true);
     new DataView(invalid.vertices.buffer).setInt16(roadLayout.stride + 4, 256, true);
     expect(() => drapeTerrainMesh(invalid)).toThrow(/uniform per-face/);
+});
+
+test.each([2, 2.25, 2.75, 3, 4.5])('road width refinement matches Tangram zoom interpolation at view zoom %s', ribbonZoom => {
+    const request = input(true);
+    const source = new DataView(request.vertices.buffer);
+    for (let vertex = 0; vertex < 4; vertex++) {
+        source.setInt16(vertex * roadLayout.stride + 4, 256, true);
+        source.setInt16(vertex * roadLayout.stride + roadLayout.offset.a_z_and_offset_scale + 2, -256, true);
+    }
+    const result = drapeTerrainMesh({...request, ribbonZoom}), output = getTerrainVertexLayout(roadLayout), data = new DataView(result.vertices.buffer);
+    const y = Array.from({length: result.vertices.length / output.stride}, (_value, index) => data.getFloat32(index * output.stride + 4, true));
+    let delta = Math.max(0, Math.min(4, ribbonZoom - 2));
+    delta += (delta >= 1 ? 1 - delta : 0) + 2 * Math.max(0, Math.min(1, (delta - 2) / 2));
+    expect(Math.max(...y) - Math.min(...y)).toBeCloseTo(1536 * (1 - 0.25 * (2 * delta - 1)) * 2 ** -delta, 2);
+    expect(result.statistics.ribbonZoom).toBe(ribbonZoom);
+    expect(heightAt(result, roadLayout, [1500, -2048], 0.4, true)).not.toBeNull();
+});
+
+test.each([false, true])('canonical globe cuts stay on the ground chords for polygons/ribbons (%s)', road => {
+    const request = input(road), styled = drapeTerrainMesh(request), source = input(false);
+    for (let vertex = 1; vertex < 4; vertex++) source.vertices.set(source.vertices.subarray(8, polygonLayout.stride), vertex * polygonLayout.stride + 8);
+    const ground = drapeTerrainMesh({...source, styled: false, ground: true});
+    const groundLayout = getTerrainVertexLayout(source.layout), styledLayout = getTerrainVertexLayout(request.layout);
+    const query = extractDrapedTerrainQueryMesh(ground.vertices, ground.indices, groundLayout, source.origin, source.tileZoom, 1024 * 1024, ground.groundPositions);
+    const groundBasis = query.globeBasis;
+    if (!groundBasis) throw new Error('Missing canonical globe query basis');
+    const data = new DataView(styled.vertices.buffer);
+    let checked = 0;
+    for (let vertex = 0; vertex < styled.vertices.length / styledLayout.stride; vertex++) {
+        const point = [data.getFloat32(vertex * styledLayout.stride, true), data.getFloat32(vertex * styledLayout.stride + 4, true)];
+        let reference: {indices: number[]; weights: readonly number[]} | undefined;
+        const groundData = new DataView(ground.vertices.buffer);
+        for (let triangle = 0; triangle < ground.indices.length; triangle += 3) {
+            const indices = Array.from(ground.indices.subarray(triangle, triangle + 3));
+            const corners = indices.map(index => [groundData.getFloat32(index * groundLayout.stride, true), groundData.getFloat32(index * groundLayout.stride + 4, true), 0]);
+            const hit = intersectRayTriangle([point[0], point[1], 1], [0, 0, -1], corners[0], corners[1], corners[2]);
+            if (hit) {reference = {indices, weights: hit.barycentric}; break;}
+        }
+        if (!reference) continue; // A boundary roundoff may put a packed point one ulp outside the closed ground domain.
+        const face = reference;
+        checked++;
+        const basis = new Float32Array(12);
+        for (const [group, name] of ['a_terrain_globe_base', 'a_terrain_globe_relief', 'a_terrain_globe_base_previous', 'a_terrain_globe_relief_previous'].entries()) {
+            for (let axis = 0; axis < 3; axis++) basis[group * 3 + axis] = data.getFloat32(vertex * styledLayout.stride + styledLayout.offset[name] + axis * 4, true);
+        }
+        for (const blend of [0, 0.3, 1]) for (const exaggeration of [0, 1, 100]) {
+            const projected = projectTerrainGlobeVertex(basis, 0, blend, exaggeration, [0, 0, 0]);
+            const corners = face.indices.map(index => projectTerrainGlobeVertex(groundBasis, index, blend, exaggeration, [0, 0, 0]));
+            for (const axis of [0, 1, 2]) expect(Math.abs(projected[axis] - corners.reduce((sum, corner, index) => sum + corner[axis] * face.weights[index], 0))).toBeLessThan(0.00004);
+        }
+    }
+    expect(checked).toBeGreaterThan(styled.vertices.length / styledLayout.stride / 2);
 });
 
 test.each([false, true])('canonical %s clipping preserves authored coverage area without skirts or overlapping faces', road => {

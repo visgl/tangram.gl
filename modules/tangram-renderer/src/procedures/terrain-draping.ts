@@ -13,6 +13,7 @@ import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 import {createTerrainGroundTopology, wrapTerrainGroundGrids, type TerrainGroundTopology} from '../map-logic/terrain-ground-topology';
 import {conformTerrainStyledMesh, type TerrainStyledTopology} from './terrain-styled-topology';
 import {refineTerrainTransitionTopology, type TerrainTransitionTopology, type TerrainFaceReference} from '../map-logic/terrain-transition-topology';
+import {createTerrainGlobePoint, interpolateTerrainGlobePoints} from './terrain-globe';
 
 /** Opt-in physical-height basemap displacement, independent of deck, providers and GPU ownership. */
 export interface TerrainDrapingOptions {
@@ -88,6 +89,8 @@ export interface TerrainMeshPreparation {
     canonicalStyledResolution?: number;
     /** Shared planar transition triangles after cutting against the previous generation's faces. */
     transitionTriangles?: number;
+    /** View zoom whose built-in road width/offset was expanded and re-intersected in the worker. */
+    ribbonZoom?: number;
 }
 
 /** Resident preparation counters useful to compare detail policies on a real host. */
@@ -120,6 +123,10 @@ export interface TerrainDrapingStatistics {
     residentMeshByteLimit: number;
     /** Snapshot-local annotation query costs; excludes separately retained host snapshots. */
     annotationQueries?: import('../selection/draped-terrain-surface').DrapedTerrainQueryStatistics;
+    /** Resident canonical road meshes, whose corners are baked at their admitted worker view zoom. */
+    ribbonMeshes?: number;
+    /** Host-driven width replacement state; failed admission preserves the last complete geometry. */
+    ribbonRefinement?: {requestedZoom?: number; admittedZoom?: number; pending: boolean; error?: string};
 }
 
 /** Validate and snapshot terrain before changing a scene or rebuilding workers. */
@@ -184,10 +191,12 @@ export function normalizeTerrainDraping(options: TerrainDrapingOptions): Terrain
 export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uint16Array | Uint32Array, layout: VertexLayout,
     origin: readonly [number, number], tileZoom: number, byteLimit: number, canonicalPositions?: Float64Array): DrapedTerrainQueryMesh {
     const count = vertices.byteLength / layout.stride;
-    if (!Number.isInteger(count) || count * 32 + indices.byteLength > byteLimit) throw new Error('Terrain query mesh-byte budget exceeded');
+    const data = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
+    const hasGlobeBasis = count > 0 && layout.offset.a_terrain_globe_base !== undefined && data.getFloat32(layout.offset.a_terrain_globe_base + 12, true) > 0.5;
+    if (!Number.isInteger(count) || count * (hasGlobeBasis ? 80 : 32) + indices.byteLength > byteLimit) throw new Error('Terrain query mesh-byte budget exceeded');
     if (canonicalPositions && (canonicalPositions.length !== count * 2 || !canonicalPositions.every(Number.isFinite))) throw new Error('Invalid canonical terrain query positions');
     const positions = new Float64Array(count * 3), heights = new Float32Array(count * 2);
-    const data = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
+    const globeBasis = hasGlobeBasis ? new Float32Array(count * 12) : undefined;
     const scale = 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / (4096 * 2 ** tileZoom);
     for (let vertex = 0; vertex < count; vertex++) {
         const position = vertex * layout.stride + layout.offset.a_position;
@@ -195,13 +204,16 @@ export function extractDrapedTerrainQueryMesh(vertices: Uint8Array, indices: Uin
             canonicalPositions?.[vertex * 2 + 1] ?? origin[1] + data.getFloat32(position + 4, true) * scale,
             data.getFloat32(position + 8, true) / PACKED_HEIGHT_SCALE], vertex * 3);
         heights.set([data.getFloat32(vertex * layout.stride + layout.offset.a_terrain, true), data.getFloat32(vertex * layout.stride + layout.offset.a_terrain_previous, true)], vertex * 2);
+        if (globeBasis) for (const [group, name] of ['a_terrain_globe_base', 'a_terrain_globe_relief', 'a_terrain_globe_base_previous', 'a_terrain_globe_relief_previous'].entries()) {
+            for (let axis = 0; axis < 3; axis++) globeBasis[vertex * 12 + group * 3 + axis] = data.getFloat32(vertex * layout.stride + layout.offset[name] + axis * 4, true);
+        }
     }
     const bounds: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
     for (const vertex of indices) {
         bounds[0] = Math.min(bounds[0], positions[vertex * 3]); bounds[1] = Math.min(bounds[1], positions[vertex * 3 + 1]);
         bounds[2] = Math.max(bounds[2], positions[vertex * 3]); bounds[3] = Math.max(bounds[3], positions[vertex * 3 + 1]);
     }
-    const mesh = {positions, heights, indices: indices.slice(), bounds};
+    const mesh = {positions, heights, indices: indices.slice(), bounds, ...(globeBasis ? {globeBasis} : {})};
     return {...mesh, boundsSummary: summarizeDrapedTerrainBounds(mesh)};
 }
 
@@ -261,9 +273,13 @@ function getTerrainBaseLayout(original: VertexLayout): VertexLayout {
 export function getTerrainVertexLayout(original: VertexLayout): VertexLayout {
     let layout = layouts.get(original);
     if (!layout) {
+        const annotation = original.offset.a_shape !== undefined;
         layout = new VertexLayout([...getTerrainBaseLayout(original).attribs.map(attribute => ({...attribute})),
+            ...['a_terrain_globe_base', 'a_terrain_globe_relief', 'a_terrain_globe_base_previous', 'a_terrain_globe_relief_previous'].map(name =>
+                ({name, size: 4, type: 0x1406, normalized: false, ...(annotation ? {static: [0, 0, 0, 0]} : {})})),
             {name: 'a_terrain', size: 4, type: 0x1406, normalized: false},
             {name: 'a_terrain_previous', size: 4, type: 0x1406, normalized: false}]);
+        if (layout.dynamic_attribs.length > 16) throw new Error('Terrain vertex layout exceeds the portable 16-attribute limit');
         layouts.set(original, layout);
     }
     return layout;
@@ -283,6 +299,8 @@ export function drapeTerrainMesh(options: {
     tileZoom: number;
     /** Styling zoom, independent of source detail; bounds possible screen-space ribbon expansion. */
     styleZoom?: number;
+    /** Actual host view zoom for canonical road width/offset re-intersection; defaults to style zoom. */
+    ribbonZoom?: number;
     /** Do not refine screen-space annotation quads. */
     annotations?: boolean;
     /** Explicit full-tile raster ground owner; source clipping, not triangle cropping, partitions cells. */
@@ -322,19 +340,26 @@ export function drapeTerrainMesh(options: {
     const outputLayout = getTerrainVertexLayout(layout);
     const baseLayout = getTerrainBaseLayout(layout);
     const extrusionOffset = layout.offset.a_extrude;
-    // Match the built-in ribbon at its authored style zoom (zoom_delta = 0).
-    // Other zoom fractions retain the shader's local tangent correction.
+    const ribbonZoom = options.ribbonZoom ?? styleZoom;
+    if (!Number.isFinite(ribbonZoom) || ribbonZoom < 0 || ribbonZoom > 40) throw new Error('Invalid terrain ribbon view zoom');
+    let zoomDelta = Math.max(0, Math.min(4, ribbonZoom - styleZoom));
+    zoomDelta += (zoomDelta >= 1 ? 1 - zoomDelta : 0) + 2 * Math.max(0, Math.min(1, (zoomDelta - 2) / 2));
+    // Match the shader's width/offset interpolation at the admitted host zoom.
+    // Legacy noncanonical ribbons retain their style-zoom tangent correction.
     const getNominalOffset = (vertex: DataView, axis: number): number => {
         if (extrusionOffset === undefined) return 0;
         const widthScale = positionAttribute.size > 2 ? vertex.getFloat32(baseLayout.offset.a_position + 8, true) / 1024 : 0;
         const offsetScaleOffset = baseLayout.offset.a_z_and_offset_scale;
         const offsetWidthScale = offsetScaleOffset === undefined ? 0 : vertex.getInt16(offsetScaleOffset + 2, true) / 1024;
-        const extrusion = vertex.getFloat32(baseLayout.offset.a_extrude + axis * 4, true) * (1 + widthScale);
-        const offset = baseLayout.offset.a_offset === undefined ? 0 : vertex.getFloat32(baseLayout.offset.a_offset + axis * 4, true) * (1 - Math.max(0, -offsetWidthScale));
-        return (extrusion + offset) * ribbonScale;
+        const delta = canonicalStyled ? zoomDelta : 0;
+        const extrusion = vertex.getFloat32(baseLayout.offset.a_extrude + axis * 4, true) * (1 - widthScale * (delta * 2 - 1));
+        const direction = offsetWidthScale >= 0 ? 1 : -1;
+        const offset = baseLayout.offset.a_offset === undefined ? 0 : vertex.getFloat32(baseLayout.offset.a_offset + axis * 4, true) *
+            (1 - Math.abs(offsetWidthScale) * ((direction < 0 ? 1 : 0) + delta * direction));
+        return (extrusion + offset) * ribbonScale * 2 ** -delta;
     };
-    // Ribbon topology is not its collapsed centerline. Keep dynamic extrusion
-    // attributes intact while using their nominal corners for refinement.
+    // Ribbon topology is not its collapsed centerline. Intersect expanded corners;
+    // canonical output later bakes them and clears dynamic extrusion channels.
     const readPosition = (vertex: DataView): [number, number] => [
         vertex.getFloat32(baseLayout.offset.a_position, true) + getNominalOffset(vertex, 0),
         vertex.getFloat32(baseLayout.offset.a_position + 4, true) + getNominalOffset(vertex, 1)
@@ -479,6 +504,36 @@ export function drapeTerrainMesh(options: {
         }
         return sample;
     };
+    const globeSamples = new Map<number, Float64Array>();
+    const endpointGlobeSamples = [new Map<number, Float64Array>(), new Map<number, Float64Array>()];
+    /** Each endpoint stays on its original globe triangle, including newly introduced transition cuts. */
+    const getCanonicalGlobe = (index: number): Float64Array => {
+        let result = globeSamples.get(index);
+        if (!result) {
+            const sample = getCanonicalSample(index);
+            const point: [number, number] = [groundTopology!.positions[index * 2], groundTopology!.positions[index * 2 + 1]];
+            const endpoint = (topology: TerrainGroundTopology, reference: TerrainFaceReference, channel: 0 | 3) =>
+                interpolateTerrainGlobePoints(reference.indices.map(node => {
+                    const cache = endpointGlobeSamples[channel === 0 ? 0 : 1];
+                    let point = cache.get(node);
+                    if (!point) {
+                        const value = endpointSamples[channel === 0 ? 0 : 1].get(node) ?? sampleTerrainChannels(fields,
+                            [topology.samplePositions[node * 2], topology.samplePositions[node * 2 + 1]], [topology.positions[node * 2], topology.positions[node * 2 + 1]], cell);
+                        point = createTerrainGlobePoint([topology.positions[node * 2], topology.positions[node * 2 + 1]], Math.fround(value.channels[channel]),
+                            [topology.normalizedPositions[node * 2], topology.normalizedPositions[node * 2 + 1]]);
+                        cache.set(node, point);
+                    }
+                    return point;
+                }), reference.weights);
+            const normalized: [number, number] = [groundTopology!.normalizedPositions[index * 2], groundTopology!.normalizedPositions[index * 2 + 1]];
+            const current = transitionTopology ? endpoint(currentGroundTopology!, transitionTopology.current[index], 0) : createTerrainGlobePoint(point, sample.channels[0], normalized);
+            const previousReference = transitionTopology?.previous[index];
+            const previous = transitionTopology ? previousReference && endpointCovered(previousGroundTopology!, previousReference, 1) ?
+                endpoint(previousGroundTopology!, previousReference, 3) : current : createTerrainGlobePoint(point, sample.channels[3], normalized);
+            result = Float64Array.from([...current, ...previous]); globeSamples.set(index, result);
+        }
+        return result;
+    };
     const view = new DataView(vertices.buffer);
     const valid = new Uint8Array(count);
     const coordinates: [number, number][] = [];
@@ -497,7 +552,7 @@ export function drapeTerrainMesh(options: {
             const extrude = baseLayout.offset.a_extrude;
             const horizontal = 2 * ribbonScale * (Math.abs(input.getFloat32(extrude, true)) + (offset === undefined ? 0 : Math.abs(input.getFloat32(offset, true)))) * metersPerUnit;
             const vertical = 2 * ribbonScale * (Math.abs(input.getFloat32(extrude + 4, true)) + (offset === undefined ? 0 : Math.abs(input.getFloat32(offset + 4, true)))) * metersPerUnit;
-            ribbonBounds.push([[coordinate[0] - horizontal, coordinate[1] - vertical], [coordinate[0] + horizontal, coordinate[1] + vertical]]);
+            ribbonBounds.push(canonicalStyled ? [sampleCoordinate, sampleCoordinate] : [[coordinate[0] - horizontal, coordinate[1] - vertical], [coordinate[0] + horizontal, coordinate[1] + vertical]]);
         }
         const previousCoordinate: [number, number] = groundTopology ? [sampleCoordinate[0] + groundTopology.sampleOffset, sampleCoordinate[1]] : sampleCoordinate;
         let samples: ReturnType<typeof sampleTerrainChannels>;
@@ -516,12 +571,28 @@ export function drapeTerrainMesh(options: {
         }
         else samples = groundTopology ? getCanonicalSample(index) : sampleTerrainChannels(fields, sampleCoordinate, previousCoordinate, cell);
         valid[index] = Number(samples.valid);
+        if (groundTopology) {
+            const globe = styledTopology ? interpolateTerrainGlobePoints(
+                Array.from(styledTopology.surfaceIndices.subarray(index * 3, index * 3 + 3), getCanonicalGlobe), styledTopology.surfaceWeights.subarray(index * 3, index * 3 + 3)) : getCanonicalGlobe(index);
+            for (const [group, name] of ['a_terrain_globe_base', 'a_terrain_globe_relief', 'a_terrain_globe_base_previous', 'a_terrain_globe_relief_previous'].entries()) {
+                for (let axis = 0; axis < 4; axis++) view.setFloat32(index * outputLayout.stride + outputLayout.offset[name] + axis * 4,
+                    axis < 3 ? globe[group * 3 + axis] : 1, true);
+            }
+        }
+        if (canonicalStyled && extrusionOffset !== undefined) {
+            // Baked corners remain on their admitted canonical face while a later width rebuild is pending.
+            // No shader extrusion may move these cuts across a different terrain triangle.
+            view.setFloat32(index * outputLayout.stride + outputLayout.offset.a_position, input.getFloat32(baseLayout.offset.a_position, true) + nominalOffset[0], true);
+            view.setFloat32(index * outputLayout.stride + outputLayout.offset.a_position + 4, input.getFloat32(baseLayout.offset.a_position + 4, true) + nominalOffset[1], true);
+            for (const name of ['a_extrude', 'a_offset']) if (outputLayout.offset[name] !== undefined) for (let axis = 0; axis < 2; axis++) view.setFloat32(index * outputLayout.stride + outputLayout.offset[name] + axis * 4, 0, true);
+            statistics.ribbonZoom = ribbonZoom;
+        }
         for (const [channel, attribute] of [[0, 'a_terrain'], [3, 'a_terrain_previous']] as const) {
             const offset = index * outputLayout.stride + outputLayout.offset[attribute];
             // Ribbon triangles already passed validity admission. Their unused
             // fourth channels carry the exact nominal corner (current X/previous Y),
             // avoiding another attribute slot on devices limited to 16 attributes.
-            [...samples.channels.slice(channel, channel + 3), extrusionOffset === undefined ? Number(samples.valid) : nominalOffset[attribute === 'a_terrain' ? 0 : 1]].forEach((value, component) => {
+            [...samples.channels.slice(channel, channel + 3), extrusionOffset === undefined ? Number(samples.valid) : canonicalStyled ? 0 : nominalOffset[attribute === 'a_terrain' ? 0 : 1]].forEach((value, component) => {
                 if (!Number.isFinite(Math.fround(value))) throw new Error('Terrain draping sample exceeds packed range');
                 view.setFloat32(offset + component * 4, value, true);
             });

@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import Geo from '../../utils/geo';
-import {GLOBE_PROJECTION_WGSL, GLOBE_NORMAL_WGSL, TERRAIN_DRAPING_WGSL} from '../../scene/projection_shaders';
+import {GLOBE_PROJECTION_WGSL, GLOBE_NORMAL_WGSL, TERRAIN_DRAPING_WGSL, TERRAIN_GLOBE_ATTRIBUTES_WGSL} from '../../scene/projection_shaders';
 import {buildLightingWGSL} from '../../lights/lighting-wgsl';
 
 const LAYER_DELTA = 1 / (1 << 14);
@@ -92,6 +92,7 @@ ${configured ? `${GLOBE_NORMAL_WGSL}\n${buildLightingWGSL(lightCount)}` : ''}
 ${terrain ? TERRAIN_DRAPING_WGSL : ''}
 
 struct LineAttributes {
+    ${terrain ? TERRAIN_GLOBE_ATTRIBUTES_WGSL : ''}
     ${terrain ? '@location(14) a_terrain: vec4<f32>, @location(15) a_terrain_previous: vec4<f32>,' : ''}
     @location(0) a_position: vec4<${terrain ? 'f32' : 'i32'}>,
     @location(1) a_extrude: vec2<${terrain ? 'f32' : 'i32'}>,
@@ -150,7 +151,7 @@ fn vertexMain(attributes: LineAttributes) -> LineVaryings {
         f32(attributes.a_z_and_offset_scale.x) / ${Geo.height_scale}.0 ${terrain ? '+ tangramTerrainHeight(attributes.a_terrain, attributes.a_terrain_previous) + tangramTerrainRibbonOffset(extrusion + offset, vec2<f32>(attributes.a_position.xy), attributes.a_terrain, attributes.a_terrain_previous)' : ''},
         1.0
     );
-    let eye_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : 'tangramModelView(local_position)'};
+    let eye_position = ${cpuProjection ? 'vec4<f32>(attributes.a_projected_position, 1.0)' : terrain ? 'tangramTerrainModelView(local_position, attributes.a_terrain, attributes.a_terrain_previous, attributes.a_terrain_globe_base, attributes.a_terrain_globe_relief, attributes.a_terrain_globe_base_previous, attributes.a_terrain_globe_relief_previous)' : 'tangramModelView(local_position)'};
     var clip_position = TangramCamera.u_projection * eye_position;
     ${cpuProjection ? 'clip_position.z = (clip_position.z + clip_position.w) * 0.5;' : ''}
     ${cpuProjection ? `
