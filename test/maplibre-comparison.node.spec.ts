@@ -7,6 +7,7 @@ import {expect, test, vi} from 'vitest';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from '../examples/deck/comparison-style';
 import {connectComparisonCamera, mountMapLibreComparison, type ComparisonMap} from '../examples/deck/maplibre-comparison';
 import {BLUE_MARBLE_URL} from '../examples/classic/app/nasa-basemap.js';
+import {readComparisonPreference, writeComparisonPreference} from '../examples/deck/comparison-settings';
 
 test.each(['mapFlat', 'mapPerspective', 'globe'])('%s offers same-provider references, not unsupported Nextzen shaders', viewMode => {
   for (const basemap of ['streetsVector', 'tron', 'blueMarbleRaster']) {
@@ -79,7 +80,8 @@ test('MapLibre is example-only and dynamically imported, with local bundled styl
   const runtime = readFileSync(new URL('../examples/deck/app-runtime.js', import.meta.url), 'utf8');
   expect(runtime).toContain("import('./maplibre-comparison.ts')");
   expect(runtime).not.toMatch(/from ['"]maplibre/);
-  expect(runtime).toContain("searchParams.get('compare') === 'maplibre'");
+  expect(runtime).toContain('comparisonRequested = readComparisonPreference(searchParams);');
+  expect(runtime).toContain('writeComparisonPreference(comparisonRequested);');
   expect(runtime).toContain('if (comparisonInput) comparisonInput.checked = false;');
   for (const entry of ['../examples/deck/index.html', '../website/src/components/DeckExample.js']) {
     const markup = readFileSync(new URL(entry, import.meta.url), 'utf8');
@@ -90,6 +92,31 @@ test('MapLibre is example-only and dynamically imported, with local bundled styl
   expect(build).toContain("deckRequire.resolve('maplibre-gl/dist/maplibre-gl.css')");
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   expect(manifest.scripts['test-rendering:run']).toMatch(/^yarn build:examples && vitest/);
+});
+
+test('comparison starts off and remembers an explicit choice across examples and reloads', () => {
+  const values = new Map<string, string>();
+  const storage = {getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => {values.set(key, value);}};
+  expect(readComparisonPreference(new URLSearchParams(), storage)).toBe(false);
+  writeComparisonPreference(true, storage);
+  expect(readComparisonPreference(new URLSearchParams(), storage)).toBe(true);
+  writeComparisonPreference(false, storage);
+  expect(readComparisonPreference(new URLSearchParams(), storage)).toBe(false);
+});
+
+test('explicit comparison bookmarks override the saved setting only for that page', () => {
+  const storage = {getItem: vi.fn(() => 'true'), setItem: vi.fn()};
+  expect(readComparisonPreference(new URLSearchParams('compare=none'), storage)).toBe(false);
+  expect(readComparisonPreference(new URLSearchParams('compare=maplibre'), storage)).toBe(true);
+  expect(storage.getItem).not.toHaveBeenCalled();
+  expect(storage.setItem).not.toHaveBeenCalled();
+});
+
+test('denied storage does not break the current-page comparison control', () => {
+  const storage = {getItem: () => {throw new Error('Storage denied');}, setItem: () => {throw new Error('Storage denied');}};
+  expect(readComparisonPreference(new URLSearchParams(), storage)).toBe(false);
+  expect(readComparisonPreference(new URLSearchParams('compare=maplibre'), storage)).toBe(true);
+  expect(() => writeComparisonPreference(true, storage)).not.toThrow();
 });
 
 test('canceling during module loading cannot allocate a late reference pane', async () => {

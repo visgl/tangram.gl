@@ -38,9 +38,13 @@ geometry, culling and remaining limitations.
 
 ## MapLibre comparison
 
-Comparison is off by default. Enable **Compare with MapLibre GL JS**, or bookmark
-`?compare=maplibre`, in the
-MapView flat, MapView perspective or GlobeView example. Drag, rotate and zoom
+Comparison starts off. Enable **Compare with MapLibre GL JS** in the MapView flat,
+MapView perspective or GlobeView example. Your toggle choice is saved in this
+browser across examples and reloads. Unsupported examples omit the reference
+without clearing that choice. Explicit `?compare=maplibre` or `?compare=none`
+bookmarks override the saved choice for that page, without changing it.
+If browser storage is unavailable, the toggle still works for the current page.
+Drag, rotate and zoom
 either half to update one shared geographic camera. Disable comparison to regain
 the full canvas without resetting navigation. The flat view stays at zero pitch.
 

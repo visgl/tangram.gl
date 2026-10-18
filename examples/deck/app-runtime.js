@@ -12,6 +12,7 @@ import {getConfiguredAttributions, updateAttribution} from '../classic/app/attri
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
+import {readComparisonPreference, writeComparisonPreference} from './comparison-settings.ts';
 
 export function initializeDeckExample({
   embeddedViewMode,
@@ -203,6 +204,7 @@ export function initializeDeckExample({
   let nextzenKeyValidationGeneration = 0;
   let sharedViewState = viewMode.initialViewState;
   let comparison;
+  let comparisonRequested = false;
   let comparisonRequest;
   let destroyed = false;
   const canvasHost = document.createElement('div');
@@ -220,7 +222,7 @@ export function initializeDeckExample({
     comparisonInput.disabled = Boolean(limitation);
     if (comparisonStatus) comparisonStatus.textContent = limitation || (comparisonInput.checked
       ? 'Navigate either map. Same geographic camera and tile provider; static reference styling, not shader or pixel parity. MapLibre uses WebGL; deck overlays appear only on Tangram.'
-      : 'Optional side-by-side reference using the same tile provider. Off by default.');
+      : 'Optional side-by-side reference using the same tile provider. Your choice is remembered across examples.');
   }
 
   async function setComparison(enabled) {
@@ -233,10 +235,6 @@ export function initializeDeckExample({
     if (!comparisonInput) return;
     enabled = enabled && !getComparisonLimitation(viewModeId, basemapId);
     comparisonInput.checked = enabled;
-    const url = new URL(window.location.href);
-    if (enabled) url.searchParams.set('compare', 'maplibre');
-    else url.searchParams.delete('compare');
-    window.history.replaceState(null, '', url);
     if (!enabled) {updateComparisonControl(); return;}
     sharedViewState = normalizeComparisonCamera(sharedViewState, viewModeId);
     deckInstance.setProps({viewState: sharedViewState});
@@ -390,12 +388,21 @@ export function initializeDeckExample({
   }
 
   updateBasemapPresentation();
-  // React can reuse this input across example routes; normal URLs always start mono.
+  // React can reuse this input across routes; restore the shared preference explicitly.
   if (comparisonInput) comparisonInput.checked = false;
+  comparisonRequested = readComparisonPreference(searchParams);
   updateComparisonControl();
-  const onComparisonChange = () => setComparison(comparisonInput.checked);
+  const onComparisonChange = () => {
+    comparisonRequested = comparisonInput.checked;
+    writeComparisonPreference(comparisonRequested);
+    // The saved setting owns ordinary navigation; only explicit bookmarks override it.
+    const url = new URL(window.location.href);
+    url.searchParams.delete('compare');
+    window.history.replaceState(null, '', url);
+    return setComparison(comparisonRequested);
+  };
   comparisonInput?.addEventListener('change', onComparisonChange);
-  if (comparisonInput && searchParams.get('compare') === 'maplibre') setComparison(true);
+  if (comparisonInput && comparisonRequested) setComparison(true);
   if (basemapId === 'tronNextzen' && apiKey) {
     validateNextzenKey();
   }
@@ -483,9 +490,10 @@ export function initializeDeckExample({
     window.history.replaceState(null, '', url);
     updateBasemapPresentation();
     updateComparisonControl();
-    if (comparisonInput?.checked) {
+    if (comparisonRequested) {
       if (getComparisonLimitation(viewModeId, basemapId)) setComparison(false);
-      else comparison?.setStyle(createComparisonStyle(basemapId, viewModeId, vectorProvider));
+      else if (comparison) comparison.setStyle(createComparisonStyle(basemapId, viewModeId, vectorProvider));
+      else setComparison(true);
     }
     if (basemapId === 'tronNextzen' && apiKey && !nextzenKeyValidated) {
       validateNextzenKey();

@@ -5,6 +5,25 @@
 import type {StyleSpecification, ErrorEvent as MapLibreErrorEvent} from 'maplibre-gl';
 import {normalizeComparisonCamera, type ComparisonCamera} from './comparison-style';
 
+/** Finish layout before constructing the map, and cancel a pending stylesheet with its pane. */
+function loadComparisonStylesheet(stylesheet: HTMLLinkElement, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      stylesheet.removeEventListener('load', loaded);
+      stylesheet.removeEventListener('error', failed);
+      signal?.removeEventListener('abort', aborted);
+    };
+    const loaded = () => {cleanup(); resolve();};
+    const failed = () => {cleanup(); reject(new Error('MapLibre comparison stylesheet failed to load'));};
+    const aborted = () => {cleanup(); reject(signal?.reason ?? new DOMException('Comparison canceled', 'AbortError'));};
+    stylesheet.addEventListener('load', loaded, {once: true});
+    stylesheet.addEventListener('error', failed, {once: true});
+    signal?.addEventListener('abort', aborted, {once: true});
+    if (signal?.aborted) aborted();
+    else document.head.append(stylesheet);
+  });
+}
+
 /** Small camera boundary used by real MapLibre and deterministic test fixtures. */
 export interface ComparisonMap {
   /** Subscribe to camera movement. */
@@ -83,21 +102,24 @@ export async function mountMapLibreComparison(options: {
   pane.setAttribute('aria-label', 'MapLibre GL JS comparison map');
   const label = document.createElement('span'); label.className = 'comparison-map-label'; label.textContent = 'MapLibre GL JS · WebGL';
   const stylesheet = document.createElement('link'); stylesheet.rel = 'stylesheet'; stylesheet.href = options.stylesheetUrl;
-  document.head.append(stylesheet); options.container.append(pane);
+  options.container.append(pane);
   let map: InstanceType<typeof MapLibreMap>;
   try {
+    await loadComparisonStylesheet(stylesheet, options.signal);
+    options.signal?.throwIfAborted();
     const camera = normalizeComparisonCamera(options.camera, options.viewMode);
     map = new MapLibreMap({container: pane, style: options.style,
       center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch,
       minZoom: 0, maxZoom: 20, maxPitch: options.viewMode === 'mapPerspective' ? 50 : 0,
       canvasContextAttributes: {preserveDrawingBuffer: options.preserveDrawingBuffer ?? false},
-      attributionControl: {compact: false}});
+      attributionControl: {compact: false}, trackResize: true});
   } catch (error) {pane.remove(); stylesheet.remove(); throw error;}
   pane.append(label);
   const camera = connectComparisonCamera(map, options.viewMode, options.camera, options.onChange);
   const error = (event: MapLibreErrorEvent) => options.onError(event.error instanceof Error ? event.error : new Error(event.error.message));
   map.on('error', error);
-  const observer = new ResizeObserver(() => map.resize()); observer.observe(pane);
+  // MapLibre observes its container and releases that observer in remove(). A
+  // second synchronous observer can trigger resize-observer notification loops.
   let destroyed = false;
   return {
     /** Keep the reference camera aligned when deck input drives the shared state. */
@@ -107,7 +129,7 @@ export async function mountMapLibreComparison(options: {
     /** Release listeners, workers, WebGL context, DOM and example-owned stylesheet once. */
     destroy() {
       if (destroyed) return; destroyed = true;
-      observer.disconnect(); camera.destroy(); map.off('error', error); map.remove(); pane.remove(); stylesheet.remove();
+      camera.destroy(); map.off('error', error); map.remove(); pane.remove(); stylesheet.remove();
     }
   };
 }

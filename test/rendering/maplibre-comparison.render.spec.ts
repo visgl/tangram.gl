@@ -26,7 +26,12 @@ test.each(['perspective', 'globe'] as const)(`${DEVICE_TYPE}: optional MapLibre 
   // Match production ordering: vendor CSS loads after the example stylesheet.
   // MapLibre's position:relative must not override the split pane's absolute layout.
   exampleStylesheet = document.createElement('link'); exampleStylesheet.rel = 'stylesheet';
-  exampleStylesheet.href = new URL('../../examples/deck/main.css', import.meta.url).href; document.head.append(exampleStylesheet);
+  exampleStylesheet.href = new URL('../../examples/deck/main.css', import.meta.url).href;
+  const stylesheetReady = new Promise<void>((resolve, reject) => {
+    exampleStylesheet?.addEventListener('load', () => resolve(), {once: true});
+    exampleStylesheet?.addEventListener('error', () => reject(new Error('Example stylesheet failed to load')), {once: true});
+  });
+  document.head.append(exampleStylesheet); await stylesheetReady;
   const stylesheet = new URL('../../examples/dist/maplibre.css', import.meta.url).href;
   const raster = createRasterScene().sources.fixture.url;
   const errors: string[] = [];
@@ -50,6 +55,9 @@ test.each(['perspective', 'globe'] as const)(`${DEVICE_TYPE}: optional MapLibre 
   expect(root.textContent).toContain('Offline fixture imagery');
   await commands.dragMapLibreComparison();
   await expect.poll(() => moves.some(camera => Math.abs(camera.longitude) > 0.0000001)).toBe(true);
+  const originalWidth = canvas.clientWidth;
+  root.style.width = '320px';
+  await expect.poll(() => canvas.clientWidth).toBeLessThan(originalWidth);
   comparison.updateCamera({longitude: 0.002, latitude: 0, zoom: kind === 'globe' ? 2.25 : 15.25});
   await harness.settle(); expect(coloredPixels(await harness.pixels())).toBeGreaterThan(50);
   comparison.destroy(); comparison.destroy();
