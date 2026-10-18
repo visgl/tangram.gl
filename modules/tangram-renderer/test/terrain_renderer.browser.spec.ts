@@ -100,6 +100,46 @@ test.each([false, true])('failed worker inputs remain reserved through asynchron
     expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0, peakBytes: 96});
 });
 
+test('a failed terrain configuration drains every worker reply before recovery can release its inputs', async () => {
+    const budget = new TerrainResourceBudget(200);
+    const scene = Scene.create({}, {terrain: {grids: [field(0)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1}, terrainResourceBudget: budget});
+    scene.workers = Array.from({length: 2}, () => ({postMessage: vi.fn(), addEventListener: vi.fn()}));
+    const post = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([]);
+    const manager = requireTileManager(scene);
+    vi.spyOn(manager, 'publishTerrainDisplay').mockImplementation(() => {});
+    vi.spyOn(manager, 'updateLabels').mockResolvedValue({});
+    vi.spyOn(manager, 'updateTilesForView').mockImplementation(() => {});
+    vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
+    let acknowledgeLateWorker: () => void = () => {}, startedLateWorker: () => void = () => {};
+    const lateWorker = new Promise<unknown[]>(resolve => {acknowledgeLateWorker = () => resolve([]);});
+    const lateWorkerStarted = new Promise<void>(resolve => {startedLateWorker = resolve;});
+    try {
+        await scene.syncConfigToWorker();
+        const original = scene.terrain;
+        scene.terrain = normalizeTerrainDraping({grids: [field(10)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1});
+        let configurations = 0;
+        post.mockImplementation((_worker, method) => {
+            if (method !== 'self.updateConfig') return Promise.resolve([]);
+            configurations++;
+            if (configurations === 1) return Promise.reject(new Error('first worker'));
+            if (configurations === 2) {startedLateWorker(); return lateWorker;}
+            return Promise.resolve([]);
+        });
+        const update = scene.rebuild({preserveTileCache: true, preserveTime: true}).catch((error: unknown) => error);
+        await lateWorkerStarted;
+        manager.checkBuildQueue();
+        expect(scene.building).toBeTruthy();
+        expect(budget.getStatistics().retainedBytes).toBe(136);
+        acknowledgeLateWorker();
+        expect(await update).toMatchObject({message: 'first worker'});
+        expect(budget.getStatistics().retainedBytes).toBe(136);
+        scene.terrain = original;
+        await scene.rebuild({preserveTileCache: true, preserveTime: true});
+        expect(budget.getStatistics().retainedBytes).toBe(68);
+    } finally {scene.destroy(); post.mockRestore();}
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0, peakBytes: 136});
+});
+
 test('query warming advances once per shared stereo frame and releases partial work on load and destruction', () => {
     const renderer = Renderer.create({}, {terrain: {grids: [], occludeAnnotations: true, queryPreparationBudgetMs: 1}});
     Object.assign(renderer.scene, {setFeatureSelectionView: vi.fn()});

@@ -2150,14 +2150,24 @@ export default class Scene {
         // Tell workers we're about to rebuild (so they can update styles, etc.)
         let config_serialized =
             serialize_funcs ? Utils.serializeWithFunctions(this.config) : JSON.stringify(this.config);
-        return WorkerBroker.postMessage(this.activeWorkers, 'self.updateConfig', {
+        const configuration = {
             config: config_serialized,
             generation: this.generation,
             introspection: this.introspection,
             projection_target: this.projectionTarget,
             terrain: this.terrain,
             shader_language: this.shader_language
-        }, debugSettings);
+        };
+        if (!this.terrainTransaction) return WorkerBroker.postMessage(this.activeWorkers, 'self.updateConfig', configuration, debugSettings);
+        // Promise.all rejects at the first worker failure while other broker messages
+        // still retain the snapshot. Drain all replies before recovery can release it.
+        return Promise.allSettled(this.activeWorkers.map(worker => Promise.resolve().then(() =>
+            WorkerBroker.postMessage(worker, 'self.updateConfig', configuration, debugSettings)
+        ))).then(results => {
+            const failure = results.find(result => result.status === 'rejected');
+            if (failure?.status === 'rejected') throw failure.reason;
+            return results.map(result => result.status === 'fulfilled' ? result.value : undefined);
+        });
     }
 
     /** Reserve worker-input copies and lazy query capacities before cloning a new field. */
