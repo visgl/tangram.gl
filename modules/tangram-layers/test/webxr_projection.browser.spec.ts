@@ -18,13 +18,14 @@ import {
   unionGeographicBounds
 } from '../src/experimental/webxr/index.js';
 
-test.each([0, 179.8, -179.8])('small immersive globes conservatively cover visible ground around longitude %s', longitude => {
+test.each([0, 179.8, -179.8].flatMap(longitude => [0.7, 1.7].map(eyeHeight => ({longitude, eyeHeight}))))(
+  'small immersive globes cover visible ground at longitude $longitude and eye height $eyeHeight', ({longitude, eyeHeight}) => {
   const presentation = new WebXRPresentation({view: new WebXRGlobeView({id: 'globe'}),
     viewState: {longitude, latitude: 0, zoom: 4}});
   presentation.setPlacement({type: 'globe', anchor: [longitude, 0], radius: 0.5, pose: {position: [0, 0.7, -2]}});
   const frameState: XRFrameState = {views: [-0.032, 0.032].map((horizontal, index) => ({
     index, eye: index === 0 ? 'left' : 'right', viewport: [index * 256, 0, 256, 320],
-    viewMatrix: new Matrix4().lookAt({eye: [horizontal, 1.7, 0], center: [0, 0.7, -2], up: [0, 1, 0]}),
+    viewMatrix: new Matrix4().lookAt({eye: [horizontal, eyeHeight, 0], center: [0, 0.7, -2], up: [0, 1, 0]}),
     projectionMatrix: new Matrix4().perspective({fovy: Math.PI / 3, aspect: 256 / 320, near: 0.05, far: 20})
   }))};
   try {
