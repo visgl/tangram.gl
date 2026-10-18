@@ -182,8 +182,14 @@ test.each([2, 2.25, 2.75, 3, 4.5])('road width refinement matches Tangram zoom i
     expect(heightAt(result, roadLayout, [1500, -2048], 0.4, true)).not.toBeNull();
 });
 
-test.each([false, true])('canonical globe cuts stay on the ground chords for polygons/ribbons (%s)', road => {
-    const request = input(road), styled = drapeTerrainMesh(request), source = input(false);
+test.each([[false, false], [true, false], [false, true], [true, true]])('canonical globe cuts stay on the ground chords (road=%s, transition=%s)', (road, transition) => {
+    const request = input(road), source = input(false);
+    if (transition) {
+        const terrain = normalizeTerrainDraping({grids: [grid()], previousGrids: [grid(1, 1, 2, true)],
+            groundMeshResolution: 2, previousGroundMeshResolution: 4, conformTransitions: true});
+        request.terrain = terrain; source.terrain = terrain;
+    }
+    const styled = drapeTerrainMesh(request);
     for (let vertex = 1; vertex < 4; vertex++) source.vertices.set(source.vertices.subarray(8, polygonLayout.stride), vertex * polygonLayout.stride + 8);
     const ground = drapeTerrainMesh({...source, styled: false, ground: true});
     const groundLayout = getTerrainVertexLayout(source.layout), styledLayout = getTerrainVertexLayout(request.layout);

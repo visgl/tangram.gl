@@ -144,7 +144,8 @@ test.each(['perspective', 'globe'] as ViewKind[])('%s fractional zoom refines ca
     const initial = kind === 'globe' ? 4 : 15;
     for (const zoom of [initial + 0.25, initial + 0.75]) {
         harness.presentation.setViewState({zoom}); await harness.settle();
-        expect(harness.renderer.getTerrainDrapingStatistics().ribbonRefinement).toMatchObject({requestedZoom: zoom, admittedZoom: zoom, pending: false});
+        const hostZoom = harness.presentation.createFrame({width: 512, height: 320}).hostFrame.geographicAnchor.zoom;
+        expect(harness.renderer.getTerrainDrapingStatistics().ribbonRefinement).toMatchObject({requestedZoom: hostZoom, admittedZoom: hostZoom, pending: false});
         expect(harness.renderer.getTerrainDrapingStatistics().ribbonRefinement?.error).toBeUndefined();
         const pixels = await harness.pixels();
         expect(coloredPixels(pixels, 0, 256)).toBeGreaterThan(50);

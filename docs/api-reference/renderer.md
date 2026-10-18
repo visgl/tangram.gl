@@ -613,6 +613,8 @@ all current/previous grids must use one datum and non-overlapping footprints.
   Default is 1. It changes only uniforms, never physical DEM data.
 - `getTerrainDrapingStatistics()` returns a detached resident-output summary,
   including vertices, triangles, draw/query/staged bytes, holes and worker preparation cost.
+  Canonical road meshes add `ribbonMeshes`; `ribbonRefinement` reports
+  `requestedZoom`, `admittedZoom`, `pending` and an optional failure `error`.
 - `getDrapedTerrainSurface(): DrapedTerrainSurfaceSnapshot | null` captures the last
   submitted ground draw. Enable `querySurfaceStyles` for ground raster styles.
   The snapshot exposes `generation`, `frameTime`, `exaggeration`, `inputBytes` and
@@ -636,11 +638,14 @@ ground cells with half-open source/fallback ownership. Current footprints requir
 balanced quadtree tiles and uniform quad style channels. This explicit resolution
 is independent of source zoom and is not a certified error bound. See
 [conforming raster ground](../developer-guide/terrain.md#conforming-raster-ground).
-The same nonzero resolution conforms polygon faces and nominal expanded road
+The same nonzero resolution conforms polygon faces and admitted-view expanded road
 corners to those terrain planes while preserving feature IDs, packed material
-channels and shader-controlled width. It does not make polygons query surfaces.
-Dynamic-width tangent correction and globe chord differences remain explicit
-limits; see [conforming polygons and wide roads](../developer-guide/terrain.md#conforming-polygons-and-wide-roads).
+channels and authored width interpolation. Affine globe channels keep additional
+feature cuts on canonical globe chords. Host zoom changes coalesce into worker
+road-width re-intersection without source fetches or DEM clones; prior admitted
+widths remain fixed while replacement geometry is prepared. It does not make
+polygons query surfaces or remove source-lattice precision limits; see
+[conforming polygons and wide roads](../developer-guide/terrain.md#conforming-polygons-and-wide-roads).
 `maxStagedMeshBytes` defaults to 64 MiB for additional replacement draw/query buffers.
 `maxQueryIndexBytes` defaults to 16 MiB per snapshot, and
 `maxProjectedQueryBytes` defaults to 32 MiB of retained projected query geometry
