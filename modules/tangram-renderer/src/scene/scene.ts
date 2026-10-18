@@ -95,6 +95,8 @@ interface SceneBuildState {
     reject(error: unknown): void;
     initial: boolean;
     error?: Error;
+    /** Worker configuration acknowledgements must precede terrain generation settlement. */
+    terrainConfigPending?: boolean;
     queued?: {resolve(value: void | boolean): void; reject(error: unknown): void; options: RebuildOptions};
 }
 import type {SceneListeners, SceneDefinition, SceneLoadOptions, TileSourceStatistics, FeatureSelectionResult} from '../types';
@@ -259,6 +261,8 @@ export default class Scene {
     private terrainInputSnapshot?: import('../procedures/terrain-draping').TerrainDrapingSnapshot;
     /** Input identity whose replacement resources are still staged. */
     private terrainStagedInputSnapshot?: import('../procedures/terrain-draping').TerrainDrapingSnapshot;
+    /** Failed worker snapshots remain owned until a complete successful replacement or worker disposal. */
+    private terrainFailedInputs: {lease: import('../map-logic/terrain-resource-budget').TerrainResourceLease; snapshot: import('../procedures/terrain-draping').TerrainDrapingSnapshot}[] = [];
     /** Visual multiplier independent of source heights and cache keys. */
     declare terrainExaggeration: number;
     /** Monotonic timestamp shared by color, collision and every submitted eye. */
@@ -593,6 +597,8 @@ export default class Scene {
         this.activeTileManager.destroy();
         this.terrainInputLease?.release();
         this.terrainStagedInputLease?.release();
+        for (const input of this.terrainFailedInputs) input.lease.release();
+        this.terrainFailedInputs = [];
         this.terrain = undefined; this.terrainInputSnapshot = undefined; this.terrainStagedInputSnapshot = undefined;
         this.terrainResourceBudget = undefined;
         this.tile_manager = null;
@@ -1637,20 +1643,38 @@ export default class Scene {
                 for (const state of this.selection_views.values()) state.lastRender = -1;
             }
 
-            // Update config (in case JS objects were manipulated directly)
-            this.syncConfigToWorker({ serialize_funcs });
-            this.resetWorkerFeatureSelection(sources);
-            if (!preserveTime) this.resetTime();
-
-            // Rebuild visible tiles
-            if (!preserveTileCache) this.activeTileManager.pruneToVisibleTiles();
-            this.activeTileManager.forEachTile(tile => {
-                if (!sources || sources.indexOf(tile.source.name) > -1) {
-                    this.activeTileManager.buildTile(tile, { fade_in });
-                }
-            });
-            this.activeTileManager.updateTilesForView(); // picks up additional tiles for any new/changed data sources
-            this.activeTileManager.checkBuildQueue();    // resolve immediately if no tiles to build
+            const build = this.building;
+            const rebuildTiles = () => {
+                if (this.building !== build || !this.tile_manager) return;
+                this.resetWorkerFeatureSelection(sources);
+                if (!preserveTime) this.resetTime();
+                // Rebuild visible tiles only after every terrain worker has replaced its inputs.
+                if (!preserveTileCache) this.activeTileManager.pruneToVisibleTiles();
+                this.activeTileManager.forEachTile(tile => {
+                    if (!sources || sources.indexOf(tile.source.name) > -1) this.activeTileManager.buildTile(tile, { fade_in });
+                });
+                this.activeTileManager.updateTilesForView();
+                this.activeTileManager.checkBuildQueue();
+            };
+            const rejectTerrainConfig = (error: unknown) => {
+                if (this.building !== build || !this.tile_manager) return;
+                build.terrainConfigPending = false;
+                this.tileManagerBuildError(error);
+                this.tileManagerBuildDone();
+            };
+            if (this.terrainTransaction) {
+                // An empty tile queue is not proof that workers released a failed snapshot.
+                // Wait for configuration acknowledgements before even a zero-tile recovery settles.
+                build.terrainConfigPending = true;
+                try {Promise.resolve(this.syncConfigToWorker({serialize_funcs})).then(() => {
+                    build.terrainConfigPending = false;
+                    rebuildTiles();
+                }).catch(rejectTerrainConfig);}
+                catch (error) {rejectTerrainConfig(error);}
+            } else {
+                this.syncConfigToWorker({serialize_funcs});
+                rebuildTiles();
+            }
         }).then(() => {
             // Profiling
             if (profile) {
@@ -1669,6 +1693,7 @@ export default class Scene {
     // Tile manager finished building tiles
     // TODO move to tile manager
     tileManagerBuildDone() {
+        if (this.building?.terrainConfigPending) return;
         TextCanvas.pruneTextCache();
 
         if (this.building) {
@@ -1676,13 +1701,17 @@ export default class Scene {
             if (this.terrainTransaction) {
                 const time = performance.now();
                 const build = this.building;
-                if (this.terrainStagedInputLease) {
-                    if (build.error) this.terrainStagedInputLease.release();
+                if (this.terrainStagedInputLease && this.terrainStagedInputSnapshot) {
+                    if (build.error) this.terrainFailedInputs.push({lease: this.terrainStagedInputLease, snapshot: this.terrainStagedInputSnapshot});
                     else {
                         this.terrainInputLease?.release(); this.terrainInputLease = this.terrainStagedInputLease;
                         this.terrainInputSnapshot = this.terrainStagedInputSnapshot;
                     }
                     this.terrainStagedInputLease = undefined; this.terrainStagedInputSnapshot = undefined;
+                }
+                if (!build.error) {
+                    for (const input of this.terrainFailedInputs) input.lease.release();
+                    this.terrainFailedInputs = [];
                 }
                 if (!build.error && this.terrain) this.activeTileManager.startTerrainTransition(this.terrain.transitionGeneration, time);
                 this.activeTileManager.forEachTile(tile => {if (build.error) tile.discardTerrainStage(); else tile.commitTerrainStage(time);});

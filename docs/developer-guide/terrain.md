@@ -264,7 +264,10 @@ worker grid copies and internal query capacities. Upload admission counts the ol
 display, staged replacements, retained draw/query inputs and GPU buffer estimates
 before allocating another GPU owner. `terrain.maxResidentMeshBytes` supplies an
 independent 256 MiB default mesh-domain cap. Failed replacements retain the old
-display and query generation. Cancellation releases a decode reservation only when
+display and query generation. Failed input snapshots remain reserved through worker
+recovery; even an empty tile queue cannot release them until every worker acknowledges
+the restored configuration. Failed recovery keeps those reservations until a successful
+replacement or renderer disposal. Cancellation releases a decode reservation only when
 the owned decoder has settled, so a late result cannot spend released capacity.
 Unregistered preview resources, JavaScript metadata, actual driver overhead,
 Tangram worker scratch and externally retained query snapshots remain outside the

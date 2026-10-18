@@ -41,9 +41,63 @@ test.each([false, true])('input leases keep the old generation until staged sett
         expect(budget.getStatistics().retainedBytes).toBe(56);
         Object.assign(scene, {building: {resolve: vi.fn(), reject: vi.fn(), ...(failed ? {error: new Error('fixture')} : {})}});
         scene.tileManagerBuildDone();
-        expect(budget.getStatistics().retainedBytes).toBe(28);
+        expect(budget.getStatistics().retainedBytes).toBe(failed ? 56 : 28);
     } finally {scene.destroy(); post.mockRestore();}
     expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0, peakBytes: 56});
+});
+
+test.each([false, true])('failed worker inputs remain reserved through asynchronous recovery (recovery fails=%s)', async failedRecovery => {
+    const budget = new TerrainResourceBudget(120);
+    const options = {grids: [field(0)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1};
+    const renderer = Renderer.create({}, {terrain: options, terrainResourceBudget: budget});
+    const scene = renderer.scene;
+    if (!(scene instanceof Scene)) throw new Error('Missing concrete scene fixture');
+    const manager = requireTileManager(scene);
+    scene.workers = [{postMessage: vi.fn(), addEventListener: vi.fn()}];
+    const post = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([]);
+    vi.spyOn(manager, 'publishTerrainDisplay').mockImplementation(() => {});
+    vi.spyOn(manager, 'updateLabels').mockResolvedValue({});
+    vi.spyOn(manager, 'updateTilesForView').mockImplementation(() => {});
+    vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
+    let acknowledgeRecovery: () => void = () => {}, rejectRecovery: (error: Error) => void = () => {};
+    const recovery = new Promise<unknown[]>((resolve, reject) => {acknowledgeRecovery = () => resolve([]); rejectRecovery = reject;});
+    let recoveryStarted: () => void = () => {};
+    const recovering = new Promise<void>(resolve => {recoveryStarted = resolve;});
+    try {
+        await scene.syncConfigToWorker();
+        expect(budget.getStatistics().retainedBytes).toBe(48);
+        let configurations = 0;
+        post.mockImplementation((_workers, method) => {
+            if (method !== 'self.updateConfig') return Promise.resolve([]);
+            configurations++;
+            if (configurations === 1) return Promise.reject(new Error('replacement worker configuration'));
+            if (configurations === 2) {recoveryStarted(); return recovery;}
+            return Promise.resolve([]);
+        });
+        const replacement = {...options, grids: [field(10)], previousGrids: []};
+        const update = renderer.setTerrain(replacement).catch((error: unknown) => error);
+        await recovering;
+        // Even an empty tile queue cannot release worker copies before configuration acknowledges.
+        scene.tileManagerBuildDone();
+        expect(scene.building).toBeTruthy();
+        expect(budget.getStatistics().retainedBytes).toBe(96);
+        expect(budget.reserve('transient', 25)).toBeNull();
+        if (failedRecovery) {
+            rejectRecovery(new Error('recovery worker configuration'));
+            expect(await update).toBeInstanceOf(AggregateError);
+            expect(budget.getStatistics().retainedBytes).toBe(96);
+            // A third input cannot spend the failed snapshot's reservation. Recovery can reuse
+            // the incumbent reservation, acknowledge it, and make room for an explicit retry.
+            await expect(renderer.setTerrain(replacement)).rejects.toThrow(/input\/query capacity/);
+        } else {
+            acknowledgeRecovery();
+            expect(await update).toMatchObject({message: 'replacement worker configuration'});
+        }
+        expect(budget.getStatistics().retainedBytes).toBe(48);
+        await renderer.setTerrain(replacement);
+        expect(budget.getStatistics().retainedBytes).toBe(48);
+    } finally {renderer.destroy(); post.mockRestore();}
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0, peakBytes: 96});
 });
 
 test('query warming advances once per shared stereo frame and releases partial work on load and destruction', () => {

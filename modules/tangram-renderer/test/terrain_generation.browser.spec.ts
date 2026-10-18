@@ -114,7 +114,8 @@ test.each([false, true])('scene completion admits or rejects the entire terrain 
 });
 
 test('staged-byte admission fails before allocating GPU owners and keeps the previous ground', () => {
-    const scene = Scene.create({}, {terrain: {grids: [], maxStagedMeshBytes: 1}}), owner = tile();
+    const resourceBudget = new TerrainResourceBudget(100);
+    const scene = Scene.create({}, {terrain: {grids: [], maxStagedMeshBytes: 1}, terrainResourceBudget: resourceBudget}), owner = tile();
     Object.assign(scene, {generation: 1}); scene.terrainTransaction = true; owner.generation = 1; const previous = mesh(); owner.meshes = {ground: [previous]}; owner.beginTerrainStage();
     requireTileManager(scene).tiles = {[owner.key]: owner};
     const error = vi.spyOn(scene, 'tileManagerBuildError').mockImplementation(() => {});
@@ -122,8 +123,13 @@ test('staged-byte admission fails before allocating GPU owners and keeps the pre
     vi.spyOn(Tile, 'abortBuild').mockImplementation(() => {});
     requireTileManager(scene).buildTileStylesCompleted({tile: {...Tile.slice(owner), mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}}}, progress: {done: true}});
     expect(error).toHaveBeenCalledWith(expect.objectContaining({message: 'Terrain staged mesh-byte budget exceeded'}));
+    expect(resourceBudget.getStatistics().transientBytes).toBe(0);
+    // Repeated rejected replacements must not consume an unreachable shared lease.
+    requireTileManager(scene).buildTileStylesCompleted({tile: {...Tile.slice(owner), mesh_data: {ground: {meshes: {a: {vertex_data: new Uint8Array(12), variant: {}}}}}}, progress: {done: true}});
+    expect(resourceBudget.getStatistics().transientBytes).toBe(0);
     expect(previous.destroy).not.toHaveBeenCalled(); expect(owner.meshes.ground[0]).toBe(previous);
     requireTileManager(scene).tiles = {}; owner.freeResources(); scene.destroy();
+    expect(resourceBudget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
 });
 
 test.each([false, true])('peak admission counts the visible generation before an upload (shared=%s)', shared => {

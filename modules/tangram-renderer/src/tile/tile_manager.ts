@@ -722,6 +722,7 @@ export default class TileManager {
                 incoming += (mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements ? mesh.vertex_elements.byteLength : 0) + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
             }
             if (this.activeScene.terrain && this.getStagedTerrainBytes() + incoming > this.activeScene.terrain.maxStagedMeshBytes) {
+                sharedReservation?.release();
                 this.buildTileError({...tile, error: new Error('Terrain staged mesh-byte budget exceeded')}); return;
             }
         }
