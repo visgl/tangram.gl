@@ -8,6 +8,7 @@ import {Matrix4} from '@math.gl/core';
 import {WebXRSurfaceGrabber, type XRFrameState, type XRInteractionIntent, type XRPlacement}
   from '@vis.gl/tangram-layers/experimental/webxr';
 import {RenderingHarness, coloredPixels, changedPixels, DEVICE_TYPE} from './harness';
+import {createScene} from './scene';
 
 let harness: RenderingHarness | undefined;
 beforeEach(() => commands.startRenderingDiagnostics());
@@ -25,7 +26,11 @@ for (const kind of ['perspective', 'globe'] as const) {
   test(`${DEVICE_TYPE}: room-space ${kind} grab updates both mocked immersive eyes`, async () => {
     const current = new RenderingHarness(kind);
     harness = current;
-    await current.initialize();
+    const scene = createScene(current.sourceUrl, undefined, false, current.scale);
+    // A room-sized globe's camera is independent of desktop zoom. Give this
+    // interaction fixture a visible physical road width, not desktop pixels.
+    if (kind === 'globe') scene.layers.roads.draw.traffic.width = '300000m';
+    await current.initialize(scene);
     const placement: XRPlacement = kind === 'globe'
       ? {type: 'globe', anchor: [0, 0], radius: 0.5, pose: {position: [0, 0.7, -2]}}
       : {type: 'map', anchor: [0, 0], metersPerXRUnit: 1000, pose: {position: [0, 0.7, -2]}};
