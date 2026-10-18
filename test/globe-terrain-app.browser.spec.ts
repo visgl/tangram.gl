@@ -352,3 +352,17 @@ test('an unbounded whole-globe projection holds detail instead of forcing maximu
     await expect.poll(() => host.querySelector('[data-example="preparation-status"]')?.textContent).toContain('unbounded');
     expect(basemapMocks.construct.mock.lastCall?.[0].terrain?.groundMeshResolution).toBe(resolution);
 });
+
+test('retry re-admits a rejected styled field without refetching its warm source tiles', async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array([1]))); vi.stubGlobal('fetch', fetch);
+    const host = document.createElement('div'); document.body.append(host); hosts.push(host);
+    const instance = mountTestGlobeTerrainExample(host, {workerUrl: `${location.origin}/worker.js`, basemap: {sources: {}}, parameters: new URLSearchParams('device=webgl')}); instances.push(instance);
+    await instance.ready;
+    await expect.poll(() => basemapMocks.construct.mock.lastCall?.[0].terrain?.grids.length).toBeGreaterThan(0);
+    const properties = basemapMocks.construct.mock.lastCall?.[0], warm = fetch.mock.calls.length;
+    if (!properties?.onSceneError) throw new Error('Missing scene error handler');
+    Reflect.apply(properties.onSceneError, undefined, [new Error('resource admission')]);
+    host.querySelector<HTMLButtonElement>('[data-example="retry"]')!.click();
+    await expect.poll(() => basemapMocks.construct.mock.lastCall?.[0].terrain).not.toBe(properties.terrain);
+    expect(fetch).toHaveBeenCalledTimes(warm);
+});

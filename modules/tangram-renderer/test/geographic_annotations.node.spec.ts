@@ -33,7 +33,7 @@ test('two eyes sharing a position never reuse different matrix sightlines; a vis
         positions: [-0.15, -0.15, -0.5, 0.15, -0.15, -0.5, 0.15, 0.15, -0.5, -0.15, 0.15, -0.5], indices: [0, 1, 2, 0, 2, 3]})}]);
     const query = vi.spyOn(surface, 'intersectSegment');
     layoutProjectedAnnotations([tile], createFrame('web-mercator', 0.5), {terrainSurface: surface});
-    expect(query).toHaveBeenCalledTimes(6); expect(isVisible(tile)).toBe(true);
+    expect(query).toHaveBeenCalledTimes(7); expect(isVisible(tile)).toBe(true);
 });
 
 test('native point height is physical meters, not polygon height packing, and near-plane occluders do not hide it', () => {

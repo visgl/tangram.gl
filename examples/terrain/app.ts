@@ -305,7 +305,10 @@ export function mountTerrainExample(host: HTMLElement, options: {
     camera = {...camera, position: [camera.position[0], camera.position[1], height]};
     freeAnchorHeight = height; deck.setProps({viewState: camera}); schedule();
   }, {signal: abort.signal});
-  element('retry').addEventListener('click', () => tileset?.retry(), {signal: abort.signal});
+  element('retry').addEventListener('click', () => {
+    if (basemapError) {fieldSignature = ''; basemapError = '';}
+    tileset?.retry(); schedule();
+  }, {signal: abort.signal});
   const destroyCard = createCollapsibleInfoCard(element('controls'));
   function updateDeviceTabs(): void {
     for (const button of root.querySelectorAll<HTMLButtonElement>('[data-device-type]')) {

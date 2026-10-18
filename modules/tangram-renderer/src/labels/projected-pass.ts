@@ -142,6 +142,7 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
     let bounds: Bounds | undefined;
     /** A billboard has constant clip depth; probe its rectangle, not only its geographic anchor. */
     let clipDepth: number | undefined;
+    let anchorScreen: [number, number] | undefined;
     for (const [start, count] of label.ranges) for (let index = 0; index < count; index++) {
         const base = start + index * stride;
         let anchor: [number, number, number];
@@ -177,6 +178,7 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
         // Curved labels may have different anchors/depths. Unknown shared depth
         // keeps them collision-eligible rather than pretending this is a quad.
         clipDepth = clipDepth === undefined ? depth : clipDepth === depth ? depth : NaN;
+        anchorScreen = [(position[0] / position[3] + 1) * width / 2, (1 - position[1] / position[3]) * height / 2];
         const shape = base + offset.a_shape;
         // Retain the existing GLSL clockwise and WGSL counter-clockwise sprite conventions.
         const angle = data.getInt16(shape + 4, true) / 4096 * (clockwiseRotation ? -1 : 1);
@@ -200,22 +202,26 @@ function getScreenBounds(mesh: LabelMesh, label: MeshLabel, tile: LabelTile, fra
         bounds = unionBounds(bounds, [screenX, screenY, screenX, screenY]);
     }
     if (!bounds) return null;
-    if (terrainSurface && terrainCache && inverse && Number.isFinite(clipDepth)) {
+    if (terrainSurface && terrainCache && inverse && anchorScreen && typeof clipDepth === 'number' && Number.isFinite(clipDepth)) {
+        const depth = clipDepth;
         const probes = [[bounds[0], bounds[1]], [bounds[0], bounds[3]], [bounds[2], bounds[1]], [bounds[2], bounds[3]],
             [(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2]];
-        const blocked = probes.every(([x, y]) => {
-            const key = `${eyeId}/${width},${height}/${x},${y},${clipDepth}`;
+        const isBlocked = (x: number, y: number): boolean => {
+            const key = `${eyeId}/${width},${height}/${x},${y},${depth}`;
             const cached = terrainCache.get(key);
             if (cached !== undefined) return cached;
             const horizontal = x / width * 2 - 1, vertical = 1 - y / height * 2;
-            const near = inverse.transform([horizontal, vertical, -1, 1]), target = inverse.transform([horizontal, vertical, clipDepth!, 1]);
+            const near = inverse.transform([horizontal, vertical, -1, 1]), target = inverse.transform([horizontal, vertical, depth, 1]);
             const start: [number, number, number] = [near[0] / near[3], near[1] / near[3], near[2] / near[3]];
             const end: [number, number, number] = [target[0] / target[3], target[1] / target[3], target[2] / target[3]];
             const inset = terrainSurface.projection === 'globe' ? 0.25 * PROJECTION_CONSTANTS.globeRadius / PROJECTION_CONSTANTS.earthRadius : 0.25;
             const hidden = [...start, ...end].every(Number.isFinite) && terrainSurface.intersectSegment(start, end, {startInset: inset, endInset: inset}) !== null;
             if (terrainCache.size >= 10000) terrainCache.clear();
             terrainCache.set(key, hidden); return hidden;
-        });
+        };
+        // This refinement may restore an anchor-hidden label, never hide one
+        // whose original anchor test was clear (including offset billboards).
+        const blocked = isBlocked(...anchorScreen) && probes.every(([x, y]) => isBlocked(x, y));
         if (blocked) return null;
     }
     const buffer = label.container.label.layout.buffer ?? [0, 0];

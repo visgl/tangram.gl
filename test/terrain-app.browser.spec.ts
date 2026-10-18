@@ -78,6 +78,14 @@ test('draping reuses immutable byte identities through topology changes and rele
     expect(latest).toMatchObject({terrain: field});
     if (!latest || typeof latest !== 'object' || !('terrain' in latest)) throw new Error('Missing updated basemap');
     expect(latest.terrain).toBe(field);
+    if (!('onSceneError' in latest) || typeof latest.onSceneError !== 'function') throw new Error('Missing scene error handler');
+    latest.onSceneError(new Error('resource admission'));
+    host.querySelector<HTMLButtonElement>('[data-example="retry"]')!.click();
+    await expect.poll(() => {
+        const value = mocks.basemap.mock.calls.at(-1)?.[0];
+        return value && typeof value === 'object' && 'terrain' in value ? value.terrain : undefined;
+    }).not.toBe(field);
+    expect(mocks.parse.mock.calls.length).toBeGreaterThanOrEqual(downloads);
     if (!('onAttributionChange' in latest) || typeof latest.onAttributionChange !== 'function') throw new Error('Missing provider credits handler');
     latest.onAttributionChange(['<a href="https://example.com/credits">Custom provider</a><img src="bad" onerror="alert(1)">']);
     expect(host.querySelector('[data-example="attribution"] a[href="https://example.com/credits"]')?.textContent).toBe('Custom provider');

@@ -295,7 +295,10 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     detailControl.addEventListener('change', () => {
         parameters.set('detail', detailControl.value); options.onParametersChange?.(new URLSearchParams(parameters)); clearTimeout(detailTimer); detailTimer = undefined; detailCameraSignature = ''; schedule();
     }, {signal: abort.signal});
-    element('retry').addEventListener('click', () => {tileset?.retry(); preparation.retry(); displayPreparation.retry(); schedule();}, {signal: abort.signal});
+    element('retry').addEventListener('click', () => {
+        if (basemapError) {terrainInput = {...terrainInput}; basemapError = '';}
+        tileset?.retry(); preparation.retry(); displayPreparation.retry(); schedule();
+    }, {signal: abort.signal});
     element('clear-target').addEventListener('click', () => {pinnedCoordinate = undefined; pinnedLayer = undefined; pinnedSurfaces = undefined; pinnedSignature = ''; element('terrain-visibility').textContent = 'Click terrain to pin a sightline target';}, {signal: abort.signal});
     element('fullscreen').addEventListener('click', () => {if (document.fullscreenElement === root) void document.exitFullscreen(); else void root.requestFullscreen().catch(error => {status.textContent = `Fullscreen unavailable: ${error.message}`;});}, {signal: abort.signal});
     /** Preserve source/cache ownership when switching GPU devices. */

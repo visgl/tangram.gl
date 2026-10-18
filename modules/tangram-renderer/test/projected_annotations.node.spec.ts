@@ -66,6 +66,18 @@ test('an occluded anchor does not hide visible billboard corners, including a se
     expect(value.meshes.points[0].upload).toHaveBeenCalledTimes(uploads);
 });
 
+test('quad probing never newly suppresses an offset label whose original anchor was clear', () => {
+    const value = tile(1), vertices = value.meshes.points[0].vertex_data;
+    if (!vertices) throw new Error('Expected label data');
+    const data = new DataView(vertices.buffer);
+    for (let vertex = 0; vertex < 4; vertex++) data.setInt16(vertex * 24 + 20, 100, true);
+    const terrainSurface = new TerrainSurfaceCollection('web-mercator', [{id: 'ridge', surface: new TerrainMeshSurface({projection: 'web-mercator',
+        positions: [0.8, -0.2, -0.5, 1.2, -0.2, -0.5, 1.2, 0.2, -0.5, 0.8, 0.2, -0.5], indices: [0, 1, 2, 0, 2, 3]})}]);
+    const query = vi.spyOn(terrainSurface, 'intersectSegment');
+    layoutProjectedAnnotations([value], frame(), {terrainSurface});
+    expect(mask(value)).toEqual([1, 1, 1, 1]); expect(query).toHaveBeenCalledOnce();
+});
+
 test('priority, rotation and padding resolve in screen space, independent of tile/style zoom', () => {
     const low = tile(1, 0, {priority: 10, rotation: Math.PI / 4});
     const high = tile(2, 0.18, {priority: 1, buffer: [4, 4]});
