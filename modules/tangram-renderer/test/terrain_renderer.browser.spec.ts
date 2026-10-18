@@ -392,7 +392,8 @@ test('configured line draw groups remain detectable without admitted meshes and 
     vi.spyOn(scene.style_manager, 'initStyles').mockImplementation(() => {});
     for (const style of Object.values(styles)) vi.spyOn(style, 'setGL').mockImplementation(() => {});
     try {
-        for (const layers of [{roads: {draw: {roads: {}}}}, {nested: {child: {draw: {named: {style: 'roads'}}}}}]) {
+        const cases: NonNullable<Scene['config']>['layers'][] = [{roads: {draw: {roads: {}}}}, {nested: {child: {draw: {named: {style: 'roads'}}}}}];
+        for (const layers of cases) {
             scene.config.layers = layers; scene.updateStyles(); expect(scene.terrainRibbonStyles).toBe(true);
         }
         scene.config.layers = {raster: {draw: {raster: {}}, properties: {draw: {roads: {}}}}};
