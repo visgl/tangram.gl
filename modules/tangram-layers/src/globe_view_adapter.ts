@@ -5,7 +5,6 @@
 import type {LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
 import type {GlobeViewport} from './view_adapter_types.js';
 const DECK_TO_TANGRAM_ZOOM_OFFSET = 1;
-const MAX_MERCATOR_LATITUDE = 85.05112878;
 
 /** Scene visibility declarations, independent of the host camera's altitude. */
 export type GlobeViewAdapterOptions = {
@@ -29,6 +28,10 @@ export default class GlobeViewAdapter {
  * Globe matrices consume deck common-space coordinates directly. Tangram's
  * renderer converts its EPSG:3857 tile vertices to deck's radius-256 globe in
  * the vertex shader before applying these matrices.
+ * GlobeViewport already compensates its camera scale for latitude. The local
+ * Mercator-to-sphere derivative cancels that compensation, so data/style zoom
+ * needs only the same 512-to-256 tile-size offset as MapView, not another
+ * latitude adjustment. Source tile_size and zoom_offset are applied later.
  *
  * @param {object} viewport deck.gl GlobeViewport.
  * @param options Explicit scene height and conservative geographic footprint.
@@ -67,7 +70,7 @@ function getFrame(viewport: GlobeViewport, options: GlobeViewAdapterOptions = {}
     view: {
       longitude: viewport.longitude,
       latitude: viewport.latitude,
-      zoom: getTangramGlobeZoom(viewport.zoom, viewport.latitude)
+      zoom: Math.max(0, viewport.zoom + DECK_TO_TANGRAM_ZOOM_OFFSET)
     },
     projection: {
       type: 'globe', visibleBounds: [visibleBounds[0], visibleBounds[1], visibleBounds[2], visibleBounds[3]],
@@ -83,25 +86,6 @@ function getFrame(viewport: GlobeViewport, options: GlobeViewAdapterOptions = {}
     tileBuffer: 0,
     globePreloadZoom: options.preloadZoom
   };
-}
-
-/**
- * Converts deck.gl GlobeViewport zoom to Tangram's Mercator tile zoom scale.
- * GlobeViewport compensates zoom by latitude so its scale converges with
- * Web Mercator at high zoom; apply the same adjustment before choosing tiles.
- * @param zoom deck.gl GlobeViewport zoom.
- * @param latitude Globe center latitude in degrees.
- * @returns Tangram zoom value with the package's tile-size offset applied.
- */
-function getTangramGlobeZoom(zoom: number, latitude: number): number {
-  const scaleLatitude = Math.max(
-    -MAX_MERCATOR_LATITUDE,
-    Math.min(MAX_MERCATOR_LATITUDE, latitude)
-  );
-  const latitudeScaleAdjustment = Math.log2(
-    Math.PI * Math.cos((scaleLatitude * Math.PI) / 180)
-  );
-  return Math.max(0, zoom - latitudeScaleAdjustment + DECK_TO_TANGRAM_ZOOM_OFFSET);
 }
 
 function multiplyMatrices(left: ArrayLike<number>, right: ArrayLike<number>): Float64Array {
