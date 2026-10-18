@@ -50,7 +50,8 @@ Opt-in `groundMeshResolution` gives selected full-tile raster ground styles
 DEM-owned triangles with balanced coarse/fine knots. Complete cells survive
 source-detail and fallback boundaries; half-open draw/query clips partition
 ownership rather than retessellating the surface. Periodic copies reconcile
-antimeridian sampling. The globe reference opts into 32 cells per DEM axis.
+antimeridian sampling. The globe reference selects a bounded dyadic ground
+resolution rather than using a fixed cell count.
 
 Late source tiles inherit the admitted field's shared transition origin, including
 both eyes and CPU queries; successful staged replacement starts the next field

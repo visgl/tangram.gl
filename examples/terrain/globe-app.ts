@@ -214,7 +214,9 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
             const maximumHeight = Math.max(0, ...grids.map(grid => Math.max(Math.abs(measureTerrainError(grid).minimumHeight), Math.abs(measureTerrainError(grid).maximumHeight))));
             const radius = 256 * (1 + maximumHeight * effective / 6370972);
             const projectedScale = boundProjectedDisplacement(Array.from(viewport.viewProjectionMatrix), [-radius, -radius, -radius], [radius, radius, radius], viewport);
-            const quality = projectedScale === null ? {resolution: 64, projectedError: Infinity, limited: true} :
+            // A whole-globe box crosses the eye plane at close range. Unknown
+            // error must not force a maximum-resolution rebuild on every grid.
+            const quality = projectedScale === null ? {resolution: groundResolution, projectedError: Infinity, limited: true} :
                 selectTerrainMeshResolution(grids, {pixelsPerMeter: projectedScale * 256 / 6370972 * effective,
                     pixelsPerGlobeUnit: projectedScale * radius / 256, previousResolution: groundResolution, targetPixels: 4});
             groundResolution = quality.resolution; projectedGroundError = quality.projectedError; groundDetailLimited = quality.limited;

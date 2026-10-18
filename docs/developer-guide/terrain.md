@@ -251,7 +251,8 @@ global wrap seams and arbitrarily wide world views are not certified.
 The draped globe additionally selects **mesh resolution**, independently of source
 zoom, from cached DEM gradient/height envelopes and a spherical curvature bound.
 The whole-globe projection-box bound includes exaggeration; a box crossing the eye
-plane requests the bounded maximum and reports unbounded error. Resolutions are
+plane retains the previous requested resolution and reports unbounded error rather
+than forcing a maximum-detail rebuild. Resolutions are
 dyadic 2–64 with a coarsening deadband. A 4 CSS-pixel target is not claimed met
 when source holes or the resolution cap prevent it. The info card distinguishes
 requested resolution/error from the last atomically admitted mesh generation.
