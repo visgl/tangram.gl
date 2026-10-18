@@ -26,8 +26,11 @@ test.each([
   harness = new RenderingHarness(kind);
   const span = 0.003 * harness.scale, hole = 0.001 * harness.scale;
   const dataZoom = kind === 'globe' ? 3 : 14;
+  // MVT bytes are encoded for one fixed tile pyramid level. Keep this geometry
+  // regression independent of the globe adapter's separate detail policy.
+  harness.tileZoom = dataZoom + 1;
   const {longitude, latitude} = getOpenMapTilesAnchor(dataZoom);
-  harness.presentation.setViewState({longitude, latitude});
+  harness.presentation.setViewState({longitude, latitude, zoom: kind === 'globe' ? 5 : 15});
   const point = (east: number, north: number) => [longitude + east, latitude + north];
   const geometry = {type: 'FeatureCollection', features: [{type: 'Feature', properties: {}, geometry: {
     type: 'MultiPolygon', coordinates: [[
