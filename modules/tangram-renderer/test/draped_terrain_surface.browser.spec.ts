@@ -8,6 +8,7 @@ import {summarizeDrapedTerrainBounds} from '../src/map-logic/draped-terrain-boun
 import {getGeographicProjectionProcedure} from '../src/scene/projection_math';
 import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
 import {TerrainMeshSurface} from '../src/selection/terrain_surface';
+import {createTerrainGlobePoint, projectTerrainGlobeVertex} from '../src/procedures/terrain-globe';
 
 test('half-open ownership is snapshotted and keeps a shared clip edge assigned to exactly one owner', () => {
     const mesh = ground(), entry = {id: 'left', mesh, blend: 1, clips: [[-1, -1, 0, 1] as const], halfOpenClips: true};
@@ -148,6 +149,34 @@ function ground(): DrapedTerrainQueryMesh {
     return {positions: new Float64Array([-10, -10, 3, 10, -10, 3, -10, 10, 3]),
         heights: new Float32Array([100, 0, 100, 0, 100, 0]), indices: new Uint16Array([0, 1, 2]), bounds: [-10, -10, 10, 10]};
 }
+
+test('affine globe query channels retain exact cached/streaming hits, physical heights and byte accounting', () => {
+    const mesh = ground();
+    const globeBasis = new Float32Array(36); mesh.globeBasis = globeBasis;
+    for (let vertex = 0; vertex < 3; vertex++) {
+        const coordinate = [mesh.positions[vertex * 3], mesh.positions[vertex * 3 + 1]] as const;
+        mesh.globeBasis.set(createTerrainGlobePoint(coordinate, 100), vertex * 12);
+        mesh.globeBasis.set(createTerrainGlobePoint(coordinate, 0), vertex * 12 + 6);
+    }
+    mesh.boundsSummary = summarizeDrapedTerrainBounds(mesh);
+    for (const blend of [0, 0.25, 1]) for (const exaggeration of [0, 1, 100]) {
+        const projected = Array.from({length: 3}, (_value, vertex) => projectTerrainGlobeVertex(globeBasis, vertex, blend, exaggeration,
+            [mesh.positions[vertex * 3], mesh.positions[vertex * 3 + 1], 3]));
+        const center = projected[0].map((_value, axis) => projected.reduce((sum, point) => sum + point[axis] / 3, 0));
+        const ray = {origin: [center[0], center[1] - 1, center[2]] as const, direction: [0, 1, 0] as const};
+        const entries = [{id: 'canonical', mesh, blend}];
+        const cached = new DrapedTerrainSurfaceSnapshot('globe', entries, 0, 0, exaggeration);
+        const streaming = new DrapedTerrainSurfaceSnapshot('globe', entries, 0, 0, exaggeration, 0, 0);
+        const hit = cached.intersectRay(ray);
+        expect(hit).not.toBeNull();
+        expect(hit?.coordinate[2]).toBeCloseTo(3 + 100 * blend, 5);
+        expect(streaming.intersectRay(ray)).toEqual(hit);
+        expect(cached.inputBytes).toBe(mesh.positions.byteLength + mesh.heights.byteLength + mesh.indices.byteLength + mesh.globeBasis.byteLength);
+    }
+    expect(() => new DrapedTerrainSurfaceSnapshot('globe', [{id: 'invalid', mesh: {...mesh, globeBasis: new Float32Array(1)}, blend: 1}], 0, 0, 1)).toThrow(/channels/);
+    const invalid = mesh.globeBasis.slice(); invalid[0] = NaN;
+    expect(() => new DrapedTerrainSurfaceSnapshot('globe', [{id: 'invalid', mesh: {...mesh, globeBasis: invalid}, blend: 1}], 0, 0, 1)).toThrow(/channels/);
+});
 
 test.each(['web-mercator', 'globe'] as const)('zero projected residency budget preserves exact %s queries through morph, relief and clips', projection => {
     const globe = getGeographicProjectionProcedure('globe');

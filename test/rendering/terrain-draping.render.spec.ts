@@ -132,6 +132,29 @@ test.each(['perspective', 'first-person', 'globe'] as ViewKind[])('%s canonical 
     expect(harness.errors).toEqual([]);
 }, 45000);
 
+test.each(['perspective', 'globe'] as ViewKind[])('%s fractional zoom refines canonical road widths once for both eyes without cold source loads', async kind => {
+    const harness = new RenderingHarness(kind, 'stereo-preview'); harnesses.push(harness);
+    harness.terrain = {...canonicalField(20, false), querySurfaceStyles: []};
+    if (kind === 'globe') {harness.globePreloadZoom = 2; harness.tileZoom = 3;}
+    else harness.tileZoom = 15;
+    const scene = createScene(harness.sourceUrl, undefined, false, harness.scale);
+    Object.assign(scene.layers.roads.draw.traffic, {width: '24px', interactive: true});
+    await harness.initialize(scene); await harness.settle();
+    const source = await harness.renderer.getTileSourceStatistics();
+    const initial = kind === 'globe' ? 4 : 15;
+    for (const zoom of [initial + 0.25, initial + 0.75]) {
+        harness.presentation.setViewState({zoom}); await harness.settle();
+        const hostZoom = harness.presentation.createFrame({width: 512, height: 320}).hostFrame.geographicAnchor.zoom;
+        expect(harness.renderer.getTerrainDrapingStatistics().ribbonRefinement).toMatchObject({requestedZoom: hostZoom, admittedZoom: hostZoom, pending: false});
+        expect(harness.renderer.getTerrainDrapingStatistics().ribbonRefinement?.error).toBeUndefined();
+        const pixels = await harness.pixels();
+        expect(coloredPixels(pixels, 0, 256)).toBeGreaterThan(50);
+        expect(coloredPixels(pixels, 256, 512)).toBeGreaterThan(50);
+        expect(await harness.renderer.getTileSourceStatistics()).toEqual(source);
+    }
+    expect(harness.errors).toEqual([]);
+}, 45000);
+
 test.each(['flat', 'globe'] as ViewKind[])('%s canonical ground preserves raster color, ownership and atomic query morphs through the packaged worker', async kind => {
     const harness = new RenderingHarness(kind, 'stereo-preview'); harnesses.push(harness);
     harness.terrain = canonicalField(20);

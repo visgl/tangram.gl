@@ -46,7 +46,8 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(200);
+    expect(sourceFiles).toHaveLength(201);
+    expect(sourceFiles.some(filePath => filePath.endsWith('procedures/terrain-globe.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/terrain-query.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('procedures/terrain-styled-topology.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('selection/draped-terrain-surface.ts'))).toBe(true);

@@ -88,6 +88,8 @@ interface RebuildOptions {
     fade_in?: boolean;
     preserveTileCache?: boolean;
     preserveTime?: boolean;
+    /** Lightweight canonical ribbon refinement; null restores per-tile style zoom. */
+    terrainRibbonZoom?: number | null;
 }
 /** Promise ownership for the active generation and its queued replacement. */
 interface SceneBuildState {
@@ -253,6 +255,10 @@ export default class Scene {
     declare terrain: import('../procedures/terrain-draping').TerrainDrapingSnapshot | undefined;
     /** Borrowed main-thread admission pool, never serialized into worker configuration. */
     declare terrainResourceBudget: import('../map-logic/terrain-resource-budget').TerrainResourceBudget | undefined;
+    /** Last requested worker ribbon zoom, independent of physical field/morph identity. */
+    declare terrainRibbonZoom: number | undefined;
+    /** Authored line draw groups remain refinable even when no-data suppresses every current road mesh. */
+    terrainRibbonStyles = false;
     /** Main/worker input copies and internal query-capacity reservation, independent of mesh owners. */
     private terrainInputLease?: import('../map-logic/terrain-resource-budget').TerrainResourceLease;
     /** Replacement inputs cannot spend the still-admitted generation's reservation. */
@@ -1593,7 +1599,7 @@ export default class Scene {
     // Rebuild all tiles, without re-parsing the config or re-compiling styles
     // sync: boolean of whether to sync the config object to the worker
     // sources: optional array of data sources to selectively rebuild (by default all our rebuilt)
-    rebuild({ initial = false, new_generation = true, sources = null, serialize_funcs, profile = false, fade_in = false, preserveTileCache = false, preserveTime = false }: RebuildOptions = {}) {
+    rebuild({ initial = false, new_generation = true, sources = null, serialize_funcs, profile = false, fade_in = false, preserveTileCache = false, preserveTime = false, terrainRibbonZoom }: RebuildOptions = {}) {
         return new Promise<boolean | void>((resolve, reject) => {
             // Skip rebuild if already in progress
             if (this.building) {
@@ -1605,7 +1611,7 @@ export default class Scene {
                 }
 
                 // Save queued request
-                let options = { initial, new_generation, sources, serialize_funcs, profile, fade_in, preserveTileCache, preserveTime };
+                let options = { initial, new_generation, sources, serialize_funcs, profile, fade_in, preserveTileCache, preserveTime, terrainRibbonZoom };
                 this.building.queued = { resolve, reject, options };
                 log('trace', 'Scene.rebuild(): queuing request');
                 return;
@@ -1666,7 +1672,7 @@ export default class Scene {
                 // An empty tile queue is not proof that workers released a failed snapshot.
                 // Wait for configuration acknowledgements before even a zero-tile recovery settles.
                 build.terrainConfigPending = true;
-                try {Promise.resolve(this.syncConfigToWorker({serialize_funcs})).then(() => {
+                try {Promise.resolve(this.syncConfigToWorker({serialize_funcs, terrainRibbonZoom})).then(() => {
                     build.terrainConfigPending = false;
                     rebuildTiles();
                 }).catch(rejectTerrainConfig);}
@@ -1675,11 +1681,12 @@ export default class Scene {
                 this.syncConfigToWorker({serialize_funcs});
                 rebuildTiles();
             }
-        }).then(() => {
+        }).then(completed => {
             // Profiling
             if (profile) {
                 this.debug.profileEnd('Scene.rebuild');
             }
+            return completed;
         });
     }
 
@@ -1902,6 +1909,17 @@ export default class Scene {
         // (Re)build styles from config
         this.styles = this.style_manager.build(this.liveConfig.styles);
         this.style_manager.initStyles(this);
+        const hasRibbon = (layer: unknown): boolean => {
+            if (!layer || typeof layer !== 'object' || Array.isArray(layer)) return false;
+            if ('draw' in layer && layer.draw && typeof layer.draw === 'object' && !Array.isArray(layer.draw)) {
+                for (const [name, group] of Object.entries(layer.draw)) {
+                    const style = group && typeof group === 'object' && 'style' in group && typeof group.style === 'string' ? group.style : name;
+                    if (this.styles?.[style]?.baseStyle() === 'lines') return true;
+                }
+            }
+            return Object.entries(layer).some(([name, value]) => !['draw', 'filter', 'data', 'properties'].includes(name) && hasRibbon(value));
+        };
+        this.terrainRibbonStyles = hasRibbon(this.liveConfig.layers);
 
         // Optionally set GL context (used when initializing or re-initializing GL resources)
         for (let style in this.styles) {
@@ -2142,27 +2160,31 @@ export default class Scene {
     }
 
     // Serialize config and send to worker
-    syncConfigToWorker({ serialize_funcs = true } = {}) {
+    syncConfigToWorker({ serialize_funcs = true, terrainRibbonZoom }: {serialize_funcs?: boolean; terrainRibbonZoom?: number | null} = {}) {
         this.reserveTerrainInputs(this.terrainTransaction === true);
+        if (terrainRibbonZoom !== undefined) {
+            if (!this.terrainTransaction) throw new Error('Terrain ribbon refinement requires a staged terrain rebuild');
+            this.terrainRibbonZoom = terrainRibbonZoom ?? undefined;
+        }
         // Shader specialization only needs the enabled flag on the main thread,
         // but its retained style objects must not pin the initial DEM forever.
         if (this.terrain) for (const style of Object.values(this.styles || {})) style.terrain = this.terrain;
         // Tell workers we're about to rebuild (so they can update styles, etc.)
-        let config_serialized =
-            serialize_funcs ? Utils.serializeWithFunctions(this.config) : JSON.stringify(this.config);
-        const configuration = {
-            config: config_serialized,
+        const configuration = terrainRibbonZoom !== undefined ? {generation: this.generation, ribbonZoom: this.terrainRibbonZoom} : {
+            config: serialize_funcs ? Utils.serializeWithFunctions(this.config) : JSON.stringify(this.config),
             generation: this.generation,
             introspection: this.introspection,
             projection_target: this.projectionTarget,
             terrain: this.terrain,
+            terrainRibbonZoom: this.terrainRibbonZoom,
             shader_language: this.shader_language
         };
-        if (!this.terrainTransaction) return WorkerBroker.postMessage(this.activeWorkers, 'self.updateConfig', configuration, debugSettings);
+        const method = terrainRibbonZoom !== undefined ? 'self.updateTerrainView' : 'self.updateConfig';
+        if (!this.terrainTransaction) return WorkerBroker.postMessage(this.activeWorkers, method, configuration, debugSettings);
         // Promise.all rejects at the first worker failure while other broker messages
         // still retain the snapshot. Drain all replies before recovery can release it.
         return Promise.allSettled(this.activeWorkers.map(worker => Promise.resolve().then(() =>
-            WorkerBroker.postMessage(worker, 'self.updateConfig', configuration, debugSettings)
+            WorkerBroker.postMessage(worker, method, configuration, debugSettings)
         ))).then(results => {
             const failure = results.find(result => result.status === 'rejected');
             if (failure?.status === 'rejected') throw failure.reason;

@@ -287,8 +287,10 @@ the shared Float32 source lattice cannot represent; these explicitly reject rath
 than rounding independent owners into cracks. The examples keep height-only morphing
 as their default; uniform canonical fields have packaged stereo conformance.
 Arbitrary legacy previous fields also keep the default height-only morph.
-This common planar refinement does **not** certify exact cross-style globe chord
-conformity or re-intersect dynamic-width roads between worker rebuilds.
+Canonical globe cuts also retain the affine bases of both original endpoint
+faces, so extra feature cuts do not independently reproject onto the sphere.
+Built-in road widths are re-intersected asynchronously at the latest host zoom;
+the last admitted width stays fixed while its replacement is prepared.
 
 Annotation collision eligibility probes the billboard bounds' corners and center
 at its clip depth. An occluded anchor alone no longer hides a visible corner, and
@@ -424,10 +426,11 @@ Set `scene.lighting: configured` when using authored Tangram lights on both
 backends; the reference basemap opts into this existing portable lighting path.
 Point/text anchors gain the same height, with their pixel shapes retained; screen
 collision uses the displaced anchor. Road width/offset interpolation stays in
-Tangram. At the authored style zoom, DEM heights/slopes are sampled at the actual
+Tangram. Without canonical ground, at the authored style zoom, DEM heights/slopes are sampled at the actual
 width/offset corners, including source overzoom; other zoom fractions use a local
 tangent-plane correction relative to those corners. This improves wide roads but
-is not exact DEM sampling at every dynamically extruded corner. Custom position/width blocks and CPU-projected
+is not exact DEM sampling at every dynamically extruded corner. Canonical ground
+instead uses the admitted-width refinement described below. Custom position/width blocks and CPU-projected
 basemaps are rejected rather than silently applying incompatible displacement.
 
 Changing immutable grids calls `renderer.setTerrain(options)` on existing workers.
@@ -502,8 +505,10 @@ nodes, then use the same generation blend in color, depth, collision and queries
 Changing the field still publishes complete staged generations atomically.
 Retained snapshots remain immutable. **This is height/slope morphing on the new
 admitted topology, not exact replay of an older triangle surface**: changing DEM
-leaf topology can change spherical chord approximation at the handoff. Exact
-cross-topology geometric morphing remains follow-up work.
+leaf topology can change spherical chord approximation at the handoff. Opt-in
+`conformTransitions` retains both endpoint globe planes when their intersection
+fits the existing source-lattice precision and resource limits; arbitrary
+non-dyadic transition intersections still reject rather than rounding into cracks.
 
 Resolution is explicit, not a certified pixel-error control. A fine source tile
 may own only part of a larger DEM triangle; higher source zoom does not refine
@@ -538,19 +543,39 @@ polygon geometry beyond the source edge rather than clamping it away. Shared
 lattice nodes reunite the pieces. Envelopes outside the three-world sampler or
 over the combined vertex budget reject, including at zoom zero.
 
-Roads intersect at their expanded **nominal corners**, including authored width
-and offset, not at their collapsed centerline. Width/offset scale factors must be
-uniform within a source face so expansion is affine. Original extrusion and
-screen-space width channels remain available to both color and selection shaders.
-Between style-zoom rebuilds, changing width still uses the existing local tangent
-height correction; it is not a fresh intersection with neighboring terrain cells.
-Conservative dynamic-ribbon coverage can suppress extra triangles near missing
-data. Procedural position/width blocks remain unsupported for draped styles.
+Roads intersect at their expanded **admitted-view corners**, including authored
+width and offset, not at their collapsed centerline. Width/offset scale factors
+must be uniform within a source face so expansion is affine. The worker bakes
+expanded XY and clears extrusion/offset channels: neither color nor selection
+can move a cut off its admitted terrain face while a replacement is pending.
+Physical altitude, feature IDs, order, material UVs and colors remain intact.
 
-Clipping adds feature/source cut nodes. On the globe, projecting those extra nodes
-can change spherical chord approximation relative to a raster face with no cut;
-this is not exact cross-style curved-surface coplanarity or older-topology replay.
-Both backends share the adapter and field clock. Completed draw-byte and vertex
+Renderer coalesces logical host zoom changes, including fractional zoom, onto the
+existing serialized terrain-update queue. Both stereo eyes share one target.
+The lightweight worker message retains decoded sources, DEM arrays and animation
+time; it does not fetch tiles, clone grids or reparse scene configuration. It does
+rebuild resident tile geometry, with atomic generation admission and existing
+resource limits. This is bounded asynchronous work, not a zero-cost per-frame
+operation. During rapid navigation, roads temporarily retain their last admitted
+width. `getTerrainDrapingStatistics().ribbonRefinement` reports requested/admitted
+zoom, pending work and errors. A failed target restores prior geometry and is not
+retried every frame; navigation to a new zoom or an explicit `setTerrain` correction
+permits another attempt. A failed recovery blocks drawing until corrected.
+Procedural position/width blocks remain unsupported for draped styles.
+
+Canonical raster, polygon and road cuts carry zero-relief globe XYZ and radial
+relief vectors interpolated on the original ground face, for both morph endpoints.
+GLSL/WGSL blend these affine channels before applying exaggeration, so extra cuts
+stay on the same globe chords rather than being lifted back onto the sphere.
+Authored altitude remains a separate radial offset, independent of exaggeration.
+Physical ground picking uses the same channels in cached and streaming queries;
+reported elevations remain unexaggerated meters. Existing ENU slope lighting is
+retained, not replaced by geometric face normals.
+
+The four additional draw attributes cost 64 bytes per terrain mesh vertex;
+annotation layouts use static disabled values. Canonical ground queries retain
+another 48 bytes per vertex. Draw/query admission and shared resource estimates
+include these channels. Both backends share the adapter and field clock. Completed draw-byte and vertex
 caps reject entire oversized meshes; the mesh-local bounds tree, surface references,
 clipping records and canonical-node sample cache are temporary preparation scratch,
 not covered by a claimed total-pipeline memory cap. Resolution is still explicit,

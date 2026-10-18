@@ -59,13 +59,16 @@ clock atomically. This completes the raster-ground seam/clock portion of batch 1
 not exact replay of older DEM triangulation.
 Explicit resolution remains a resource/detail policy rather than certified error.
 
-Polygon faces, vertical walls and nominal expanded road ribbons now intersect
+Polygon faces, vertical walls and admitted-width road ribbons now intersect
 the same DEM triangles. Cut vertices interpolate canonical physical height/slope
 endpoints, preserving feature/material channels instead of resampling a different
 bilinear surface. Source/fallback clips and field clocks remain shared. This
-completes the Mercator-plane polygon/road portion, not exact curved-surface
-coplanarity: extra feature cuts can change globe chords. Dynamic-width movement
-between rebuilds retains local tangent correction rather than new cell intersections.
+also preserves globe chord planes: cut vertices carry affine zero-relief and
+height channels from each canonical endpoint face. Fractional host zoom changes
+coalesce into atomic worker road-width refinement without source fetches or DEM
+copies. The previous admitted width remains fixed while rebuilding; a failed
+target recovers once instead of retrying every frame. This is asynchronous
+conformity, not a promise of immediate widths during continuous navigation.
 
 ## Remaining batches, in priority order
 
@@ -73,7 +76,7 @@ The current combined implementation advances batches 1–4 with opt-in common pl
 transition refinement, DEM-derived height/curvature envelopes, projected dyadic
 ground detail, shared reservation leases and peak mesh admission, billboard-wide
 visibility probes and a bounded swept-height-field footprint guard. These are not
-completion claims: exact cross-style globe chords, dynamic-width re-intersection,
+completion claims: arbitrary non-dyadic cross-topology intersections,
 unregistered/transient resource domains, general avatar physics and full glyph
 occlusion certification remain distinct work. See [terrain integration](./terrain.md#projected-detail-and-picking)
 for the implemented bounds and failure policies.
@@ -89,8 +92,8 @@ for the implemented bounds and failure policies.
 | 7. Parser and tileset production switches | Published YAML scalar/merge parity, authored MVT-property preservation, PMTiles/MLT/provider conformance, shared loaders.gl source/tileset lifecycle hooks. | Re-run the corpus on the selected release, compare worker outputs and cancellation, record decode and raw/min/gzip costs, then switch one default implementation at a time. |
 | 8. Type and coverage hardening | Replace residual broad dynamic types with normalized scene/style/source contracts; migrate remaining JS tests and simple Chai/Sinon usage; exercise untested ownership/error paths. | Raise each authored-package coverage metric above 90% without weaker thresholds/exclusions; no suppression regressions; unchanged runtime outputs and browser/worker coverage rather than assertions about types alone. |
 
-Batch 1's remaining priorities are exact cross-topology geometric transitions,
-cross-style globe chord conformity and dynamic-width resampling. Batches 2–3 share resource and
+Batch 1's remaining priority is arbitrary cross-topology transitions beyond the
+supported source-lattice precision envelope. Batches 2–3 share resource and
 profiling work and can form one substantial follow-up. Batch 8 can run independently;
 it must not be described as another filename-only TypeScript migration.
 Batch 7 requires published upstream fixes; do not block unrelated terrain work on it.

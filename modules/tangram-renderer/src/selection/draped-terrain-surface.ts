@@ -10,6 +10,7 @@ import {summarizeDrapedTerrainBounds, type DrapedTerrainBoundsSummary} from '../
 import {intersectRayTriangle} from '@math.gl/culling/queries';
 import {Vector3} from '@math.gl/core';
 import type {TerrainRay, TerrainSurfaceHit} from './terrain_surface';
+import {projectTerrainGlobeVertex} from '../procedures/terrain-globe';
 
 /** Measured CPU costs for one immutable terrain display, excluding other retained snapshots. */
 export interface DrapedTerrainQueryStatistics {
@@ -37,6 +38,8 @@ export interface DrapedTerrainQueryStatistics {
 
 /** Do not retry failed acceleration until a new projected owner is admitted. */
 const failedPreparation = new WeakSet<ProjectedQuerySurface>();
+/** Immutable worker inputs are checked once, not rescanned for every eye and animation frame. */
+const validatedGlobeBasis = new WeakSet<DrapedTerrainQueryMesh>();
 
 /** Cached or bounded-memory picking owner, with the same exact clipping boundary. */
 type ProjectedQuerySurface = TerrainMeshSurface | StreamingTerrainSurface;
@@ -81,7 +84,8 @@ class StreamingTerrainSurface implements TerrainSurface {
                 const height = previous + (current - previous) * this.blend;
                 physicalHeights.push(this.mesh.positions[offset + 2] + height);
                 const position: [number, number, number] = [this.mesh.positions[offset], this.mesh.positions[offset + 1], this.mesh.positions[offset + 2] + height * this.exaggeration];
-                return this.projection === 'globe' ? projection.project(mercator.unproject(position)) : position;
+                return this.projection === 'globe' ? this.mesh.globeBasis ? projectTerrainGlobeVertex(this.mesh.globeBasis, index, this.blend, this.exaggeration,
+                    [position[0], position[1], this.mesh.positions[offset + 2]]) : projection.project(mercator.unproject(position)) : position;
             });
             const candidate = intersectRayTriangle(ray.origin, direction, vertices[0], vertices[1], vertices[2], {maxT: nearest?.distance ?? maximum});
             if (!candidate || nearest && candidate.t >= nearest.distance) continue;
@@ -104,6 +108,8 @@ export interface DrapedTerrainQueryMesh {
     positions: Float64Array;
     /** Current and previous physical height per vertex, interleaved in that order. */
     heights: Float32Array;
+    /** Optional affine canonical globe channels: current base/relief, previous base/relief, three components each. */
+    globeBasis?: Float32Array;
     /** Exact admitted draw triangles, excluding holes. */
     indices: Uint16Array | Uint32Array;
     /** Indexed XY footprint used to avoid allocating query geometry for unrelated vertical probes. */
@@ -128,6 +134,14 @@ function getDisplayBounds(mesh: DrapedTerrainQueryMesh, projection: TerrainSurfa
             maximum[0] = Math.min(maximum[0], Math.max(...clips.map(clip => clip[2])));
             maximum[1] = Math.min(maximum[1], Math.max(...clips.map(clip => clip[3])));
             if (minimum[0] > maximum[0] || minimum[1] > maximum[1]) return null;
+        }
+    } else if (summary.globe) {
+        minimum = [0, 0, 0]; maximum = [0, 0, 0];
+        for (const axis of [0, 1, 2]) {
+            const offsets = summary.offsets.flatMap(offset => [summary.directions.minimum[axis] * offset, summary.directions.maximum[axis] * offset])
+                .map(value => value * PROJECTION_CONSTANTS.globeRadius / PROJECTION_CONSTANTS.earthRadius);
+            minimum[axis] = summary.globe.base.minimum[axis] + summary.globe.relief.minimum[axis] * exaggeration + Math.min(...offsets);
+            maximum[axis] = summary.globe.base.maximum[axis] + summary.globe.relief.maximum[axis] * exaggeration + Math.max(...offsets);
         }
     } else {
         const radii = [low, high].map(height => PROJECTION_CONSTANTS.globeRadius * (1 + height / PROJECTION_CONSTANTS.earthRadius));
@@ -181,7 +195,8 @@ function getProjectedSurface(mesh: DrapedTerrainQueryMesh, projection: TerrainSu
         const height = previous + (current - previous) * blend;
         physicalHeights[vertex] = mesh.positions[offset + 2] + height;
         const position: [number, number, number] = [mesh.positions[offset], mesh.positions[offset + 1], mesh.positions[offset + 2] + height * exaggeration];
-        positions.set(projection === 'globe' ? globe.project(mercator.unproject(position)) : position, offset);
+        positions.set(projection === 'globe' ? mesh.globeBasis ? projectTerrainGlobeVertex(mesh.globeBasis, vertex, blend, exaggeration,
+            [position[0], position[1], mesh.positions[offset + 2]]) : globe.project(mercator.unproject(position)) : position, offset);
     }
     // No per-frame hierarchy allocations during morphing; settled meshes reuse this owner.
     const surface = new TerrainMeshSurface({projection, positions, indices: mesh.indices, physicalHeights, cullBackfaces: projection === 'globe', maxQueryIndexBytes: indexLimit, deferQueryIndexBuild: true});
@@ -237,6 +252,10 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
             if (!Number.isFinite(entry.blend) || entry.blend < 0 || entry.blend > 1) throw new Error('Invalid terrain surface blend');
             const mesh = entry.mesh;
             if (mesh.positions.length % 3 || mesh.heights.length !== mesh.positions.length / 3 * 2) throw new Error('Invalid terrain query channels');
+            if (mesh.globeBasis && !validatedGlobeBasis.has(mesh)) {
+                if (mesh.globeBasis.length !== mesh.positions.length * 4 || !mesh.globeBasis.every(Number.isFinite)) throw new Error('Invalid terrain globe basis channels');
+                validatedGlobeBasis.add(mesh);
+            }
             const blend = entry.blend, clips = entry.clips?.map(bounds => [...bounds]), halfOpenClips = entry.halfOpenClips ?? false;
             if (typeof halfOpenClips !== 'boolean') throw new Error('Invalid terrain query clip ownership');
             const required = TriangleQueryIndex.getRequiredHierarchyBytes(mesh.indices.length / 3);
@@ -301,7 +320,7 @@ export class DrapedTerrainSurfaceSnapshot extends TerrainSurfaceCollection {
         this.generation = generation; this.frameTime = frameTime; this.exaggeration = exaggeration;
         this.queryOwners = queryOwners;
         this.indexBudget = indexBudget;
-        this.inputBytes = [...new Set(entries.map(entry => entry.mesh))].reduce((bytes, mesh) => bytes + mesh.positions.byteLength + mesh.heights.byteLength + mesh.indices.byteLength, 0);
+        this.inputBytes = [...new Set(entries.map(entry => entry.mesh))].reduce((bytes, mesh) => bytes + mesh.positions.byteLength + mesh.heights.byteLength + mesh.indices.byteLength + (mesh.globeBasis?.byteLength ?? 0), 0);
         this.displayKey = `${projection}/${generation}/${exaggeration}/${maxQueryIndexBytes}/${maxProjectedQueryBytes}/${entries.map(entry => `${entry.id}:${getMeshIdentity(entry.mesh)}:${entry.blend}:${JSON.stringify(entry.clips)}:${Boolean(entry.halfOpenClips)}`).join(',')}`;
     }
 

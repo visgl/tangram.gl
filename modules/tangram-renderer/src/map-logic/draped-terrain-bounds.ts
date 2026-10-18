@@ -10,6 +10,8 @@ interface DrapedTerrainBoundsInput {
     positions: Float64Array;
     /** Current/previous physical DEM heights, interleaved per vertex. */
     heights: Float32Array;
+    /** Optional current/previous affine globe bases and relief vectors, twelve channels per vertex. */
+    globeBasis?: Float32Array;
     /** Actual rendered triangle indices. */
     indices: Uint16Array | Uint32Array;
     /** Optional trusted worker summary of these exact immutable channels. */
@@ -24,6 +26,13 @@ export interface DrapedTerrainBoundsSummary {
     offsets: readonly [number, number];
     /** Physical current/previous DEM endpoints, conservatively enclosing all morph fractions. */
     heights: readonly [number, number];
+    /** Affine globe channels enclose canonical face cuts without projecting them back onto the sphere. */
+    globe?: {
+        /** Zero-relief common-space endpoint extrema. */
+        base: {minimum: number[]; maximum: number[]};
+        /** Common-space displacement per unit exaggeration. */
+        relief: {minimum: number[]; maximum: number[]};
+    };
 }
 
 /** Compatibility owners without worker summaries pay one indexed scan, never one scan per eye/frame. */
@@ -35,6 +44,9 @@ export function summarizeDrapedTerrainBounds(mesh: DrapedTerrainBoundsInput): Dr
     if (cached) return cached;
     const directions: DrapedTerrainBoundsSummary['directions'] = {minimum: [Infinity, Infinity, Infinity], maximum: [-Infinity, -Infinity, -Infinity]};
     const offsets: [number, number] = [Infinity, -Infinity], heights: [number, number] = [Infinity, -Infinity];
+    const globeBounds = mesh.globeBasis ? {base: {minimum: [Infinity, Infinity, Infinity], maximum: [-Infinity, -Infinity, -Infinity]},
+        relief: {minimum: [Infinity, Infinity, Infinity], maximum: [-Infinity, -Infinity, -Infinity]}} : undefined;
+    if (mesh.globeBasis && mesh.globeBasis.length !== mesh.positions.length * 4) throw new Error('Invalid terrain globe basis channels');
     const mercator = getGeographicProjectionProcedure('web-mercator'), globe = getGeographicProjectionProcedure('globe');
     for (const vertex of mesh.indices) {
         if (vertex * 3 + 2 >= mesh.positions.length) throw new Error('Invalid terrain bounds index');
@@ -45,9 +57,15 @@ export function summarizeDrapedTerrainBounds(mesh: DrapedTerrainBoundsInput): Dr
         for (const axis of [0, 1, 2]) {
             directions.minimum[axis] = Math.min(directions.minimum[axis], direction[axis] / PROJECTION_CONSTANTS.globeRadius);
             directions.maximum[axis] = Math.max(directions.maximum[axis], direction[axis] / PROJECTION_CONSTANTS.globeRadius);
+            if (mesh.globeBasis && globeBounds) for (const endpoint of [0, 6]) {
+                const base = mesh.globeBasis[vertex * 12 + endpoint + axis], relief = mesh.globeBasis[vertex * 12 + endpoint + 3 + axis];
+                if (!Number.isFinite(base) || !Number.isFinite(relief)) throw new Error('Invalid terrain globe basis channels');
+                globeBounds.base.minimum[axis] = Math.min(globeBounds.base.minimum[axis], base); globeBounds.base.maximum[axis] = Math.max(globeBounds.base.maximum[axis], base);
+                globeBounds.relief.minimum[axis] = Math.min(globeBounds.relief.minimum[axis], relief); globeBounds.relief.maximum[axis] = Math.max(globeBounds.relief.maximum[axis], relief);
+            }
         }
         offsets[0] = Math.min(offsets[0], position[2]); offsets[1] = Math.max(offsets[1], position[2]);
         heights[0] = Math.min(heights[0], current, previous); heights[1] = Math.max(heights[1], current, previous);
     }
-    const summary = {directions, offsets, heights}; boundsSummaries.set(mesh, summary); return summary;
+    const summary = {directions, offsets, heights, ...(globeBounds ? {globe: globeBounds} : {})}; boundsSummaries.set(mesh, summary); return summary;
 }

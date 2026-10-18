@@ -10,6 +10,10 @@ export const TERRAIN_DRAPING_GLSL = `
 #ifdef TANGRAM_TERRAIN_DRAPED
 attribute vec4 a_terrain;
 attribute vec4 a_terrain_previous;
+attribute vec4 a_terrain_globe_base;
+attribute vec4 a_terrain_globe_relief;
+attribute vec4 a_terrain_globe_base_previous;
+attribute vec4 a_terrain_globe_relief_previous;
 uniform float u_terrain_blend;
 uniform float u_terrain_exaggeration;
 float tangramTerrainHeight() {
@@ -36,6 +40,17 @@ vec3 tangramTerrainNormal(vec3 normal) {
     }
     return normalize(vec3(normal.xy - slope * normal.z, normal.z));
 }
+vec4 tangramTerrainModelView(vec4 local_position, out vec4 world_position) {
+    vec4 position = tangramModelView(local_position, world_position);
+    if (u_projection_mode == 1 && a_terrain_globe_base.w > 0.5) {
+        vec3 base = mix(a_terrain_globe_base_previous.xyz, a_terrain_globe_base.xyz, u_terrain_blend);
+        vec3 relief = mix(a_terrain_globe_relief_previous.xyz, a_terrain_globe_relief.xyz, u_terrain_blend);
+        float authored_height = world_position.z - tangramTerrainHeight();
+        vec3 direction = normalize(tangramGlobePosition(vec3(world_position.xy, 0.)));
+        position = vec4(base + relief * u_terrain_exaggeration + direction * authored_height * (256. / 6370972.), 1.);
+    }
+    return position;
+}
 #endif
 `;
 
@@ -60,6 +75,26 @@ fn tangramTerrainNormal(normal: vec3<f32>, current: vec4<f32>, previous: vec4<f3
     }
     return normalize(vec3<f32>(normal.xy - slope * normal.z, normal.z));
 }
+fn tangramTerrainModelView(local_position: vec4<f32>, current: vec4<f32>, previous: vec4<f32>,
+    base: vec4<f32>, relief: vec4<f32>, previous_base: vec4<f32>, previous_relief: vec4<f32>) -> vec4<f32> {
+    if (TangramView.u_projection_mode == 1 && base.w > 0.5) {
+        let world_position = TangramTile.u_model * local_position;
+        let authored_height = world_position.z - tangramTerrainHeight(current, previous);
+        let direction = normalize(tangramGlobePosition(vec3<f32>(world_position.xy, 0.0)));
+        return vec4<f32>(mix(previous_base.xyz, base.xyz, TangramTile.u_terrain_blend) +
+            mix(previous_relief.xyz, relief.xyz, TangramTile.u_terrain_blend) * TangramTile.u_terrain_exaggeration +
+            direction * authored_height * (256.0 / 6370972.0), 1.0);
+    }
+    return tangramModelView(local_position);
+}
+`;
+
+/** Surface styles reserve four otherwise-unused locations; annotations keep their existing sixteen-slot layout. */
+export const TERRAIN_GLOBE_ATTRIBUTES_WGSL = `
+    @location(10) a_terrain_globe_base: vec4<f32>,
+    @location(11) a_terrain_globe_relief: vec4<f32>,
+    @location(12) a_terrain_globe_base_previous: vec4<f32>,
+    @location(13) a_terrain_globe_relief_previous: vec4<f32>,
 `;
 
 /** Shared GLSL positions, ENU normals and camera-relative tile path; preserves Tangram block ordering. */

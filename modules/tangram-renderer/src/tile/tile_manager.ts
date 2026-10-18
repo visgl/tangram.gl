@@ -310,16 +310,17 @@ export default class TileManager {
     /** Summarize resident worker output, separate from source caches, GPU and transient allocations. */
     getTerrainDrapingStatistics(terrain?: import('../procedures/terrain-draping').TerrainDrapingSnapshot): import('../procedures/terrain-draping').TerrainDrapingStatistics {
         const result = {enabled: Boolean(terrain), gridBytes: terrain?.byteLength ?? 0, meshes: 0, vertices: 0, triangles: 0, suppressedTriangles: 0, meshBytes: 0, maximumPreparationMs: 0, detailLimitedMeshes: 0, queryBytes: 0, stagedMeshBytes: this.getStagedTerrainBytes(),
-            residentMeshBytes: this.getResidentTerrainMeshBytes(), residentMeshByteLimit: terrain?.maxResidentMeshBytes ?? 0};
+            residentMeshBytes: this.getResidentTerrainMeshBytes(), residentMeshByteLimit: terrain?.maxResidentMeshBytes ?? 0, ribbonMeshes: 0};
         for (const tile of Object.values(this.tiles)) for (const parts of Object.values(tile.meshes || {})) for (const mesh of parts) {
             const stats = mesh.variant?.terrainStatistics;
             if (!mesh.valid || !stats) continue;
             result.meshes++; result.vertices += stats.vertices; result.triangles += stats.triangles;
+            if (stats.ribbonZoom !== undefined) result.ribbonMeshes++;
             result.suppressedTriangles += stats.suppressedTriangles; result.meshBytes += stats.meshBytes;
             result.maximumPreparationMs = Math.max(result.maximumPreparationMs, stats.preparationMs);
             result.detailLimitedMeshes += Number(stats.detailLimited);
             const query = mesh.terrainQueryMesh;
-            if (query) result.queryBytes += query.positions.byteLength + query.heights.byteLength + query.indices.byteLength;
+            if (query) result.queryBytes += query.positions.byteLength + query.heights.byteLength + query.indices.byteLength + (query.globeBasis?.byteLength ?? 0);
         }
         return result;
     }
@@ -329,7 +330,7 @@ export default class TileManager {
         let bytes = 0;
         for (const tile of Object.values(this.tiles)) if (tile.terrainStage) for (const meshes of [tile.terrainStage.meshes, tile.terrainStage.labels ?? {}]) for (const parts of Object.values(meshes)) for (const mesh of parts) {
             const query = mesh.terrainQueryMesh;
-            bytes += mesh.buffer_size + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+            bytes += mesh.buffer_size + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength + (query.globeBasis?.byteLength ?? 0) : 0);
         }
         return bytes;
     }
@@ -353,7 +354,7 @@ export default class TileManager {
                     // Unretained meshes release their CPU inputs after upload;
                     // keep those distinct from the still-resident GPU estimate.
                     retained += (mesh.vertex_data?.byteLength ?? 0) + (mesh.element_data ? mesh.element_data.byteLength : 0) +
-                        (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+                        (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength + (query.globeBasis?.byteLength ?? 0) : 0);
                     gpu += mesh.buffer_size;
                 }
             }
@@ -704,7 +705,7 @@ export default class TileManager {
             for (const data of Object.values(tile.mesh_data ?? {})) for (const mesh of Object.values(data.meshes ?? {})) {
                 const query = mesh.terrain_surface;
                 incoming += 2 * ((mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements ? mesh.vertex_elements.byteLength : 0)) +
-                    (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+                    (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength + (query.globeBasis?.byteLength ?? 0) : 0);
             }
             if (incoming > this.activeScene.terrain.maxResidentMeshBytes - this.getResidentTerrainMeshBytes()) {
                 this.buildTileError({...tile, error: new Error('Terrain peak resident mesh-byte budget exceeded')}); return;
@@ -719,7 +720,7 @@ export default class TileManager {
             let incoming = 0;
             for (const data of Object.values(tile.mesh_data ?? {})) for (const mesh of Object.values(data.meshes ?? {})) {
                 const query = mesh.terrain_surface;
-                incoming += (mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements ? mesh.vertex_elements.byteLength : 0) + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength : 0);
+                incoming += (mesh.vertex_data?.byteLength ?? 0) + (mesh.vertex_elements ? mesh.vertex_elements.byteLength : 0) + (query ? query.positions.byteLength + query.heights.byteLength + query.indices.byteLength + (query.globeBasis?.byteLength ?? 0) : 0);
             }
             if (this.activeScene.terrain && this.getStagedTerrainBytes() + incoming > this.activeScene.terrain.maxStagedMeshBytes) {
                 sharedReservation?.release();

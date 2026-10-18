@@ -75,6 +75,8 @@ export interface StyleInitOptions {
     config?: SceneDefinition | null;
     projection_target?: string;
     terrain?: TerrainDrapingSnapshot;
+    /** Host view zoom for canonical road geometry; independent of immutable DEM ownership. */
+    terrainRibbonZoom?: number;
 }
 /** Renderer hooks passed to the base resource lifecycle. */
 export interface StyleGLOptions extends Omit<Partial<TangramGPUSceneOptions>, 'enableUniformBuffers' | 'deviceShaderCompilation'> {
@@ -107,6 +109,8 @@ export interface StyleState {
     shader_language: 'glsl' | 'wgsl';
     projection_target?: string;
     terrain?: TerrainDrapingSnapshot;
+    /** Host view zoom for canonical road width/offset refinement. */
+    terrainRibbonZoom?: number;
     cpu_projection?: ProjectedBasemapOptions;
     screen_space_labels: boolean;
     defines: Record<string, unknown>;

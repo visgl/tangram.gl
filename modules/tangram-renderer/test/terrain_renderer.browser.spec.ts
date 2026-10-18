@@ -292,3 +292,143 @@ test('surface snapshots follow submitted frames, not pending config or skipped d
     draw.mockReturnValue(true); renderer.render(); expect(renderer.getDrapedTerrainSurface()?.exaggeration).toBe(2);
     renderer.destroy(); expect(renderer.getDrapedTerrainSurface()).toBeNull();
 });
+
+test.each([false, true])('view-dependent road refinement coalesces both eyes, including fully suppressed roads (%s)', async suppressed => {
+    const renderer = Renderer.create({}, {terrain: {grids: [], groundMeshResolution: 4}});
+    Object.assign(renderer.scene, {setFeatureSelectionView: vi.fn()});
+    renderer.scene.terrainRibbonStyles = suppressed;
+    vi.spyOn(renderer.scene, 'updateScene').mockReturnValue(true);
+    vi.spyOn(renderer.scene, 'processTasks').mockImplementation(() => {});
+    const manager = requireTileManager(renderer.scene);
+    const statistics = manager.getTerrainDrapingStatistics(renderer.scene.terrain);
+    vi.spyOn(manager, 'getTerrainDrapingStatistics').mockReturnValue({...statistics, ribbonMeshes: suppressed ? 0 : 1});
+    vi.spyOn(manager, 'updateProjectedLabels').mockImplementation(() => {});
+    vi.spyOn(manager, 'getDrapedTerrainQueryEntries').mockReturnValue([]);
+    const complete: (() => void)[] = [];
+    const rebuild = vi.spyOn(renderer.scene, 'rebuild').mockImplementation(options => {
+        renderer.scene.terrainRibbonZoom = options.terrainRibbonZoom ?? renderer.scene.terrainRibbonZoom;
+        return new Promise<void>(resolve => {complete.push(resolve);});
+    });
+    const frame = (zoom: number) => new HostFrame({viewport: {width: 200, height: 100}, geographicAnchor: {longitude: 0, latitude: 0, zoom},
+        renderViews: ['left', 'right'].map((id, index) => ({id, viewport: {x: index * 100, width: 100, height: 100},
+            camera: {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 100]}}))});
+    try {
+        const first = frame(16.25);
+        renderer.render({frame: first, renderViewId: 'left'}); renderer.render({frame: first, renderViewId: 'right'});
+        await vi.waitFor(() => expect(rebuild).toHaveBeenCalledTimes(1));
+        expect(rebuild).toHaveBeenLastCalledWith({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: 16.25});
+        const next = frame(16.75); renderer.render({frame: next, renderViewId: 'left'}); renderer.render({frame: next, renderViewId: 'right'});
+        expect(rebuild).toHaveBeenCalledTimes(1);
+        complete.shift()?.();
+        await vi.waitFor(() => expect(renderer.getTerrainDrapingStatistics().ribbonRefinement?.pending).toBe(false));
+        renderer.render({frame: next, renderViewId: 'left'});
+        await vi.waitFor(() => expect(rebuild).toHaveBeenCalledTimes(2));
+        expect(rebuild).toHaveBeenLastCalledWith({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: 16.75});
+        complete.shift()?.();
+        await vi.waitFor(() => expect(renderer.getTerrainDrapingStatistics().ribbonRefinement).toMatchObject({admittedZoom: 16.75, pending: false}));
+    } finally {for (const finish of complete) finish(); renderer.destroy();}
+});
+
+test('ribbon-only rebuilds do not serialize or clone immutable terrain inputs', async () => {
+    const scene = Scene.create({}, {terrain: {grids: [field(0)], groundMeshResolution: 4}});
+    scene.workers = [{postMessage: vi.fn(), addEventListener: vi.fn()}];
+    const post = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([]);
+    const manager = requireTileManager(scene);
+    vi.spyOn(manager, 'publishTerrainDisplay').mockImplementation(() => {});
+    vi.spyOn(manager, 'updateLabels').mockResolvedValue({});
+    vi.spyOn(manager, 'updateTilesForView').mockImplementation(() => {});
+    vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
+    try {
+        await scene.syncConfigToWorker(); post.mockClear();
+        const terrain = scene.terrain;
+        await scene.rebuild({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: 16.25});
+        expect(scene.terrain).toBe(terrain); expect(scene.terrain?.transitionGeneration).toBe(0);
+        const payloads = post.mock.calls.filter(call => call[1] === 'self.updateTerrainView');
+        expect(payloads).toHaveLength(1);
+        expect(payloads[0][2]).toEqual({generation: scene.generation, ribbonZoom: 16.25});
+        expect(post.mock.calls.some(call => call[1] === 'self.updateConfig')).toBe(false);
+    } finally {scene.destroy(); post.mockRestore();}
+});
+
+test('queued scene rebuilds report superseded versus completed publication', async () => {
+    const scene = Scene.create({});
+    scene.building = {initial: false, resolve: vi.fn(), reject: vi.fn()};
+    try {
+        const superseded = scene.rebuild({preserveTime: true, terrainRibbonZoom: 16.25});
+        const completed = scene.rebuild({preserveTime: true});
+        await expect(superseded).resolves.toBe(false);
+        scene.building.queued?.resolve(true);
+        await expect(completed).resolves.toBe(true);
+    } finally {scene.building = null; scene.destroy();}
+});
+
+test('superseded road refinement is not admitted and the next frame retries it', async () => {
+    const renderer = Renderer.create({}, {terrain: {grids: [], groundMeshResolution: 4}});
+    Object.assign(renderer.scene, {setFeatureSelectionView: vi.fn(), terrainRibbonStyles: true});
+    vi.spyOn(renderer.scene, 'updateScene').mockReturnValue(true);
+    vi.spyOn(renderer.scene, 'processTasks').mockImplementation(() => {});
+    const manager = requireTileManager(renderer.scene);
+    vi.spyOn(manager, 'updateProjectedLabels').mockImplementation(() => {});
+    vi.spyOn(manager, 'getDrapedTerrainQueryEntries').mockReturnValue([]);
+    const rebuild = vi.spyOn(renderer.scene, 'rebuild').mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const frame = new HostFrame({viewport: {width: 100, height: 100}, geographicAnchor: {longitude: 0, latitude: 0, zoom: 16.25},
+        renderViews: [{id: 'eye', viewport: {width: 100, height: 100}, camera: {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 100]}}]});
+    try {
+        renderer.render({frame});
+        await vi.waitFor(() => expect(renderer.getTerrainDrapingStatistics().ribbonRefinement?.pending).toBe(false));
+        expect(renderer.getTerrainDrapingStatistics().ribbonRefinement?.admittedZoom).toBeUndefined();
+        renderer.render({frame});
+        await vi.waitFor(() => expect(renderer.getTerrainDrapingStatistics().ribbonRefinement).toMatchObject({admittedZoom: 16.25, pending: false}));
+        expect(rebuild).toHaveBeenCalledTimes(2);
+    } finally {renderer.destroy();}
+});
+
+test('configured line draw groups remain detectable without admitted meshes and reset on style reload', () => {
+    const scene = Scene.create({});
+    Object.assign(scene, {initialized: true});
+    scene.config = {scene: {}, global: {}, sources: {}, styles: {roads: {base: 'lines'}}, layers: {}, textures: {}, cameras: {}, lights: {}, fonts: {}};
+    const styles = scene.style_manager.build(scene.config.styles);
+    vi.spyOn(scene.style_manager, 'build').mockReturnValue(styles);
+    vi.spyOn(scene.style_manager, 'initStyles').mockImplementation(() => {});
+    for (const style of Object.values(styles)) vi.spyOn(style, 'setGL').mockImplementation(() => {});
+    try {
+        const cases: NonNullable<Scene['config']>['layers'][] = [{roads: {draw: {roads: {}}}}, {nested: {child: {draw: {named: {style: 'roads'}}}}}];
+        for (const layers of cases) {
+            scene.config.layers = layers; scene.updateStyles(); expect(scene.terrainRibbonStyles).toBe(true);
+        }
+        scene.config.layers = {raster: {draw: {raster: {}}, properties: {draw: {roads: {}}}}};
+        scene.updateStyles(); expect(scene.terrainRibbonStyles).toBe(false);
+    } finally {scene.destroy();}
+});
+
+test.each([false, true])('failed road refinement recovers once without a frame-driven retry loop (recovery fails=%s)', async failedRecovery => {
+    const renderer = Renderer.create({}, {terrain: {grids: [], groundMeshResolution: 4}});
+    Object.assign(renderer.scene, {setFeatureSelectionView: vi.fn()});
+    vi.spyOn(renderer.scene, 'updateScene').mockReturnValue(true);
+    vi.spyOn(renderer.scene, 'processTasks').mockImplementation(() => {});
+    const manager = requireTileManager(renderer.scene);
+    const statistics = manager.getTerrainDrapingStatistics(renderer.scene.terrain);
+    vi.spyOn(manager, 'getTerrainDrapingStatistics').mockReturnValue({...statistics, ribbonMeshes: 1});
+    vi.spyOn(manager, 'updateProjectedLabels').mockImplementation(() => {});
+    vi.spyOn(manager, 'getDrapedTerrainQueryEntries').mockReturnValue([]);
+    const rebuild = vi.spyOn(renderer.scene, 'rebuild').mockRejectedValueOnce(new Error('ribbon admission fixture'));
+    if (failedRecovery) rebuild.mockRejectedValueOnce(new Error('recovery fixture'));
+    else rebuild.mockResolvedValueOnce(undefined);
+    const frame = new HostFrame({viewport: {width: 100, height: 100}, geographicAnchor: {longitude: 0, latitude: 0, zoom: 16.25},
+        renderViews: [{id: 'eye', viewport: {width: 100, height: 100}, camera: {view: new Matrix4(), projection: new Matrix4(), position: [0, 0, 100]}}]});
+    try {
+        renderer.render({frame});
+        await vi.waitFor(() => expect(renderer.getTerrainDrapingStatistics().ribbonRefinement).toMatchObject({pending: false, error: 'ribbon admission fixture'}));
+        expect(rebuild).toHaveBeenCalledTimes(2);
+        expect(rebuild).toHaveBeenLastCalledWith({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: null});
+        expect(renderer.render({frame})).toBe(!failedRecovery);
+        renderer.render({frame}); await Promise.resolve();
+        expect(rebuild).toHaveBeenCalledTimes(2);
+        // Explicit field correction clears the failed zoom and permits one fresh attempt.
+        rebuild.mockResolvedValue(undefined);
+        await renderer.setTerrain({grids: [], groundMeshResolution: 4});
+        renderer.render({frame});
+        await vi.waitFor(() => expect(renderer.getTerrainDrapingStatistics().ribbonRefinement).toMatchObject({admittedZoom: 16.25, pending: false}));
+        expect(rebuild).toHaveBeenCalledTimes(4);
+    } finally {renderer.destroy();}
+});

@@ -36,6 +36,10 @@ interface RendererScene {
     terrainFrameTime?: number;
     /** Last atomically admitted mesh generation, independent of pending worker configuration. */
     terrainDisplayGeneration?: number;
+    /** Worker ribbon-width target; no DEM data is cloned when only this value changes. */
+    terrainRibbonZoom?: number;
+    /** Configured line draw groups, including roads currently suppressed by no-data. */
+    terrainRibbonStyles?: boolean;
     /** Schedule a viewport-local feature query for a subsequent render. */
     getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number; renderViewId?: string; width?: number; height?: number}): Promise<FeatureSelectionResult | undefined>;
     /** Switch only selection ownership; shared workers/features remain unchanged. */
@@ -53,7 +57,7 @@ interface RendererScene {
     subscribe(listeners: SceneListeners): unknown;
     load(config: SceneDefinition | null, options: SceneLoadOptions): unknown;
     /** Rebuild styled meshes without replacing source procedures or worker ownership. */
-    rebuild(options: {preserveTileCache: boolean; preserveTime?: boolean}): Promise<unknown>;
+    rebuild(options: {preserveTileCache: boolean; preserveTime?: boolean; terrainRibbonZoom?: number | null}): Promise<unknown>;
     /** Retrieves current source and TileJSON provider credits for the host UI. */
     getAttributions(): Promise<string[]>;
     /** Normalized source capabilities, including worker-owned archive metadata. */
@@ -113,6 +117,14 @@ export default class Renderer {
     private terrainFailed = false;
     /** Old display feature IDs cannot be queried while workers replace their selection tables. */
     private terrainUpdating = false;
+    /** At most one asynchronous width rebuild; every eye shares the latest logical view request. */
+    private terrainRibbonScheduled = false;
+    /** Latest view zoom, coalesced while worker geometry is in flight. */
+    private requestedTerrainRibbonZoom?: number;
+    /** Width target whose entire mesh generation has committed. */
+    private admittedTerrainRibbonZoom?: number;
+    /** Do not repeatedly retry an inadmissible width until navigation or explicit terrain retry changes it. */
+    private terrainRibbonFailure?: {zoom: number; message: string};
     /** Query ownership follows the last submitted draw, not a worker commit before the next frame. */
     private terrainSurfaceSnapshot: DrapedTerrainSurfaceSnapshot | null = null;
     /** Old draw buffers remain live while the worker field is staged, even with explicit previousGrids: []. */
@@ -157,6 +169,7 @@ export default class Renderer {
     setTerrain(options: TerrainDrapingOptions): Promise<void> {
         if (this.destroyed || !this.scene.terrain) return Promise.reject(new Error('Terrain requires a live enabled renderer'));
         this.pendingTerrain = normalizeTerrainDraping(options);
+        this.terrainRibbonFailure = undefined;
         this.pendingTerrainUsesPrevious = options.previousGrids === undefined;
         const revision = ++this.terrainRevision;
         const update = this.terrainUpdate.then(async () => {
@@ -211,6 +224,42 @@ export default class Renderer {
         return update;
     }
 
+    /** Re-intersect built-in ribbons at the latest host zoom on the existing serialized worker pipeline. */
+    private requestTerrainRibbonRefinement(zoom: number): void {
+        this.requestedTerrainRibbonZoom = zoom;
+        if (this.terrainRibbonScheduled || this.admittedTerrainRibbonZoom === zoom || this.terrainRibbonFailure?.zoom === zoom) return;
+        if (!this.scene.terrain?.groundMeshResolution || !this.scene.terrainRibbonStyles && !this.activeTileManager.getTerrainDrapingStatistics(this.scene.terrain).ribbonMeshes) return;
+        this.terrainRibbonScheduled = true;
+        const update = this.terrainUpdate.then(async () => {
+            if (this.destroyed || !this.scene.terrain?.groundMeshResolution) return;
+            const target = this.requestedTerrainRibbonZoom;
+            if (target === undefined || target === this.admittedTerrainRibbonZoom) return;
+            const previous = this.scene.terrainRibbonZoom;
+            this.terrainUpdating = true;
+            try {
+                const completed = await this.scene.rebuild({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: target});
+                if (completed === false) return; // A newer scene request superseded this queued width; retry after that build.
+                this.admittedTerrainRibbonZoom = target;
+                this.terrainRibbonFailure = undefined;
+                this.terrainFailed = false;
+            } catch (error) {
+                this.terrainRibbonFailure = {zoom: target, message: error instanceof Error ? error.message : String(error)};
+                this.scene.terrainRibbonZoom = previous;
+                if (!this.destroyed) {
+                    try {
+                        const recovered = await this.scene.rebuild({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: previous ?? null});
+                        if (recovered === false) throw new Error('Terrain ribbon recovery was superseded');
+                    }
+                    catch (recoveryError) {this.terrainFailed = true; throw new AggregateError([error, recoveryError], 'Terrain ribbon update and recovery failed');}
+                }
+            } finally {this.terrainUpdating = false;}
+        }).finally(() => {
+            this.terrainRibbonScheduled = false;
+            if (!this.destroyed) this.scene.requestRedraw();
+        });
+        this.terrainUpdate = update.catch(() => {});
+    }
+
     /** Change visual relief without new source loads, mesh builds or height samples. */
     setTerrainExaggeration(value: number): void {
         if (this.destroyed || !this.scene.terrain) throw new Error('Terrain requires a live enabled renderer');
@@ -222,6 +271,8 @@ export default class Renderer {
     /** Inspect resident worker preparation cost without conflating source/GPU/scratch ownership. */
     getTerrainDrapingStatistics(): import('../procedures/terrain-draping').TerrainDrapingStatistics {
         return {...this.activeTileManager.getTerrainDrapingStatistics(this.scene.terrain),
+            ...(this.scene.terrain?.groundMeshResolution ? {ribbonRefinement: {requestedZoom: this.requestedTerrainRibbonZoom,
+                admittedZoom: this.admittedTerrainRibbonZoom, pending: this.terrainRibbonScheduled, error: this.terrainRibbonFailure?.message}} : {}),
             annotationQueries: this.annotationTerrainSurface?.getStatistics()};
     }
 
@@ -392,6 +443,7 @@ export default class Renderer {
         }
         if (this.host_frame) {
             if (!this.submittedViews.size) {
+                this.requestTerrainRibbonRefinement(this.host_frame.geographicAnchor.zoom);
                 this.scene.terrainFrameTime = performance.now();
                 this.advanceTerrainQueryPreparation();
             }

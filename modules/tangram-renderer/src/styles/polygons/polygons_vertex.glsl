@@ -153,7 +153,11 @@ void main() {
 
     // World coordinates for 3d procedural textures
     v_tile_position = position.xy;
-    position = tangramModelView(position, v_world_position);
+    #ifdef TANGRAM_TERRAIN_DRAPED
+        position = tangramTerrainModelView(position, v_world_position);
+    #else
+        position = tangramModelView(position, v_world_position);
+    #endif
     #ifdef TANGRAM_CPU_PROJECTED
         position = vec4(a_projected_position, 1.);
     #endif

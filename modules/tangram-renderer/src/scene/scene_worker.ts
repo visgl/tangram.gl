@@ -152,8 +152,8 @@ const SceneWorker = Object.assign(self, new WorkerSceneState(), {
     },
 
     // Starts a config refresh
-    updateConfig (this: WorkerSceneState, { config: serializedConfig, generation, introspection, shader_language = 'glsl', projection_target, terrain }: {
-        config: string; generation: number; introspection: boolean; shader_language?: 'glsl' | 'wgsl'; projection_target?: string; terrain?: TerrainDrapingSnapshot;
+    updateConfig (this: WorkerSceneState, { config: serializedConfig, generation, introspection, shader_language = 'glsl', projection_target, terrain, terrainRibbonZoom }: {
+        config: string; generation: number; introspection: boolean; shader_language?: 'glsl' | 'wgsl'; projection_target?: string; terrain?: TerrainDrapingSnapshot; terrainRibbonZoom?: number;
     }, debug: Partial<DebugSettings>) {
         // This is the scene-owned broker envelope, not a provider data parser.
         const config = JSON.parse(serializedConfig) as WorkerSceneConfiguration;
@@ -179,6 +179,7 @@ const SceneWorker = Object.assign(self, new WorkerSceneState(), {
             shader_language,
             projection_target,
             terrain,
+            terrainRibbonZoom,
             config
         });
 
@@ -193,6 +194,18 @@ const SceneWorker = Object.assign(self, new WorkerSceneState(), {
             log('debug', 'updated config');
         });
 
+        return this.configuring;
+    },
+
+    /** Refine view-dependent ribbons without cloning DEMs, reparsing scenes or invalidating decoded source caches. */
+    updateTerrainView(this: WorkerSceneState, {generation, ribbonZoom}: {generation: number; ribbonZoom?: number}) {
+        if (ribbonZoom !== undefined && (!Number.isFinite(ribbonZoom) || ribbonZoom < 0 || ribbonZoom > 40)) throw new Error('Invalid terrain ribbon view zoom');
+        if (generation < this.generation) return;
+        this.generation = generation;
+        for (const style of Object.values(this.styles)) {
+            style.setGeneration(generation);
+            style.terrainRibbonZoom = ribbonZoom;
+        }
         return this.configuring;
     },
 

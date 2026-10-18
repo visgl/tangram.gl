@@ -199,6 +199,7 @@ export class RenderingHarness {
       expect(this.errors).toEqual([]);
       const scene = this.renderer.scene as RuntimeScene;
       return scene.view_complete && !scene.building && scene.updating === 0 &&
+        !this.renderer.getTerrainDrapingStatistics().ribbonRefinement?.pending &&
         !scene.tile_manager.isLoadingVisibleTiles() && scene.tile_manager.allVisibleTilesLabeled();
     }, {timeout: 15000, interval: 50}).toBe(true);
   }

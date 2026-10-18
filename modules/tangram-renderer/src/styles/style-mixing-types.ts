@@ -73,6 +73,8 @@ export interface ManagedStyle extends StyleDefinition, TileBuildStyle {
     render(mesh: VBOMesh, options: MeshRenderOptions): boolean;
     /** Snapshot captured during worker initialization, absent for ordinary flat scenes. */
     terrain?: import('../procedures/terrain-draping').TerrainDrapingSnapshot;
+    /** View-dependent worker ribbon target, separate from physical DEM identity. */
+    terrainRibbonZoom?: number;
     /** Initialized shader owner and proxy stencil policy used by main scene passes. */
     program?: ShaderProgram | null;
     stencil_proxy_tiles?: boolean;
