@@ -31,6 +31,48 @@ test('shared admission protects external draw owners and releases decode reserva
   tileset.destroy(); expect(resourceBudget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
 });
 
+test('a decode reservation transfers output into the cache without charging the same buffers twice', async () => {
+  const resourceBudget = new TerrainResourceBudget(160);
+  const tileset = new TerrainTileset({fetch: async () => new ArrayBuffer(8), decode: async () => createTerrainStreamFixture(), minZoom: 2,
+    resourceBudget, decodeReservationBytes: 160, onChange() {}});
+  try {
+    tileset.update([child]); await tileset.waitForIdle();
+    expect(tileset.getStatistics()).toMatchObject({failed: 0, bytes: 132});
+    expect(resourceBudget.getStatistics()).toMatchObject({bytes: 132, retainedBytes: 132, transientBytes: 0, peakBytes: 160});
+  } finally {tileset.destroy();}
+  expect(resourceBudget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+});
+
+test('a shared admission refusal preserves planned cold evictions and warm source bytes for retry', async () => {
+  const resourceBudget = new TerrainResourceBudget(1000);
+  const reserve = resourceBudget.reserve.bind(resourceBudget);
+  let refuseNextResize = false, decoded = 0;
+  vi.spyOn(resourceBudget, 'reserve').mockImplementation((domain, bytes) => {
+    const lease = reserve(domain, bytes);
+    if (!lease || domain !== 'retained') return lease;
+    return {resize(bytes) {if (refuseNextResize) {refuseNextResize = false; return false;} return lease.resize(bytes);}, release() {lease.release();}};
+  });
+  const fetch = vi.fn(async () => new ArrayBuffer(8));
+  const tileset = new TerrainTileset({fetch, decode: async () => {
+    if (++decoded === 2) refuseNextResize = true;
+    return createTerrainStreamFixture();
+  }, minZoom: 2, maxResidentBytes: 200, resourceBudget, decodeReservationBytes: 160, onChange() {}});
+  try {
+    tileset.update([child]); await tileset.waitForIdle();
+    const incumbent = tileset.records.get(getTerrainTileKey(child)), bytes = incumbent?.bytes, data = incumbent?.data;
+    tileset.update([sibling]); await tileset.waitForIdle();
+    expect(tileset.records.get(getTerrainTileKey(child))).toBe(incumbent);
+    expect(incumbent?.bytes).toBe(bytes); expect(incumbent?.data).toBe(data); expect(incumbent?.error).toBeUndefined();
+    expect(tileset.records.get(getTerrainTileKey(sibling))?.error).toMatch(/shared resource budget/);
+    expect(tileset.getStatistics()).toMatchObject({bytes: 140, failed: 1});
+    expect(resourceBudget.getStatistics()).toMatchObject({retainedBytes: 140, transientBytes: 0});
+    tileset.retry(); await tileset.waitForIdle();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(tileset.getStatistics()).toMatchObject({bytes: 132, failed: 0});
+  } finally {tileset.destroy(); vi.restoreAllMocks();}
+  expect(resourceBudget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+});
+
 test('an aborted decoder owns its reservation until its late result is discarded', async () => {
   const resourceBudget = new TerrainResourceBudget(1000), job = deferred<TerrainTileData>();
   const decode = vi.fn(() => job.promise);

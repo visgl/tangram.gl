@@ -269,6 +269,10 @@ recovery; even an empty tile queue cannot release them until every worker acknow
 the restored configuration. Failed recovery keeps those reservations until a successful
 replacement or renderer disposal. Cancellation releases a decode reservation only when
 the owned decoder has settled, so a late result cannot spend released capacity.
+Decode output transfers into retained ownership without charging the same buffers
+twice. Source buffers stay job-owned until the last decoder settles, even after
+cache eviction. Shared admission preflights eviction/yield plans before changing warm
+cache records; refusal leaves those incumbents available for retry.
 Unregistered preview resources, JavaScript metadata, actual driver overhead,
 Tangram worker scratch and externally retained query snapshots remain outside the
 shared pool. GPU values are estimates, not device-memory measurements.
