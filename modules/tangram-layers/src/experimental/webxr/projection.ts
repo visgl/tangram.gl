@@ -212,6 +212,7 @@ export function getXRGlobeVisibleBounds({
   const placementMatrix = createXRPlacementMatrix(placement, viewState);
   const coordinates: XRGeographicPosition[] = [];
   const samples = [-1, 0, 1];
+  let crossesHorizon = false;
   for (const view of views) {
     const inverseClip = new Matrix4(view.projectionMatrix)
       .multiplyRight(view.viewMatrix)
@@ -236,8 +237,16 @@ export function getXRGlobeVisibleBounds({
             ])
           );
         }
+        else crossesHorizon = true;
       }
     }
+  }
+  // When rays miss a room-sized globe, the visible silhouette lies between
+  // samples. Hit-only extrema are not a conservative footprint: finer tiles
+  // can omit visible ground (including the geographic anchor) entirely.
+  if (crossesHorizon && coordinates.length > 0) {
+    return getXRGlobeHorizonBounds(views, placementMatrix,
+      finiteNumber(viewState?.longitude, placement.anchor[0]));
   }
   if (coordinates.length === 0) {
     return [-180, -MAX_MERCATOR_LATITUDE, 180, MAX_MERCATOR_LATITUDE];
@@ -253,6 +262,31 @@ export function getXRGlobeVisibleBounds({
     Math.max(...unwrappedLongitudes),
     Math.min(MAX_MERCATOR_LATITUDE, Math.max(...latitudes))
   ];
+}
+
+/** Bound each eye's analytically visible spherical cap, independent of screen sampling density. */
+function getXRGlobeHorizonBounds(
+  views: readonly {viewMatrix: readonly number[]}[], placementMatrix: Matrix4, anchorLongitude: number
+): [number, number, number, number] {
+  let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
+  for (const view of views) {
+    const camera = new Matrix4(view.viewMatrix).multiplyRight(placementMatrix).invert().transformAsPoint([0, 0, 0]);
+    const distance = Math.hypot(camera[0], camera[1], camera[2]);
+    if (!Number.isFinite(distance) || distance <= GLOBE_RADIUS) {
+      return [anchorLongitude - 180, -MAX_MERCATOR_LATITUDE, anchorLongitude + 180, MAX_MERCATOR_LATITUDE];
+    }
+    const [longitude, latitude] = globePositionToLongitudeLatitude([camera[0], camera[1], camera[2]]);
+    const radius = Math.acos(GLOBE_RADIUS / distance);
+    const latitudeRadians = latitude * DEGREES_TO_RADIANS;
+    const centerLongitude = unwrapLongitude(longitude, anchorLongitude);
+    const longitudeRadius = Math.abs(latitudeRadians) + radius >= Math.PI / 2 ? Math.PI :
+      Math.asin(Math.min(1, Math.sin(radius) / Math.cos(latitudeRadians)));
+    west = Math.min(west, longitudeRadius === Math.PI ? anchorLongitude - 180 : centerLongitude - longitudeRadius / DEGREES_TO_RADIANS);
+    east = Math.max(east, longitudeRadius === Math.PI ? anchorLongitude + 180 : centerLongitude + longitudeRadius / DEGREES_TO_RADIANS);
+    south = Math.min(south, latitude - radius / DEGREES_TO_RADIANS);
+    north = Math.max(north, latitude + radius / DEGREES_TO_RADIANS);
+  }
+  return [west, Math.max(-MAX_MERCATOR_LATITUDE, south), east, Math.min(MAX_MERCATOR_LATITUDE, north)];
 }
 
 /** Merge geographic bounds, preserving ranges that cross the antimeridian. */

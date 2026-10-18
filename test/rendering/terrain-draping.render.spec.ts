@@ -292,11 +292,7 @@ test('either stereo eye routes ground picking through the same physical snapshot
 
 test.each(['perspective', 'globe'] as const)('%s draping follows both mocked immersive room-space cameras', async kind => {
     const harness = new RenderingHarness(kind); harnesses.push(harness); harness.terrain = terrain(0, kind === 'globe');
-    const scene = createScene(harness.sourceUrl, undefined, false, harness.scale);
-    // Physical fixture geometry must remain visible on the half-meter globe
-    // regardless of the unrelated logical desktop zoom used for scene styling.
-    if (kind === 'globe') scene.layers.roads.draw.traffic.width = '300000m';
-    await harness.initialize(scene);
+    await harness.initialize();
     harness.presentation.setPlacement(kind === 'globe' ? {type: 'globe', anchor: [0, 0], radius: 0.5, pose: {position: [0, 0.7, -2]}} : {type: 'map', anchor: [0, 0], metersPerXRUnit: 1000, pose: {position: [0, 0.7, -2]}});
     harness.frameState = {views: [-0.032, 0.032].map((horizontal, index) => ({index, eye: index === 0 ? 'left' : 'right', viewport: [index * 256, 0, 256, 320],
         viewMatrix: new Matrix4().lookAt({eye: [horizontal, 1.7, 0], center: [0, 0.7, -2], up: [0, 1, 0]}), projectionMatrix: new Matrix4().perspective({fovy: Math.PI / 3, aspect: 256 / 320, near: 0.05, far: 20})}))};

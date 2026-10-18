@@ -33,6 +33,11 @@ again to tile zoom underfetches detail near the equator and overfetches near
 the poles. Source `tile_size`, `zoom_offset`, maximum zoom and explicit host
 LOD policies still apply normally.
 
+When an immersive globe's silhouette falls between screen samples, visibility
+uses the union of the eyes' analytic horizon-cap bounds. Hit-only sample bounds
+can omit visible ground as data detail increases. This is conservative ground
+coverage, not a claim of minimal tile selection or elevated-feature bounds.
+
 Raster images default to linear sampling, like MapLibre and community
 basemap-layers. Explicit `filtering: nearest` remains useful for categorical
 data. A transparent loading placeholder does not change the loaded image's

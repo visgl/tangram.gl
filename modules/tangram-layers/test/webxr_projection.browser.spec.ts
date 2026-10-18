@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
-import {describe, expect, it} from 'vitest';
+import {describe, expect, it, test} from 'vitest';
+import type {XRFrameState} from '../src/experimental/webxr/index.js';
 import HostFrame from '../../tangram-renderer/src/scene/host_frame';
 import {
   WebXRGlobeView,
@@ -16,6 +17,44 @@ import {
   metersToLongitudeLatitude,
   unionGeographicBounds
 } from '../src/experimental/webxr/index.js';
+
+test.each([0, 179.8, -179.8])('small immersive globes conservatively cover visible ground around longitude %s', longitude => {
+  const presentation = new WebXRPresentation({view: new WebXRGlobeView({id: 'globe'}),
+    viewState: {longitude, latitude: 0, zoom: 4}});
+  presentation.setPlacement({type: 'globe', anchor: [longitude, 0], radius: 0.5, pose: {position: [0, 0.7, -2]}});
+  const frameState: XRFrameState = {views: [-0.032, 0.032].map((horizontal, index) => ({
+    index, eye: index === 0 ? 'left' : 'right', viewport: [index * 256, 0, 256, 320],
+    viewMatrix: new Matrix4().lookAt({eye: [horizontal, 1.7, 0], center: [0, 0.7, -2], up: [0, 1, 0]}),
+    projectionMatrix: new Matrix4().perspective({fovy: Math.PI / 3, aspect: 256 / 320, near: 0.05, far: 20})
+  }))};
+  try {
+    const frame = presentation.createFrame({width: 512, height: 320, frameState, mode: 'immersive-vr'});
+    const bounds = frame.hostFrame.projection.visibleBounds;
+    if (!bounds) throw new Error('Missing immersive globe bounds');
+    expect(bounds[0]).toBeLessThan(longitude); expect(bounds[2]).toBeGreaterThan(longitude);
+    expect(bounds[1]).toBeLessThan(0); expect(bounds[3]).toBeGreaterThan(0);
+    let visibleSamples = 0;
+    for (const eye of frame.renderViews) {
+      const matrix = eye.camera.projection, camera = eye.camera.position;
+      if (!camera) throw new Error('Missing globe eye position');
+      for (let offset = -75; offset <= 75; offset += 15) {
+        for (let latitude = -75; latitude <= 75; latitude += 15) {
+          const radians = Math.PI / 180, angle = (longitude + offset) * radians;
+          const position = [256 * Math.cos(latitude * radians) * Math.sin(angle),
+            -256 * Math.cos(latitude * radians) * Math.cos(angle), 256 * Math.sin(latitude * radians)];
+          const clip = [0, 1, 2, 3].map(row => matrix[row] * position[0] + matrix[row + 4] * position[1] + matrix[row + 8] * position[2] + matrix[row + 12]);
+          if (clip[3] <= 0 || clip.slice(0, 3).some(value => Math.abs(value) > clip[3]) ||
+            position.reduce((sum, value, index) => sum + value * camera[index], 0) < 256 ** 2) continue;
+          visibleSamples++;
+          expect(longitude + offset).toBeGreaterThanOrEqual(bounds[0]);
+          expect(longitude + offset).toBeLessThanOrEqual(bounds[2]);
+          expect(latitude).toBeGreaterThanOrEqual(bounds[1]); expect(latitude).toBeLessThanOrEqual(bounds[3]);
+        }
+      }
+    }
+    expect(visibleSamples).toBeGreaterThan(20);
+  } finally {presentation.finalize();}
+});
 
 describe('experimental WebXR geospatial presentation', () => {
   it('normalizes asymmetric immersive viewports for canvas selection without changing native render rectangles', () => {
