@@ -5,6 +5,7 @@
 import {requireTileManager} from './helpers/scene-owners';
 import {expect, test, vi} from 'vitest';
 import Renderer from '../src/scene/renderer';
+import Scene from '../src/scene/scene';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
 import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
@@ -13,11 +14,11 @@ import {TerrainResourceBudget} from '../src/map-logic/terrain-resource-budget';
 
 test('input admission rejects before starting a rebuild and releases all reservations on destruction', async () => {
     const budget = new TerrainResourceBudget(1);
-    const renderer = Renderer.create({}, {terrain: {grids: []}, terrainResourceBudget: budget});
-    await expect(renderer.scene.rebuild({preserveTileCache: true, preserveTime: true})).rejects.toThrow(/input\/query capacity/);
-    expect(renderer.scene.building).toBeFalsy(); expect(renderer.scene.terrainTransaction).toBeFalsy();
+    const scene = Scene.create({}, {terrain: {grids: []}, terrainResourceBudget: budget});
+    await expect(scene.rebuild({preserveTileCache: true, preserveTime: true})).rejects.toThrow(/input\/query capacity/);
+    expect(scene.building).toBeFalsy(); expect(scene.terrainTransaction).toBeFalsy();
     expect(budget.getStatistics()).toMatchObject({bytes: 0});
-    renderer.destroy(); expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+    scene.destroy(); expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
 });
 
 test('query warming advances once per shared stereo frame and releases partial work on load and destruction', () => {
