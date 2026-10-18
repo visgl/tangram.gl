@@ -15,7 +15,8 @@
     right: 50%;
 }
 
-.maplibre-comparison-pane {
+.maplibre-comparison-pane,
+.maplibre-comparison-pane.maplibregl-map {
     position: absolute;
     top: 0;
     right: 0;

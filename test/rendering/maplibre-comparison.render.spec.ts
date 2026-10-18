@@ -12,18 +12,22 @@ import {createRasterScene} from './scene';
 let harness: RenderingHarness | undefined;
 let comparison: Awaited<ReturnType<typeof mountMapLibreComparison>> | undefined;
 let root: HTMLElement | undefined;
+let exampleStylesheet: HTMLLinkElement | undefined;
 beforeEach(() => commands.startRenderingDiagnostics());
 afterEach(async () => {
   try {expect(await commands.renderingDiagnostics()).toEqual([]); expect(harness?.errors ?? []).toEqual([]);}
-  finally {comparison?.destroy(); comparison = undefined; harness?.destroy(); harness = undefined; root?.remove(); root = undefined;}
+  finally {comparison?.destroy(); comparison = undefined; harness?.destroy(); harness = undefined; root?.remove(); root = undefined; exampleStylesheet?.remove(); exampleStylesheet = undefined;}
 });
 
 test.each(['perspective', 'globe'] as const)(`${DEVICE_TYPE}: optional MapLibre %s reference renders offline beside Tangram and releases its pane`, async kind => {
   harness = new RenderingHarness(kind); await harness.initialize(createRasterScene()); await harness.settle();
   expect(coloredPixels(await harness.pixels())).toBeGreaterThan(50);
   root = document.createElement('div'); root.style.cssText = 'position:relative;width:400px;height:320px'; document.body.append(root);
-  // Tests need only layout, not the production controls' CSS or a public tile service.
-  const stylesheet = 'data:text/css,.maplibre-comparison-pane{position:absolute;inset:0}.maplibregl-canvas{position:absolute;left:0;top:0}';
+  // Match production ordering: vendor CSS loads after the example stylesheet.
+  // MapLibre's position:relative must not override the split pane's absolute layout.
+  exampleStylesheet = document.createElement('link'); exampleStylesheet.rel = 'stylesheet';
+  exampleStylesheet.href = new URL('../../examples/deck/main.css', import.meta.url).href; document.head.append(exampleStylesheet);
+  const stylesheet = new URL('../../examples/dist/maplibre.css', import.meta.url).href;
   const raster = createRasterScene().sources.fixture.url;
   const errors: string[] = [];
   const moves: ComparisonCamera[] = [];
@@ -38,6 +42,10 @@ test.each(['perspective', 'globe'] as const)(`${DEVICE_TYPE}: optional MapLibre 
   const canvas = root.querySelector('canvas'); if (!canvas) throw new Error('Missing MapLibre canvas');
   const stylesheetLink = Array.from(document.querySelectorAll('link')).find(link => link.href === new URL(stylesheet, window.location.href).href);
   expect(stylesheetLink?.isConnected).toBe(true);
+  await expect.poll(() => Boolean(stylesheetLink?.sheet) && Boolean(exampleStylesheet?.sheet)).toBe(true);
+  const pane = root.querySelector('.maplibre-comparison-pane'); if (!pane) throw new Error('Missing comparison pane');
+  expect(getComputedStyle(pane).position).toBe('absolute');
+  expect(pane.getBoundingClientRect().height).toBeGreaterThan(100);
   await expect.poll(async () => {expect(errors).toEqual([]); return coloredPixels(await readCanvasPixels(canvas));}, {timeout: 15000}).toBeGreaterThan(50);
   expect(root.textContent).toContain('Offline fixture imagery');
   await commands.dragMapLibreComparison();

@@ -79,8 +79,17 @@ test('MapLibre is example-only and dynamically imported, with local bundled styl
   const runtime = readFileSync(new URL('../examples/deck/app-runtime.js', import.meta.url), 'utf8');
   expect(runtime).toContain("import('./maplibre-comparison.ts')");
   expect(runtime).not.toMatch(/from ['"]maplibre/);
+  expect(runtime).toContain("searchParams.get('compare') === 'maplibre'");
+  expect(runtime).toContain('if (comparisonInput) comparisonInput.checked = false;');
+  for (const entry of ['../examples/deck/index.html', '../website/src/components/DeckExample.js']) {
+    const markup = readFileSync(new URL(entry, import.meta.url), 'utf8');
+    expect(markup).toMatch(/<input id="maplibre-comparison" type="checkbox"\s*\/?\s*>/);
+    expect(markup).not.toMatch(/id="maplibre-comparison"[^>]*(?:checked|defaultChecked)/);
+  }
   const build = readFileSync(new URL('../scripts/build-examples.mjs', import.meta.url), 'utf8');
   expect(build).toContain("deckRequire.resolve('maplibre-gl/dist/maplibre-gl.css')");
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  expect(manifest.scripts['test-rendering:run']).toMatch(/^yarn build:examples && vitest/);
 });
 
 test('canceling during module loading cannot allocate a late reference pane', async () => {

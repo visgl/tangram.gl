@@ -218,8 +218,9 @@ export function initializeDeckExample({
     if (!comparisonInput) return;
     const limitation = getComparisonLimitation(viewModeId, basemapId);
     comparisonInput.disabled = Boolean(limitation);
-    if (comparisonStatus) comparisonStatus.textContent = limitation ||
-      'Navigate either map. Same geographic camera and tile provider; static reference styling, not shader or pixel parity. MapLibre uses WebGL; deck overlays appear only on Tangram.';
+    if (comparisonStatus) comparisonStatus.textContent = limitation || (comparisonInput.checked
+      ? 'Navigate either map. Same geographic camera and tile provider; static reference styling, not shader or pixel parity. MapLibre uses WebGL; deck overlays appear only on Tangram.'
+      : 'Optional side-by-side reference using the same tile provider. Off by default.');
   }
 
   async function setComparison(enabled) {
@@ -236,7 +237,7 @@ export function initializeDeckExample({
     if (enabled) url.searchParams.set('compare', 'maplibre');
     else url.searchParams.delete('compare');
     window.history.replaceState(null, '', url);
-    if (!enabled) return;
+    if (!enabled) {updateComparisonControl(); return;}
     sharedViewState = normalizeComparisonCamera(sharedViewState, viewModeId);
     deckInstance.setProps({viewState: sharedViewState});
     if (comparisonStatus) comparisonStatus.textContent = 'Loading MapLibre reference…';
@@ -389,6 +390,8 @@ export function initializeDeckExample({
   }
 
   updateBasemapPresentation();
+  // React can reuse this input across example routes; normal URLs always start mono.
+  if (comparisonInput) comparisonInput.checked = false;
   updateComparisonControl();
   const onComparisonChange = () => setComparison(comparisonInput.checked);
   comparisonInput?.addEventListener('change', onComparisonChange);
