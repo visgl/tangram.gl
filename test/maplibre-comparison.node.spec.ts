@@ -77,7 +77,7 @@ test('MapLibre is example-only and dynamically imported, with local bundled styl
     expect(JSON.stringify(manifest)).not.toContain('maplibre');
   }
   const runtime = readFileSync(new URL('../examples/deck/app-runtime.js', import.meta.url), 'utf8');
-  expect(runtime).toContain("import('./maplibre-comparison')");
+  expect(runtime).toContain("import('./maplibre-comparison.ts')");
   expect(runtime).not.toMatch(/from ['"]maplibre/);
   const build = readFileSync(new URL('../scripts/build-examples.mjs', import.meta.url), 'utf8');
   expect(build).toContain("deckRequire.resolve('maplibre-gl/dist/maplibre-gl.css')");
@@ -88,7 +88,8 @@ test('canceling during module loading cannot allocate a late reference pane', as
   const waiting = new Promise<void>(resolve => {release = resolve;});
   const loading = new Promise<void>(resolve => {started = resolve;});
   const createMap = vi.fn();
-  vi.doMock('maplibre-gl', async () => {started(); await waiting; return {Map: createMap};});
+  const setWorkerUrl = vi.fn();
+  vi.doMock('maplibre-gl', async () => {started(); await waiting; return {Map: createMap, setWorkerUrl};});
   const request = new AbortController();
   try {
     const mounting = mountMapLibreComparison({get container(): HTMLElement {throw new Error('Late DOM allocation');},
@@ -97,5 +98,6 @@ test('canceling during module loading cannot allocate a late reference pane', as
     await loading; request.abort(); release();
     await expect(mounting).rejects.toThrow(/abort/i);
     expect(createMap).not.toHaveBeenCalled();
+    expect(setWorkerUrl).not.toHaveBeenCalled();
   } finally {release(); vi.doUnmock('maplibre-gl');}
 });

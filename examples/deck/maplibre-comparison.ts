@@ -103,7 +103,7 @@ export async function mountMapLibreComparison(options: {
     /** Keep the reference camera aligned when deck input drives the shared state. */
     updateCamera: camera.update,
     /** Switch reference data without recreating the map or its input handlers. */
-    setStyle(style: StyleSpecification) {map.setStyle(style);},
+    setStyle(style: StyleSpecification) {if (!destroyed) map.setStyle(style);},
     /** Release listeners, workers, WebGL context, DOM and example-owned stylesheet once. */
     destroy() {
       if (destroyed) return; destroyed = true;

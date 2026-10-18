@@ -11,7 +11,7 @@ import {createCollapsibleInfoCard} from './info-card.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
-import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style';
+import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
 
 export function initializeDeckExample({
   embeddedViewMode,
@@ -207,6 +207,8 @@ export function initializeDeckExample({
   let destroyed = false;
   const canvasHost = document.createElement('div');
   canvasHost.className = 'tangram-map-pane';
+  canvasHost.setAttribute('role', 'region');
+  canvasHost.setAttribute('aria-label', 'Tangram deck.gl map');
   fullscreenTarget.prepend(canvasHost);
   const comparisonLabel = document.createElement('span');
   comparisonLabel.className = 'comparison-map-label comparison-tangram-label';
@@ -221,6 +223,7 @@ export function initializeDeckExample({
   }
 
   async function setComparison(enabled) {
+    if (destroyed) return;
     comparisonRequest?.abort();
     comparisonRequest = new AbortController();
     const request = comparisonRequest;
@@ -238,7 +241,7 @@ export function initializeDeckExample({
     deckInstance.setProps({viewState: sharedViewState});
     if (comparisonStatus) comparisonStatus.textContent = 'Loading MapLibre reference…';
     try {
-      const {mountMapLibreComparison} = await import('./maplibre-comparison');
+      const {mountMapLibreComparison} = await import('./maplibre-comparison.ts');
       if (destroyed || request.signal.aborted) return;
       fullscreenTarget.classList.add('is-comparing'); canvasHost.append(comparisonLabel);
       const referenceBasemapId = basemapId;
@@ -387,7 +390,8 @@ export function initializeDeckExample({
 
   updateBasemapPresentation();
   updateComparisonControl();
-  comparisonInput?.addEventListener('change', () => setComparison(comparisonInput.checked));
+  const onComparisonChange = () => setComparison(comparisonInput.checked);
+  comparisonInput?.addEventListener('change', onComparisonChange);
   if (comparisonInput && searchParams.get('compare') === 'maplibre') setComparison(true);
   if (basemapId === 'tronNextzen' && apiKey) {
     validateNextzenKey();
@@ -972,6 +976,7 @@ export function initializeDeckExample({
 
   window.tangramDeckExampleDestroy = function destroyTangramDeckExample() {
     destroyed = true; comparisonRequest?.abort(); comparison?.destroy();
+    comparisonInput?.removeEventListener('change', onComparisonChange);
     fullscreenTarget.classList.remove('is-comparing'); comparisonLabel.remove();
     destroyInfoCard();
     document.removeEventListener('fullscreenchange', updateFullscreenButton);
