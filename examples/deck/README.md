@@ -60,6 +60,20 @@ original Nextzen TRON scene do not offer this option. MapLibre and its workers
 load only when enabled; it is an example-only dependency, never part of either
 Tangram package or the ordinary homepage's initial bundle.
 
+### Surface background versus clear color
+
+Streets and vector TRON include an unlit, noninteractive background polygon
+through `createBasemapBackground`. This follows community basemap-layers'
+explicit background geometry: `scene.background` is a clear color, not land
+geometry inside a host-owned deck render pass. Without the surface, sparse
+landcover and genuine polygon holes expose the host's dark clear color.
+
+The background is tiled and globe-refined by Tangram's existing pipeline,
+under the styled features at order zero. It does not change their holes,
+triangulation, lighting or feature queries, and it does not clear deck overlays.
+Coverage stops at the Web Mercator latitude limit; polar caps remain separate
+work. NASA imagery and the original Nextzen scene are unchanged.
+
 ## Basemaps and attribution
 
 TRON and Streets use OpenFreeMap vector tiles through its stable TileJSON

@@ -10,6 +10,7 @@ import {resolveDeckExampleViewMode} from './app-loader.js';
 import {createCollapsibleInfoCard} from './info-card.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
+import {createBasemapBackground} from './basemap-background';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
 import {readComparisonPreference, writeComparisonPreference} from './comparison-settings.ts';
@@ -551,6 +552,7 @@ export function initializeDeckExample({
   }
 
   function createVectorScene({labels = true} = {}) {
+    const background = createBasemapBackground('#f5f3ef');
     const scene = {
       scene: {
         background: {color: '#f5f3ef'}
@@ -559,9 +561,12 @@ export function initializeDeckExample({
         Montserrat: {url: resolveExampleAsset('../classic/fonts/montserrat.woff')}
       },
       sources: {
+        ...background.sources,
         basemap: createVectorSource(vectorProvider)
       },
+      styles: background.styles,
       layers: {
+        ...background.layers,
         landcover: {
           data: {source: 'basemap', layer: 'landcover'},
           draw: {
@@ -692,6 +697,7 @@ export function initializeDeckExample({
     pointProbe = false,
     lineProbe = false
   } = {}) {
+    const background = createBasemapBackground('#08111f');
     const scene = {
       import: ['https://www.nextzen.org/carto/tron-style/6/tron-style.zip'],
       fonts: {
@@ -707,6 +713,7 @@ export function initializeDeckExample({
         background: {color: '#08111f'}
       },
       styles: {
+        ...background.styles,
         'tron-portable-traffic': {
           base: 'lines',
           animated: animateTraffic,
@@ -714,9 +721,11 @@ export function initializeDeckExample({
         }
       },
       sources: {
+        ...background.sources,
         mapzen: createVectorSource(vectorProvider)
       },
       layers: {
+        ...background.layers,
         landuse: {
           data: {source: 'mapzen', layer: '__tilezen_layer_disabled__'}
         },
