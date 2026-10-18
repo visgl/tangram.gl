@@ -38,6 +38,8 @@ interface RendererScene {
     terrainDisplayGeneration?: number;
     /** Worker ribbon-width target; no DEM data is cloned when only this value changes. */
     terrainRibbonZoom?: number;
+    /** Configured line draw groups, including roads currently suppressed by no-data. */
+    terrainRibbonStyles?: boolean;
     /** Schedule a viewport-local feature query for a subsequent render. */
     getFeatureAt(pixel: {x: number; y: number}, options: {radius?: number; renderViewId?: string; width?: number; height?: number}): Promise<FeatureSelectionResult | undefined>;
     /** Switch only selection ownership; shared workers/features remain unchanged. */
@@ -226,7 +228,7 @@ export default class Renderer {
     private requestTerrainRibbonRefinement(zoom: number): void {
         this.requestedTerrainRibbonZoom = zoom;
         if (this.terrainRibbonScheduled || this.admittedTerrainRibbonZoom === zoom || this.terrainRibbonFailure?.zoom === zoom) return;
-        if (!this.scene.terrain?.groundMeshResolution || !this.activeTileManager.getTerrainDrapingStatistics(this.scene.terrain).ribbonMeshes) return;
+        if (!this.scene.terrain?.groundMeshResolution || !this.scene.terrainRibbonStyles && !this.activeTileManager.getTerrainDrapingStatistics(this.scene.terrain).ribbonMeshes) return;
         this.terrainRibbonScheduled = true;
         const update = this.terrainUpdate.then(async () => {
             if (this.destroyed || !this.scene.terrain?.groundMeshResolution) return;
@@ -235,7 +237,8 @@ export default class Renderer {
             const previous = this.scene.terrainRibbonZoom;
             this.terrainUpdating = true;
             try {
-                await this.scene.rebuild({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: target});
+                const completed = await this.scene.rebuild({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: target});
+                if (completed === false) return; // A newer scene request superseded this queued width; retry after that build.
                 this.admittedTerrainRibbonZoom = target;
                 this.terrainRibbonFailure = undefined;
                 this.terrainFailed = false;
@@ -243,7 +246,10 @@ export default class Renderer {
                 this.terrainRibbonFailure = {zoom: target, message: error instanceof Error ? error.message : String(error)};
                 this.scene.terrainRibbonZoom = previous;
                 if (!this.destroyed) {
-                    try {await this.scene.rebuild({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: previous ?? null});}
+                    try {
+                        const recovered = await this.scene.rebuild({preserveTileCache: true, preserveTime: true, terrainRibbonZoom: previous ?? null});
+                        if (recovered === false) throw new Error('Terrain ribbon recovery was superseded');
+                    }
                     catch (recoveryError) {this.terrainFailed = true; throw new AggregateError([error, recoveryError], 'Terrain ribbon update and recovery failed');}
                 }
             } finally {this.terrainUpdating = false;}

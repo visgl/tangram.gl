@@ -257,6 +257,8 @@ export default class Scene {
     declare terrainResourceBudget: import('../map-logic/terrain-resource-budget').TerrainResourceBudget | undefined;
     /** Last requested worker ribbon zoom, independent of physical field/morph identity. */
     declare terrainRibbonZoom: number | undefined;
+    /** Authored line draw groups remain refinable even when no-data suppresses every current road mesh. */
+    terrainRibbonStyles = false;
     /** Main/worker input copies and internal query-capacity reservation, independent of mesh owners. */
     private terrainInputLease?: import('../map-logic/terrain-resource-budget').TerrainResourceLease;
     /** Replacement inputs cannot spend the still-admitted generation's reservation. */
@@ -1679,11 +1681,12 @@ export default class Scene {
                 this.syncConfigToWorker({serialize_funcs});
                 rebuildTiles();
             }
-        }).then(() => {
+        }).then(completed => {
             // Profiling
             if (profile) {
                 this.debug.profileEnd('Scene.rebuild');
             }
+            return completed;
         });
     }
 
@@ -1906,6 +1909,17 @@ export default class Scene {
         // (Re)build styles from config
         this.styles = this.style_manager.build(this.liveConfig.styles);
         this.style_manager.initStyles(this);
+        const hasRibbon = (layer: unknown): boolean => {
+            if (!layer || typeof layer !== 'object' || Array.isArray(layer)) return false;
+            if ('draw' in layer && layer.draw && typeof layer.draw === 'object' && !Array.isArray(layer.draw)) {
+                for (const [name, group] of Object.entries(layer.draw)) {
+                    const style = group && typeof group === 'object' && 'style' in group && typeof group.style === 'string' ? group.style : name;
+                    if (this.styles?.[style]?.baseStyle() === 'lines') return true;
+                }
+            }
+            return Object.entries(layer).some(([name, value]) => !['draw', 'filter', 'data', 'properties'].includes(name) && hasRibbon(value));
+        };
+        this.terrainRibbonStyles = hasRibbon(this.liveConfig.layers);
 
         // Optionally set GL context (used when initializing or re-initializing GL resources)
         for (let style in this.styles) {
