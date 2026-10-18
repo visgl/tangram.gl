@@ -82,7 +82,7 @@ test('packaged raster UVs survive worker refinement and displacement', async () 
 }, 45000);
 
 /** Offline balanced globe coverage, with one coarse leaf replaced by its four children. */
-function canonicalField(height: number): TerrainDrapingOptions {
+function canonicalField(height: number, balanced = true): TerrainDrapingOptions {
     const circumference = 2 * Math.PI * 6378137;
     const leaf = (column: number, row: number, zoom: number) => {
         const span = circumference / 2 ** zoom;
@@ -90,8 +90,8 @@ function canonicalField(height: number): TerrainDrapingOptions {
             (column + 1) * span - circumference / 2, circumference / 2 - row * span] as const,
             heights: new Float32Array(4).fill(height), valid: new Uint8Array(4).fill(1), verticalDatum: 'orthometric' as const, registration: 'grid-node' as const};
     };
-    const grids = Array.from({length: 16}, (_, index) => leaf(index % 4, Math.floor(index / 4), 2)).filter((_grid, index) => index !== 6);
-    grids.push(leaf(4, 2, 3), leaf(5, 2, 3), leaf(4, 3, 3), leaf(5, 3, 3));
+    const grids = Array.from({length: 16}, (_, index) => leaf(index % 4, Math.floor(index / 4), 2));
+    if (balanced) {grids.splice(6, 1); grids.push(leaf(4, 2, 3), leaf(5, 2, 3), leaf(4, 3, 3), leaf(5, 3, 3));}
     return {grids, querySurfaceStyles: ['raster'], groundMeshResolution: 8, transitionDuration: 200};
 }
 
@@ -143,8 +143,7 @@ test.each(['flat', 'globe'] as ViewKind[])('%s canonical ground preserves raster
     const before = harness.renderer.getDrapedTerrainSurface();
     if (!before) throw new Error('Expected admitted canonical ground');
     expect(before.inputBytes).toBeGreaterThan(0);
-    await harness.renderer.setTerrain({...canonicalField(120), groundMeshResolution: 16, previousGroundMeshResolution: 8,
-        conformTransitions: true, previousGrids: canonicalField(20).grids});
+    await harness.renderer.setTerrain({...canonicalField(120), previousGrids: canonicalField(20).grids});
     await harness.settle();
     expect(coloredPixels(await harness.pixels())).toBeGreaterThan(1000);
     const after = harness.renderer.getDrapedTerrainSurface();
@@ -158,6 +157,27 @@ test.each(['flat', 'globe'] as ViewKind[])('%s canonical ground preserves raster
         expect(hit?.coordinate[2]).toBeGreaterThanOrEqual(20 - 1e-6);
         expect(hit?.coordinate[2]).toBeLessThanOrEqual(120 + 1e-6);
     }
+    expect(harness.errors).toEqual([]);
+}, 45000);
+
+test('uniform canonical transition refinement reaches both stereo eyes through the packaged worker', async () => {
+    const harness = new RenderingHarness('globe', 'stereo-preview'); harnesses.push(harness);
+    harness.terrain = canonicalField(20, false); harness.globePreloadZoom = 2; harness.tileZoom = 3;
+    await harness.initialize(createRasterScene()); await harness.settle();
+    const source = await harness.renderer.getTileSourceStatistics();
+    await harness.renderer.setTerrain({...canonicalField(120, false), groundMeshResolution: 16, previousGroundMeshResolution: 8,
+        conformTransitions: true, previousGrids: canonicalField(20, false).grids});
+    await harness.settle();
+    const pixels = await harness.pixels();
+    expect(coloredPixels(pixels, 0, 256)).toBeGreaterThan(1000); expect(coloredPixels(pixels, 256, 512)).toBeGreaterThan(1000);
+    const frame = harness.presentation.createFrame({width: 512, height: 320});
+    for (const eye of frame.renderViews) {
+        if (!eye.deckViewport) throw new Error('Expected stereo viewport');
+        const pixel = eye.deckViewport.project([0.001, 0.001, 120]);
+        const hit = harness.renderer.getTerrainAt({x: pixel[0] + (eye.viewport?.x ?? 0), y: pixel[1] + (eye.viewport?.y ?? 0)}, undefined, {coordinateSpace: 'canvas'});
+        expect(hit?.coordinate[2]).toBeGreaterThanOrEqual(20 - 1e-6); expect(hit?.coordinate[2]).toBeLessThanOrEqual(120 + 1e-6);
+    }
+    expect(await harness.renderer.getTileSourceStatistics()).toEqual(source);
     expect(harness.errors).toEqual([]);
 }, 45000);
 

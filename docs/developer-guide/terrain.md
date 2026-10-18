@@ -274,7 +274,11 @@ canonical faces. Both endpoints retain their planar triangle heights at new cuts
 it no longer substitutes bilinear sampling for an older coarse triangulation.
 `previousGroundMeshResolution` describes the old endpoint; Renderer supplies it
 automatically when it supplies `previousGrids`. Vertex/work/precision limits reject
-atomically. Arbitrary legacy previous fields keep the default height-only morph.
+atomically. Coarse/fine fan intersections can produce non-dyadic coordinates that
+the shared Float32 source lattice cannot represent; these explicitly reject rather
+than rounding independent owners into cracks. The examples keep height-only morphing
+as their default; uniform canonical fields have packaged stereo conformance.
+Arbitrary legacy previous fields also keep the default height-only morph.
 This common planar refinement does **not** certify exact cross-style globe chord
 conformity or re-intersect dynamic-width roads between worker rebuilds.
 

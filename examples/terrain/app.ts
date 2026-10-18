@@ -263,7 +263,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
       const next = drawable.flatMap(tile => tile.data ? [`${tile.key}:${payloadId(tile.bytes ?? tile.data.grid)}`] : []).sort().join(',');
       if (next !== fieldSignature) {
         fieldSignature = next;
-        terrain = {grids, transitionDuration: 200, maxSegmentLength: 250, groundMeshResolution: 32, conformTransitions: true, querySurfaceStyles: ['ground'], occludeAnnotations: true};
+        terrain = {grids, transitionDuration: 200, maxSegmentLength: 250, groundMeshResolution: 32, querySurfaceStyles: ['ground'], occludeAnnotations: true};
       }
       activeBasemap = new BasemapLayer({id: 'draped-basemap', scene: basemapScene, terrain, terrainResourceBudget: resourceBudget, terrainExaggeration: 1, tileBuffer: 1,
         maxConcurrentTileLoadsPerWorker: 2, tileResources: {maxConcurrentBuilds: 2},

@@ -219,7 +219,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
                     pixelsPerGlobeUnit: projectedScale * radius / 256, previousResolution: groundResolution, targetPixels: 4});
             groundResolution = quality.resolution; projectedGroundError = quality.projectedError; groundDetailLimited = quality.limited;
             if (nextGrids.length !== terrainInput.grids.length || nextGrids.some((grid, index) => grid !== terrainInput.grids[index]) || groundResolution !== terrainInput.groundMeshResolution) {
-                terrainInput = {grids, querySurfaceStyles: ['ground'], groundMeshResolution: groundResolution, conformTransitions: true, transitionDuration: 200, maxSegmentLength: 100000, occludeAnnotations: true,
+                terrainInput = {grids, querySurfaceStyles: ['ground'], groundMeshResolution: groundResolution, transitionDuration: 200, maxSegmentLength: 100000, occludeAnnotations: true,
                     maxGridBytes: 256 * 1024 * 1024, maxStagedMeshBytes: 128 * 1024 * 1024};
             }
             basemap = new BasemapLayer({id: 'globe-draped-basemap', scene: basemapScene, terrain: terrainInput,
