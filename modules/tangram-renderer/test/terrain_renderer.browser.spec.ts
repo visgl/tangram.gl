@@ -11,6 +11,8 @@ import {Matrix4} from '@math.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import {DrapedTerrainSurfaceSnapshot} from '../src/selection/draped-terrain-surface';
 import {TerrainResourceBudget} from '../src/map-logic/terrain-resource-budget';
+import {normalizeTerrainDraping} from '../src/procedures/terrain-draping';
+import WorkerBroker from '../src/utils/worker_broker';
 
 test('input admission rejects before starting a rebuild and releases all reservations on destruction', async () => {
     const budget = new TerrainResourceBudget(1);
@@ -19,6 +21,29 @@ test('input admission rejects before starting a rebuild and releases all reserva
     expect(scene.building).toBeFalsy(); expect(scene.terrainTransaction).toBeFalsy();
     expect(budget.getStatistics()).toMatchObject({bytes: 0});
     scene.destroy(); expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+});
+
+test.each([false, true])('input leases keep the old generation until staged settlement (failed=%s)', async failed => {
+    const budget = new TerrainResourceBudget(100);
+    const scene = Scene.create({}, {terrain: {grids: [field(0)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1}, terrainResourceBudget: budget});
+    scene.workers = [];
+    const post = vi.spyOn(WorkerBroker, 'postMessage').mockResolvedValue([]);
+    const manager = requireTileManager(scene);
+    vi.spyOn(manager, 'publishTerrainDisplay').mockImplementation(() => {});
+    vi.spyOn(manager, 'updateLabels').mockResolvedValue({});
+    vi.spyOn(scene, 'logFirstBuild').mockImplementation(() => {});
+    try {
+        await scene.syncConfigToWorker();
+        expect(budget.getStatistics().retainedBytes).toBe(28);
+        scene.terrain = normalizeTerrainDraping({grids: [field(10)], maxQueryIndexBytes: 3, maxProjectedQueryBytes: 1});
+        scene.terrainTransaction = true;
+        await scene.syncConfigToWorker();
+        expect(budget.getStatistics().retainedBytes).toBe(56);
+        Object.assign(scene, {building: {resolve: vi.fn(), reject: vi.fn(), ...(failed ? {error: new Error('fixture')} : {})}});
+        scene.tileManagerBuildDone();
+        expect(budget.getStatistics().retainedBytes).toBe(28);
+    } finally {scene.destroy(); post.mockRestore();}
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0, peakBytes: 56});
 });
 
 test('query warming advances once per shared stereo frame and releases partial work on load and destruction', () => {
