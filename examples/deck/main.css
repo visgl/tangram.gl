@@ -6,6 +6,57 @@
 
 @import './info-card.css';
 
+.tangram-map-pane {
+    position: absolute;
+    inset: 0;
+}
+
+#deck-container.is-comparing .tangram-map-pane {
+    right: 50%;
+}
+
+.maplibre-comparison-pane,
+.maplibre-comparison-pane.maplibregl-map {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 50%;
+    box-sizing: border-box;
+    border-left: 2px solid #aaa;
+}
+
+.comparison-map-label {
+    position: absolute;
+    z-index: 2;
+    top: 8px;
+    left: 8px;
+    padding: 4px 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #202124;
+    font: 12px sans-serif;
+    pointer-events: none;
+}
+
+.comparison-tangram-label {
+    top: auto;
+    bottom: 42px;
+}
+
+#deck-container.is-comparing #attribution {
+    right: calc(50% + 4px);
+    max-width: calc(50% - 12px);
+}
+
+.maplibre-comparison-pane .maplibregl-ctrl-attrib {
+    font-size: 10px;
+}
+
+.maplibre-comparison-pane .maplibregl-ctrl-attrib-inner {
+    white-space: normal;
+}
+
 .tangram-deck-standalone,
 .tangram-deck-standalone #deck-container,
 .tangram-deck-embedded #deck-container {

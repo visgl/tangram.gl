@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {getVitestConfig} from '@vis.gl/dev-tools';
-import {startRenderingDiagnostics, renderingDiagnostics, dragRenderingCanvas, panRenderingCanvas,
+import {startRenderingDiagnostics, renderingDiagnostics, dragRenderingCanvas, dragMapLibreComparison, panRenderingCanvas,
   pinchRenderingCanvas, walkRenderingCanvas, saveRenderingArtifact} from './test/rendering/commands.ts';
 
 const device = process.env.TANGRAM_TEST_DEVICE || 'webgl';
@@ -31,7 +31,7 @@ export default getVitestConfig({
         '@deck.gl/geo-layers', '@deck.gl/mesh-layers', '@loaders.gl/terrain', '@loaders.gl/images', 'mjolnir.js',
         // The optional CPU query index is imported after other test pages load.
         // Prebundle its CommonJS helper before that import can invalidate URLs.
-        'quickselect'],
+        'quickselect', 'maplibre-gl'],
       exclude: ['@vis.gl/tangram-renderer', '@vis.gl/tangram-layers']
     }
   },
@@ -47,7 +47,7 @@ export default getVitestConfig({
         browser: {
           viewport: {width: 900, height: 650},
           screenshotDirectory: `screenshots/rendering/${device}`,
-          commands: {startRenderingDiagnostics, renderingDiagnostics, dragRenderingCanvas, panRenderingCanvas,
+          commands: {startRenderingDiagnostics, renderingDiagnostics, dragRenderingCanvas, dragMapLibreComparison, panRenderingCanvas,
             pinchRenderingCanvas, walkRenderingCanvas, saveRenderingArtifact}
         }
       }

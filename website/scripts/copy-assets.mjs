@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {cp, mkdir, rm} from 'node:fs/promises';
+import {access, cp, mkdir, rm} from 'node:fs/promises';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {copyExampleAssets} from './copy-example-assets.mjs';
@@ -15,6 +15,10 @@ await rm(resolve(staticDirectory, 'examples'), {recursive: true, force: true});
 await rm(resolve(staticDirectory, 'modules'), {recursive: true, force: true});
 await mkdir(resolve(staticDirectory, 'examples'), {recursive: true});
 await cp(resolve(repositoryDirectory, 'examples/dist'), resolve(staticDirectory, 'examples/dist'), {recursive: true});
+// Optional comparison assets must ship together from the matching npm build.
+for (const asset of ['maplibre.css', 'maplibre-worker.js', 'maplibre.LICENSE.txt']) {
+  await access(resolve(staticDirectory, 'examples/dist', asset));
+}
 await mkdir(resolve(staticDirectory, 'modules/tangram-renderer/dist'), {recursive: true});
 await mkdir(resolve(staticDirectory, 'modules/tangram-layers/dist'), {recursive: true});
 await mkdir(resolve(staticDirectory, 'modules/tangram-layers/dist/experimental'), {

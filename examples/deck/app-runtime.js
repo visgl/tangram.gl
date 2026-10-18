@@ -11,6 +11,8 @@ import {createCollapsibleInfoCard} from './info-card.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
+import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
+import {readComparisonPreference, writeComparisonPreference} from './comparison-settings.ts';
 
 export function initializeDeckExample({
   embeddedViewMode,
@@ -165,6 +167,8 @@ export function initializeDeckExample({
   const providerSelect = document.getElementById('vector-provider');
   if (providerSelect) providerSelect.value = vectorProvider;
   const viewSelect = document.getElementById('view-type');
+  const comparisonInput = document.getElementById('maplibre-comparison');
+  const comparisonStatus = document.getElementById('comparison-status');
   const deviceTabButtons = document.querySelectorAll('[data-device-type]');
   const infoTabButtons = document.querySelectorAll('[data-example-tab]');
   const infoTabPanels = document.querySelectorAll('[data-example-tab-panel]');
@@ -198,6 +202,66 @@ export function initializeDeckExample({
   let lastError = null;
   let nextzenKeyValidated = false;
   let nextzenKeyValidationGeneration = 0;
+  let sharedViewState = viewMode.initialViewState;
+  let comparison;
+  let comparisonRequested = false;
+  let comparisonRequest;
+  let destroyed = false;
+  const canvasHost = document.createElement('div');
+  canvasHost.className = 'tangram-map-pane';
+  canvasHost.setAttribute('role', 'region');
+  canvasHost.setAttribute('aria-label', 'Tangram deck.gl map');
+  fullscreenTarget.prepend(canvasHost);
+  const comparisonLabel = document.createElement('span');
+  comparisonLabel.className = 'comparison-map-label comparison-tangram-label';
+  comparisonLabel.textContent = `tangram.gl · ${deviceType === 'webgpu' ? 'WebGPU' : 'WebGL'}`;
+
+  function updateComparisonControl() {
+    if (!comparisonInput) return;
+    const limitation = getComparisonLimitation(viewModeId, basemapId);
+    comparisonInput.disabled = Boolean(limitation);
+    if (comparisonStatus) comparisonStatus.textContent = limitation || (comparisonInput.checked
+      ? 'Navigate either map. Same geographic camera and tile provider; static reference styling, not shader or pixel parity. MapLibre uses WebGL; deck overlays appear only on Tangram.'
+      : 'Optional side-by-side reference using the same tile provider. Your choice is remembered across examples.');
+  }
+
+  async function setComparison(enabled) {
+    if (destroyed) return;
+    comparisonRequest?.abort();
+    comparisonRequest = new AbortController();
+    const request = comparisonRequest;
+    comparison?.destroy(); comparison = undefined;
+    fullscreenTarget.classList.remove('is-comparing'); comparisonLabel.remove();
+    if (!comparisonInput) return;
+    enabled = enabled && !getComparisonLimitation(viewModeId, basemapId);
+    comparisonInput.checked = enabled;
+    if (!enabled) {updateComparisonControl(); return;}
+    sharedViewState = normalizeComparisonCamera(sharedViewState, viewModeId);
+    deckInstance.setProps({viewState: sharedViewState});
+    if (comparisonStatus) comparisonStatus.textContent = 'Loading MapLibre reference…';
+    try {
+      const {mountMapLibreComparison} = await import('./maplibre-comparison.ts');
+      if (destroyed || request.signal.aborted) return;
+      fullscreenTarget.classList.add('is-comparing'); canvasHost.append(comparisonLabel);
+      const referenceBasemapId = basemapId;
+      const reference = await mountMapLibreComparison({container: fullscreenTarget, camera: sharedViewState,
+        viewMode: viewModeId, style: createComparisonStyle(basemapId, viewModeId, vectorProvider), signal: request.signal,
+        stylesheetUrl: resolveExampleAsset('../dist/maplibre.css'),
+        workerUrl: resolveExampleAsset('../dist/maplibre-worker.js'),
+        onChange: camera => {sharedViewState = camera; deckInstance?.setProps({viewState: camera});},
+        onError: error => {if (!destroyed && !request.signal.aborted && comparisonStatus) comparisonStatus.textContent = `MapLibre reference: ${error.message}`;}
+      });
+      if (destroyed || request.signal.aborted) {reference.destroy(); return;}
+      comparison = reference;
+      if (basemapId !== referenceBasemapId) comparison.setStyle(createComparisonStyle(basemapId, viewModeId, vectorProvider));
+      comparison.updateCamera(sharedViewState);
+      updateComparisonControl();
+    } catch (error) {
+      if (destroyed || request.signal.aborted) return;
+      await setComparison(false);
+      if (comparisonStatus) comparisonStatus.textContent = `MapLibre comparison unavailable: ${error.message}`;
+    }
+  }
 
   function setStatus(message, type = '') {
     if (type === 'error') {
@@ -296,7 +360,7 @@ export function initializeDeckExample({
   let deckInstance;
   try {
     deckInstance = new Deck({
-      parent: document.getElementById('deck-container'),
+      parent: canvasHost,
       deviceProps: useWebGPU
         ? {
             type: 'webgpu',
@@ -304,7 +368,13 @@ export function initializeDeckExample({
           }
         : {type: 'webgl'},
       views: viewMode.view,
-      initialViewState: viewMode.initialViewState,
+      viewState: sharedViewState,
+      onViewStateChange: ({viewState}) => {
+        sharedViewState = comparisonInput?.checked ? normalizeComparisonCamera(viewState, viewModeId) : viewState;
+        deckInstance?.setProps({viewState: sharedViewState});
+        comparison?.updateCamera(sharedViewState);
+        return sharedViewState;
+      },
       layers: createLayers(),
       getTooltip: ({object}) => object && object.name,
       onError: (error) => {
@@ -318,6 +388,21 @@ export function initializeDeckExample({
   }
 
   updateBasemapPresentation();
+  // React can reuse this input across routes; restore the shared preference explicitly.
+  if (comparisonInput) comparisonInput.checked = false;
+  comparisonRequested = readComparisonPreference(searchParams);
+  updateComparisonControl();
+  const onComparisonChange = () => {
+    comparisonRequested = comparisonInput.checked;
+    writeComparisonPreference(comparisonRequested);
+    // The saved setting owns ordinary navigation; only explicit bookmarks override it.
+    const url = new URL(window.location.href);
+    url.searchParams.delete('compare');
+    window.history.replaceState(null, '', url);
+    return setComparison(comparisonRequested);
+  };
+  comparisonInput?.addEventListener('change', onComparisonChange);
+  if (comparisonInput && comparisonRequested) setComparison(true);
   if (basemapId === 'tronNextzen' && apiKey) {
     validateNextzenKey();
   }
@@ -404,6 +489,12 @@ export function initializeDeckExample({
     url.searchParams.set('basemap', basemapId);
     window.history.replaceState(null, '', url);
     updateBasemapPresentation();
+    updateComparisonControl();
+    if (comparisonRequested) {
+      if (getComparisonLimitation(viewModeId, basemapId)) setComparison(false);
+      else if (comparison) comparison.setStyle(createComparisonStyle(basemapId, viewModeId, vectorProvider));
+      else setComparison(true);
+    }
     if (basemapId === 'tronNextzen' && apiKey && !nextzenKeyValidated) {
       validateNextzenKey();
     } else {
@@ -895,11 +986,15 @@ export function initializeDeckExample({
   }
 
   window.tangramDeckExampleDestroy = function destroyTangramDeckExample() {
+    destroyed = true; comparisonRequest?.abort(); comparison?.destroy();
+    comparisonInput?.removeEventListener('change', onComparisonChange);
+    fullscreenTarget.classList.remove('is-comparing'); comparisonLabel.remove();
     destroyInfoCard();
     document.removeEventListener('fullscreenchange', updateFullscreenButton);
     if (deckInstance) {
       deckInstance.finalize();
       deckInstance = null;
     }
+    canvasHost.remove();
   };
 }

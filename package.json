@@ -58,7 +58,7 @@
     "test-browser": "yarn build:modules && yarn test-build-worker && yarn workspace @vis.gl/tangram-classic build:editor-workers && ocular-test browser",
     "test-headless": "yarn build:modules && yarn test-build-worker && yarn workspace @vis.gl/tangram-classic build:editor-workers && ocular-test headless",
     "test-rendering": "yarn build:modules && yarn test-rendering:run",
-    "test-rendering:run": "vitest run --config vitest.rendering.config.ts",
+    "test-rendering:run": "yarn build:examples && vitest run --config vitest.rendering.config.ts",
     "test-coverage": "yarn build:modules && yarn test-build-worker && yarn workspace @vis.gl/tangram-classic build:editor-workers && ocular-test headless --coverage",
     "typecheck": "tsc --noEmit",
     "typescript:scope": "node scripts/check-typescript-migration.mjs",
