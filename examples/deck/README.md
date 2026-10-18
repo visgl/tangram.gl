@@ -36,6 +36,25 @@ Installed deck.gl and luma.gl packages are bundled together and share one luma r
 [view integration](../../docs/developer-guide/view-integration.md) for supported
 geometry, culling and remaining limitations.
 
+## MapLibre comparison
+
+Enable **Compare with MapLibre GL JS**, or bookmark `?compare=maplibre`, in the
+MapView flat, MapView perspective or GlobeView example. Drag, rotate and zoom
+either half to update one shared geographic camera. Disable comparison to regain
+the full canvas without resetting navigation. The flat view stays at zero pitch.
+
+The reference uses the same OpenFreeMap/CARTO vector source or NASA Blue Marble
+imagery, with independent attribution in each pane. Streets and TRON have a small
+static reference style: Tangram shaders, animated traffic, text layout, lighting
+and deck overlays are **not** reproduced by MapLibre. Globe camera/projection
+models differ, so this is a geographic comparison, not a pixel-parity oracle.
+MapLibre always uses WebGL, even beside Tangram's WebGPU backend.
+
+FirstPersonView, WebXR, custom projected basemaps, terrain-specific views and the
+original Nextzen TRON scene do not offer this option. MapLibre and its workers
+load only when enabled; it is an example-only dependency, never part of either
+Tangram package or the ordinary homepage's initial bundle.
+
 ## Basemaps and attribution
 
 TRON and Streets use OpenFreeMap vector tiles through its stable TileJSON

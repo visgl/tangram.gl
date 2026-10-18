@@ -99,6 +99,11 @@ export default function DeckExample({
               <input id="basemap-visible" type="checkbox" defaultChecked />
               Show TangramBasemapLayer
             </label>
+            <label className="control checkbox-control">
+              <input id="maplibre-comparison" type="checkbox" />
+              Compare with MapLibre GL JS
+            </label>
+            <p id="comparison-status" className="hint" role="status" />
             <form id="nextzen-key-form" hidden>
               <label className="control" htmlFor="nextzen-api-key">
                 <span>Existing Nextzen API key</span>

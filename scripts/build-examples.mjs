@@ -11,6 +11,7 @@ import {getOcularConfig} from '@vis.gl/dev-tools';
 
 const repositoryDirectory = fileURLToPath(new URL('../', import.meta.url));
 const configuration = await getOcularConfig({root: repositoryDirectory});
+const deckRequire = createRequire(new URL('../examples/deck/package.json', import.meta.url));
 await rm(resolve(repositoryDirectory, 'examples/dist'), {recursive: true, force: true});
 
 // These are browser applications, not externalized npm package entries. Resolve
@@ -20,7 +21,9 @@ const result = await build({
   entryPoints: {
     deck: 'examples/deck/app.js',
     webxr: 'examples/webxr/standalone.js',
-    projected: 'examples/projected/standalone.js'
+    projected: 'examples/projected/standalone.js',
+    maplibre: deckRequire.resolve('maplibre-gl/dist/maplibre-gl.css'),
+    'maplibre-worker': deckRequire.resolve('maplibre-gl/dist/maplibre-gl-worker.mjs')
   },
   outdir: 'examples/dist',
   chunkNames: 'chunks/[name]-[hash]',
@@ -36,12 +39,15 @@ const result = await build({
   logLevel: 'info'
 });
 for (const [path, output] of Object.entries(result.metafile.outputs)) {
-  if (output.imports.some(dependency => dependency.external)) {
+  // Vendor CSS embeds data-URL icons; JavaScript must still have no external imports.
+  if (output.imports.some(dependency => dependency.external && !(path.endsWith('.css') && dependency.path.startsWith('data:')))) {
     throw new Error(`Browser application has unresolved module imports: ${path}`);
   }
 }
 
 // Keep the Git package's MIT notice with both the standalone apps and website.
 const exampleRequire = createRequire(new URL('../examples/webxr/package.json', import.meta.url));
+await cp(resolve(dirname(deckRequire.resolve('maplibre-gl/package.json')), 'LICENSE.txt'),
+  resolve(repositoryDirectory, 'examples/dist/maplibre.LICENSE.txt'));
 await cp(resolve(dirname(exampleRequire.resolve('thor.gl')), '../LICENSE'),
   resolve(repositoryDirectory, 'examples/dist/thor.LICENSE.txt'));

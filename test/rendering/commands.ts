@@ -61,6 +61,18 @@ export const dragRenderingCanvas = defineBrowserCommand(async ({page, frame}, si
   await page.mouse.up();
 });
 
+/** Exercise native MapLibre navigation rather than invoking its camera API in the fixture. */
+export const dragMapLibreComparison = defineBrowserCommand(async ({page, frame}) => {
+  const canvas = (await frame()).locator('.maplibre-comparison-pane canvas');
+  await canvas.scrollIntoViewIfNeeded();
+  const bounds = await canvas.boundingBox();
+  if (!bounds) throw new Error('Comparison canvas is not visible');
+  await page.mouse.move(bounds.x + bounds.width * 0.5, bounds.y + bounds.height * 0.5);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + bounds.width * 0.6, bounds.y + bounds.height * 0.5, {steps: 8});
+  await page.mouse.up();
+});
+
 /** Focus the map and send a trusted keyboard navigation event through deck's controller. */
 export const walkRenderingCanvas = defineBrowserCommand(async ({page, frame}) => {
   const canvas = (await frame()).locator('#rendering-fixture');
@@ -112,6 +124,7 @@ declare module 'vitest/browser' {
     renderingDiagnostics(): Promise<string[]>;
     saveRenderingArtifact(name: string, image: string): Promise<void>;
     dragRenderingCanvas(side: 'left' | 'right'): Promise<void>;
+    dragMapLibreComparison(): Promise<void>;
     walkRenderingCanvas(): Promise<void>;
     panRenderingCanvas(side: 'left' | 'right'): Promise<void>;
     pinchRenderingCanvas(): Promise<void>;
