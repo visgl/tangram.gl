@@ -29,6 +29,20 @@ test('texture factory preserves placeholder/upload order and retires each replac
     expect(resources[1].destroyed).toBe(true); expect(texture.texture).toBeNull();
 });
 
+test.each([undefined, 'linear', 'nearest', 'mipmap'] as const)('loaded textures do not inherit placeholder filtering (%s)', async filtering => {
+    const requests: TangramTextureOptions[] = [];
+    const canvas = document.createElement('canvas'); canvas.width = 4; canvas.height = 4;
+    const texture = Texture.create(null, `__placeholder_filter_${filtering}`, {element: canvas, filtering,
+        textureFactory(request) {requests.push(request); return createResource();}});
+    try {
+        await texture.loading;
+        expect(requests[0].filtering).toBe('nearest');
+        expect(requests[1].filtering).toBe(filtering ?? 'linear');
+        texture.update(canvas);
+        expect(requests[2].filtering).toBe(filtering ?? 'linear');
+    } finally {texture.destroy({force: true});}
+});
+
 test('portable null contexts and handle-free resources bypass raw GL scopes', () => {
     const resources: ReturnType<typeof createResource>[] = [];
     const scope = vi.spyOn(Context, 'withContext').mockImplementation(() => {throw new Error('portable resources must bypass WebGL scopes');});

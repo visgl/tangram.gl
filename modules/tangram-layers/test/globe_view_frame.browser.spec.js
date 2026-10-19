@@ -4,6 +4,7 @@
 
 import {describe, expect, it} from 'vitest';
 import {getGlobeViewFrame} from '../src/tangram-layer';
+import {_GlobeViewport as GlobeViewport, WebMercatorViewport} from '@deck.gl/core';
 
 const IDENTITY_MATRIX = [
   1, 0, 0, 0,
@@ -43,9 +44,7 @@ describe('getGlobeViewFrame', () => {
     expect(frame.viewport).toEqual({width: 900, height: 600});
     expect(frame.view.longitude).toBe(-74);
     expect(frame.view.latitude).toBe(40.7);
-    expect(frame.view.zoom).toBeCloseTo(
-      4 - Math.log2(Math.PI * Math.cos((40.7 * Math.PI) / 180)) + 1
-    );
+    expect(frame.view.zoom).toBe(5);
     expect(frame.projection).toEqual({
       type: 'globe',
       visibleBounds: [-120, -35, 10, 72]
@@ -56,16 +55,23 @@ describe('getGlobeViewFrame', () => {
     expect(frame.tileBuffer).toBe(0);
   });
 
-  it('matches the latitude-dependent scale used by deck GlobeViewport', () => {
-    const equatorFrame = getGlobeViewFrame(createViewport(0));
-    const midLatitudeFrame = getGlobeViewFrame(createViewport(60));
-    const northPoleFrame = getGlobeViewFrame(createViewport(90));
-    const mercatorLimitFrame = getGlobeViewFrame(createViewport(85.05112878));
-    const minimumZoomFrame = getGlobeViewFrame(createViewport(0, 0));
+  it.each([0, 40.7, 60, 85])('matches actual deck center magnification at latitude %s', latitude => {
+    const options = {width: 900, height: 600, longitude: -74, latitude, zoom: 4};
+    const globe = new GlobeViewport(options);
+    const planar = new WebMercatorViewport(options);
+    const offset = [-73.99999, latitude];
+    const globeCenter = globe.project([-74, latitude]);
+    const planarCenter = planar.project([-74, latitude]);
+    const globeOffset = globe.project(offset);
+    const planarOffset = planar.project(offset);
+    expect(globeOffset[0] - globeCenter[0]).toBeCloseTo(planarOffset[0] - planarCenter[0], 5);
+    expect(getGlobeViewFrame(globe).view.zoom).toBe(5);
+  });
 
-    expect(midLatitudeFrame.view.zoom - equatorFrame.view.zoom).toBeCloseTo(1);
-    expect(northPoleFrame.view.zoom).toBeCloseTo(mercatorLimitFrame.view.zoom);
-    expect(minimumZoomFrame.view.zoom).toBe(0);
+  it.each([-3, -1, 0, 3.25, 15])('preserves the source-pyramid zoom at deck zoom %s', zoom => {
+    for (const latitude of [0, 60, 90]) {
+      expect(getGlobeViewFrame(createViewport(latitude, zoom)).view.zoom).toBe(Math.max(0, zoom + 1));
+    }
   });
 
   it('rejects incomplete globe viewports', () => {

@@ -24,6 +24,26 @@ See [TangramLayer](../api-reference/tangram-layer.md),
 [projected basemaps](./projected-basemaps.md), and
 [WebXR presentation](../api-reference/webxr-presentation.md) for application APIs.
 
+### Globe detail and raster sampling
+
+MapView and GlobeView use the same deck-to-Tangram zoom offset: deck's
+512-pixel world becomes Tangram's 256-pixel world at `deckZoom + 1`.
+GlobeView's camera already compensates for latitude; applying that adjustment
+again to tile zoom underfetches detail near the equator and overfetches near
+the poles. Source `tile_size`, `zoom_offset`, maximum zoom and explicit host
+LOD policies still apply normally.
+
+When an immersive globe's silhouette falls between screen samples, visibility
+uses the union of the eyes' analytic horizon-cap bounds. Hit-only sample bounds
+can omit visible ground as data detail increases. This is conservative ground
+coverage, not a claim of minimal tile selection or elevated-feature bounds.
+
+Raster images default to linear sampling, like MapLibre and community
+basemap-layers. Explicit `filtering: nearest` remains useful for categorical
+data. A transparent loading placeholder does not change the loaded image's
+sampler. Comparison styles, lighting and globe cameras remain independent;
+shared geographic state alone is not a pixel-parity guarantee.
+
 ## Frame and package boundary
 
 `HostFrame` stores one shared geographic/style anchor plus named cameras,
