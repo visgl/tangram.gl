@@ -12,7 +12,10 @@ export const BLUE_MARBLE_ATTRIBUTION = 'Imagery: <a href="https://science.nasa.g
 export function createBlueMarbleScene() {
   return {
     scene: {background: {color: '#0b1729'}},
+    // Imagery is already shaded by its provider. Do not relight it with the
+    // legacy default directional light, especially across a curved globe.
+    styles: {blueMarble: {base: 'raster', lighting: false}},
     sources: {blueMarble: {type: 'Raster', url: BLUE_MARBLE_URL, max_zoom: 8, attribution: BLUE_MARBLE_ATTRIBUTION}},
-    layers: {ground: {data: {source: 'blueMarble'}, draw: {raster: {order: 0}}}}
+    layers: {ground: {data: {source: 'blueMarble'}, draw: {raster: {style: 'blueMarble', order: 0}}}}
   };
 }

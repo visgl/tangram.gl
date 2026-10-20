@@ -53,6 +53,7 @@ export function createComparisonStyle(basemapId: string, viewMode: string, provi
       'line-color': tron ? '#21d9ed' : '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.5, 15, 3, 20, 18]}},
     {id: 'buildings', type: 'fill-extrusion', source: 'basemap', 'source-layer': 'building', minzoom: 13, paint: {
       'fill-extrusion-color': tron ? '#8b54c6' : '#d6d0c8',
-      'fill-extrusion-height': ['coalesce', ['to-number', ['get', 'render_height']], ['to-number', ['get', 'height']], 10]}}
+      'fill-extrusion-height': ['to-number', ['coalesce', ['get', 'render_height'], ['get', 'height'], 20], 20],
+      'fill-extrusion-base': ['to-number', ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0], 0]}}
   ]};
 }

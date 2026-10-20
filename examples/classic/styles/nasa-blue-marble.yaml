@@ -5,6 +5,10 @@
 scene:
     background:
         color: '#0b1729'
+styles:
+    blueMarble:
+        base: raster
+        lighting: false
 sources:
     blueMarble:
         type: Raster
@@ -15,4 +19,4 @@ layers:
     ground:
         data: {source: blueMarble}
         draw:
-            raster: {order: 0}
+            raster: {style: blueMarble, order: 0}

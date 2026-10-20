@@ -28,6 +28,7 @@ test('the selectable classic NASA scene agrees with the shared basemap definitio
   expect(sceneValue(scene, 'sources.blueMarble')).toEqual({type: 'Raster', url: BLUE_MARBLE_URL,
     max_zoom: 8, attribution: BLUE_MARBLE_ATTRIBUTION});
   expect(scene.layers).toEqual(createBlueMarbleScene().layers);
+  expect(scene.styles).toEqual(createBlueMarbleScene().styles);
   expect(SCENE_OPTIONS.some(option => option.value === 'styles/nasa-blue-marble.yaml')).toBe(true);
   expect(getSceneOverview('styles/nasa-blue-marble.yaml')).toEqual([2, 0, 0]);
 });
