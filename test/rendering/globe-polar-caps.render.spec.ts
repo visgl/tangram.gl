@@ -19,8 +19,10 @@ afterEach(async () => {
 test.each([-80, 80])(`${DEVICE_TYPE}: the %s-degree-facing cap fills the polar hole and hides with the basemap`, async latitude => {
   harness = new RenderingHarness('globe'); await harness.initializeDevice();
   const canvas = harness.canvas;
+  let renderedImage: ImageData | undefined;
   const countCapPixels = async () => {
     const image = await readCanvasPixels(canvas);
+    renderedImage = image;
     let count = 0;
     for (let offset = 0; offset < image.data.length; offset += 4) {
       if (image.data[offset] > 220 && image.data[offset + 1] < 30 && image.data[offset + 2] > 220) count++;
@@ -28,12 +30,14 @@ test.each([-80, 80])(`${DEVICE_TYPE}: the %s-degree-facing cap fills the polar h
     return count;
   };
   deck = new Deck({canvas, device: harness.device, width: 512, height: 320, useDevicePixels: false,
-    views: new GlobeView({id: 'polar'}), initialViewState: {longitude: 0, latitude, zoom: 0},
+    views: new GlobeView({id: 'polar'}), initialViewState: {longitude: 0, latitude, zoom: 0}, _animate: true,
     onError: error => harness?.errors.push(error.message),
     layers: [createGlobePolarCaps([255, 0, 255], true)]});
   await expect.poll(countCapPixels, {timeout: 15000}).toBeGreaterThan(20);
   const pole = deck.getViewports()[0].project([0, Math.sign(latitude) * 90]);
-  const image = await readCanvasPixels(canvas);
+  // Reuse the successful readback: WebGPU may discard a presented back buffer.
+  const image = renderedImage;
+  if (!image) throw new Error('Missing cap readback');
   const offset = (Math.floor(pole[1]) * image.width + Math.floor(pole[0])) * 4;
   expect(Array.from(image.data.slice(offset, offset + 3))).toEqual([255, 0, 255]);
   expect(Array.from(image.data.slice(0, 3))).not.toEqual([255, 0, 255]);
