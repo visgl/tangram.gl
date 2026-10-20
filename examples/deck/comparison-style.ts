@@ -5,6 +5,41 @@
 import type {StyleSpecification, ExpressionSpecification} from 'maplibre-gl';
 import {BLUE_MARBLE_URL, BLUE_MARBLE_ATTRIBUTION} from '../classic/app/nasa-basemap.js';
 import {createVectorSource} from '../classic/app/vector-providers.js';
+import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from './streets-cartography';
+
+/** Preserve Streets' flat buildings and road hierarchy without translating Tangram shaders. */
+function createStreetsLayers(): StyleSpecification['layers'] {
+  const majorFilter: ExpressionSpecification = ['in', ['get', 'class'], ['literal', [...STREETS_MAJOR_ROAD_CLASSES]]];
+  const width = (major: boolean, outline: boolean): ExpressionSpecification => {
+    const expression: ExpressionSpecification = ['interpolate', ['linear'], ['zoom']];
+    for (const [zoom, pixels] of createStreetsRoadWidths(major)) {
+      // Tangram outlines extend by the configured width on each side.
+      expression.push(zoom - 1, Number.parseFloat(pixels) + (outline ? 2 : 0));
+    }
+    return expression;
+  };
+  const roads: StyleSpecification['layers'] = [];
+  for (const major of [false, true]) {
+    for (const outline of [true, false]) {
+      roads.push({id: `${major ? 'major-roads' : 'roads'}${outline ? '-outline' : ''}`, type: 'line',
+        source: 'basemap', 'source-layer': 'transportation',
+        filter: major ? majorFilter : ['!', majorFilter],
+        paint: {'line-color': major ? (outline ? STREETS_COLORS.majorRoadOutline : STREETS_COLORS.majorRoad)
+          : (outline ? STREETS_COLORS.roadOutline : STREETS_COLORS.road), 'line-width': width(major, outline)}});
+    }
+  }
+  return [
+    {id: 'background', type: 'background', paint: {'background-color': STREETS_COLORS.background}},
+    ...(['landcover', 'landuse', 'park', 'water'] as const).map(layer => ({
+      id: layer, type: 'fill' as const, source: 'basemap', 'source-layer': layer, paint: {'fill-color': STREETS_COLORS[layer]}
+    })),
+    {id: 'waterways', type: 'line', source: 'basemap', 'source-layer': 'waterway',
+      paint: {'line-color': STREETS_COLORS.waterway, 'line-width': 1}},
+    {id: 'buildings', type: 'fill', source: 'basemap', 'source-layer': 'building',
+      minzoom: STREETS_BUILDING_MIN_ZOOM - 1, paint: {'fill-color': STREETS_COLORS.building}},
+    ...roads
+  ];
+}
 
 /** Geographic camera state shared by the two independently owned renderers. */
 export interface ComparisonCamera {
@@ -55,7 +90,7 @@ export function createComparisonStyle(basemapId: string, viewMode: string, provi
   }}, layers: [{id: 'imagery', type: 'raster', source: 'basemap', paint: {'raster-fade-duration': 0}}]};
   const source = createVectorSource(provider), tron = basemapId === 'tron';
   return {version: 8, projection, sources: {basemap: {type: 'vector', maxzoom: source.max_zoom, attribution: source.attribution,
-    ...(source.tilejson ? {url: source.tilejson} : {tiles: [source.url]})}}, layers: [
+    ...(source.tilejson ? {url: source.tilejson} : {tiles: [source.url]})}}, layers: !tron ? createStreetsLayers() : [
     {id: 'background', type: 'background', paint: {'background-color': tron ? '#071b33' : '#f5f3ef'}},
     {id: 'landcover', type: 'fill', source: 'basemap', 'source-layer': 'landcover', paint: {'fill-color': tron ? '#0a2540' : '#e8eee5'}},
     {id: 'landuse', type: 'fill', source: 'basemap', 'source-layer': 'landuse', paint: {'fill-color': tron ? '#11263e' : '#eeeae2'}},

@@ -45,7 +45,18 @@ sampler. The optional MapLibre reference uses `vertical-perspective` for
 GlobeView rather than MapLibre's `globe` preset, which transitions to Mercator
 at zooms 11–12. Both cameras use the default 36.87-degree field of view;
 landmark projection is checked against the installed MapLibre implementation.
-Comparison styling is still independent, not a pixel-parity guarantee.
+The Streets reference shares the example's palette, flat building footprints,
+waterways, road hierarchy and width stops (with the 256/512-pixel zoom offset).
+This is not a pixel-parity guarantee: Tangram evaluates styles at tile style
+zoom and orders bridges/tunnels per feature, while the reference interpolates
+widths continuously and orders road classes by style layer.
+
+MapLibre is a comparison tool, not the rendering specification. Preserve
+Tangram's useful differences: animated TRON traffic, shader glow and water
+effects, labels and deck overlays are not reproduced by the static reference.
+TRON's reference remains an approximate geographic/building-height check,
+not a promise to match its shader colors or animation. Investigate geometric,
+camera and data differences separately from these intentional style choices.
 
 The ordinary deck GlobeView example closes the north and south polar holes
 with unlit, untextured sea-level caps. Their color follows the selected example
