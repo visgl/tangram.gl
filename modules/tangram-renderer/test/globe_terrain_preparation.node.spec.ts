@@ -6,6 +6,7 @@ import {expect, test} from 'vitest';
 import {GlobeTerrainPreparation, getPreparedGlobeTerrainTemplate, assertGlobeTerrainPreparationSnapshot} from '../src/map-logic/globe-terrain-preparation';
 import {prepareGlobeTerrainMesh, prepareGlobeTerrainMeshSteps, scaleGlobeTerrainMesh, scaleGlobeTerrainMeshSteps} from '../src/map-logic/globe-terrain';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
+import {TerrainResourceBudget} from '../src/map-logic/terrain-resource-budget';
 
 /** Tiny immutable physical grid; neighboring fixtures use matching square extents. */
 function grid(height = 1000, bounds: [number, number, number, number] = [-100000, -100000, 100000, 100000]): TerrainHeightGrid {
@@ -134,4 +135,54 @@ test('large no-data masks yield during validation and prefix construction before
     expect(steps).toBeGreaterThan(7); expect(result.value.triangleCount).toBeLessThan(8);
     const cancelled = prepareGlobeTerrainMeshSteps(source); expect(cancelled.next().done).toBe(false);
     expect(cancelled.return(result.value).done).toBe(true);
+});
+
+test('typed-template admission reports exact bytes and can reject before template allocation', () => {
+    const source = grid();
+    const expected = prepareGlobeTerrainMesh(source, {resolution: 4});
+    let admittedBytes = 0;
+    const steps = prepareGlobeTerrainMeshSteps(source, {resolution: 4, onAllocate: bytes => {admittedBytes = bytes;}});
+    let result = steps.next(); while (!result.done) result = steps.next();
+    expect(admittedBytes).toBe(expected.byteLength);
+    expect(scaleGlobeTerrainMesh(result.value)).toEqual(scaleGlobeTerrainMesh(expected));
+    const rejected = prepareGlobeTerrainMeshSteps(source, {resolution: 4, onAllocate: () => {throw new Error('admission fixture');}});
+    expect(() => {while (!rejected.next().done) {/* finish topology */}}).toThrow('admission fixture');
+});
+
+test('shared template admission preserves the incumbent and recovers only after capacity is available', () => {
+    const source = grid(), replacement = grid(2000);
+    const bytes = prepareGlobeTerrainMesh(source, {resolution: 4}).byteLength;
+    const budget = new TerrainResourceBudget(bytes * 2);
+    const preparation = new GlobeTerrainPreparation(bytes * 4, {resourceBudget: budget});
+    preparation.request([source], 4); finish(preparation);
+    const first = preparation.getSnapshot();
+    const blocker = budget.reserve('gpu', bytes);
+    preparation.request([replacement], 4); finish(preparation);
+    expect(preparation.getSnapshot()).toBe(first);
+    expect(preparation.getStatistics()).toMatchObject({prepared: 0, requiredPeakBytes: bytes * 2, error: expect.stringContaining('shared resource budget')});
+    expect(budget.getStatistics()).toMatchObject({bytes: bytes * 2, leases: 2});
+    blocker?.release(); expect(preparation.retry()).toBe(true); finish(preparation);
+    expect(preparation.getSnapshot()).not.toBe(first);
+    expect(budget.getStatistics()).toMatchObject({bytes, leases: 1, peakBytes: bytes * 2});
+    preparation.destroy(); preparation.destroy(); expect(budget.getStatistics().bytes).toBe(0);
+});
+
+test('cancellation releases partially allocated template reservations and allows the same request again', () => {
+    const source = grid(), budget = new TerrainResourceBudget(1024 * 1024);
+    const preparation = new GlobeTerrainPreparation(undefined, {resourceBudget: budget});
+    preparation.request([source], 4); finish(preparation);
+    const first = preparation.getSnapshot(), retainedBytes = budget.getStatistics().bytes;
+    preparation.request([source], 16);
+    let steps = 0; const now = clock();
+    while (budget.getStatistics().bytes === retainedBytes && preparation.isPending()) {
+        preparation.advance(1, now); if (++steps > 1000) throw new Error('Missing allocation fence');
+    }
+    expect(budget.getStatistics().bytes).toBeGreaterThan(retainedBytes);
+    expect(preparation.cancel()).toBe(true); expect(preparation.cancel()).toBe(false);
+    expect(preparation.getSnapshot()).toBe(first);
+    expect(budget.getStatistics().bytes).toBe(retainedBytes);
+    expect(preparation.request([source], 16)).toBe(true); finish(preparation);
+    preparation.request([], 4); finish(preparation);
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+    preparation.destroy();
 });

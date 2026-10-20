@@ -245,6 +245,19 @@ It does not resample or restitch; final typed-array copies are indivisible.
 The optional layer-side [display controller](../globe-terrain-layer.md#prepareddisplay-optional)
 combines this generator with atomic query snapshots and geometry admission.
 
+`new GlobeTerrainPreparation(maxRetainedBytes, {resourceBudget})` optionally
+shares admission with other registered owners. The controller checks exact
+final typed-template bytes before allocating gradients and output buffers;
+`requiredPeakBytes` reports the current-plus-candidate requirement. Temporary
+JavaScript topology, sampling masks and source arrays are outside that fence.
+The lower-level generator's optional `onAllocate(bytes, identity)` callback may
+throw to reject allocation; the identity cannot be scaled until preparation
+returns successfully.
+
+`cancel()` abandons staged work, releases its reservations and preserves the
+completed snapshot. A subsequent identical `request()` can restart it. Failure
+still requires `retry()` or a changed request; it does not retry every frame.
+
 The constructor limits unique **retained template buffers across current and
 staged generations**, default 96 MiB. Admission failure discards staged work and
 keeps current terrain. It does not automatically retry: call `retry()` or request
@@ -287,6 +300,20 @@ null. A lease supports atomic `resize(bytes)` and idempotent `release()`. Reject
 reservations leave incumbent owners untouched. Diagnostics separate retained CPU,
 transient reservations and GPU estimates and record their simultaneous peak.
 Only registered owners are covered; this is not browser-process measurement.
+
+`reserveAll(requests)` admits a complete batch or returns null without changing
+incumbent bytes, leases or peak. Entries contain `domain`, `bytes`, and an optional
+shared `identity`. `reserveShared(identity, domain, bytes)` retains one immutable
+allocation across owners: matching metadata counts its bytes once, while every
+owner must release its own lease. A shared lease cannot resize the allocation.
+Incompatible metadata rejects the whole batch before mutation.
+
+Pass the same pool to template and display preparation to preserve accounting
+when a displayed generation still references a retired source template. Template
+bytes remain registered until the last preparation/display owner releases them.
+External snapshots retained after their controller retires them need separate
+application lifetime accounting. Lazy query indexes, scratch storage, driver
+overhead and unregistered buffers are not silently included in these totals.
 
 ## Conservative navigation
 

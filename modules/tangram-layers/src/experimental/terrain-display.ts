@@ -4,7 +4,8 @@
 
 import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
 import {assertGlobeTerrainPreparationSnapshot, getPreparedGlobeTerrainTemplate, getGlobeTerrainExaggeration, scaleGlobeTerrainMeshSteps,
-    type GlobeTerrainMesh, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+    type GlobeTerrainMesh, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid,
+    type TerrainResourceBudget, type TerrainResourceLease} from '@vis.gl/tangram-renderer/map-logic';
 
 /** Packed attributes shared with deck.gl; raw spherical/physical arrays are copied into the query owner. */
 export function getTerrainRenderMesh(mesh: GlobeTerrainMesh) {
@@ -93,6 +94,10 @@ export class GlobeTerrainDisplayPreparation {
     private readonly maxDisplayBytes: number;
     private readonly maxQueryIndexBytes: number;
     private readonly statistics: Omit<GlobeTerrainDisplayStatistics, 'retainedBytes' | 'queryIndexBytes'>;
+    /** Registered current/staged geometry only; query acceleration and external snapshots are separate owners. */
+    private readonly leases = new Map<GlobeTerrainDisplayTile, readonly TerrainResourceLease[]>();
+    /** Shared registered-allocation pool, without owning the pool or other clients. */
+    private readonly resourceBudget?: TerrainResourceBudget;
 
     /** Budget retained geometry and lazy acceleration separately; scratch, templates and GPU memory are excluded. */
     constructor(options: {
@@ -100,9 +105,12 @@ export class GlobeTerrainDisplayPreparation {
         maxDisplayBytes?: number;
         /** Current lazy query hierarchy cap; defaults to 64 MiB. */
         maxQueryIndexBytes?: number;
+        /** Shared registered-allocation budget for retained display/query geometry, excluding lazy indexes and scratch. */
+        resourceBudget?: TerrainResourceBudget;
     } = {}) {
         this.maxDisplayBytes = options.maxDisplayBytes ?? 128 * 1024 * 1024;
         this.maxQueryIndexBytes = options.maxQueryIndexBytes ?? 64 * 1024 * 1024;
+        this.resourceBudget = options.resourceBudget;
         for (const limit of [this.maxDisplayBytes, this.maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
         this.statistics = {pending: 0, byteLimit: this.maxDisplayBytes, requiredPeakBytes: 0, warmedIndexes: 0, deferredIndexes: 0, prepared: 0, reused: 0, committed: 0, cancelled: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0};
     }
@@ -112,8 +120,7 @@ export class GlobeTerrainDisplayPreparation {
         if (this.disposed) throw new Error('Globe terrain display preparation is disposed');
         assertGlobeTerrainPreparationSnapshot(terrain); getGlobeTerrainExaggeration(0, exaggeration);
         if (this.target?.terrain === terrain && this.target.exaggeration === exaggeration) return false;
-        if (this.iterator) this.statistics.cancelled++;
-        this.iterator?.return(); this.staged = []; this.target = {terrain, exaggeration};
+        this.cancel(); this.target = {terrain, exaggeration};
         Object.assign(this.statistics, {pending: terrain.grids.length, requiredPeakBytes: 0, warmedIndexes: 0, deferredIndexes: 0, prepared: 0, reused: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0, error: undefined});
         this.iterator = this.prepare(terrain, exaggeration);
         return true;
@@ -131,6 +138,7 @@ export class GlobeTerrainDisplayPreparation {
             } while (now() - started < budgetMs);
         } catch (error) {
             this.iterator?.return(); this.iterator = undefined; this.staged = []; this.statistics.pending = 0;
+            this.releaseUnusedLeases();
             this.statistics.error = error instanceof Error ? error.message : String(error);
         }
         const elapsed = Math.max(0, now() - started);
@@ -157,13 +165,28 @@ export class GlobeTerrainDisplayPreparation {
     /** True while work awaits the next host slice. */
     isPending(): boolean {return Boolean(this.iterator);}
 
+    /** Cancel staged rescaling and release its reservations while keeping the displayed generation. */
+    cancel(): boolean {
+        const pending = Boolean(this.iterator);
+        if (pending) this.statistics.cancelled++;
+        this.iterator?.return(); this.iterator = undefined; this.staged = []; this.target = undefined; this.statistics.pending = 0;
+        this.releaseUnusedLeases();
+        return pending;
+    }
+
     /** Close staged generators and release owned references; external snapshots remain the caller's responsibility. */
     destroy(): void {
-        this.iterator?.return(); this.iterator = undefined; this.staged = []; this.current = undefined; this.target = undefined; this.statistics.pending = 0; this.disposed = true;
+        this.cancel(); this.current = undefined; this.releaseUnusedLeases(); this.disposed = true;
     }
 
     /** Count shared tile handles once, including already allocated lazy query indexes. */
     private getOwnedTiles(): GlobeTerrainDisplayTile[] {return [...new Set([...(this.current ? resolveGlobeTerrainDisplay(this.current) : []), ...this.staged])];}
+
+    /** External snapshots are not owned by this preparation object and require their own lifetime accounting. */
+    private releaseUnusedLeases(): void {
+        const retained = new Set(this.getOwnedTiles());
+        for (const [tile, leases] of this.leases) if (!retained.has(tile)) {for (const lease of leases) lease.release(); this.leases.delete(tile);}
+    }
 
     /** Preflight a whole replacement before scaling; reuse compatible complete tiles and commit them together. */
     private *prepare(terrain: GlobeTerrainPreparationSnapshot, exaggeration: number): Generator<void, void, void> {
@@ -178,29 +201,43 @@ export class GlobeTerrainDisplayPreparation {
         const currentBytes = this.current?.byteLength ?? 0, newBytes = candidates.reduce((sum, tile) => sum + (tile.retained ? 0 : displayBytes(tile.template)), 0);
         this.statistics.requiredPeakBytes = currentBytes + newBytes;
         if (newBytes > 0 && currentBytes + newBytes > this.maxDisplayBytes) throw new Error('Globe terrain display-byte limit exceeded; previous terrain retained');
-        for (const candidate of candidates) {
-            if (candidate.retained) {this.staged.push(candidate.retained); this.statistics.reused++;}
-            else {
-                let scaled: GlobeTerrainMesh | undefined = yield* scaleGlobeTerrainMeshSteps(candidate.template, exaggeration);
-                const surface = new TerrainMeshSurface({projection: 'globe', positions: scaled.positions, indices: scaled.indices, physicalHeights: scaled.physicalHeights, cullBackfaces: true, maxQueryIndexBytes: queryLimit});
-                this.staged.push({grid: candidate.grid, template: candidate.template, exaggeration, mesh: getTerrainRenderMesh(scaled), surface, queryLimit});
-                scaled = undefined; this.statistics.prepared++;
-                const required = surface.getStatistics().requiredQueryIndexBytes;
-                if (required > 0 && required <= queryLimit) {
-                    // Reserve even cold current indexes: an input event may build them between host slices.
-                    const currentTiles = new Set(this.current ? resolveGlobeTerrainDisplay(this.current) : []);
-                    const reserved = this.getOwnedTiles().reduce((sum, tile) => {
-                        const statistics = tile.surface.getStatistics();
-                        return sum + (currentTiles.has(tile) && statistics.requiredQueryIndexBytes <= tile.queryLimit ? statistics.requiredQueryIndexBytes : statistics.queryIndexBytes);
-                    }, 0);
-                    if (reserved + required <= this.maxQueryIndexBytes) {
-                        yield* surface.prepareQueryIndexSteps(); this.statistics.warmedIndexes++;
-                    } else this.statistics.deferredIndexes++;
+        const reservations = this.resourceBudget?.reserveAll(candidates.filter(tile => !tile.retained).flatMap(tile => [
+            {domain: 'retained' as const, bytes: tile.template.byteLength, identity: tile.template},
+            {domain: 'retained' as const, bytes: displayBytes(tile.template)}])) ??
+            (this.resourceBudget ? null : []);
+        if (!reservations) throw new Error('Globe terrain display shared resource budget exceeded; previous terrain retained');
+        let reservationIndex = 0;
+        try {
+            for (const candidate of candidates) {
+                if (candidate.retained) {this.staged.push(candidate.retained); this.statistics.reused++;}
+                else {
+                    let scaled: GlobeTerrainMesh | undefined = yield* scaleGlobeTerrainMeshSteps(candidate.template, exaggeration);
+                    const surface = new TerrainMeshSurface({projection: 'globe', positions: scaled.positions, indices: scaled.indices, physicalHeights: scaled.physicalHeights, cullBackfaces: true, maxQueryIndexBytes: queryLimit});
+                    const tile = {grid: candidate.grid, template: candidate.template, exaggeration, mesh: getTerrainRenderMesh(scaled), surface, queryLimit};
+                    const tileReservations = reservations.slice(reservationIndex, reservationIndex + 2); reservationIndex += 2;
+                    if (tileReservations.length) this.leases.set(tile, tileReservations);
+                    this.staged.push(tile);
+                    scaled = undefined; this.statistics.prepared++;
+                    const required = surface.getStatistics().requiredQueryIndexBytes;
+                    if (required > 0 && required <= queryLimit) {
+                        // Reserve even cold current indexes: an input event may build them between host slices.
+                        const currentTiles = new Set(this.current ? resolveGlobeTerrainDisplay(this.current) : []);
+                        const reserved = this.getOwnedTiles().reduce((sum, tile) => {
+                            const statistics = tile.surface.getStatistics();
+                            return sum + (currentTiles.has(tile) && statistics.requiredQueryIndexBytes <= tile.queryLimit ? statistics.requiredQueryIndexBytes : statistics.queryIndexBytes);
+                        }, 0);
+                        if (reserved + required <= this.maxQueryIndexBytes) {
+                            yield* surface.prepareQueryIndexSteps(); this.statistics.warmedIndexes++;
+                        } else this.statistics.deferredIndexes++;
+                    }
                 }
+                this.statistics.pending--; yield;
             }
-            this.statistics.pending--; yield;
+            const snapshot = Object.freeze({terrain, exaggeration, byteLength: this.staged.reduce((sum, tile) => sum + displayBytes(tile.template), 0), maxDisplayBytes: this.maxDisplayBytes, maxQueryIndexBytes: this.maxQueryIndexBytes});
+            displays.set(snapshot, this.staged); this.current = snapshot; this.staged = []; this.statistics.committed++; this.releaseUnusedLeases();
+        } finally {
+            const adopted = new Set([...this.leases.values()].flat());
+            for (const reservation of reservations) if (!adopted.has(reservation)) reservation.release();
         }
-        const snapshot = Object.freeze({terrain, exaggeration, byteLength: this.staged.reduce((sum, tile) => sum + displayBytes(tile.template), 0), maxDisplayBytes: this.maxDisplayBytes, maxQueryIndexBytes: this.maxQueryIndexBytes});
-        displays.set(snapshot, this.staged); this.current = snapshot; this.staged = []; this.statistics.committed++;
     }
 }

@@ -93,8 +93,13 @@ for the implemented bounds and failure policies.
 | 8. Type and coverage hardening | Replace residual broad dynamic types with normalized scene/style/source contracts; migrate remaining JS tests and simple Chai/Sinon usage; exercise untested ownership/error paths. | Raise each authored-package coverage metric above 90% without weaker thresholds/exclusions; no suppression regressions; unchanged runtime outputs and browser/worker coverage rather than assertions about types alone. |
 
 Batch 1's remaining priority is arbitrary cross-topology transitions beyond the
-supported source-lattice precision envelope. Batches 2–3 share resource and
-profiling work and can form one substantial follow-up. Batch 8 can run independently;
+supported source-lattice precision envelope. Batches 2–3 now include exact
+typed-template admission fences, atomic multi-allocation reservations, shared
+template identities across preparation/display owners, cancellation that preserves
+the current generation, and shared-pool example diagnostics. Retired external
+snapshots, scratch/mask storage, lazy query acceleration and unregistered GPU
+allocations still require explicit lifetime/admission integration; these changes
+do not certify a browser-process memory bound. Batch 8 can run independently;
 it must not be described as another filename-only TypeScript migration.
 Batch 7 requires published upstream fixes; do not block unrelated terrain work on it.
 

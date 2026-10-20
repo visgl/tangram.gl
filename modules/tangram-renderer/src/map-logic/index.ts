@@ -17,7 +17,7 @@ export {TERRARIUM_DECODER, TERRAIN_RGB_DECODER, decodeTerrainHeightGrid, sampleT
 export {sampleTerrainNeighborhood, resampleTerrainNodes} from './terrain-neighborhood';
 export {TerrainHeightField} from './terrain-height-field';
 export {TerrainResourceBudget} from './terrain-resource-budget';
-export type {TerrainResourceDomain, TerrainResourceLease} from './terrain-resource-budget';
+export type {TerrainResourceDomain, TerrainResourceLease, TerrainResourceRequest} from './terrain-resource-budget';
 export {measureTerrainError, boundTerrainMeshError, selectTerrainMeshResolution, boundProjectedDisplacement} from './terrain-error';
 export type {TerrainErrorEnvelope} from './terrain-error';
 export {guardTerrainMotion} from './terrain-navigation';
