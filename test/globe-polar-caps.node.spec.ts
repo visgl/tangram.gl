@@ -18,8 +18,8 @@ test('polar caps close both poles with finite sea-level geometry outside the til
     expect(Math.abs(positions[index + 1])).toBeGreaterThan(85);
     expect(Math.abs(positions[index + 1])).toBeLessThanOrEqual(90);
     expect(positions[index + 2]).toBe(0);
-    north ||= positions[index + 1] === 90;
-    south ||= positions[index + 1] === -90;
+    north ||= positions[index + 1] > 89.7;
+    south ||= positions[index + 1] < -89.7;
   }
   expect(north && south).toBe(true);
 });

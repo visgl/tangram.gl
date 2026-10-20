@@ -24,12 +24,13 @@ export function createGlobePolarCapMesh() {
         positions.push(longitude, latitude, 0);
       }
     }
-    const pole = positions.length / 3;
-    positions.push(0, hemisphere * 90, 0);
-    for (let longitudeIndex = 0; longitudeIndex < longitudeSegments; longitudeIndex++) {
-      const first = start + (latitudeSegments - 1) * (longitudeSegments + 1) + longitudeIndex;
-      if (hemisphere > 0) indices.push(first, first + 1, pole);
-      else indices.push(first, pole, first + 1);
+    // Triangulate the final small ring without a singular 90-degree vertex.
+    // The spherical ring encloses the pole; chords cover its interior just as
+    // they do elsewhere on a tessellated globe.
+    const poleRing = start + (latitudeSegments - 1) * (longitudeSegments + 1);
+    for (let longitudeIndex = 1; longitudeIndex < longitudeSegments - 1; longitudeIndex++) {
+      if (hemisphere > 0) indices.push(poleRing, poleRing + longitudeIndex, poleRing + longitudeIndex + 1);
+      else indices.push(poleRing, poleRing + longitudeIndex + 1, poleRing + longitudeIndex);
     }
     for (let latitudeIndex = 0; latitudeIndex < latitudeSegments - 1; latitudeIndex++) {
       for (let longitudeIndex = 0; longitudeIndex < longitudeSegments; longitudeIndex++) {

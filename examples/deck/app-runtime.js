@@ -281,14 +281,10 @@ export function initializeDeckExample({
     const attributionBasemapId = basemapId;
     const layers = [];
     const usesGlobeOverlay = viewModeId === 'globe';
-    if (usesGlobeOverlay) {
-      const polarColor = basemapId === 'streetsVector' ? [245, 243, 239] :
-        basemapId === 'blueMarbleRaster' ? [235, 241, 245] : [8, 17, 31];
-      layers.push(createGlobePolarCaps(polarColor, basemapVisible));
-    }
+    const basemapAvailable = viewMode.supportsTangram && (!basemap.requiresApiKey || (apiKey && nextzenKeyValidated));
     const overlayLandmarks = usesGlobeOverlay ? globeLandmarks : landmarks;
     const overlayPath = usesGlobeOverlay ? globePath : bridgePath;
-    if (viewMode.supportsTangram && (!basemap.requiresApiKey || (apiKey && nextzenKeyValidated))) {
+    if (basemapAvailable) {
       layers.push(
         new TangramLayer({
           id: 'tangram-basemap',
@@ -309,6 +305,12 @@ export function initializeDeckExample({
           onSceneError: (error) => setStatus(error.message, 'error')
         })
       );
+      // The legacy WebGL basemap clears its pass; caps must follow it.
+      if (usesGlobeOverlay) {
+        const polarColor = basemapId === 'streetsVector' ? [245, 243, 239] :
+          basemapId === 'blueMarbleRaster' ? [235, 241, 245] : [8, 17, 31];
+        layers.push(createGlobePolarCaps(polarColor, basemapVisible));
+      }
     }
     if (showOverlays) {
       layers.push(
