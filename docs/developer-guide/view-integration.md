@@ -65,6 +65,23 @@ geometry, not renderer tile data, and do not add polar imagery, terrain,
 features or picking. Mercator tile loading and the renderer's projection
 domain remain unchanged.
 
+### Comparison audit: correctness versus presentation
+
+Recent comparison fixes intentionally have different scopes:
+
+| Change | Scope and preserved behavior |
+| --- | --- |
+| Raster sampling and globe tile detail | Correct placeholder-sampler leakage and duplicate zoom adjustment. Explicit nearest filtering and host LOD policies remain supported. |
+| Land behind courtyards | Add example-owned background geometry. Do not fill polygon holes, replace tessellation, or clear the host framebuffer. |
+| Streets and Blue Marble lighting | Opt these example styles out of incidental relighting. Keep renderer lights, custom lit scenes and TRON shader blocks intact. |
+| Globe caps and comparison projection | Caps are illustrative example geometry, not fabricated source data. Set the reference camera to deck's persistent globe model, rather than changing Tangram to follow MapLibre's globe-to-Mercator transition. |
+
+Use the comparison to isolate camera, topology, source-detail and data errors.
+Do not remove animation, shader effects, lighting controls, label placement or
+deck integration merely because the reference does not implement them. Road
+intersection/casing ordering still warrants comparison; shared colors alone
+do not establish equivalent geometry or draw order.
+
 ## Frame and package boundary
 
 `HostFrame` stores one shared geographic/style anchor plus named cameras,
