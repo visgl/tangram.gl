@@ -17,7 +17,8 @@ test('Blue Marble is a fresh raster scene with GIBS bounds and safe NASA credits
   expect(first.sources.blueMarble).not.toBe(second.sources.blueMarble);
   expect(first.sources.blueMarble).toEqual({type: 'Raster', url: BLUE_MARBLE_URL,
     max_zoom: 8, attribution: BLUE_MARBLE_ATTRIBUTION});
-  expect(first.layers.ground).toEqual({data: {source: 'blueMarble'}, draw: {raster: {order: 0}}});
+  expect(first.styles.blueMarble).toEqual({base: 'raster', lighting: false});
+  expect(first.layers.ground).toEqual({data: {source: 'blueMarble'}, draw: {raster: {style: 'blueMarble', order: 0}}});
   const element = document.createElement('p');
   updateAttribution(element, [createVectorSource().attribution]);
   updateAttribution(element, [BLUE_MARBLE_ATTRIBUTION]);

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {StyleSpecification} from 'maplibre-gl';
+import type {StyleSpecification, ExpressionSpecification} from 'maplibre-gl';
 import {BLUE_MARBLE_URL, BLUE_MARBLE_ATTRIBUTION} from '../classic/app/nasa-basemap.js';
 import {createVectorSource} from '../classic/app/vector-providers.js';
 
@@ -34,6 +34,16 @@ export function normalizeComparisonCamera(camera: ComparisonCamera, viewMode: st
     pitch: viewMode === 'mapFlat' || viewMode === 'globe' ? 0 : Math.max(0, Math.min(50, camera.pitch ?? 0))};
 }
 
+/** Convert each height candidate separately, without accepting null, booleans or non-finite values. */
+function coerceBuildingHeight(field: string, fallback: number | ExpressionSpecification): ExpressionSpecification {
+  const raw = `raw_${field}`, parsed = `parsed_${field}`;
+  return ['let', raw, ['get', field], ['let', parsed, ['case',
+    ['all', ['in', ['typeof', ['var', raw]], ['literal', ['number', 'string']]], ['!=', ['var', raw], '']],
+    ['to-number', ['var', raw], fallback], fallback],
+  ['case', ['all', ['>=', ['var', parsed], -Number.MAX_VALUE], ['<=', ['var', parsed], Number.MAX_VALUE]],
+    ['var', parsed], fallback]]];
+}
+
 /** Build a static reference from the same imagery or vector provider, not a Tangram shader translation. */
 export function createComparisonStyle(basemapId: string, viewMode: string, provider = 'openfreemap'): StyleSpecification {
   if (getComparisonLimitation(viewMode, basemapId)) throw new Error('Unsupported MapLibre comparison');
@@ -53,7 +63,7 @@ export function createComparisonStyle(basemapId: string, viewMode: string, provi
       'line-color': tron ? '#21d9ed' : '#ffffff', 'line-width': ['interpolate', ['linear'], ['zoom'], 3, 0.5, 15, 3, 20, 18]}},
     {id: 'buildings', type: 'fill-extrusion', source: 'basemap', 'source-layer': 'building', minzoom: 13, paint: {
       'fill-extrusion-color': tron ? '#8b54c6' : '#d6d0c8',
-      'fill-extrusion-height': ['to-number', ['coalesce', ['get', 'render_height'], ['get', 'height'], 20], 20],
-      'fill-extrusion-base': ['to-number', ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0], 0]}}
+      'fill-extrusion-height': coerceBuildingHeight('render_height', coerceBuildingHeight('height', 20)),
+      'fill-extrusion-base': coerceBuildingHeight('render_min_height', coerceBuildingHeight('min_height', 0))}}
   ]};
 }

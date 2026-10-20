@@ -10,14 +10,8 @@ export function createUnlitVectorStyles() {
   };
 }
 
-/** Minimal feature context passed to a serialized Tangram draw function. */
-interface BuildingContext {
-  /** Source feature, before any schema-specific height aliases are introduced. */
-  feature: {
-    /** OpenMapTiles render heights or legacy Tangram height fields, in meters. */
-    properties: Record<string, unknown>;
-  };
-}
+/** Tangram supplies feature properties when compiling a closure-free draw function. */
+declare const feature: Record<string, unknown>;
 
 /**
  * Resolve OpenMapTiles' render heights for TRON roofs and outlines together.
@@ -25,10 +19,10 @@ interface BuildingContext {
  * Zero is a valid height; missing or malformed render fields fall back to
  * legacy height fields, then Tangram's historical 20/0-meter defaults.
  */
-export function openMapTilesBuildingExtrusion(context: BuildingContext): [number, number] {
-  const properties = context.feature.properties;
+export function openMapTilesBuildingExtrusion(): [number, number] {
+  const properties = feature;
   const readHeight = (value: unknown): number | undefined => {
-    if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) return undefined;
+    if (typeof value !== 'number' && (typeof value !== 'string' || value === '')) return undefined;
     const height = Number(value);
     return Number.isFinite(height) ? height : undefined;
   };

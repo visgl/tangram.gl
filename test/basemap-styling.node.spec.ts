@@ -3,6 +3,9 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
+import {transformSync} from 'esbuild';
+import {createExpression} from '@maplibre/maplibre-gl-style-spec';
+import {compileFunctionString} from '../modules/tangram-renderer/src/utils/functions';
 import {createUnlitVectorStyles, openMapTilesBuildingExtrusion} from '../examples/deck/basemap-styling';
 import {createBlueMarbleScene} from '../examples/classic/app/nasa-basemap.js';
 import {createComparisonStyle} from '../examples/deck/comparison-style';
@@ -25,16 +28,28 @@ test.each([
   {properties: {render_height: '', render_min_height: false}, expected: [0, 20]},
   {properties: {}, expected: [0, 20]}
 ])('worker-safe building height normalization: $properties', ({properties, expected}) => {
-  expect(openMapTilesBuildingExtrusion({feature: {properties}})).toEqual(expected);
+  const evaluate = compileHeightCallback(openMapTilesBuildingExtrusion.toString());
+  expect(evaluate({feature: {properties}})).toEqual(expected);
+  const reference = createComparisonStyle('tron', 'mapPerspective').layers.find(layer => layer.id === 'buildings');
+  if (reference?.type !== 'fill-extrusion') throw new Error('Missing reference building style');
+  const keys: readonly ('fill-extrusion-base' | 'fill-extrusion-height')[] = ['fill-extrusion-base', 'fill-extrusion-height'];
+  for (const [index, key] of keys.entries()) {
+    const expression = createExpression(reference.paint?.[key], `layers.buildings.paint.${key}`);
+    if (expression.result !== 'success') throw new Error(JSON.stringify(expression.value));
+    expect(expression.value.evaluate({zoom: 15}, {type: 3, properties})).toEqual(expected[index]);
+  }
 });
 
-test('reference buildings use the same height aliases, bases and fallback', () => {
-  const reference = createComparisonStyle('tron', 'mapPerspective');
-  const buildings = reference.layers.find(layer => layer.id === 'buildings');
-  expect(buildings?.type).toBe('fill-extrusion');
-  if (buildings?.type !== 'fill-extrusion') throw new Error('Missing reference building style');
-  expect(buildings.paint?.['fill-extrusion-base']).toEqual(
-    ['to-number', ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0], 0]);
-  expect(buildings.paint?.['fill-extrusion-height']).toEqual(
-    ['to-number', ['coalesce', ['get', 'render_height'], ['get', 'height'], 20], 20]);
+test.each([false, true])('height callback survives worker serialization; minified=%s', minified => {
+  const original = openMapTilesBuildingExtrusion.toString();
+  const source = minified ? transformSync(original, {minify: true}).code : original;
+  const evaluate = compileHeightCallback(source);
+  expect(evaluate({feature: {properties: {render_height: 120, render_min_height: 20}}})).toEqual([20, 120]);
 });
+
+/** Exercise the feature binding used by the worker without importing browser-only scene machinery in Node. */
+function compileHeightCallback(source: string) {
+  const evaluate = compileFunctionString(source, body => `var feature = context.feature.properties;\n${body}`);
+  if (typeof evaluate !== 'function') throw new Error('Height callback did not compile');
+  return evaluate;
+}
