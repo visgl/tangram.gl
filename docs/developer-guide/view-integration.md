@@ -54,6 +54,12 @@ bridge/tunnel precedence over road class, honor explicit numeric `layer` values
 and clamp grades to [-5, 5]. The reference accepts finite numeric layer values;
 Tangram retains its legacy permissive `parseInt` behavior for malformed strings.
 
+The Streets order callback is a closure-free declared function, not an arrow.
+Tangram's worker compiler recognizes `function (...) { ... }` strings; the old
+arrow arrived as text and was parsed as order zero, causing road/casing depth
+conflicts. Serialized/minified callback and offline crossing tests protect the
+authored class/grade priorities rather than replacing them with reference rules.
+
 MapLibre is a comparison tool, not the rendering specification. Preserve
 Tangram's useful differences: animated TRON traffic, shader glow and water
 effects, labels and deck overlays are not reproduced by the static reference.

@@ -23,7 +23,11 @@ export function createStreetsRoadWidths(major = false): [number, string][] {
 /** Properties provided by Tangram when compiling the closure-free draw callback. */
 declare const feature: {layer?: number | string; brunnel?: string; class?: string};
 
-/** Preserve grade separation before road class; keep all helpers inside the serialized function. */
+/**
+ * Preserve grade separation before road class; keep all helpers inside the serialized function.
+ * This must remain a declared function: the worker compiler does not recognize
+ * arrow-function strings, which would turn the intended order into zero.
+ */
 export function getStreetsRoadOrder(): number {
   const classOrder: Record<string, number> = {
     path: 0, track: 1, service: 2, minor: 3, tertiary: 4, secondary: 5, primary: 6, trunk: 7, motorway: 8
