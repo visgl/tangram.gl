@@ -11,6 +11,7 @@ import {createCollapsibleInfoCard} from './info-card.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createBasemapBackground} from './basemap-background.ts';
+import {createGlobePolarCaps} from './globe-polar-caps.ts';
 import {createUnlitVectorStyles, openMapTilesBuildingExtrusion} from './basemap-styling.ts';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
@@ -280,6 +281,11 @@ export function initializeDeckExample({
     const attributionBasemapId = basemapId;
     const layers = [];
     const usesGlobeOverlay = viewModeId === 'globe';
+    if (usesGlobeOverlay) {
+      const polarColor = basemapId === 'streetsVector' ? [245, 243, 239] :
+        basemapId === 'blueMarbleRaster' ? [235, 241, 245] : [8, 17, 31];
+      layers.push(createGlobePolarCaps(polarColor, basemapVisible));
+    }
     const overlayLandmarks = usesGlobeOverlay ? globeLandmarks : landmarks;
     const overlayPath = usesGlobeOverlay ? globePath : bridgePath;
     if (viewMode.supportsTangram && (!basemap.requiresApiKey || (apiKey && nextzenKeyValidated))) {
