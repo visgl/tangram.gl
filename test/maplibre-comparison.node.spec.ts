@@ -30,7 +30,7 @@ test.each([false, true])('road widths preserve Tangram stop values and two-sided
     const expression = createExpression(layer.paint?.['line-width'], 'layers.roads.paint.line-width');
     if (expression.result !== 'success') throw new Error(JSON.stringify(expression.value));
     for (const [zoom, pixels] of createStreetsRoadWidths(major)) {
-      expect(expression.value.evaluate({zoom: zoom - 1}, null)).toBe(Number.parseFloat(pixels) + (outline ? 2 : 0));
+      expect(expression.value.evaluate({zoom: zoom - 1})).toBe(Number.parseFloat(pixels) + (outline ? 2 : 0));
     }
     expect(layer.filter).toEqual(major
       ? ['in', ['get', 'class'], ['literal', [...STREETS_MAJOR_ROAD_CLASSES]]]
