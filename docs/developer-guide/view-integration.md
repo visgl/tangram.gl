@@ -48,8 +48,11 @@ landmark projection is checked against the installed MapLibre implementation.
 The Streets reference shares the example's palette, flat building footprints,
 waterways, road hierarchy and width stops (with the 256/512-pixel zoom offset).
 This is not a pixel-parity guarantee: Tangram evaluates styles at tile style
-zoom and orders bridges/tunnels per feature, while the reference interpolates
-widths continuously and orders road classes by style layer.
+zoom and orders roads and casings per feature, while the reference interpolates
+widths continuously and draws casings then fills within each grade. Both retain
+bridge/tunnel precedence over road class, honor explicit numeric `layer` values
+and clamp grades to [-5, 5]. The reference accepts finite numeric layer values;
+Tangram retains its legacy permissive `parseInt` behavior for malformed strings.
 
 MapLibre is a comparison tool, not the rendering specification. Preserve
 Tangram's useful differences: animated TRON traffic, shader glow and water

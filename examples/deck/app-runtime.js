@@ -13,7 +13,7 @@ import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createBasemapBackground} from './basemap-background.ts';
 import {createGlobePolarCaps} from './globe-polar-caps.ts';
 import {createUnlitVectorStyles, openMapTilesBuildingExtrusion} from './basemap-styling.ts';
-import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from './streets-cartography.ts';
+import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, createStreetsRoadRules} from './streets-cartography.ts';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
 import {readComparisonPreference, writeComparisonPreference} from './comparison-settings.ts';
@@ -617,48 +617,7 @@ export function initializeDeckExample({
             polygons: {style: 'basemap-polygons', order: 6, color: STREETS_COLORS.building}
           }
         },
-        roads: {
-          data: {source: 'basemap', layer: 'transportation'},
-          draw: {
-            lines: {
-              style: 'basemap-lines',
-              order: () => {
-                var classOrder = {
-                  path: 0,
-                  track: 1,
-                  service: 2,
-                  minor: 3,
-                  tertiary: 4,
-                  secondary: 5,
-                  primary: 6,
-                  trunk: 7,
-                  motorway: 8
-                };
-                var layer = parseInt(feature.layer, 10) || 0;
-                if (layer === 0 && feature.brunnel === 'bridge') {
-                  layer = 1;
-                } else if (layer === 0 && feature.brunnel === 'tunnel') {
-                  layer = -1;
-                }
-                layer = Math.max(-5, Math.min(5, layer));
-                return 128 + layer * 16 + (classOrder[feature.class] || 0);
-              },
-              color: STREETS_COLORS.road,
-              width: createStreetsRoadWidths(),
-              outline: {color: STREETS_COLORS.roadOutline, width: '1px'}
-            }
-          },
-          major: {
-            filter: {class: [...STREETS_MAJOR_ROAD_CLASSES]},
-            draw: {
-              lines: {
-                color: STREETS_COLORS.majorRoad,
-                width: createStreetsRoadWidths(true),
-                outline: {color: STREETS_COLORS.majorRoadOutline, width: '1px'}
-              }
-            }
-          }
-        },
+        roads: createStreetsRoadRules(),
         places: {
           data: {source: 'basemap', layer: 'place'},
           draw: {

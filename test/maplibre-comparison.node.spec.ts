@@ -19,22 +19,24 @@ test.each(['mapFlat', 'mapPerspective', 'globe'])('%s Streets reference preserve
   expect(style.layers.find(layer => layer.id === 'buildings')).toMatchObject({type: 'fill', minzoom: 13,
     paint: {'fill-color': STREETS_COLORS.building}});
   expect(style.layers.map(layer => layer.type)).not.toContain('fill-extrusion');
-  expect(style.layers.map(layer => layer.id).slice(-4)).toEqual(['roads-outline', 'roads', 'major-roads-outline', 'major-roads']);
+  expect(style.layers.filter(layer => layer.type === 'line' && layer['source-layer'] === 'transportation')).toHaveLength(22);
+  expect(style.layers.map(layer => layer.id).slice(-4)).toEqual(['roads-grade-4-outline', 'roads-grade-4', 'roads-grade-5-outline', 'roads-grade-5']);
 });
 
 test.each([false, true])('road widths preserve Tangram stop values and two-sided casings; major=%s', major => {
   const layers = createComparisonStyle('streetsVector', 'mapPerspective').layers;
   for (const outline of [false, true]) {
-    const layer = layers.find(candidate => candidate.id === `${major ? 'major-roads' : 'roads'}${outline ? '-outline' : ''}`);
+    const layer = layers.find(candidate => candidate.id === `roads-grade-0${outline ? '-outline' : ''}`);
     if (layer?.type !== 'line') throw new Error('Missing road reference');
     const expression = createExpression(layer.paint?.['line-width'], 'layers.roads.paint.line-width');
     if (expression.result !== 'success') throw new Error(JSON.stringify(expression.value));
     for (const [zoom, pixels] of createStreetsRoadWidths(major)) {
-      expect(expression.value.evaluate({zoom: zoom - 1})).toBe(Number.parseFloat(pixels) + (outline ? 2 : 0));
+      expect(expression.value.evaluate({zoom: zoom - 1}, {type: 2, properties: {class: major ? 'primary' : 'service'}}))
+        .toBe(Number.parseFloat(pixels) + (outline ? 2 : 0));
     }
-    expect(layer.filter).toEqual(major
-      ? ['in', ['get', 'class'], ['literal', [...STREETS_MAJOR_ROAD_CLASSES]]]
-      : ['!', ['in', ['get', 'class'], ['literal', [...STREETS_MAJOR_ROAD_CLASSES]]]]);
+    expect(layer.paint?.['line-color']).toEqual(['case', ['in', ['get', 'class'], ['literal', [...STREETS_MAJOR_ROAD_CLASSES]]],
+      outline ? STREETS_COLORS.majorRoadOutline : STREETS_COLORS.majorRoad,
+      outline ? STREETS_COLORS.roadOutline : STREETS_COLORS.road]);
   }
   const stops = createStreetsRoadWidths(major); stops[0][1] = '999px';
   expect(createStreetsRoadWidths(major)[0][1]).not.toBe('999px');
