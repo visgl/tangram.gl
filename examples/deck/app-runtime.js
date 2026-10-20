@@ -11,6 +11,7 @@ import {createCollapsibleInfoCard} from './info-card.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createBasemapBackground} from './basemap-background.ts';
+import {createUnlitVectorStyles, openMapTilesBuildingExtrusion} from './basemap-styling.ts';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
 import {readComparisonPreference, writeComparisonPreference} from './comparison-settings.ts';
@@ -564,50 +565,51 @@ export function initializeDeckExample({
         ...background.sources,
         basemap: createVectorSource(vectorProvider)
       },
-      styles: background.styles,
+      styles: {...background.styles, ...createUnlitVectorStyles()},
       layers: {
         ...background.layers,
         landcover: {
           data: {source: 'basemap', layer: 'landcover'},
           draw: {
-            polygons: {order: 1, color: '#e8eee5'}
+            polygons: {style: 'basemap-polygons', order: 1, color: '#e8eee5'}
           }
         },
         landuse: {
           data: {source: 'basemap', layer: 'landuse'},
           draw: {
-            polygons: {order: 2, color: '#eeeae2'}
+            polygons: {style: 'basemap-polygons', order: 2, color: '#eeeae2'}
           }
         },
         parks: {
           data: {source: 'basemap', layer: 'park'},
           draw: {
-            polygons: {order: 3, color: '#cfe5c8'}
+            polygons: {style: 'basemap-polygons', order: 3, color: '#cfe5c8'}
           }
         },
         water: {
           data: {source: 'basemap', layer: 'water'},
           draw: {
-            polygons: {order: 4, color: '#b9d9e7'}
+            polygons: {style: 'basemap-polygons', order: 4, color: '#b9d9e7'}
           }
         },
         waterways: {
           data: {source: 'basemap', layer: 'waterway'},
           draw: {
-            lines: {order: 5, color: '#a4cfdf', width: '1px'}
+            lines: {style: 'basemap-lines', order: 5, color: '#a4cfdf', width: '1px'}
           }
         },
         buildings: {
           data: {source: 'basemap', layer: 'building'},
           filter: {$zoom: {min: 14}},
           draw: {
-            polygons: {order: 6, color: '#ded8d0'}
+            polygons: {style: 'basemap-polygons', order: 6, color: '#ded8d0'}
           }
         },
         roads: {
           data: {source: 'basemap', layer: 'transportation'},
           draw: {
             lines: {
+              style: 'basemap-lines',
               order: () => {
                 var classOrder = {
                   path: 0,
@@ -779,13 +781,13 @@ export function initializeDeckExample({
             polygons: {
               order: 5,
               color: '#14243c',
-              extrude: true
+              extrude: openMapTilesBuildingExtrusion
             },
             lines: {
               order: 6,
               color: '#267f9e',
               width: '0.5px',
-              extrude: true
+              extrude: openMapTilesBuildingExtrusion
             }
           }
         },

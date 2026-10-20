@@ -72,7 +72,22 @@ The background is tiled and globe-refined by Tangram's existing pipeline,
 under the styled features at order zero. It does not change their holes,
 triangulation, lighting or feature queries, and it does not clear deck overlays.
 Coverage stops at the Web Mercator latitude limit; polar caps remain separate
-work. NASA imagery and the original Nextzen scene are unchanged.
+work. The imagery provider and the original Nextzen scene are unchanged.
+
+## Cartographic colors and building heights
+
+Streets polygons/lines and NASA imagery explicitly disable lighting. Their
+authored colors should not change with a backend's default light or the globe's
+surface normal; Blue Marble already includes provider-authored shaded relief.
+This is an example styling choice, not a change to Tangram's default lights or
+to explicitly lit materials. TRON retains its custom lighting and shader blocks.
+
+TRON roofs and outlines use the same worker-safe OpenMapTiles height callback:
+`render_height` / `render_min_height`, falling back to `height` / `min_height`,
+then 20 / 0 meters. Numeric strings and zero are accepted; invalid fields fall
+through. The MapLibre reference uses the same height aliases and bases. Streets
+still uses flat building polygons, so its reference extrusions are intentionally
+not a lighting or pixel-parity test.
 
 ## Basemaps and attribution
 
