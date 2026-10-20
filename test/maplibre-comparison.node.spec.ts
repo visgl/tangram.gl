@@ -4,10 +4,51 @@
 
 import {readFileSync} from 'node:fs';
 import {expect, test, vi} from 'vitest';
+import {createExpression, validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
+import {STREETS_COLORS, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from '../examples/deck/streets-cartography';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from '../examples/deck/comparison-style';
 import {connectComparisonCamera, mountMapLibreComparison, type ComparisonMap} from '../examples/deck/maplibre-comparison';
 import {BLUE_MARBLE_URL} from '../examples/classic/app/nasa-basemap.js';
 import {readComparisonPreference, writeComparisonPreference} from '../examples/deck/comparison-settings';
+
+test.each(['mapFlat', 'mapPerspective', 'globe'])('%s Streets reference preserves the intended flat cartography', viewMode => {
+  const style = createComparisonStyle('streetsVector', viewMode);
+  expect(validateStyleMin(style)).toEqual([]);
+  expect(style.layers.find(layer => layer.id === 'water')?.paint).toEqual({'fill-color': STREETS_COLORS.water});
+  expect(style.layers.find(layer => layer.id === 'waterways')?.paint).toEqual({'line-color': STREETS_COLORS.waterway, 'line-width': 1});
+  expect(style.layers.find(layer => layer.id === 'buildings')).toMatchObject({type: 'fill', minzoom: 13,
+    paint: {'fill-color': STREETS_COLORS.building}});
+  expect(style.layers.map(layer => layer.type)).not.toContain('fill-extrusion');
+  expect(style.layers.map(layer => layer.id).slice(-4)).toEqual(['roads-outline', 'roads', 'major-roads-outline', 'major-roads']);
+});
+
+test.each([false, true])('road widths preserve Tangram stop values and two-sided casings; major=%s', major => {
+  const layers = createComparisonStyle('streetsVector', 'mapPerspective').layers;
+  for (const outline of [false, true]) {
+    const layer = layers.find(candidate => candidate.id === `${major ? 'major-roads' : 'roads'}${outline ? '-outline' : ''}`);
+    if (layer?.type !== 'line') throw new Error('Missing road reference');
+    const expression = createExpression(layer.paint?.['line-width'], 'layers.roads.paint.line-width');
+    if (expression.result !== 'success') throw new Error(JSON.stringify(expression.value));
+    for (const [zoom, pixels] of createStreetsRoadWidths(major)) {
+      expect(expression.value.evaluate({zoom: zoom - 1}, null)).toBe(Number.parseFloat(pixels) + (outline ? 2 : 0));
+    }
+    expect(layer.filter).toEqual(major
+      ? ['in', ['get', 'class'], ['literal', [...STREETS_MAJOR_ROAD_CLASSES]]]
+      : ['!', ['in', ['get', 'class'], ['literal', [...STREETS_MAJOR_ROAD_CLASSES]]]]);
+  }
+  const stops = createStreetsRoadWidths(major); stops[0][1] = '999px';
+  expect(createStreetsRoadWidths(major)[0][1]).not.toBe('999px');
+});
+
+test('static reference improvements leave TRON shader/extrusion semantics independent', () => {
+  const style = createComparisonStyle('tron', 'globe');
+  expect(validateStyleMin(style)).toEqual([]);
+  expect(style.layers.find(layer => layer.id === 'buildings')?.type).toBe('fill-extrusion');
+  const runtime = readFileSync(new URL('../examples/deck/app-runtime.js', import.meta.url), 'utf8');
+  expect(runtime).toContain("style: portable ? 'lines' : 'roads-glow'");
+  expect(runtime).toContain("style: portable ? 'tron-portable-traffic' : 'fast-traffic-animation-twoways'");
+  expect(runtime).toContain("style: portable ? 'polygons' : 'water-later'");
+});
 
 test.each(['mapFlat', 'mapPerspective', 'globe'])('%s offers same-provider references, not unsupported Nextzen shaders', viewMode => {
   for (const basemap of ['streetsVector', 'tron', 'blueMarbleRaster']) {

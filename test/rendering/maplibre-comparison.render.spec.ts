@@ -5,7 +5,8 @@
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {mountMapLibreComparison} from '../../examples/deck/maplibre-comparison';
-import type {ComparisonCamera} from '../../examples/deck/comparison-style';
+import {createComparisonStyle, type ComparisonCamera} from '../../examples/deck/comparison-style';
+import {STREETS_COLORS} from '../../examples/deck/streets-cartography';
 import {RenderingHarness, readCanvasPixels, coloredPixels, DEVICE_TYPE} from './harness';
 import {createRasterScene} from './scene';
 
@@ -17,6 +18,36 @@ beforeEach(() => commands.startRenderingDiagnostics());
 afterEach(async () => {
   try {expect(await commands.renderingDiagnostics()).toEqual([]); expect(harness?.errors ?? []).toEqual([]);}
   finally {comparison?.destroy(); comparison = undefined; harness?.destroy(); harness = undefined; root?.remove(); root = undefined; exampleStylesheet?.remove(); exampleStylesheet = undefined;}
+});
+
+test(`${DEVICE_TYPE}: Streets reference draws flat buildings above water at the shared style threshold`, async () => {
+  root = document.createElement('div'); root.style.cssText = 'position:relative;width:512px;height:320px'; document.body.append(root);
+  const style = createComparisonStyle('streetsVector', 'mapFlat');
+  // Tiny GeoJSON stands in for each MVT source layer without network or font requests.
+  const polygon = (span: number) => ({type: 'Feature' as const, properties: {}, geometry: {type: 'Polygon' as const,
+    coordinates: [[[-span, -span], [span, -span], [span, span], [-span, span], [-span, -span]]]}});
+  style.sources = {water: {type: 'geojson', data: polygon(0.01)}, building: {type: 'geojson', data: polygon(0.001)}};
+  style.layers = style.layers.filter(layer => ['background', 'water', 'buildings'].includes(layer.id)).map(layer => {
+    if (layer.type !== 'fill') return layer;
+    const {'source-layer': sourceLayer, ...remaining} = layer;
+    return {...remaining, source: sourceLayer === 'building' ? 'building' : 'water'};
+  });
+  const errors: string[] = [];
+  comparison = await mountMapLibreComparison({container: root, camera: {longitude: 0, latitude: 0, zoom: 12.9},
+    viewMode: 'mapFlat', style, preserveDrawingBuffer: true,
+    stylesheetUrl: new URL('../../examples/dist/maplibre.css', import.meta.url).href,
+    workerUrl: new URL('../../examples/dist/maplibre-worker.js', import.meta.url).href,
+    onChange: () => {}, onError: error => errors.push(error.message)});
+  const canvas = root.querySelector('canvas'); if (!canvas) throw new Error('Missing reference canvas');
+  const centerColor = async () => {
+    expect(errors).toEqual([]);
+    const image = await readCanvasPixels(canvas);
+    const offset = (Math.floor(image.height / 2) * image.width + Math.floor(image.width / 2)) * 4;
+    return `#${Array.from(image.data.slice(offset, offset + 3), value => value.toString(16).padStart(2, '0')).join('')}`;
+  };
+  await expect.poll(centerColor, {timeout: 15000}).toBe(STREETS_COLORS.water);
+  comparison.updateCamera({longitude: 0, latitude: 0, zoom: 13});
+  await expect.poll(centerColor, {timeout: 15000}).toBe(STREETS_COLORS.building);
 });
 
 test.each(['perspective', 'globe'] as const)(`${DEVICE_TYPE}: optional MapLibre %s reference renders offline beside Tangram and releases its pane`, async kind => {

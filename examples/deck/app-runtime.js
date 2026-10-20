@@ -13,6 +13,7 @@ import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createBasemapBackground} from './basemap-background.ts';
 import {createGlobePolarCaps} from './globe-polar-caps.ts';
 import {createUnlitVectorStyles, openMapTilesBuildingExtrusion} from './basemap-styling.ts';
+import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from './streets-cartography.ts';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
 import {readComparisonPreference, writeComparisonPreference} from './comparison-settings.ts';
@@ -224,7 +225,10 @@ export function initializeDeckExample({
     const limitation = getComparisonLimitation(viewModeId, basemapId);
     comparisonInput.disabled = Boolean(limitation);
     if (comparisonStatus) comparisonStatus.textContent = limitation || (comparisonInput.checked
-      ? 'Navigate either map. Same geographic camera and tile provider; static reference styling, not shader or pixel parity. MapLibre uses WebGL; deck overlays appear only on Tangram.'
+      ? `Navigate either map. Same camera and tile provider. ${basemapId === 'tron'
+        ? 'TRON animation, glow and water shaders are Tangram features; the reference is static.'
+        : basemapId === 'streetsVector' ? 'Shared Streets palette and road hierarchy; labels remain Tangram-only.'
+          : 'Same imagery; independent renderers and sampling.'} MapLibre uses WebGL; deck overlays appear only on Tangram.`
       : 'Optional side-by-side reference using the same tile provider. Your choice is remembered across examples.');
   }
 
@@ -561,10 +565,10 @@ export function initializeDeckExample({
   }
 
   function createVectorScene({labels = true} = {}) {
-    const background = createBasemapBackground('#f5f3ef');
+    const background = createBasemapBackground(STREETS_COLORS.background);
     const scene = {
       scene: {
-        background: {color: '#f5f3ef'}
+        background: {color: STREETS_COLORS.background}
       },
       fonts: {
         Montserrat: {url: resolveExampleAsset('../classic/fonts/montserrat.woff')}
@@ -579,38 +583,38 @@ export function initializeDeckExample({
         landcover: {
           data: {source: 'basemap', layer: 'landcover'},
           draw: {
-            polygons: {style: 'basemap-polygons', order: 1, color: '#e8eee5'}
+            polygons: {style: 'basemap-polygons', order: 1, color: STREETS_COLORS.landcover}
           }
         },
         landuse: {
           data: {source: 'basemap', layer: 'landuse'},
           draw: {
-            polygons: {style: 'basemap-polygons', order: 2, color: '#eeeae2'}
+            polygons: {style: 'basemap-polygons', order: 2, color: STREETS_COLORS.landuse}
           }
         },
         parks: {
           data: {source: 'basemap', layer: 'park'},
           draw: {
-            polygons: {style: 'basemap-polygons', order: 3, color: '#cfe5c8'}
+            polygons: {style: 'basemap-polygons', order: 3, color: STREETS_COLORS.park}
           }
         },
         water: {
           data: {source: 'basemap', layer: 'water'},
           draw: {
-            polygons: {style: 'basemap-polygons', order: 4, color: '#b9d9e7'}
+            polygons: {style: 'basemap-polygons', order: 4, color: STREETS_COLORS.water}
           }
         },
         waterways: {
           data: {source: 'basemap', layer: 'waterway'},
           draw: {
-            lines: {style: 'basemap-lines', order: 5, color: '#a4cfdf', width: '1px'}
+            lines: {style: 'basemap-lines', order: 5, color: STREETS_COLORS.waterway, width: '1px'}
           }
         },
         buildings: {
           data: {source: 'basemap', layer: 'building'},
-          filter: {$zoom: {min: 14}},
+          filter: {$zoom: {min: STREETS_BUILDING_MIN_ZOOM}},
           draw: {
-            polygons: {style: 'basemap-polygons', order: 6, color: '#ded8d0'}
+            polygons: {style: 'basemap-polygons', order: 6, color: STREETS_COLORS.building}
           }
         },
         roads: {
@@ -639,26 +643,18 @@ export function initializeDeckExample({
                 layer = Math.max(-5, Math.min(5, layer));
                 return 128 + layer * 16 + (classOrder[feature.class] || 0);
               },
-              color: '#ffffff',
-              width: [
-                [8, '0.5px'],
-                [12, '1px'],
-                [16, '3px']
-              ],
-              outline: {color: '#d5d0c8', width: '1px'}
+              color: STREETS_COLORS.road,
+              width: createStreetsRoadWidths(),
+              outline: {color: STREETS_COLORS.roadOutline, width: '1px'}
             }
           },
           major: {
-            filter: {class: ['motorway', 'trunk', 'primary', 'secondary']},
+            filter: {class: [...STREETS_MAJOR_ROAD_CLASSES]},
             draw: {
               lines: {
-                color: '#f5c879',
-                width: [
-                  [8, '1px'],
-                  [12, '2px'],
-                  [16, '7px']
-                ],
-                outline: {color: '#d4aa65', width: '1px'}
+                color: STREETS_COLORS.majorRoad,
+                width: createStreetsRoadWidths(true),
+                outline: {color: STREETS_COLORS.majorRoadOutline, width: '1px'}
               }
             }
           }
