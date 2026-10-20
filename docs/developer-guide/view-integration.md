@@ -84,6 +84,9 @@ Do not remove animation, shader effects, lighting controls, label placement or
 deck integration merely because the reference does not implement them. Road
 intersection/casing ordering still warrants comparison; shared colors alone
 do not establish equivalent geometry or draw order.
+In particular, the transportation layer can contain tunneled roads, elevated
+pedestrian areas and bridge polygons as well as ordinary road lines. A road
+rendered beneath a higher-grade feature is not, by itself, missing geometry.
 
 ## Frame and package boundary
 

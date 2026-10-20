@@ -25,14 +25,16 @@ afterEach(async () => {
 });
 
 test.each([
-  {format: 'GeoJSON', bridge: false}, {format: 'GeoJSON', bridge: true},
-  {format: 'MVT', bridge: false}, {format: 'MVT', bridge: true}
-] as const)(`${DEVICE_TYPE}: $format Streets major roads remain continuous across a minor road; bridge=$bridge`, async ({format, bridge}) => {
+  {format: 'GeoJSON', bridge: false, tunnel: false}, {format: 'GeoJSON', bridge: true, tunnel: false},
+  {format: 'GeoJSON', bridge: false, tunnel: true},
+  {format: 'MVT', bridge: false, tunnel: false}, {format: 'MVT', bridge: true, tunnel: false},
+  {format: 'MVT', bridge: false, tunnel: true}
+] as const)(`${DEVICE_TYPE}: $format Streets road grade precedence; bridge=$bridge tunnel=$tunnel`, async ({format, bridge, tunnel}) => {
   harness = new RenderingHarness('flat'); harness.tileZoom = 15;
   const {longitude, latitude} = getOpenMapTilesAnchor();
   harness.presentation.setViewState({longitude, latitude, zoom: 15});
   const geometry = {type: 'FeatureCollection' as const, features: [
-    {type: 'Feature' as const, properties: {class: 'primary'}, geometry: {type: 'LineString' as const,
+    {type: 'Feature' as const, properties: {class: 'primary', ...(tunnel ? {brunnel: 'tunnel'} : {})}, geometry: {type: 'LineString' as const,
       coordinates: [[longitude - 0.004, latitude], [longitude + 0.004, latitude]]}},
     {type: 'Feature' as const, properties: {class: 'service', ...(bridge ? {brunnel: 'bridge'} : {})}, geometry: {type: 'LineString' as const,
       coordinates: [[longitude, latitude - 0.004], [longitude, latitude + 0.004]]}}
@@ -48,7 +50,7 @@ test.each([
   await harness.settle();
   const image = await harness.pixels();
   const center = (160 * image.width + 256) * 4;
-  expect(Array.from(image.data.slice(center, center + 3))).toEqual(bridge ? [255, 255, 255] : [245, 200, 121]);
+  expect(Array.from(image.data.slice(center, center + 3))).toEqual(bridge || tunnel ? [255, 255, 255] : [245, 200, 121]);
   let uninterrupted = 0;
   for (let column = 80; column < 432; column++) {
     if (Math.abs(column - 256) < 20) continue;
@@ -77,5 +79,5 @@ test.each([
     const reference = await readCanvasPixels(canvas);
     const offset = (Math.floor(reference.height / 2) * reference.width + Math.floor(reference.width / 2)) * 4;
     return Array.from(reference.data.slice(offset, offset + 3));
-  }, {timeout: 15000}).toEqual(bridge ? [255, 255, 255] : [245, 200, 121]);
+  }, {timeout: 15000}).toEqual(bridge || tunnel ? [255, 255, 255] : [245, 200, 121]);
 });
