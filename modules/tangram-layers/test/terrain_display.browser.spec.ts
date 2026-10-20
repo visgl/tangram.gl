@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
-import {GlobeTerrainPreparation, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainPreparation, TerrainResourceBudget, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
 import {GlobeTerrainDisplayPreparation, resolveGlobeTerrainDisplay} from '../src/experimental/terrain-display';
 
 /** Hermetic immutable physical grid, optionally touching another footprint. */
@@ -23,6 +23,73 @@ function finish(display: GlobeTerrainDisplayPreparation): void {
     let elapsed = 0, calls = 0;
     while (display.isPending()) {display.advance(1, () => elapsed++); if (++calls > 10000) throw new Error('Display did not settle');}
 }
+
+test('shared source/display ownership retains old templates until the matching display retires', () => {
+    const budget = new TerrainResourceBudget(1024 * 1024);
+    const preparation = new GlobeTerrainPreparation(undefined, {resourceBudget: budget});
+    preparation.request([grid()], 4); while (preparation.isPending()) preparation.advance(1000);
+    const source = preparation.getSnapshot(); if (!source) throw new Error('Missing source fixture');
+    const display = new GlobeTerrainDisplayPreparation({resourceBudget: budget, maxQueryIndexBytes: 0});
+    display.request(source, 1); finish(display);
+    const first = display.getSnapshot(); if (!first) throw new Error('Missing display fixture');
+    expect(budget.getStatistics()).toMatchObject({bytes: source.byteLength + first.byteLength, leases: 3});
+    preparation.request([grid(2000)], 4); while (preparation.isPending()) preparation.advance(1000);
+    const next = preparation.getSnapshot(); if (!next) throw new Error('Missing replacement fixture');
+    expect(budget.getStatistics().bytes).toBe(source.byteLength + next.byteLength + first.byteLength);
+    // Source ownership can retire before the displayed generation: its template remains leased.
+    preparation.destroy();
+    expect(budget.getStatistics().bytes).toBe(source.byteLength + first.byteLength);
+    display.request(next, 1); finish(display);
+    expect(display.getStatistics().error).toBeUndefined();
+    expect(budget.getStatistics().bytes).toBe(next.byteLength + (display.getSnapshot()?.byteLength ?? 0));
+    display.destroy(); display.destroy(); expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+});
+
+test('display batch rejection and cancellation retain current geometry without leaking future reservations', () => {
+    const source = terrain([grid()], 16), budget = new TerrainResourceBudget(1024 * 1024);
+    const display = new GlobeTerrainDisplayPreparation({resourceBudget: budget, maxQueryIndexBytes: 0});
+    display.request(source, 1); finish(display); const first = display.getSnapshot();
+    const bytes = budget.getStatistics().bytes;
+    const blocker = budget.reserve('gpu', budget.byteLimit - bytes);
+    display.request(source, 2); finish(display);
+    expect(display.getSnapshot()).toBe(first);
+    expect(display.getStatistics()).toMatchObject({prepared: 0, error: expect.stringContaining('shared resource budget')});
+    expect(budget.getStatistics().bytes).toBe(budget.byteLimit);
+    blocker?.release(); expect(display.retry()).toBe(true);
+    let elapsed = 0; display.advance(1, () => elapsed++);
+    expect(budget.getStatistics().bytes).toBeGreaterThan(bytes);
+    expect(display.cancel()).toBe(true); expect(display.cancel()).toBe(false);
+    expect(display.getSnapshot()).toBe(first); expect(budget.getStatistics().bytes).toBe(bytes);
+    expect(display.request(source, 2)).toBe(true); finish(display);
+    expect(display.getSnapshot()?.exaggeration).toBe(2);
+    const committed = display.getSnapshot(), committedBytes = budget.getStatistics().bytes;
+    const replacement = terrain([grid(), grid(2000, [1000000, -100000, 1200000, 100000])]);
+    display.request(replacement, 1); display.advance(1, () => elapsed++);
+    expect(display.getStatistics().prepared).toBe(1);
+    expect(budget.getStatistics().bytes).toBeGreaterThan(committedBytes);
+    display.cancel();
+    expect(display.getSnapshot()).toBe(committed);
+    expect(budget.getStatistics().bytes).toBe(committedBytes);
+    display.request(terrain([]), 1); finish(display);
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0}); display.destroy();
+});
+
+test('reordered shared templates and displays can be reused even when the shared pool is full', () => {
+    const budget = new TerrainResourceBudget(1024 * 1024), first = grid(), second = grid(2000, [1000000, -100000, 1200000, 100000]);
+    const preparation = new GlobeTerrainPreparation(undefined, {resourceBudget: budget});
+    preparation.request([first, second], 4); while (preparation.isPending()) preparation.advance(1000);
+    const source = preparation.getSnapshot(); if (!source) throw new Error('Missing fixture');
+    const display = new GlobeTerrainDisplayPreparation({resourceBudget: budget, maxQueryIndexBytes: 0});
+    display.request(source, 1); finish(display);
+    const bytes = budget.getStatistics().bytes, blocker = budget.reserve('gpu', budget.byteLimit - bytes);
+    preparation.request([second, first], 4); while (preparation.isPending()) preparation.advance(1000);
+    const reordered = preparation.getSnapshot(); if (!reordered) throw new Error('Missing reordered fixture');
+    display.request(reordered, 1); finish(display);
+    expect(display.getStatistics()).toMatchObject({reused: 2, prepared: 0, error: undefined});
+    expect(budget.getStatistics()).toMatchObject({bytes: budget.byteLimit, leases: 7});
+    blocker?.release(); preparation.destroy(); display.destroy();
+    expect(budget.getStatistics()).toMatchObject({bytes: 0, leases: 0});
+});
 
 test('display rescaling yields without publishing partial drawing or picking and latest requests replace staged work', () => {
     const source = terrain([grid()], 16), display = new GlobeTerrainDisplayPreparation({maxQueryIndexBytes: 0});

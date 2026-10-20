@@ -55,10 +55,11 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     if (!Number.isFinite(displayBudget) || displayBudget <= 0) throw new Error('Display slice target must be positive');
     const meshResolution = options.meshResolution ?? 64;
     if (!Number.isSafeInteger(meshResolution) || meshResolution < 2 || meshResolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
-    let preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
+    const resourceBudget = new TerrainResourceBudget(768 * 1024 * 1024);
+    let preparation = new GlobeTerrainPreparation(options.maxPreparedBytes, {resourceBudget});
     const maxDisplayBytes = options.maxDisplayBytes ?? 128 * 1024 * 1024, maxQueryIndexBytes = options.maxQueryIndexBytes ?? 64 * 1024 * 1024;
     for (const limit of [maxDisplayBytes, maxQueryIndexBytes]) if (!Number.isSafeInteger(limit) || limit < 0) throw new Error('Globe terrain byte limits must be non-negative integers');
-    let displayPreparation = new GlobeTerrainDisplayPreparation({maxDisplayBytes, maxQueryIndexBytes});
+    let displayPreparation = new GlobeTerrainDisplayPreparation({maxDisplayBytes, maxQueryIndexBytes, resourceBudget});
     const parameters = new URLSearchParams(options.parameters);
     const rawExaggeration = parameters.get('exaggeration');
     const requested = rawExaggeration?.trim() ? Number(rawExaggeration) : 100;
@@ -99,7 +100,6 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     let BasemapLayer: typeof import('@vis.gl/tangram-layers').TangramLayer | undefined;
     let basemap: InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer> | undefined;
     let terrainInput: TerrainDrapingOptions = {grids: [], querySurfaceStyles: ['ground']};
-    const resourceBudget = new TerrainResourceBudget(768 * 1024 * 1024);
     let groundResolution = 32, projectedGroundError = 0, groundDetailLimited = false;
     let basemapError = '';
     const detailControl = element<HTMLSelectElement>('detail'); detailControl.value = String(targetPixels);
@@ -263,7 +263,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         const statistics = tileset.getStatistics();
         element('decoder-status').textContent = formatTerrainDecoderStatus(decoder.getStatistics(), statistics);
         const prepared = preparation.getStatistics();
-        element('preparation-status').textContent = `Preparation: ${prepared.pending} pending · ${(prepared.retainedBytes / 1000000).toFixed(1)} / ${(prepared.byteLimit / 1000000).toFixed(1)} MB templates · ${prepared.prepared} new / ${prepared.reused} reused · ${prepared.slices} slices · ${prepared.workMs.toFixed(1)} ms CPU elapsed · longest ${prepared.maxSliceMs.toFixed(1)} ms${prepared.error ? ` · ${prepared.error} — retry available` : ''}`;
+        const resources = resourceBudget.getStatistics();
+        element('preparation-status').textContent = `Preparation: ${prepared.pending} pending · ${(prepared.retainedBytes / 1000000).toFixed(1)} / ${(prepared.byteLimit / 1000000).toFixed(1)} MB templates · ${(prepared.requiredPeakBytes / 1000000).toFixed(1)} MB required template peak · ${prepared.prepared} new / ${prepared.reused} reused · ${prepared.slices} slices · ${prepared.workMs.toFixed(1)} ms CPU elapsed · longest ${prepared.maxSliceMs.toFixed(1)} ms · registered CPU ${(resources.retainedBytes / 1000000).toFixed(1)} MB / transient ${(resources.transientBytes / 1000000).toFixed(1)} MB / GPU estimate ${(resources.gpuBytes / 1000000).toFixed(1)} MB${prepared.error ? ` · ${prepared.error} — retry available` : ''}`;
         const highest = Math.max(0, ...grids.map(grid => zoomByGrid.get(grid) ?? 0));
         status.textContent = `${device === 'webgpu' ? 'WebGPU' : 'WebGL 2'} · ${grids.length} tiles prepared · z${highest} detail · ${effective.toFixed(1)}× requested · ${(statistics.bytes / 1000000).toFixed(1)} / ${(statistics.byteLimit / 1000000).toFixed(0)} MB cached${statistics.active || statistics.queued ? ` · ${statistics.active} active / ${statistics.queued} queued` : ''}${detail.limited ? ' · detail budget/source limit' : ''}${statistics.failed ? ` · ${statistics.failed} failed: ${statistics.failure} — retry available` : ''}${renderingError ? ` · Rendering error: ${renderingError}` : ''}`;
         const displayErrorChanged = previousDisplayError !== displayPreparation.getStatistics().error;
@@ -286,8 +287,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
         if (draping.checked) {
             // Release unused preview/query generations instead of keeping two complete terrain pipelines resident.
             preparation.destroy(); displayPreparation.destroy();
-            preparation = new GlobeTerrainPreparation(options.maxPreparedBytes);
-            displayPreparation = new GlobeTerrainDisplayPreparation({maxDisplayBytes, maxQueryIndexBytes});
+            preparation = new GlobeTerrainPreparation(options.maxPreparedBytes, {resourceBudget});
+            displayPreparation = new GlobeTerrainDisplayPreparation({maxDisplayBytes, maxQueryIndexBytes, resourceBudget});
             displayedSnapshot = undefined; layer = undefined; pinnedLayer = undefined; pinnedSurfaces = undefined;
         }
         schedule();

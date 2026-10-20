@@ -121,6 +121,8 @@ Query-snapshot construction remains an indivisible per-tile step. Rendering and
 picking switch together; cancellation or admission/scaling failure retains the
 previous complete generation. `retry()` retries explicitly, `isPending()` reports
 work, and idempotent `destroy()` releases owned references.
+`cancel()` releases only staged work and permits an identical request to restart;
+the current draw/query generation remains usable.
 
 Picking hierarchies are warmed cooperatively before publication when their
 current-plus-staged storage fits `maxQueryIndexBytes`. Bounds scans and in-place
@@ -131,7 +133,14 @@ insufficient, warming is deferred without rejecting geometry: the admitted tile
 retains its ordinary lazy policy. A tile exceeding its per-tile quota instead uses
 exact linear queries. Warming is not a guarantee that every first pick is allocation-free.
 
-Constructor options are `maxDisplayBytes` (128 MiB) and `maxQueryIndexBytes` (64 MiB).
+Constructor options are `maxDisplayBytes` (128 MiB), `maxQueryIndexBytes` (64 MiB),
+and an optional shared `resourceBudget`.
+Shared admission reserves the entire replacement's geometry and immutable
+template references before rescaling. Templates count once across preparation
+and display owners, and remain leased while the current display still needs them.
+Failure keeps the previous generation; cancellation and teardown release staged
+leases. Lazy query indexes, temporary copies, external snapshots retained after
+retirement, and driver allocations require separate accounting.
 Whole-generation preflight precedes replacement display allocations, counting reused
 tile handles once. `getStatistics()` reports complete retained geometry and allocated
 acceleration arrays, the preflight `requiredPeakBytes`, pending/new/reused tiles,

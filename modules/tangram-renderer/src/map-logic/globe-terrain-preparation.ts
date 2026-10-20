@@ -4,6 +4,7 @@
 
 import {prepareGlobeTerrainMeshSteps, type GlobeTerrainMeshTemplate} from './globe-terrain';
 import type {TerrainHeightGrid} from './terrain-data';
+import type {TerrainResourceBudget, TerrainResourceLease} from './terrain-resource-budget';
 
 /** Complete, immutable neighborhood generation; only library-produced handles can resolve templates. */
 export interface GlobeTerrainPreparationSnapshot {
@@ -62,6 +63,8 @@ export interface GlobeTerrainPreparationStatistics {
     maxSliceMs: number;
     /** CPU slice elapsed sum, excluding time yielded back to the host. */
     workMs: number;
+    /** Largest current-plus-candidate typed-template requirement observed before allocation. */
+    requiredPeakBytes: number;
     /** Last preparation/admission failure; retry is explicit. */
     error?: string;
 }
@@ -86,11 +89,19 @@ export class GlobeTerrainPreparation {
     private staged: PreparedTile[] = [];
     private disposed = false;
     private readonly statistics: GlobeTerrainPreparationStatistics;
+    /** Leases cover this owner's current/staged templates, not external snapshots or scratch. */
+    private readonly leases = new Map<GlobeTerrainMeshTemplate, TerrainResourceLease>();
+    /** Optional shared admission with sources, display preparation and renderer owners. */
+    private readonly resourceBudget?: TerrainResourceBudget;
 
     /** Retention includes the currently displayed and partially prepared generations, but not transient scratch arrays. */
-    constructor(maxRetainedBytes = 96 * 1024 * 1024) {
+    constructor(maxRetainedBytes = 96 * 1024 * 1024, options: {
+        /** Shared registered-allocation budget; independent local limits still apply. */
+        resourceBudget?: TerrainResourceBudget;
+    } = {}) {
         if (!Number.isSafeInteger(maxRetainedBytes) || maxRetainedBytes < 0) throw new Error('Prepared terrain byte limit must be a non-negative integer');
-        this.statistics = {pending: 0, retainedBytes: 0, byteLimit: maxRetainedBytes, committed: 0, cancelled: 0, prepared: 0, reused: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0};
+        this.resourceBudget = options.resourceBudget;
+        this.statistics = {pending: 0, retainedBytes: 0, byteLimit: maxRetainedBytes, committed: 0, cancelled: 0, prepared: 0, reused: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0, requiredPeakBytes: 0};
     }
 
     /** Replace obsolete staged work; unchanged requests and failed generations do not restart automatically. */
@@ -100,10 +111,9 @@ export class GlobeTerrainPreparation {
         if (grids.some(grid => grid.verticalDatum !== grids[0].verticalDatum)) throw new Error('Globe terrain grids require one compatible vertical datum');
         if (new Set(grids.map(grid => grid.bounds.join(','))).size !== grids.length) throw new Error('Globe terrain grids must have distinct footprints');
         if (this.target?.resolution === resolution && sameGrids(this.target.grids, grids)) return false;
-        if (this.iterator) this.statistics.cancelled++;
-        this.iterator?.return(); this.staged = [];
+        this.cancel();
         this.target = {grids: Object.freeze([...grids]), resolution};
-        Object.assign(this.statistics, {pending: grids.length, prepared: 0, reused: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0, error: undefined});
+        Object.assign(this.statistics, {pending: grids.length, prepared: 0, reused: 0, slices: 0, lastSliceMs: 0, maxSliceMs: 0, workMs: 0, requiredPeakBytes: 0, error: undefined});
         this.iterator = this.prepare(this.target.grids, resolution);
         return true;
     }
@@ -121,6 +131,7 @@ export class GlobeTerrainPreparation {
             } while (now() - started < budgetMs);
         } catch (error) {
             this.iterator?.return(); this.iterator = undefined; this.staged = []; this.statistics.pending = 0;
+            this.releaseUnusedLeases();
             this.statistics.error = error instanceof Error ? error.message : String(error);
         }
         const elapsed = Math.max(0, now() - started);
@@ -146,9 +157,18 @@ export class GlobeTerrainPreparation {
     /** True until the latest generation commits, fails or is cancelled by teardown. */
     isPending(): boolean {return Boolean(this.iterator);}
 
+    /** Cancel pending work and release its reservations without discarding the displayed snapshot. */
+    cancel(): boolean {
+        const pending = Boolean(this.iterator);
+        if (pending) this.statistics.cancelled++;
+        this.iterator?.return(); this.iterator = undefined; this.staged = []; this.target = undefined; this.statistics.pending = 0;
+        this.releaseUnusedLeases();
+        return pending;
+    }
+
     /** Release references to current, staged and source data; safe to repeat. */
     destroy(): void {
-        this.iterator?.return(); this.iterator = undefined; this.staged = []; this.current = undefined; this.target = undefined;
+        this.cancel(); this.current = undefined; this.releaseUnusedLeases();
         this.statistics.pending = 0; this.disposed = true;
     }
 
@@ -158,13 +178,33 @@ export class GlobeTerrainPreparation {
         return [...templates].reduce((sum, template) => sum + template.byteLength, 0);
     }
 
+    /** Release only templates no longer retained by this owner; external snapshot ownership is separate. */
+    private releaseUnusedLeases(): void {
+        const retained = new Set([...(this.current ? snapshots.get(this.current) ?? [] : []), ...this.staged].map(tile => tile.template));
+        for (const [template, lease] of this.leases) if (!retained.has(template)) {lease.release(); this.leases.delete(template);}
+    }
+
     /** Preserve unaffected immutable neighborhoods; commit every stitched tile together only after admission succeeds. */
     private *prepare(grids: readonly TerrainHeightGrid[], resolution: number): Generator<void, void, void> {
         const previous = new Map((this.current ? snapshots.get(this.current) ?? [] : []).map(tile => [tile.grid, tile]));
         for (const grid of grids) {
             const neighbors = getNeighbors(grid, grids), retained = previous.get(grid);
             const reuse = retained && this.current?.resolution === resolution && retained.neighbors.length === neighbors.length && retained.neighbors.every((neighbor, index) => neighbor === neighbors[index]);
-            const template = reuse ? retained.template : yield* prepareGlobeTerrainMeshSteps(grid, {resolution, neighbors});
+            let reservation: TerrainResourceLease | undefined;
+            let template: GlobeTerrainMeshTemplate;
+            try {
+                template = reuse ? retained.template : yield* prepareGlobeTerrainMeshSteps(grid, {resolution, neighbors,
+                    onAllocate: (bytes, allocation) => {
+                        const required = this.getRetainedBytes(this.staged) + bytes;
+                        this.statistics.requiredPeakBytes = Math.max(this.statistics.requiredPeakBytes, required);
+                        if (required > this.statistics.byteLimit) throw new Error('Prepared globe terrain retained-byte limit exceeded; current terrain retained');
+                        if (this.resourceBudget) {
+                            reservation = this.resourceBudget.reserveShared(allocation, 'retained', bytes) ?? undefined;
+                            if (!reservation) throw new Error('Prepared globe terrain shared resource budget exceeded; current terrain retained');
+                        }
+                    }});
+                if (reservation) {this.leases.set(template, reservation); reservation = undefined;}
+            } finally {reservation?.release();}
             const candidate = {grid, neighbors, template};
             if (this.getRetainedBytes([...this.staged, candidate]) > this.statistics.byteLimit) throw new Error('Prepared globe terrain retained-byte limit exceeded; current terrain retained');
             this.staged.push(candidate); this.statistics.pending--;
@@ -172,6 +212,6 @@ export class GlobeTerrainPreparation {
             yield;
         }
         const snapshot = Object.freeze({grids, resolution, byteLength: this.staged.reduce((sum, tile) => sum + tile.template.byteLength, 0)});
-        snapshots.set(snapshot, this.staged); this.current = snapshot; this.staged = []; this.statistics.committed++;
+        snapshots.set(snapshot, this.staged); this.current = snapshot; this.staged = []; this.statistics.committed++; this.releaseUnusedLeases();
     }
 }

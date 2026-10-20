@@ -121,6 +121,8 @@ export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: 
     resolution?: number;
     /** Same-datum non-overlapping neighbors with balanced 2:1 edges. */
     neighbors?: readonly TerrainHeightGrid[];
+    /** Exact final typed-array admission fence; scratch is excluded. The identity is not a usable template until completion. */
+    onAllocate?: (bytes: number, allocation: GlobeTerrainMeshTemplate) => void;
 } = {}): Generator<void, GlobeTerrainMeshTemplate, void> {
     const resolution = options.resolution ?? 64;
     if (!Number.isSafeInteger(resolution) || resolution < 2 || resolution > 256) throw new Error('Globe terrain resolution must be an integer in [2, 256]');
@@ -223,6 +225,9 @@ export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: 
       }
       yield;
     }
+    const template = Object.freeze({vertexCount: physicalHeights.length, triangleCount: triangles.length / 3,
+        byteLength: physicalHeights.length * 68 + triangles.length * 4});
+    options.onAllocate?.(template.byteLength, template);
     const gradients = new Float64Array(physicalHeights.length * 2), frame = new Float64Array(physicalHeights.length * 4);
     /** Identical edge sample neighborhoods yield identical spherical lighting at either LOD. */
     function slope(negative: number | null, positive: number | null, center: number, distance: number): number {
@@ -245,8 +250,6 @@ export function* prepareGlobeTerrainMeshSteps(grid: TerrainHeightGrid, options: 
         heights: Float64Array.from(physicalHeights), gradients, frame,
         physicalHeights: Float32Array.from(physicalHeights), indices: Uint32Array.from(triangles)
     };
-    const byteLength = Object.values(buffers).reduce((sum, values) => sum + values.byteLength, 0);
-    const template = Object.freeze({vertexCount: physicalHeights.length, triangleCount: triangles.length / 3, byteLength});
     terrainTemplates.set(template, buffers);
     return template;
 }
