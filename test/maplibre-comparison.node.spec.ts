@@ -13,7 +13,7 @@ test.each(['mapFlat', 'mapPerspective', 'globe'])('%s offers same-provider refer
   for (const basemap of ['streetsVector', 'tron', 'blueMarbleRaster']) {
     expect(getComparisonLimitation(viewMode, basemap)).toBeNull();
     const style = createComparisonStyle(basemap, viewMode);
-    expect(style.projection).toEqual({type: viewMode === 'globe' ? 'globe' : 'mercator'});
+    expect(style.projection).toEqual({type: viewMode === 'globe' ? 'vertical-perspective' : 'mercator'});
     expect(style.sources.basemap).toMatchObject(basemap === 'blueMarbleRaster' ? {tiles: [BLUE_MARBLE_URL], maxzoom: 8} : {url: 'https://tiles.openfreemap.org/planet', maxzoom: 14});
     expect(style.sources.basemap).toHaveProperty('attribution');
   }

@@ -47,7 +47,9 @@ function coerceBuildingHeight(field: string, fallback: number | ExpressionSpecif
 /** Build a static reference from the same imagery or vector provider, not a Tangram shader translation. */
 export function createComparisonStyle(basemapId: string, viewMode: string, provider = 'openfreemap'): StyleSpecification {
   if (getComparisonLimitation(viewMode, basemapId)) throw new Error('Unsupported MapLibre comparison');
-  const projection = {type: viewMode === 'globe' ? 'globe' : 'mercator'} as const;
+  // MapLibre's `globe` preset morphs to Mercator at zoom 11–12. deck's
+  // GlobeView stays spherical, so compare the same camera model at every zoom.
+  const projection = {type: viewMode === 'globe' ? 'vertical-perspective' : 'mercator'} as const;
   if (basemapId === 'blueMarbleRaster') return {version: 8, projection, sources: {basemap: {
     type: 'raster', tiles: [BLUE_MARBLE_URL], tileSize: 256, maxzoom: 8, attribution: BLUE_MARBLE_ATTRIBUTION
   }}, layers: [{id: 'imagery', type: 'raster', source: 'basemap', paint: {'raster-fade-duration': 0}}]};

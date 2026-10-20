@@ -41,8 +41,18 @@ coverage, not a claim of minimal tile selection or elevated-feature bounds.
 Raster images default to linear sampling, like MapLibre and community
 basemap-layers. Explicit `filtering: nearest` remains useful for categorical
 data. A transparent loading placeholder does not change the loaded image's
-sampler. Comparison styles, lighting and globe cameras remain independent;
-shared geographic state alone is not a pixel-parity guarantee.
+sampler. The optional MapLibre reference uses `vertical-perspective` for
+GlobeView rather than MapLibre's `globe` preset, which transitions to Mercator
+at zooms 11–12. Both cameras use the default 36.87-degree field of view;
+landmark projection is checked against the installed MapLibre implementation.
+Comparison styling is still independent, not a pixel-parity guarantee.
+
+The ordinary deck GlobeView example closes the north and south polar holes
+with unlit, untextured sea-level caps. Their color follows the selected example
+basemap, and hiding the basemap hides the caps. They are example-owned deck
+geometry, not renderer tile data, and do not add polar imagery, terrain,
+features or picking. Mercator tile loading and the renderer's projection
+domain remain unchanged.
 
 ## Frame and package boundary
 
