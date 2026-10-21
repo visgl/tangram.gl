@@ -4,6 +4,13 @@
 
 import type {StyleSpecification, ErrorEvent as MapLibreErrorEvent} from 'maplibre-gl';
 import {normalizeComparisonCamera, type ComparisonCamera} from './comparison-style';
+import {createComparisonCameraOptions} from './comparison-camera';
+
+/** Compare orientation without resetting navigation for whole-turn bearing differences. */
+function hasEquivalentBearing(first = 0, second = 0): boolean {
+  const difference = ((first - second) % 360 + 540) % 360 - 180;
+  return Math.abs(difference) < 1e-9;
+}
 
 /** Finish layout before constructing the map, and cancel a pending stylesheet with its pane. */
 function loadComparisonStylesheet(stylesheet: HTMLLinkElement, signal?: AbortSignal): Promise<void> {
@@ -55,7 +62,7 @@ export function connectComparisonCamera(map: ComparisonMap, viewMode: string, in
     const normalized = normalizeComparisonCamera(camera, viewMode);
     const current = readCamera();
     if (normalized.longitude === current.longitude && normalized.latitude === current.latitude && normalized.zoom === current.zoom &&
-        normalized.bearing === current.bearing && normalized.pitch === current.pitch) return;
+        hasEquivalentBearing(normalized.bearing, current.bearing) && normalized.pitch === current.pitch) return;
     synchronizing = true;
     try {map.jumpTo({center: [normalized.longitude, normalized.latitude], zoom: normalized.zoom,
       bearing: normalized.bearing ?? 0, pitch: normalized.pitch ?? 0});}
@@ -95,7 +102,7 @@ export async function mountMapLibreComparison(options: {
   onError(error: Error): void;
 }) {
   options.signal?.throwIfAborted();
-  const {Map: MapLibreMap, setWorkerUrl} = await import('maplibre-gl');
+  const {Map: MapLibreMap, LngLat, setWorkerUrl} = await import('maplibre-gl');
   options.signal?.throwIfAborted();
   setWorkerUrl(options.workerUrl);
   const pane = document.createElement('section'); pane.className = 'maplibre-comparison-pane';
@@ -107,10 +114,8 @@ export async function mountMapLibreComparison(options: {
   try {
     await loadComparisonStylesheet(stylesheet, options.signal);
     options.signal?.throwIfAborted();
-    const camera = normalizeComparisonCamera(options.camera, options.viewMode);
     map = new MapLibreMap({container: pane, style: options.style,
-      center: [camera.longitude, camera.latitude], zoom: camera.zoom, bearing: camera.bearing, pitch: camera.pitch,
-      minZoom: 0, maxZoom: 20, maxPitch: options.viewMode === 'mapPerspective' ? 50 : 0,
+      ...createComparisonCameraOptions(options.camera, options.viewMode, (longitude, latitude) => new LngLat(longitude, latitude)),
       canvasContextAttributes: {preserveDrawingBuffer: options.preserveDrawingBuffer ?? false},
       attributionControl: {compact: false}, trackResize: true});
   } catch (error) {pane.remove(); stylesheet.remove(); throw error;}

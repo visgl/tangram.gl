@@ -47,12 +47,17 @@ If browser storage is unavailable, the toggle still works for the current page.
 Drag, rotate and zoom
 either half to update one shared geographic camera. Disable comparison to regain
 the full canvas without resetting navigation. The flat view stays at zero pitch.
+Both panes use the explicit shared camera domain, rather than MapLibre's default
+viewport-dependent center/zoom correction at low zoom. Empty space at Mercator
+edges is preferable to silently comparing different centers. Whole-turn bearing
+differences do not reset navigation; unwrapped longitude remains meaningful.
 
 The reference uses the same OpenFreeMap/CARTO vector source or NASA Blue Marble
 imagery, with independent attribution in each pane. Streets and TRON have a small
 static reference style: Tangram shaders, animated traffic, text layout, lighting
-and deck overlays are **not** reproduced by MapLibre. Globe camera/projection
-models differ, so this is a geographic comparison, not a pixel-parity oracle.
+and deck overlays are **not** reproduced by MapLibre. Ground landmark projection
+is checked against deck for Mercator and the persistent globe camera model;
+this does not make the independent styles a pixel-parity oracle.
 MapLibre always uses WebGL, even beside Tangram's WebGPU backend.
 
 FirstPersonView, WebXR, custom projected basemaps, terrain-specific views and the
@@ -71,8 +76,9 @@ landcover and genuine polygon holes expose the host's dark clear color.
 The background is tiled and globe-refined by Tangram's existing pipeline,
 under the styled features at order zero. It does not change their holes,
 triangulation, lighting or feature queries, and it does not clear deck overlays.
-Coverage stops at the Web Mercator latitude limit; polar caps remain separate
-work. The imagery provider and the original Nextzen scene are unchanged.
+Source coverage stops at the Web Mercator latitude limit. Globe examples add
+illustrative caps beyond that limit, not fabricated imagery or features.
+The imagery provider and the original Nextzen scene are unchanged.
 
 ## Cartographic colors and building heights
 
@@ -85,9 +91,9 @@ to explicitly lit materials. TRON retains its custom lighting and shader blocks.
 TRON roofs and outlines use the same worker-safe OpenMapTiles height callback:
 `render_height` / `render_min_height`, falling back to `height` / `min_height`,
 then 20 / 0 meters. Numeric strings and zero are accepted; invalid fields fall
-through. The MapLibre reference uses the same height aliases and bases. Streets
-still uses flat building polygons, so its reference extrusions are intentionally
-not a lighting or pixel-parity test.
+through. The MapLibre reference uses the same height aliases and bases for TRON.
+Streets uses flat building polygons in both panes; neither comparison changes
+Tangram's default lighting or the original TRON shader behavior.
 
 ## Basemaps and attribution
 
