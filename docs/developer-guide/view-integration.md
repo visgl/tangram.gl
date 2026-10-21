@@ -48,8 +48,17 @@ landmark projection is checked against the installed MapLibre implementation.
 The Streets reference shares the example's palette, flat building footprints,
 waterways, road hierarchy and width stops (with the 256/512-pixel zoom offset).
 This is not a pixel-parity guarantee: Tangram evaluates styles at tile style
-zoom and orders bridges/tunnels per feature, while the reference interpolates
-widths continuously and orders road classes by style layer.
+zoom and orders roads and casings per feature, while the reference interpolates
+widths continuously and draws casings then fills within each grade. Both retain
+bridge/tunnel precedence over road class, honor explicit numeric `layer` values
+and clamp grades to [-5, 5]. The reference accepts finite numeric layer values;
+Tangram retains its legacy permissive `parseInt` behavior for malformed strings.
+
+The Streets order callback is a closure-free declared function, not an arrow.
+Tangram's worker compiler recognizes `function (...) { ... }` strings; the old
+arrow arrived as text and was parsed as order zero, causing road/casing depth
+conflicts. Serialized/minified callback and offline crossing tests protect the
+authored class/grade priorities rather than replacing them with reference rules.
 
 MapLibre is a comparison tool, not the rendering specification. Preserve
 Tangram's useful differences: animated TRON traffic, shader glow and water
@@ -64,6 +73,26 @@ basemap, and hiding the basemap hides the caps. They are example-owned deck
 geometry, not renderer tile data, and do not add polar imagery, terrain,
 features or picking. Mercator tile loading and the renderer's projection
 domain remain unchanged.
+
+### Comparison audit: correctness versus presentation
+
+Recent comparison fixes intentionally have different scopes:
+
+| Change | Scope and preserved behavior |
+| --- | --- |
+| Raster sampling and globe tile detail | Correct placeholder-sampler leakage and duplicate zoom adjustment. Explicit nearest filtering and host LOD policies remain supported. |
+| Land behind courtyards | Add example-owned background geometry. Do not fill polygon holes, replace tessellation, or clear the host framebuffer. |
+| Streets and Blue Marble lighting | Opt these example styles out of incidental relighting. Keep renderer lights, custom lit scenes and TRON shader blocks intact. |
+| Globe caps and comparison projection | Caps are illustrative example geometry, not fabricated source data. Set the reference camera to deck's persistent globe model, rather than changing Tangram to follow MapLibre's globe-to-Mercator transition. |
+
+Use the comparison to isolate camera, topology, source-detail and data errors.
+Do not remove animation, shader effects, lighting controls, label placement or
+deck integration merely because the reference does not implement them. Road
+intersection/casing ordering still warrants comparison; shared colors alone
+do not establish equivalent geometry or draw order.
+In particular, the transportation layer can contain tunneled roads, elevated
+pedestrian areas and bridge polygons as well as ordinary road lines. A road
+rendered beneath a higher-grade feature is not, by itself, missing geometry.
 
 ## Frame and package boundary
 
