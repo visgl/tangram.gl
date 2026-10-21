@@ -6,7 +6,7 @@ import {readFileSync} from 'node:fs';
 import {expect, test, vi} from 'vitest';
 import {createExpression, validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
 import {STREETS_COLORS, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from '../examples/deck/streets-cartography';
-import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from '../examples/deck/comparison-style';
+import {COMPARISON_GLYPHS, createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from '../examples/deck/comparison-style';
 import {connectComparisonCamera, mountMapLibreComparison, type ComparisonMap} from '../examples/deck/maplibre-comparison';
 import {BLUE_MARBLE_URL} from '../examples/classic/app/nasa-basemap.js';
 import {readComparisonPreference, writeComparisonPreference} from '../examples/deck/comparison-settings';
@@ -20,7 +20,28 @@ test.each(['mapFlat', 'mapPerspective', 'globe'])('%s Streets reference preserve
     paint: {'fill-color': STREETS_COLORS.building}});
   expect(style.layers.map(layer => layer.type)).not.toContain('fill-extrusion');
   expect(style.layers.filter(layer => layer.type === 'line' && layer['source-layer'] === 'transportation')).toHaveLength(22);
-  expect(style.layers.map(layer => layer.id).slice(-4)).toEqual(['roads-grade-4-outline', 'roads-grade-4', 'roads-grade-5-outline', 'roads-grade-5']);
+  expect(style.layers.filter(layer => layer.type === 'line').map(layer => layer.id).slice(-4)).toEqual(['roads-grade-4-outline', 'roads-grade-4', 'roads-grade-5-outline', 'roads-grade-5']);
+});
+
+test.each(['streetsVector', 'tron'])('%s native labels use the existing place source and independent placement', basemap => {
+  const style = createComparisonStyle(basemap, 'mapPerspective');
+  expect(validateStyleMin(style)).toEqual([]);
+  expect(style.glyphs).toBe(COMPARISON_GLYPHS);
+  const label = style.layers.at(-1);
+  if (label?.type !== 'symbol') throw new Error('Missing native place labels');
+  expect(label).toMatchObject({id: 'place-labels', source: 'basemap', 'source-layer': 'place', layout: {
+    'text-font': ['Noto Sans Regular'], 'text-allow-overlap': false, 'text-ignore-placement': false
+  }});
+  const expression = createExpression(label.layout?.['text-field'], 'layers.place-labels.layout.text-field');
+  if (expression.result !== 'success') throw new Error(JSON.stringify(expression.value));
+  for (const {properties, expected} of [{properties: {name: '東京', 'name:latin': 'Tokyo'}, expected: '東京'},
+    {properties: {'name:latin': 'Tokyo'}, expected: 'Tokyo'}, {properties: {name_en: 'Tokyo'}, expected: 'Tokyo'},
+    {properties: {}, expected: ''}]) {
+    expect(expression.value.evaluate({zoom: 15}, {type: 1, properties})).toBe(expected);
+  }
+  const imagery = createComparisonStyle('blueMarbleRaster', 'globe');
+  expect(imagery.glyphs).toBeUndefined();
+  expect(imagery.layers.some(layer => layer.type === 'symbol')).toBe(false);
 });
 
 test.each([false, true])('road widths preserve Tangram stop values and two-sided casings; major=%s', major => {

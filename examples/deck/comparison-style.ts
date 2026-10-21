@@ -7,6 +7,23 @@ import {BLUE_MARBLE_URL, BLUE_MARBLE_ATTRIBUTION} from '../classic/app/nasa-base
 import {createVectorSource} from '../classic/app/vector-providers.js';
 import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from './streets-cartography';
 
+/** Public glyph service used by OpenFreeMap's own styles; no sprite dependency. */
+export const COMPARISON_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
+
+/** Native reference labels, independent of Tangram's fonts and placement pipeline. */
+function createComparisonLabels(tron: boolean): StyleSpecification['layers'] {
+  return [{id: 'place-labels', type: 'symbol', source: 'basemap', 'source-layer': 'place',
+    layout: {
+      'text-field': ['coalesce', ['get', 'name'], ['get', 'name:latin'], ['get', 'name_en'], ''],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 5, 11, 11, 14, 15, 15],
+      'text-max-width': 8, 'text-padding': 3,
+      'symbol-sort-key': ['to-number', ['coalesce', ['get', 'rank'], 999], 999],
+      'text-allow-overlap': false, 'text-ignore-placement': false
+    }, paint: {'text-color': tron ? '#70f4ff' : '#4b4b4b',
+      'text-halo-color': tron ? '#08111f' : STREETS_COLORS.background, 'text-halo-width': 1.5}}];
+}
+
 /** Preserve Streets' flat buildings and road hierarchy without translating Tangram shaders. */
 function createStreetsLayers(): StyleSpecification['layers'] {
   const majorFilter: ExpressionSpecification = ['in', ['get', 'class'], ['literal', [...STREETS_MAJOR_ROAD_CLASSES]]];
@@ -101,8 +118,7 @@ export function createComparisonStyle(basemapId: string, viewMode: string, provi
     type: 'raster', tiles: [BLUE_MARBLE_URL], tileSize: 256, maxzoom: 8, attribution: BLUE_MARBLE_ATTRIBUTION
   }}, layers: [{id: 'imagery', type: 'raster', source: 'basemap', paint: {'raster-fade-duration': 0}}]};
   const source = createVectorSource(provider), tron = basemapId === 'tron';
-  return {version: 8, projection, sources: {basemap: {type: 'vector', maxzoom: source.max_zoom, attribution: source.attribution,
-    ...(source.tilejson ? {url: source.tilejson} : {tiles: [source.url]})}}, layers: !tron ? createStreetsLayers() : [
+  const layers = !tron ? createStreetsLayers() : [
     {id: 'background', type: 'background', paint: {'background-color': tron ? '#071b33' : '#f5f3ef'}},
     {id: 'landcover', type: 'fill', source: 'basemap', 'source-layer': 'landcover', paint: {'fill-color': tron ? '#0a2540' : '#e8eee5'}},
     {id: 'landuse', type: 'fill', source: 'basemap', 'source-layer': 'landuse', paint: {'fill-color': tron ? '#11263e' : '#eeeae2'}},
@@ -114,5 +130,9 @@ export function createComparisonStyle(basemapId: string, viewMode: string, provi
       'fill-extrusion-color': tron ? '#8b54c6' : '#d6d0c8',
       'fill-extrusion-height': coerceBuildingHeight('render_height', coerceBuildingHeight('height', 20)),
       'fill-extrusion-base': coerceBuildingHeight('render_min_height', coerceBuildingHeight('min_height', 0))}}
-  ]};
+  ] satisfies StyleSpecification['layers'];
+  return {version: 8, projection, glyphs: COMPARISON_GLYPHS,
+    sources: {basemap: {type: 'vector', maxzoom: source.max_zoom, attribution: source.attribution,
+      ...(source.tilejson ? {url: source.tilejson} : {tiles: [source.url]})}},
+    layers: [...layers, ...createComparisonLabels(tron)]};
 }
