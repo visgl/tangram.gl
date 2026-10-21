@@ -76,6 +76,14 @@ domain remain unchanged.
 
 ### Comparison audit: correctness versus presentation
 
+The example reference overrides MapLibre's viewport-dependent camera constraint
+with the shared explicit latitude/zoom limits. At low zoom, fitting the viewport
+inside Mercator bounds would otherwise shift the reference center or raise its
+zoom, especially in portrait panes. Hermetic landmark tests cover both aspect
+ratios, high latitudes, pitch and zoom; intentional empty map-edge space remains.
+Equivalent bearings modulo 360 do not trigger `jumpTo` or interrupt navigation.
+Longitude is not normalized this way: separate Mercator world copies stay distinct.
+
 Recent comparison fixes intentionally have different scopes:
 
 | Change | Scope and preserved behavior |

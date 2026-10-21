@@ -107,6 +107,22 @@ test('camera defaults preserve wrapping and normalize only the shared supported 
   expect(normalizeComparisonCamera({longitude: 370, latitude: -90, zoom: -2}, 'mapFlat')).toMatchObject({longitude: 370, latitude: -85.0511287798, zoom: 0, pitch: 0, bearing: 0});
 });
 
+test('equivalent whole-turn bearings do not reset navigation, but world copies remain distinct', () => {
+  const map: ComparisonMap = {
+    on: vi.fn(), off: vi.fn(), getCenter: () => ({lng: 10, lat: 20}),
+    getZoom: () => 3, getPitch: () => 35, getBearing: () => 10, jumpTo: vi.fn()
+  };
+  const initial = {longitude: 10, latitude: 20, zoom: 3, pitch: 35, bearing: 10};
+  const camera = connectComparisonCamera(map, 'mapPerspective', initial, vi.fn());
+  for (const bearing of [10, 370, -350, 730, -710]) camera.update({...initial, bearing});
+  expect(map.jumpTo).not.toHaveBeenCalled();
+  camera.update({...initial, bearing: 11});
+  expect(map.jumpTo).toHaveBeenLastCalledWith({center: [10, 20], zoom: 3, pitch: 35, bearing: 11});
+  camera.update({...initial, longitude: 370});
+  expect(map.jumpTo).toHaveBeenLastCalledWith({center: [370, 20], zoom: 3, pitch: 35, bearing: 10});
+  camera.destroy();
+});
+
 test('an already canceled comparison never imports MapLibre or touches browser resources', async () => {
   const request = new AbortController(); request.abort();
   // The canceled path needs no browser DOM, proving cancellation precedes allocation.
@@ -167,8 +183,9 @@ test('canceling during module loading cannot allocate a late reference pane', as
   const waiting = new Promise<void>(resolve => {release = resolve;});
   const loading = new Promise<void>(resolve => {started = resolve;});
   const createMap = vi.fn();
+  const createCenter = vi.fn();
   const setWorkerUrl = vi.fn();
-  vi.doMock('maplibre-gl', async () => {started(); await waiting; return {Map: createMap, setWorkerUrl};});
+  vi.doMock('maplibre-gl', async () => {started(); await waiting; return {Map: createMap, LngLat: createCenter, setWorkerUrl};});
   const request = new AbortController();
   try {
     const mounting = mountMapLibreComparison({get container(): HTMLElement {throw new Error('Late DOM allocation');},
@@ -177,6 +194,7 @@ test('canceling during module loading cannot allocate a late reference pane', as
     await loading; request.abort(); release();
     await expect(mounting).rejects.toThrow(/abort/i);
     expect(createMap).not.toHaveBeenCalled();
+    expect(createCenter).not.toHaveBeenCalled();
     expect(setWorkerUrl).not.toHaveBeenCalled();
   } finally {release(); vi.doUnmock('maplibre-gl');}
 });
