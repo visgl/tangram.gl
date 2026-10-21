@@ -60,6 +60,14 @@ is checked against deck for Mercator and the persistent globe camera model;
 this does not make the independent styles a pixel-parity oracle.
 MapLibre always uses WebGL, even beside Tangram's WebGPU backend.
 
+Vector references render native place labels from the same source's `place`
+layer, using OpenFreeMap's public Noto Sans glyph service. MapLibre handles
+its own shaping, rank ordering and collision placement. Tangram's Montserrat
+fonts, label rules, colors and collision pipeline are unchanged; positions and
+visible label sets can legitimately differ. NASA imagery stays label-free.
+Glyph requests require access to `tiles.openfreemap.org`; a blocked font request
+is reported as a reference error, independently of Tangram rendering.
+
 FirstPersonView, WebXR, custom projected basemaps, terrain-specific views and the
 original Nextzen TRON scene do not offer this option. MapLibre and its workers
 load only when enabled; it is an example-only dependency, never part of either
