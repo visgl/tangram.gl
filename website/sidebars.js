@@ -21,6 +21,7 @@ module.exports = {
         'developer-guide/working-with-ai',
         'developer-guide/architecture',
         'developer-guide/roadmap',
+        'developer-guide/maplibre-layers-proposal',
         'developer-guide/map-logic',
         'developer-guide/view-integration',
         'developer-guide/projection-conventions',
