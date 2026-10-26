@@ -144,7 +144,7 @@ async function createDevice(canvas: HTMLCanvasElement): Promise<Device> {
 
 const tangramRenderer: ConformanceRenderer = {
   id: 'tangram',
-  name: `TangramLayer ${tangramLayersPackage.version}${REVISION ? ` (${REVISION})` : ''}`,
+  name: `TangramLayer ${tangramLayersPackage.version}${REVISION ? ` (${REVISION.slice(0, 8)})` : ''}`,
   supports: (scene: ConformanceScene) => scene.style === STREETS_STYLE,
   async render(scene, style) {
     const styleDrift = await checkCorpusStyle();

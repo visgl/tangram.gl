@@ -28,7 +28,7 @@ export const DECK_GL_COMMUNITY_REPOSITORY = 'https://github.com/visgl/deck.gl-co
  * corpus, fixtures and scorer). Move it to the merge commit when #975 lands, and when the corpus
  * or the scorer changes.
  */
-export const DECK_GL_COMMUNITY_COMMIT = 'b03a8eb33aab2f49eb859b5ed85082399b90c7df';
+export const DECK_GL_COMMUNITY_COMMIT = '15b64b396fb65c2e3d9fb83b7c82d7742178c4ee';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
