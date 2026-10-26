@@ -59,6 +59,10 @@
     "test-headless": "yarn build:modules && yarn test-build-worker && yarn workspace @vis.gl/tangram-classic build:editor-workers && ocular-test headless",
     "test-rendering": "yarn build:modules && yarn test-rendering:run",
     "test-rendering:run": "yarn build:examples && vitest run --config vitest.rendering.config.ts",
+    "conformance:checkout": "node scripts/basemap-conformance.mjs checkout",
+    "conformance:reference": "node scripts/basemap-conformance.mjs reference",
+    "test-conformance": "vitest run --config vitest.conformance.config.ts",
+    "conformance-report": "node scripts/basemap-conformance.mjs score",
     "test-coverage": "yarn build:modules && yarn test-build-worker && yarn workspace @vis.gl/tangram-classic build:editor-workers && ocular-test headless --coverage",
     "typecheck": "tsc --noEmit",
     "typescript:scope": "node scripts/check-typescript-migration.mjs",
@@ -78,6 +82,7 @@
     "chai": "^4.5.0",
     "esbuild": "^0.28.1",
     "playwright": "^1.58.0",
+    "pngjs": "^7.0.0",
     "sinon": "^19.0.2",
     "typescript": "^6.0.3",
     "vitest": "^4.0.18"

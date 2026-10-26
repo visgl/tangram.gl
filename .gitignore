@@ -12,6 +12,8 @@ node_modules
 build
 coverage
 .vitest-reports/
+# pinned deck.gl-community checkout and output of the basemap conformance runner
+.basemap-conformance/
 
 # Yarn and Docusaurus generated state
 .yarn/*

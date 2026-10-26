@@ -5,7 +5,7 @@
 import type {StyleSpecification, ExpressionSpecification} from 'maplibre-gl';
 import {BLUE_MARBLE_URL, BLUE_MARBLE_ATTRIBUTION} from '../classic/app/nasa-basemap.js';
 import {createVectorSource} from '../classic/app/vector-providers.js';
-import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from './streets-cartography';
+import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, STREETS_MAJOR_ROAD_CLASSES, STREETS_PLACE_LABELS, createStreetsRoadWidths} from './streets-cartography';
 
 /** Preserve Streets' flat buildings and road hierarchy without translating Tangram shaders. */
 function createStreetsLayers(): StyleSpecification['layers'] {
@@ -91,8 +91,36 @@ function coerceBuildingHeight(field: string, fallback: number | ExpressionSpecif
     ['var', parsed], fallback]]];
 }
 
+/**
+ * Glyphs for the optional place names: CARTO's SDF ranges of Montserrat, the web font Tangram's
+ * canvas text draws, with CARTO's fallback stack for scripts Montserrat lacks.
+ */
+export const COMPARISON_GLYPHS = 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf';
+const COMPARISON_FONT_STACK = ['Montserrat Regular', 'Open Sans Regular', 'Noto Sans Regular',
+  'HanWangHeiLight Regular', 'NanumBarunGothic Regular'];
+
+/** Streets' place names as a MapLibre symbol layer. Tangram style zoom is MapLibre zoom + 1. */
+function createStreetsPlaceLayer(): StyleSpecification['layers'][number] {
+  const size: ExpressionSpecification = ['interpolate', ['linear'], ['zoom']];
+  for (const [zoom, pixels] of STREETS_PLACE_LABELS.sizes) size.push(zoom - 1, pixels);
+  return {id: 'places', type: 'symbol', source: 'basemap', 'source-layer': 'place',
+    layout: {'text-field': ['get', 'name'], 'text-font': COMPARISON_FONT_STACK, 'text-size': size},
+    paint: {'text-color': STREETS_PLACE_LABELS.fill, 'text-halo-color': STREETS_PLACE_LABELS.stroke,
+      'text-halo-width': STREETS_PLACE_LABELS.strokeWidth / 2}};
+}
+
+/** Options of the comparison style. */
+export interface ComparisonStyleOptions {
+  /**
+   * Add Streets' place names as a symbol layer (with `COMPARISON_GLYPHS`). Off in the example,
+   * where labels remain Tangram-only; on for label conformance scoring.
+   */
+  labels?: boolean;
+}
+
 /** Build a static reference from the same imagery or vector provider, not a Tangram shader translation. */
-export function createComparisonStyle(basemapId: string, viewMode: string, provider = 'openfreemap'): StyleSpecification {
+export function createComparisonStyle(basemapId: string, viewMode: string, provider = 'openfreemap',
+  {labels = false}: ComparisonStyleOptions = {}): StyleSpecification {
   if (getComparisonLimitation(viewMode, basemapId)) throw new Error('Unsupported MapLibre comparison');
   // MapLibre's `globe` preset morphs to Mercator at zoom 11–12. deck's
   // GlobeView stays spherical, so compare the same camera model at every zoom.
@@ -101,8 +129,11 @@ export function createComparisonStyle(basemapId: string, viewMode: string, provi
     type: 'raster', tiles: [BLUE_MARBLE_URL], tileSize: 256, maxzoom: 8, attribution: BLUE_MARBLE_ATTRIBUTION
   }}, layers: [{id: 'imagery', type: 'raster', source: 'basemap', paint: {'raster-fade-duration': 0}}]};
   const source = createVectorSource(provider), tron = basemapId === 'tron';
-  return {version: 8, projection, sources: {basemap: {type: 'vector', maxzoom: source.max_zoom, attribution: source.attribution,
-    ...(source.tilejson ? {url: source.tilejson} : {tiles: [source.url]})}}, layers: !tron ? createStreetsLayers() : [
+  const streetsLabels = labels && !tron;
+  return {version: 8, projection, ...(streetsLabels ? {glyphs: COMPARISON_GLYPHS} : {}),
+    sources: {basemap: {type: 'vector', maxzoom: source.max_zoom, attribution: source.attribution,
+    ...(source.tilejson ? {url: source.tilejson} : {tiles: [source.url]})}},
+    layers: !tron ? [...createStreetsLayers(), ...(streetsLabels ? [createStreetsPlaceLayer()] : [])] : [
     {id: 'background', type: 'background', paint: {'background-color': tron ? '#071b33' : '#f5f3ef'}},
     {id: 'landcover', type: 'fill', source: 'basemap', 'source-layer': 'landcover', paint: {'fill-color': tron ? '#0a2540' : '#e8eee5'}},
     {id: 'landuse', type: 'fill', source: 'basemap', 'source-layer': 'landuse', paint: {'fill-color': tron ? '#11263e' : '#eeeae2'}},

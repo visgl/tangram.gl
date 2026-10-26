@@ -12,8 +12,8 @@ import {getConfiguredAttributions, updateAttribution} from '../classic/app/attri
 import {createBlueMarbleScene} from '../classic/app/nasa-basemap.js';
 import {createBasemapBackground} from './basemap-background.ts';
 import {createGlobePolarCaps} from './globe-polar-caps.ts';
-import {createUnlitVectorStyles, openMapTilesBuildingExtrusion} from './basemap-styling.ts';
-import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, createStreetsRoadRules} from './streets-cartography.ts';
+import {openMapTilesBuildingExtrusion} from './basemap-styling.ts';
+import {createStreetsScene} from './streets-scene.ts';
 import {createVectorSource, resolveVectorProvider} from '../classic/app/vector-providers.js';
 import {createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from './comparison-style.ts';
 import {readComparisonPreference, writeComparisonPreference} from './comparison-settings.ts';
@@ -565,83 +565,11 @@ export function initializeDeckExample({
   }
 
   function createVectorScene({labels = true} = {}) {
-    const background = createBasemapBackground(STREETS_COLORS.background);
-    const scene = {
-      scene: {
-        background: {color: STREETS_COLORS.background}
-      },
-      fonts: {
-        Montserrat: {url: resolveExampleAsset('../classic/fonts/montserrat.woff')}
-      },
-      sources: {
-        ...background.sources,
-        basemap: createVectorSource(vectorProvider)
-      },
-      styles: {...background.styles, ...createUnlitVectorStyles()},
-      layers: {
-        ...background.layers,
-        landcover: {
-          data: {source: 'basemap', layer: 'landcover'},
-          draw: {
-            polygons: {style: 'basemap-polygons', order: 1, color: STREETS_COLORS.landcover}
-          }
-        },
-        landuse: {
-          data: {source: 'basemap', layer: 'landuse'},
-          draw: {
-            polygons: {style: 'basemap-polygons', order: 2, color: STREETS_COLORS.landuse}
-          }
-        },
-        parks: {
-          data: {source: 'basemap', layer: 'park'},
-          draw: {
-            polygons: {style: 'basemap-polygons', order: 3, color: STREETS_COLORS.park}
-          }
-        },
-        water: {
-          data: {source: 'basemap', layer: 'water'},
-          draw: {
-            polygons: {style: 'basemap-polygons', order: 4, color: STREETS_COLORS.water}
-          }
-        },
-        waterways: {
-          data: {source: 'basemap', layer: 'waterway'},
-          draw: {
-            lines: {style: 'basemap-lines', order: 5, color: STREETS_COLORS.waterway, width: '1px'}
-          }
-        },
-        buildings: {
-          data: {source: 'basemap', layer: 'building'},
-          filter: {$zoom: {min: STREETS_BUILDING_MIN_ZOOM}},
-          draw: {
-            polygons: {style: 'basemap-polygons', order: 6, color: STREETS_COLORS.building}
-          }
-        },
-        roads: createStreetsRoadRules(),
-        places: {
-          data: {source: 'basemap', layer: 'place'},
-          draw: {
-            text: {
-              order: 8,
-              text_source: 'name',
-              font: {
-                family: 'Montserrat',
-                size: [
-                  [6, '11px'],
-                  [12, '14px']
-                ],
-                fill: '#4b4b4b',
-                stroke: {color: '#f5f3ef', width: 3}
-              }
-            }
-          }
-        }
-      }
-    };
-    if (!labels) {
-      delete scene.layers.places;
-    }
-    return scene;
+    return createStreetsScene({
+      vectorSource: createVectorSource(vectorProvider),
+      fontUrl: resolveExampleAsset('../classic/fonts/montserrat.woff'),
+      labels
+    });
   }
 
   function createTronNextzenScene(runtimeApiKey) {

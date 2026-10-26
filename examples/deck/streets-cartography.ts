@@ -12,6 +12,15 @@ export const STREETS_COLORS = {
 /** Tangram style zoom uses a 256-pixel world; deck and MapLibre use 512 pixels. */
 export const STREETS_BUILDING_MIN_ZOOM = 14;
 
+/**
+ * Place names of the Streets example. Sizes are `[Tangram style zoom, CSS pixels]` stops; the
+ * stroke width is Tangram's, centered on the glyph outline (a MapLibre halo of half the width).
+ */
+export const STREETS_PLACE_LABELS = {
+  family: 'Montserrat', fill: '#4b4b4b', stroke: '#f5f3ef', strokeWidth: 3,
+  sizes: [[6, 11], [12, 14]] as [number, number][]
+} as const;
+
 /** Classes promoted by the Streets example, not a renderer-wide road classification. */
 export const STREETS_MAJOR_ROAD_CLASSES = ['motorway', 'trunk', 'primary', 'secondary'] as const;
 
