@@ -48,7 +48,21 @@ declare module 'basemap-conformance' {
     fixtureMisses: string[];
     recorded: string[];
     durationMs: number;
+    /** The input digests. The scorer computes them again and rejects the render when they differ. */
+    inputs?: RenderInputs;
     meta?: Record<string, unknown>;
+  };
+  /** SHA-256 digests of the scene camera and style (`scene`) and of the requested fixtures. */
+  export type RenderInputs = {
+    algorithm: 'sha256';
+    scene: string;
+    fixtures: string;
+  };
+  /** Every scene of a run, as `expected` or `unsupported`, saved before the first render. */
+  export type RendererManifest = {
+    renderer: string;
+    rendererName: string;
+    scenes: Record<string, 'expected' | 'unsupported'>;
   };
   export const VIEWPORT: {width: number; height: number};
   export function selectScenes(selection: string | undefined): ConformanceScene[];
@@ -56,6 +70,10 @@ declare module 'basemap-conformance' {
   export function readCanvas(source: CanvasImageSource): Uint8ClampedArray;
   export function withTimeout<T>(promise: Promise<T>, label: string, timeout?: number): Promise<T>;
   export function runConformanceScene(renderer: ConformanceRenderer, scene: ConformanceScene): Promise<SavedRender>;
+  export function saveRendererManifest(
+    renderer: ConformanceRenderer,
+    scenes: ConformanceScene[]
+  ): Promise<RendererManifest>;
   export function createMapLibreRenderer(
     dependencies: {maplibregl: unknown; styleSpec: {expression: unknown; latest: unknown}},
     id?: string

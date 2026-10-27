@@ -17,13 +17,19 @@
 
 import {fileURLToPath} from 'node:url';
 import {getVitestConfig} from '@vis.gl/dev-tools';
+import {runnerImport, type Plugin} from 'vite';
 import {mergeConfig} from 'vitest/config';
 import {assertHarness, getConformancePaths} from './scripts/basemap-conformance.mjs';
 
 const paths = getConformancePaths();
 assertHarness(paths);
-// The fixture server imports only `node:` modules, so Node loads it from the checkout as is.
-const {conformanceFixtureServer, HERMETIC_CHROMIUM_ARGS} = await import(`${paths.harness}/src/fixture-server.ts`);
+// Vite loads the fixture server from the checkout, as deck.gl-community's own config does, so its
+// imports resolve without `.ts` extensions.
+const {module: fixtureServer} = await runnerImport<{
+  conformanceFixtureServer(options: {fixtureRoots: string[]; outputDirectory: string; record?: boolean}): Plugin;
+  HERMETIC_CHROMIUM_ARGS: string[];
+}>(`${paths.harness}/src/fixture-server.ts`);
+const {conformanceFixtureServer, HERMETIC_CHROMIUM_ARGS} = fixtureServer;
 
 export default mergeConfig(getVitestConfig({
   // A browser that cannot reach the network: every fixture comes from the fixture server.

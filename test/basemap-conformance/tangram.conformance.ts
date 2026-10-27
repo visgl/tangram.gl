@@ -25,7 +25,7 @@ import {expression, latest} from '@maplibre/maplibre-gl-style-spec';
 import * as maplibregl from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import {TangramLayer} from '@vis.gl/tangram-layers';
-import {describe, expect, test} from 'vitest';
+import {beforeAll, describe, expect, test} from 'vitest';
 import tangramLayersPackage from '../../modules/tangram-layers/package.json';
 import {
   VIEWPORT,
@@ -33,6 +33,7 @@ import {
   createMapLibreRenderer,
   readCanvas,
   runConformanceScene,
+  saveRendererManifest,
   selectScenes,
   withTimeout,
   type ConformanceRenderer,
@@ -233,6 +234,7 @@ if (unknownRenderers.length) {
 
 for (const renderer of renderers) {
   describe(`conformance: ${renderer.name}`, () => {
+    beforeAll(() => saveRendererManifest(renderer, SCENES));
     test.each(SCENES.filter(scene => renderer.supports(scene)))('$id', async scene => {
       const saved = await runConformanceScene(renderer, scene);
       expect(saved.fixtureMisses, 'missing fixtures: run with CONFORMANCE_RECORD=1').toEqual([]);

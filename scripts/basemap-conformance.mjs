@@ -24,10 +24,11 @@ import {fileURLToPath} from 'node:url';
 export const DECK_GL_COMMUNITY_REPOSITORY = 'https://github.com/visgl/deck.gl-community.git';
 
 /**
- * The deck.gl-community commit of the harness: the merge commit of deck.gl-community #975 (the
- * shared corpus, fixtures and scorer) on master. Move it when the corpus or the scorer changes.
+ * The deck.gl-community commit of the harness: the merge commit of deck.gl-community #994 (input
+ * digests and missing-render reporting, on top of the #975 corpus and scorer) on master. Move it
+ * when the corpus or the scorer changes.
  */
-export const DECK_GL_COMMUNITY_COMMIT = '0b7b17a6391ff557d48552a64c8e47f940c568d1';
+export const DECK_GL_COMMUNITY_COMMIT = '08887f9749c21cd8d759bb769e2c71cdfb237064';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
