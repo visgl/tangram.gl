@@ -1,3 +1,9 @@
+{/*
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+ */}
+
 import SplitViewDemo from '@site/src/examples/basemap-layers/split-view';
 
 # Overview

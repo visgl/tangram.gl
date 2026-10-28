@@ -1,3 +1,9 @@
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+
 # BasemapLayer / MapLibre split view
 
 Run `yarn workspace basemap-layers-split-view-example start-local` from the repository root.

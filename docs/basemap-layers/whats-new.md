@@ -1,3 +1,9 @@
+{/*
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+ */}
+
 # What's New
 
 ## October 2026

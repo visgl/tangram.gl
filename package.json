@@ -75,6 +75,8 @@
   },
   "devDependencies": {
     "@deck.gl/core": "^9.4.0",
+    "@loaders.gl/core": "5.0.0-alpha.11",
+    "@loaders.gl/mvt": "5.0.0-alpha.11",
     "@maplibre/maplibre-gl-style-spec": "26.4.4",
     "@math.gl/spatial-index": "5.0.0-alpha.18",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",

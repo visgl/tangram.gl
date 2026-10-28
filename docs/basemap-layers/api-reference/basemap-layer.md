@@ -1,3 +1,9 @@
+{/*
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+ */}
+
 import LayerLiveExample from '@site/src/components/docs/layer-live-example';
 
 # BasemapLayer

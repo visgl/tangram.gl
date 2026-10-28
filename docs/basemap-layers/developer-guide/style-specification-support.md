@@ -1,3 +1,9 @@
+{/*
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+ */}
+
 # Style Specification Support
 
 `BasemapLayer` implements a subset of the [MapLibre Style Specification][spec]. This page lists
