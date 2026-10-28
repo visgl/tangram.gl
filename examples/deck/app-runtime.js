@@ -227,7 +227,7 @@ export function initializeDeckExample({
     if (comparisonStatus) comparisonStatus.textContent = limitation || (comparisonInput.checked
       ? `Navigate either map. Same camera and tile provider. ${basemapId === 'tron'
         ? 'TRON animation, glow and water shaders are Tangram features; the reference is static.'
-        : basemapId === 'streetsVector' ? 'Shared Streets palette and road hierarchy; labels remain Tangram-only.'
+        : basemapId === 'streetsVector' ? 'Shared Streets palette and road hierarchy; native labels use independent placement in each renderer.'
           : 'Same imagery; independent renderers and sampling.'} MapLibre uses WebGL; deck overlays appear only on Tangram.`
       : 'Optional side-by-side reference using the same tile provider. Your choice is remembered across examples.');
   }
