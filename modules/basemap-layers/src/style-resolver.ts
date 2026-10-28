@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import {log} from '@deck.gl/core';
 import {derefLayers} from '@maplibre/maplibre-gl-style-spec';
 import {

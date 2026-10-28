@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import {LayerExtension} from '@deck.gl/core';
 import type {Accessor, Layer, LayerContext} from '@deck.gl/core';
 import type {Device, Texture} from '@luma.gl/core';

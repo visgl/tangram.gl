@@ -1,3 +1,9 @@
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+
 # `map-style` Export
 
 The map-style helpers are exported from the separate package entrypoint:

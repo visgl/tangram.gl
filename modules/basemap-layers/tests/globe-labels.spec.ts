@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import {describe, expect, test} from 'vitest';
 import {getSpriteIconMapping} from '../src/sprite';
 import {GlobeHorizonExtension} from '../src/globe-horizon-extension';

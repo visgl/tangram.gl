@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import {LayerExtension, project32} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
 

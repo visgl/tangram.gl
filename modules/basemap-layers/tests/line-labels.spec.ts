@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import {afterEach, describe, expect, test, vi} from 'vitest';
 // MapLibre GL JS's own functions, from the source its package ships, to compare against.
 import {mergeLines as mapLibreMergeLines} from '../node_modules/maplibre-gl/src/symbol/merge_lines.ts';

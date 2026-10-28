@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 // The only module that imports the style-spec package, so the expression engine can be swapped
 // in one place.
 import {log} from '@deck.gl/core';

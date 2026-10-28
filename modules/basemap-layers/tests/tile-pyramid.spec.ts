@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 /* eslint-disable import/no-extraneous-dependencies */
 import {_GlobeViewport as GlobeViewport, WebMercatorViewport} from '@deck.gl/core';
 import {TileLayer, _Tileset2D as Tileset2D} from '@deck.gl/geo-layers';

@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 /** Runtime exports for `@deck.gl-community/basemap-layers`. */
 export {BasemapLayer} from './basemap-layer';
 export {

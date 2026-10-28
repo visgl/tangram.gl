@@ -1,3 +1,9 @@
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+
 # Third-party notices
 
 `@deck.gl-community/basemap-layers` is released under the MIT license of the

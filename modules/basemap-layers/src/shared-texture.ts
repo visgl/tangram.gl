@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import type {Device, SamplerProps, Texture, TextureProps} from '@luma.gl/core';
 
 /** The sampler deck.gl gives the textures it creates from `image` props. */

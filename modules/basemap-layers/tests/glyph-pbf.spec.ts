@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 /* eslint-disable import/no-extraneous-dependencies */
 import {readFileSync} from 'node:fs';
 import {describe, expect, test} from 'vitest';

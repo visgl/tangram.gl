@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 // deck.gl-community
 // SPDX-License-Identifier: MIT AND BSD-3-Clause
 // Copyright (c) vis.gl contributors

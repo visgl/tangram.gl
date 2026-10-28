@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 /**
  * A label font as CSS: a family list ending with a generic family, a numeric weight and a style.
  */

@@ -1,3 +1,9 @@
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+
 # basemap-layers
 
 [![NPM Version](https://img.shields.io/npm/v/@deck.gl-community/basemap-layers.svg)](https://www.npmjs.com/package/@deck.gl-community/basemap-layers)

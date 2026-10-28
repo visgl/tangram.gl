@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 /* eslint-disable import/no-extraneous-dependencies */
 import {describe, expect, test, vi} from 'vitest';
 import {SharedTextureSet, getSharedTextureCount} from '../src/shared-texture';

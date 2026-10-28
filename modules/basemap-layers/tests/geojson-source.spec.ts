@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 /* eslint-disable import/no-extraneous-dependencies */
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {log} from '@deck.gl/core';

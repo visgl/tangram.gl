@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import {describe, expect, test, vi} from 'vitest';
 import {WebMercatorViewport} from '@deck.gl/core';
 import {SharedMVTLayer, SharedTileset2D} from '../../geo-layers/src';

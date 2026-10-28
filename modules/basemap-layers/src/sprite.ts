@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import {log} from '@deck.gl/core';
 import type {BasemapLoadOptions} from './style-resolver';
 

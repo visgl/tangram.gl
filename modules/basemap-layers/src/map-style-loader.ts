@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import type {LoaderContext, LoaderOptions, LoaderWithParser} from '@loaders.gl/loader-utils';
 import {ResolvedBasemapStyleSchema} from './map-style-schema';
 import {resolveBasemapStyle} from './style-resolver';

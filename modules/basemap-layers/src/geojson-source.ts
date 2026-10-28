@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 import type {GeoJSONVT, GeoJSONVTOptions} from '@maplibre/geojson-vt';
 import {createTileIndex, cutTile, decodeTile, GEOJSON_TILE_EXTENT} from './geojson-tiler';
 import type {GeoJsonWorkerRequest, GeoJsonWorkerResponse} from './geojson-worker';

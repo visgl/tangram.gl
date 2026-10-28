@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 /**
  * Label anchors along lines, for `symbol-placement: line` and `line-center`. The placement follows
  * MapLibre GL JS (`getAnchors`, `getCenterAnchor` and `checkMaxAngle` in its symbol code): labels

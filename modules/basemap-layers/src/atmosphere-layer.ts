@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 /**
  * Returns the top-of-globe atmosphere overlay layer when atmosphere rendering
  * is enabled.
