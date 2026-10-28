@@ -1,5 +1,5 @@
 {
-  "name": "@vis.gl/tangram-maplibre-layers",
+  "name": "@tangram.gl/basemap-layers",
   "private": true,
   "version": "9.4.8",
   "description": "Basemap layer and map-style helpers for deck.gl.",
