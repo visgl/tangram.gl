@@ -5,7 +5,7 @@
 import type {StyleSpecification, ExpressionSpecification} from 'maplibre-gl';
 import {BLUE_MARBLE_URL, BLUE_MARBLE_ATTRIBUTION} from '../classic/app/nasa-basemap.js';
 import {createVectorSource} from '../classic/app/vector-providers.js';
-import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from './streets-cartography';
+import {STREETS_COLORS, STREETS_BUILDING_MIN_ZOOM, STREETS_MAJOR_ROAD_CLASSES, STREETS_PLACE_LABELS, createStreetsRoadWidths} from './streets-cartography';
 
 /** Public glyph service used by OpenFreeMap's own styles; no sprite dependency. */
 export const COMPARISON_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
@@ -108,8 +108,36 @@ function coerceBuildingHeight(field: string, fallback: number | ExpressionSpecif
     ['var', parsed], fallback]]];
 }
 
+/**
+ * Glyphs for the optional place names: CARTO's SDF ranges of Montserrat, the web font Tangram's
+ * canvas text draws, with CARTO's fallback stack for scripts Montserrat lacks.
+ */
+export const CONFORMANCE_GLYPHS = 'https://tiles.basemaps.cartocdn.com/fonts/{fontstack}/{range}.pbf';
+const COMPARISON_FONT_STACK = ['Montserrat Regular', 'Open Sans Regular', 'Noto Sans Regular',
+  'HanWangHeiLight Regular', 'NanumBarunGothic Regular'];
+
+/** Streets' place names as a MapLibre symbol layer. Tangram style zoom is MapLibre zoom + 1. */
+function createStreetsPlaceLayer(): StyleSpecification['layers'][number] {
+  const size: ExpressionSpecification = ['interpolate', ['linear'], ['zoom']];
+  for (const [zoom, pixels] of STREETS_PLACE_LABELS.sizes) size.push(zoom - 1, pixels);
+  return {id: 'places', type: 'symbol', source: 'basemap', 'source-layer': 'place',
+    layout: {'text-field': ['get', 'name'], 'text-font': COMPARISON_FONT_STACK, 'text-size': size},
+    paint: {'text-color': STREETS_PLACE_LABELS.fill, 'text-halo-color': STREETS_PLACE_LABELS.stroke,
+      'text-halo-width': STREETS_PLACE_LABELS.strokeWidth / 2}};
+}
+
+/** Options of the comparison style. */
+export interface ComparisonStyleOptions {
+  /**
+   * Use the pinned corpus's Streets label style for conformance scoring. By default the
+   * example uses its native reference labels. Set false to omit reference labels.
+   */
+  labels?: boolean;
+}
+
 /** Build a static reference from the same imagery or vector provider, not a Tangram shader translation. */
-export function createComparisonStyle(basemapId: string, viewMode: string, provider = 'openfreemap'): StyleSpecification {
+export function createComparisonStyle(basemapId: string, viewMode: string, provider = 'openfreemap',
+  {labels}: ComparisonStyleOptions = {}): StyleSpecification {
   if (getComparisonLimitation(viewMode, basemapId)) throw new Error('Unsupported MapLibre comparison');
   // MapLibre's `globe` preset morphs to Mercator at zoom 11–12. deck's
   // GlobeView stays spherical, so compare the same camera model at every zoom.
@@ -131,8 +159,10 @@ export function createComparisonStyle(basemapId: string, viewMode: string, provi
       'fill-extrusion-height': coerceBuildingHeight('render_height', coerceBuildingHeight('height', 20)),
       'fill-extrusion-base': coerceBuildingHeight('render_min_height', coerceBuildingHeight('min_height', 0))}}
   ] satisfies StyleSpecification['layers'];
-  return {version: 8, projection, glyphs: COMPARISON_GLYPHS,
+  const corpusLabels = labels === true && !tron;
+  const labelLayers = corpusLabels ? [createStreetsPlaceLayer()] : labels === false ? [] : createComparisonLabels(tron);
+  return {version: 8, projection, ...(labelLayers.length ? {glyphs: corpusLabels ? CONFORMANCE_GLYPHS : COMPARISON_GLYPHS} : {}),
     sources: {basemap: {type: 'vector', maxzoom: source.max_zoom, attribution: source.attribution,
       ...(source.tilejson ? {url: source.tilejson} : {tiles: [source.url]})}},
-    layers: [...layers, ...createComparisonLabels(tron)]};
+    layers: [...layers, ...labelLayers]};
 }

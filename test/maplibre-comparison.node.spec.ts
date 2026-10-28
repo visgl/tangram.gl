@@ -5,8 +5,8 @@
 import {readFileSync} from 'node:fs';
 import {expect, test, vi} from 'vitest';
 import {createExpression, validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
-import {STREETS_COLORS, STREETS_MAJOR_ROAD_CLASSES, createStreetsRoadWidths} from '../examples/deck/streets-cartography';
-import {COMPARISON_GLYPHS, createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from '../examples/deck/comparison-style';
+import {STREETS_COLORS, STREETS_MAJOR_ROAD_CLASSES, STREETS_PLACE_LABELS, createStreetsRoadWidths} from '../examples/deck/streets-cartography';
+import {COMPARISON_GLYPHS, CONFORMANCE_GLYPHS, createComparisonStyle, getComparisonLimitation, normalizeComparisonCamera} from '../examples/deck/comparison-style';
 import {connectComparisonCamera, mountMapLibreComparison, type ComparisonMap} from '../examples/deck/maplibre-comparison';
 import {BLUE_MARBLE_URL} from '../examples/classic/app/nasa-basemap.js';
 import {readComparisonPreference, writeComparisonPreference} from '../examples/deck/comparison-settings';
@@ -218,4 +218,26 @@ test('canceling during module loading cannot allocate a late reference pane', as
     expect(createCenter).not.toHaveBeenCalled();
     expect(setWorkerUrl).not.toHaveBeenCalled();
   } finally {release(); vi.doUnmock('maplibre-gl');}
+});
+
+test('Streets reference can select the pinned conformance labels or omit labels explicitly', () => {
+  expect(createComparisonStyle('streetsVector', 'mapFlat', 'openfreemap', {labels: false}).glyphs).toBeUndefined();
+  expect(createComparisonStyle('streetsVector', 'mapFlat', 'openfreemap', {labels: false}).layers.map(layer => layer.type)).not.toContain('symbol');
+  const style = createComparisonStyle('streetsVector', 'mapFlat', 'openfreemap', {labels: true});
+  expect(validateStyleMin(style)).toEqual([]);
+  expect(style.glyphs).toBe(CONFORMANCE_GLYPHS);
+  const places = style.layers.at(-1);
+  expect(places).toMatchObject({id: 'places', type: 'symbol', 'source-layer': 'place',
+    paint: {'text-color': STREETS_PLACE_LABELS.fill, 'text-halo-color': STREETS_PLACE_LABELS.stroke,
+      'text-halo-width': STREETS_PLACE_LABELS.strokeWidth / 2}});
+  if (places?.type !== 'symbol') throw new Error('Missing place names');
+  const size = createExpression(places.layout?.['text-size'], 'layers.places.layout.text-size');
+  if (size.result !== 'success') throw new Error(JSON.stringify(size.value));
+  // Tangram style zoom is MapLibre zoom + 1.
+  for (const [zoom, pixels] of STREETS_PLACE_LABELS.sizes) {
+    expect(size.value.evaluate({zoom: zoom - 1}, {type: 1, properties: {}})).toBe(pixels);
+  }
+  const tron = createComparisonStyle('tron', 'mapFlat', 'openfreemap', {labels: true});
+  expect(tron.glyphs).toBe(COMPARISON_GLYPHS);
+  expect(tron.layers.map(layer => layer.type)).toContain('symbol');
 });
