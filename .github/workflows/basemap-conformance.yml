@@ -1,0 +1,90 @@
+# tangram-layers
+# SPDX-License-Identifier: MIT
+# Copyright (c) vis.gl contributors
+
+# Report only: scores TangramLayer against MapLibre GL JS on deck.gl-community's shared basemap
+# conformance corpus (dev/basemap-conformance). This is a separate workflow and not a required
+# check. It fetches the harness from GitHub at a pinned commit, which required tests must not do.
+# The browser stays hermetic: every tile and glyph comes from the pinned fixtures. No score fails
+# the job; the render and score steps continue on error.
+name: Basemap conformance
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: basemap-conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: 0
+
+jobs:
+  report:
+    name: Basemap conformance (report only)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+      - name: Enable Corepack
+        run: corepack enable
+      - name: Install workspace dependencies
+        run: yarn install --immutable
+      - name: Check out the pinned deck.gl-community harness
+        run: yarn conformance:checkout
+      - name: Build packages and inline renderer worker
+        run: yarn build:modules
+      - name: Install Chromium
+        run: yarn playwright install --with-deps chromium
+      # deck.gl-community's own runner renders the `maplibre` reference, so Tangram is scored
+      # against the same reference images as BasemapLayer.
+      - name: Render the reference with deck.gl-community's runner
+        id: reference
+        continue-on-error: true
+        run: yarn conformance:reference
+      # This repository's MapLibre renders as `maplibre@tangram`: the cross-check of the two
+      # references. If the reference step failed, it renders as the `maplibre` reference instead.
+      - name: Render the corpus with TangramLayer
+        id: render
+        continue-on-error: true
+        run: yarn test-conformance
+        env:
+          VITE_CONFORMANCE_RENDERERS: ${{ steps.reference.outcome == 'success' && 'tangram,maplibre@tangram' || 'maplibre,tangram' }}
+          VITE_CONFORMANCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Score the renders
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          yarn conformance-report
+          {
+            echo '## Basemap conformance (report only)'
+            echo
+            echo "Harness: deck.gl-community \`$(git -C .basemap-conformance/deck.gl-community rev-parse HEAD)\`. Reference renderer step: ${{ steps.reference.outcome }}. Render step: ${{ steps.render.outcome }}."
+            echo
+            cat .basemap-conformance/output/report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: basemap-conformance
+          path: |
+            .basemap-conformance/output/report.md
+            .basemap-conformance/output/scores.json
+            .basemap-conformance/output/images
+            .basemap-conformance/output/*/*.json
+            .basemap-conformance/output/tangram-streets.json
+          include-hidden-files: true
+          if-no-files-found: warn

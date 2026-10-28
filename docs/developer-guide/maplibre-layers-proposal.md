@@ -6,8 +6,9 @@ Copyright (c) vis.gl contributors
 
 # Proposal: MapLibre style layers in tangram.gl
 
-**Status:** proposal, open for discussion. Nothing on this page is implemented in
-this repository yet.
+**Status:** proposal, open for discussion. Phase 1 has a runner in this
+repository; see [Shared basemap conformance scenes](./visgl-conformance.md#shared-basemap-conformance-scenes).
+The other phases are not implemented yet.
 
 This page proposes moving `@deck.gl-community/basemap-layers` from
 [visgl/deck.gl-community](https://github.com/visgl/deck.gl-community/tree/master/modules/basemap-layers)

@@ -19458,6 +19458,7 @@ __metadata:
     chai: "npm:^4.5.0"
     esbuild: "npm:^0.28.1"
     playwright: "npm:^1.58.0"
+    pngjs: "npm:^7.0.0"
     sinon: "npm:^19.0.2"
     typescript: "npm:^6.0.3"
     vitest: "npm:^4.0.18"

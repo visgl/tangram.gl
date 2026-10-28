@@ -161,3 +161,54 @@ code, not a new runtime loaders.gl import. The opt-in worker decreases from
 988.0 / 236.6 KB to 929.2 / 221.5 KB. The TangramLayer root and experimental
 WebXR entries remain unchanged. Renderer totals include both the main code and
 its embedded worker and are not isolated parser measurements.
+
+## Shared basemap conformance scenes
+
+Phase 1 of the [MapLibre style layers proposal](./maplibre-layers-proposal.md)
+scores `TangramLayer` on the shared basemap conformance corpus of
+deck.gl-community (`dev/basemap-conformance`). The corpus holds scenes, recorded
+tiles and glyphs, and a scorer. MapLibre GL JS is the reference. The scorer
+reports SSIM, edge F-score, and label recall and precision. The scores are a
+report, not a gate: the Streets comparison style only approximates the Tangram
+Streets scene.
+
+The runner renders the scenes of the `tangram-streets` style. That style is the
+output of `createComparisonStyle('streetsVector', 'mapFlat', 'openfreemap', {labels: true})`.
+`TangramLayer` draws the Streets example scene (`examples/deck/streets-scene.ts`)
+on the recorded tiles. If the corpus style and `createComparisonStyle` differ,
+the runner marks each Tangram render as invalid and writes the current style to
+`tangram-streets.json` in the output directory.
+
+The harness is not a package. `scripts/basemap-conformance.mjs` pins a
+deck.gl-community commit and checks it out into the git-ignored
+`.basemap-conformance/` directory. To use another checkout, set
+`BASEMAP_CONFORMANCE_CHECKOUT`. The browser cannot reach the network during a
+run: the fixture server of the harness serves every tile and glyph.
+
+```sh
+yarn conformance:checkout     # clone the pinned deck.gl-community commit
+yarn build:modules
+yarn test-conformance         # render with MapLibre (`maplibre`) and TangramLayer (`tangram`)
+yarn conformance-report       # write report.md, scores.json and images/
+```
+
+The output is in `.basemap-conformance/output`. To select scenes, set
+`VITE_CONFORMANCE_SCENES` to scene ids or style ids.
+
+By default, the MapLibre GL JS of this repository renders the `maplibre`
+reference. To score against the reference of deck.gl-community instead, render
+the reference with its own runner first. This installs the dependencies of the
+checkout. Then render this repository's MapLibre as `maplibre@tangram`. The
+scorer compares it with the reference, which cross-checks the two references:
+
+```sh
+node scripts/basemap-conformance.mjs clean
+yarn conformance:reference
+VITE_CONFORMANCE_RENDERERS=tangram,maplibre@tangram yarn test-conformance
+yarn conformance-report
+```
+
+The `Basemap conformance` workflow runs these steps on each pull request. It is
+not a required check, and no score can fail it. It adds the report to the job
+summary and uploads the report, scores and images as the `basemap-conformance`
+artifact.
