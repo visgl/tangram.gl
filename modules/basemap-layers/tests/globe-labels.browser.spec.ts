@@ -13,7 +13,7 @@ import {webgl2Adapter} from '@luma.gl/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {MVTLabelLayer} from '../src/mvt-label-layer';
-import {isGlobeViewport} from '@deck.gl-community/geo-layers';
+import {isGlobeViewport} from '../src/is-globe-viewport';
 import {encodeBoxTile} from '../../geo-layers/test/shared-mvt-layer/mvt-test-tile';
 import {loadSpriteAtlases} from '../src/sprite';
 import type {SpriteAtlas} from '../src/sprite';

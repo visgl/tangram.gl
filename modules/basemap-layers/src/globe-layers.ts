@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import type {GlyphStore} from './glyph-store';
-import {isGlobeViewport, SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {isGlobeViewport} from './is-globe-viewport';
 import {
   COORDINATE_SYSTEM,
   type Layer,

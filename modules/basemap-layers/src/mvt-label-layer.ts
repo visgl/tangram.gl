@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {CompositeLayer} from '@deck.gl/core';
-import {isGlobeViewport} from '@deck.gl-community/geo-layers';
+import {isGlobeViewport} from './is-globe-viewport';
 import type {DefaultProps, Layer, LayerContext, UpdateParameters, Viewport} from '@deck.gl/core';
 import {
   acquireSharedLabelPlacement,

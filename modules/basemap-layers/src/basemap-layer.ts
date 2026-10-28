@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {isGlobeViewport, SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {isGlobeViewport} from './is-globe-viewport';
 import type {BasemapSource} from './style-resolver';
 import {
   CompositeLayer,

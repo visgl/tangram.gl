@@ -82,7 +82,7 @@ function warnInvalidValue(propertyName: string, value: unknown, error: unknown):
 
 /** Returns whether a style property is a `layout` or a `paint` property. */
 export function getStylePropertyType(propertyName: string): 'layout' | 'paint' {
-  return Reference.layout.some(group => Reference[group]?.[propertyName]) ? 'layout' : 'paint';
+  return Reference.layout.some((group: string) => Reference[group]?.[propertyName]) ? 'layout' : 'paint';
 }
 
 /** Resolves the style-spec reference metadata for a layout or paint property name. */

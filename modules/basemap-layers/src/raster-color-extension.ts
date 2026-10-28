@@ -72,7 +72,7 @@
  */
 
 import {LayerExtension} from '@deck.gl/core';
-import type {Layer} from '@deck.gl/core';
+import type {CompositeLayer, Layer} from '@deck.gl/core';
 
 /** The style values of a raster layer's color adjustments, as evaluated from its paint. */
 export type RasterColorAdjustments = {
@@ -226,7 +226,7 @@ export class RasterColorExtension extends LayerExtension {
     return {modules: [rasterColorModule], inject: injection};
   }
 
-  getSubLayerProps(this: Layer<RasterColorExtensionProps>, extension: this) {
+  getSubLayerProps(this: CompositeLayer<RasterColorExtensionProps>, extension: this) {
     return {
       ...LayerExtension.prototype.getSubLayerProps.call(this, extension),
       rasterColorBlendParameters: isRasterColorSupported(this)

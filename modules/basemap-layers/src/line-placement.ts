@@ -346,7 +346,7 @@ export function mergeLines(lines: MergeableLine[]): (number[][] | null)[] {
     if (chain && chain.first.next) {
       // Each chunk after the first repeats the vertex it shares with the previous one.
       const joined = chain.first.line.slice();
-      for (let chunk = chain.first.next; chunk; chunk = chunk.next) {
+      for (let chunk: Chunk | null = chain.first.next; chunk; chunk = chunk.next) {
         for (let i = 1; i < chunk.line.length; i++) {
           joined.push(chunk.line[i]);
         }

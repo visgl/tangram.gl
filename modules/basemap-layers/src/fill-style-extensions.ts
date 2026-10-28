@@ -7,7 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 import {LayerExtension, project} from '@deck.gl/core';
-import type {Layer} from '@deck.gl/core';
+import type {CompositeLayer, Layer} from '@deck.gl/core';
 import {FillStyleExtension} from '@deck.gl/extensions';
 
 /** Whether a layer's device runs the GLSL injections of these extensions. */
@@ -170,7 +170,7 @@ export class FillPatternExtension extends FillStyleExtension {
     return isGLSLDevice(layer) && super.isEnabled(layer);
   }
 
-  getSubLayerProps(this: Layer, extension: this): any {
+  getSubLayerProps(this: CompositeLayer, extension: this): any {
     const props = LayerExtension.prototype.getSubLayerProps.call(this, extension);
     return isGLSLDevice(this) ? props : {...props, getFillColor: [0, 0, 0, 0]};
   }
