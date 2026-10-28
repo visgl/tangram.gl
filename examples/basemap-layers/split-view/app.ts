@@ -1,3 +1,7 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
 // deck.gl-community
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
@@ -16,7 +20,7 @@ import {
 } from '@deck.gl/core';
 import {addMetersToLngLat} from '@math.gl/web-mercator';
 import {BasemapLayer} from '@tangram.gl/basemap-layers';
-import {Map, getWorkerUrl, setWorkerUrl} from 'maplibre-gl';
+import {Map as MapLibreMap, getWorkerUrl, setWorkerUrl} from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 const INITIAL_VIEW_STATE: MapViewState = {
@@ -145,7 +149,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
     maxPitch: 90
   };
   let syncingMap = false;
-  let map: Map | null = null;
+  let map: MapLibreMap | null = null;
   const getStyleUrl = () => `https://tiles.openfreemap.org/styles/${select.value}`;
   const getBasemapLayer = () =>
     new BasemapLayer({
@@ -197,7 +201,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
   const applyProjection = () =>
     map?.setProjection({type: viewMode === 'globe' ? 'globe' : 'mercator'});
   const createMap = () => {
-    map = new Map({
+    map = new MapLibreMap({
       container: mapHost,
       style: getStyleUrl(),
       center: [viewState.longitude, viewState.latitude],
