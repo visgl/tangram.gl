@@ -1,0 +1,57 @@
+# tangram-layers
+# SPDX-License-Identifier: MIT
+# Copyright (c) vis.gl contributors
+
+name: Publish npm packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact version in all three package manifests
+        required: true
+        type: string
+      confirmation:
+        description: Enter publish to confirm the release
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/master' && inputs.confirmation == 'publish'
+    runs-on: ubuntu-22.04
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: corepack enable
+      - run: yarn install --immutable
+      - name: Check release manifests
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/check-publish-ready.mjs
+      - name: Build packages
+        run: yarn build:modules
+      - name: Pack packages
+        run: |
+          yarn workspace @tangram.gl/tangram-renderer pack --out /tmp/tangram-renderer.tgz
+          yarn workspace @tangram.gl/tangram-layers pack --out /tmp/tangram-layers.tgz
+          yarn workspace @tangram.gl/basemap-layers pack --out /tmp/basemap-layers.tgz
+      - name: Publish packages in dependency order
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          node scripts/check-package-archives.mjs
+          npm publish /tmp/tangram-renderer.tgz --access public
+          npm publish /tmp/tangram-layers.tgz --access public
+          npm publish /tmp/basemap-layers.tgz --access public
