@@ -15,7 +15,13 @@ import type {SpriteAtlas} from '../src/sprite';
 
 const SIZE = 64;
 
-let deck: Deck<any> | null = null;
+class TestDeck extends Deck<OrthographicView> {
+  getDevice() {
+    return this.device;
+  }
+}
+
+let deck: TestDeck | null = null;
 let parent: HTMLDivElement | null = null;
 
 afterEach(() => {
@@ -33,8 +39,8 @@ async function createAtlas(): Promise<SpriteAtlas> {
   return {
     id: 'default',
     image: await createImageBitmap(canvas),
-    mapping: {dot: {x: 0, y: 0, width: 16, height: 16, mask: false}}
-  } as SpriteAtlas;
+    mapping: {dot: {x: 0, y: 0, width: 16, height: 16, mask: false, pixelRatio: 1}}
+  };
 }
 
 function labelLayer(id: string, spriteAtlases: SpriteAtlas[], labels = true) {
@@ -63,7 +69,7 @@ function render(layers: any[]): Promise<any[]> {
   document.body.append(parent);
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 10_000);
-    deck = new Deck({
+    deck = new TestDeck({
       parent,
       width: SIZE,
       height: SIZE,
@@ -74,7 +80,7 @@ function render(layers: any[]): Promise<any[]> {
       layers,
       onAfterRender: () => {
         const all = (deck as any)?.layerManager?.getLayers() || [];
-        if (!all.length || all.some(layer => !layer.isLoaded)) {
+        if (!all.length || all.some((layer: {isLoaded: boolean}) => !layer.isLoaded)) {
           return;
         }
         window.clearTimeout(timeout);
@@ -92,7 +98,7 @@ describe('shared label textures', () => {
   test('label layers share one font atlas texture and one sprite texture', async () => {
     const atlas = await createAtlas();
     const layers = await render([labelLayer('a', [atlas]), labelLayer('b', [atlas])]);
-    const device = deck!.device!;
+    const device = deck!.getDevice()!;
     const atlasOf = (isLayer: (layer: any) => boolean) =>
       layers
         .filter(isLayer)
@@ -119,7 +125,7 @@ describe('shared label textures', () => {
   test('a label layer with labels turned off releases its sprite texture', async () => {
     const atlas = await createAtlas();
     await render([labelLayer('a', [atlas])]);
-    const device = deck!.device!;
+    const device = deck!.getDevice()!;
     expect(getSharedTextureCount(device)).toBe(2);
     await new Promise<void>(resolve => {
       deck!.setProps({layers: [labelLayer('a', [atlas], false)], onAfterRender: () => resolve()});
@@ -130,7 +136,7 @@ describe('shared label textures', () => {
   test('the textures stay while another label layer draws from them, and go with the last', async () => {
     const atlas = await createAtlas();
     await render([labelLayer('a', [atlas]), labelLayer('b', [atlas])]);
-    const device = deck!.device!;
+    const device = deck!.getDevice()!;
     const textures = () =>
       ((deck as any).layerManager.getLayers() as any[])
         .filter(layer => layer.state?.iconManager)

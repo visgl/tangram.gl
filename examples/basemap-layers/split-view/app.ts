@@ -16,7 +16,9 @@ import {
   FirstPersonView,
   _GlobeView,
   type MapViewState,
-  type FirstPersonViewState
+  type FirstPersonViewState,
+  type Widget,
+  type WidgetProps
 } from '@deck.gl/core';
 import {addMetersToLngLat} from '@math.gl/web-mercator';
 import {BasemapLayer} from '@tangram.gl/basemap-layers';
@@ -139,7 +141,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
   setWorkerUrl(workerUrl);
   let viewState = INITIAL_VIEW_STATE;
   let viewMode: 'map' | 'globe' | 'first-person' = 'map';
-  let firstPersonState: FirstPersonViewState = {
+  let firstPersonState: FirstPersonViewState & Required<Pick<FirstPersonViewState, 'longitude' | 'latitude' | 'position' | 'pitch' | 'bearing'>> = {
     longitude: viewState.longitude,
     latitude: viewState.latitude,
     position: [0, 0, 600],
@@ -150,6 +152,10 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
   };
   let syncingMap = false;
   let map: MapLibreMap | null = null;
+  const disposeMap = () => {
+    map?.remove();
+    map = null;
+  };
   const getStyleUrl = () => `https://tiles.openfreemap.org/styles/${select.value}`;
   const getBasemapLayer = () =>
     new BasemapLayer({
@@ -201,7 +207,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
   const applyProjection = () =>
     map?.setProjection({type: viewMode === 'globe' ? 'globe' : 'mercator'});
   const createMap = () => {
-    map = new MapLibreMap({
+    const createdMap = new MapLibreMap({
       container: mapHost,
       style: getStyleUrl(),
       center: [viewState.longitude, viewState.latitude],
@@ -213,32 +219,33 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
       maxPitch: viewMode === 'first-person' ? 85 : INITIAL_VIEW_STATE.maxPitch,
       attributionControl: {compact: true}
     });
-    map.on('move', syncDeckCamera);
-    map.on('style.load', () => {
+    map = createdMap;
+    createdMap.on('move', syncDeckCamera);
+    createdMap.on('style.load', () => {
       applyProjection();
       syncMapCamera();
     });
+    return createdMap;
   };
   const syncMapCamera = () => {
     const canRenderMap = viewMode !== 'first-person' || firstPersonState.pitch >= 5;
     unavailable.style.display = canRenderMap ? 'none' : 'flex';
     mapHost.style.display = canRenderMap ? 'block' : 'none';
     if (!canRenderMap) {
-      map?.remove();
-      map = null;
+      disposeMap();
       return;
     }
     syncingMap = true;
     try {
-      if (!map) createMap();
+      const activeMap = map ?? createMap();
       const maxZoom = viewMode === 'first-person' ? 24 : INITIAL_VIEW_STATE.maxZoom;
       const maxPitch = viewMode === 'first-person' ? 85 : INITIAL_VIEW_STATE.maxPitch;
-      if (map.getMaxZoom() !== maxZoom) map.setMaxZoom(maxZoom);
-      if (map.getMaxPitch() !== maxPitch) map.setMaxPitch(maxPitch);
+      if (activeMap.getMaxZoom() !== maxZoom) activeMap.setMaxZoom(maxZoom);
+      if (activeMap.getMaxPitch() !== maxPitch) activeMap.setMaxPitch(maxPitch);
       if (viewMode === 'first-person') {
         const camera = getFirstPersonCamera();
-        map.jumpTo(
-          map.calculateCameraOptionsFromCameraLngLatAltRotation(
+        activeMap.jumpTo(
+          activeMap.calculateCameraOptionsFromCameraLngLatAltRotation(
             [camera[0], camera[1]],
             camera[2],
             firstPersonState.bearing,
@@ -247,7 +254,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
           )
         );
       } else {
-        map.jumpTo({
+        activeMap.jumpTo({
           center: [viewState.longitude, viewState.latitude],
           zoom: viewState.zoom,
           pitch: viewState.pitch,
@@ -258,25 +265,32 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
       syncingMap = false;
     }
   };
-  let deck: Deck<MapView | FirstPersonView | _GlobeView>;
+  let deck!: Deck<MapView | FirstPersonView | _GlobeView>;
   let observer: ResizeObserver | undefined;
   try {
     deck = new Deck<MapView | FirstPersonView | _GlobeView>({
       parent: deckPane,
-      widgets: [infoWidget],
+      // The published widget uses Deck's default view generic, but supports
+      // every view used here; bridge the invariant generic at this boundary.
+      widgets: [infoWidget as unknown as Widget<WidgetProps, MapView | FirstPersonView | _GlobeView>],
       views: new MapView({repeat: true}),
       viewState,
       controller: true,
       layers: [getBasemapLayer()],
       onViewStateChange: event => {
         if (viewMode === 'first-person') {
-          firstPersonState = event.viewState as FirstPersonViewState;
+          const nextState = event.viewState as FirstPersonViewState;
           firstPersonState = {
             ...firstPersonState,
+            ...nextState,
+            longitude: nextState.longitude ?? firstPersonState.longitude,
+            latitude: nextState.latitude ?? firstPersonState.latitude,
+            pitch: nextState.pitch ?? firstPersonState.pitch,
+            bearing: nextState.bearing ?? firstPersonState.bearing,
             position: [
-              firstPersonState.position[0],
-              firstPersonState.position[1],
-              Math.max(10, firstPersonState.position[2])
+              (nextState.position ?? firstPersonState.position)[0],
+              (nextState.position ?? firstPersonState.position)[1],
+              Math.max(10, (nextState.position ?? firstPersonState.position)[2])
             ]
           };
           deck.setProps({viewState: firstPersonState});
@@ -309,7 +323,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
           longitude: viewState.longitude,
           latitude: viewState.latitude,
           position: [0, 0, 600],
-          bearing: viewState.bearing,
+          bearing: viewState.bearing ?? 0,
           pitch: 60
         };
         deck.setProps({
@@ -355,7 +369,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
       select.removeEventListener('change', changeStyle);
       viewSelect.removeEventListener('change', changeView);
       deck.finalize();
-      map?.remove();
+      disposeMap();
       if (getWorkerUrl() === workerUrl) setWorkerUrl(previousWorkerUrl);
       URL.revokeObjectURL(workerUrl);
       root.remove();
@@ -363,7 +377,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
   } catch (error) {
     observer?.disconnect();
     deck?.finalize();
-    map?.remove();
+    disposeMap();
     if (getWorkerUrl() === workerUrl) setWorkerUrl(previousWorkerUrl);
     URL.revokeObjectURL(workerUrl);
     root.remove();

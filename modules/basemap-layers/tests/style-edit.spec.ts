@@ -52,7 +52,7 @@ describe('filterFeatures after an in-place edit', () => {
     {type: 'Feature', geometry: {type: 'Point'}, properties: {class: 'major'}},
     {type: 'Feature', geometry: {type: 'Point'}, properties: {class: 'minor'}}
   ];
-  const classes = (filter: unknown) =>
+  const classes = (filter: unknown[]) =>
     filterFeatures({features: features as any, filter}).map(f => f.properties?.class);
 
   test('applies the edited filter, not a cached one', () => {

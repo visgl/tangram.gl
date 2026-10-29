@@ -250,7 +250,7 @@ describe('a globe basemap above zoom 12', () => {
           .getLayers()
           .some((each: any) => each.id === 'basemap-background-north-pole');
       const [tileset] = layer().state.tilesets.values();
-      const tiles = new Map(tileset.tiles.map((tile: any) => [tile, tile.content]));
+      const tiles = new Map<{content: unknown}, unknown>(tileset.tiles.map((tile: any) => [tile, tile.content]));
       const fetchCount = fetched.length;
       expect(tiles.size).toBeGreaterThan(0);
       expect(hasPole()).toBe(true);

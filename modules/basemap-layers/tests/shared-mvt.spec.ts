@@ -4,7 +4,7 @@
 
 import {describe, expect, test, vi} from 'vitest';
 import {WebMercatorViewport} from '@deck.gl/core';
-import {SharedMVTLayer, SharedTileset2D} from '../../geo-layers/src';
+import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {BasemapLayer} from '../src/basemap-layer';
 
 const source = {type: 'vector', maxzoom: 0, tiles: ['https://example.com/{z}/{x}/{y}.pbf']};

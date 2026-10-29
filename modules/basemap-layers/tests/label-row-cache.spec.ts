@@ -5,7 +5,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import {describe, expect, test, vi} from 'vitest';
 import {_MultiIconLayer as MultiIconLayer} from '@deck.gl/layers';
-import {MVTLabelLayer} from '../src/mvt-label-layer.ts';
+import {MVTLabelLayer, type MVTLabelLayerProps} from '../src/mvt-label-layer.ts';
 import {LabelTextLayer} from '../src/label-text-layer.ts';
 import {getCompiledStyleProperty} from '../src/style-expression.ts';
 
@@ -105,7 +105,7 @@ describe('style values of label features', () => {
     layout: {'text-field': '{name}', 'text-size': ['get', 'size']}
   };
 
-  function labelLayer(zoom: number, state: Record<string, any>, layer = styleLayer): any {
+  function labelLayer(zoom: number, state: Record<string, any>, layer: MVTLabelLayerProps['styleLayer'] = styleLayer): any {
     const result = new MVTLabelLayer({
       id: 'labels',
       config: {labels: true},
@@ -142,7 +142,7 @@ describe('style values of label features', () => {
 
   test('match the values of a layer without the cache', () => {
     const state = {};
-    const features = [12, 14, 16].map(size => ({properties: {size, name: `n${size}`}}));
+    const features = [12, 14, 16].map(size => ({geometry: {type: 'Point', coordinates: [0, 0]}, properties: {size, name: `n${size}`}}));
     const cached = labelLayer(10, state);
     const uncached = new MVTLabelLayer({id: 'u', config: {labels: true}, zoom: 10, styleLayer});
     for (const feature of [...features, ...features]) {

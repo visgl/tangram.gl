@@ -226,7 +226,7 @@ describe('line antialiasing in the browser', () => {
     );
     const size = image.width;
     const row = CENTER;
-    const inked = [];
+    const inked: boolean[] = [];
     for (let x = 0; x < size; x++) {
       inked.push(image.data[(row * size + x) * 4] < 128);
     }

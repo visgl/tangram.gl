@@ -159,6 +159,7 @@ async function renderMapLibre(bearing: number): Promise<number> {
 async function renderBasemapLayer(bearing: number): Promise<number> {
   const [longitude, latitude] = fromTile(CENTER);
   let onFrame: ((image: ImageData) => void) | null = null;
+  const viewState = {longitude, latitude, zoom: TILE.z, bearing};
   deck = new Deck({
     parent: createParent(),
     width: SIZE,
@@ -166,7 +167,7 @@ async function renderBasemapLayer(bearing: number): Promise<number> {
     useDevicePixels: false,
     deviceProps: {adapters: [webgl2Adapter]},
     views: new GlobeView({id: 'view'}),
-    viewState: {longitude, latitude, zoom: TILE.z, bearing},
+    viewState,
     layers: [
       new BasemapLayer({
         id: 'basemap',

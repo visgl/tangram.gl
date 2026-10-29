@@ -2511,6 +2511,19 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deck.gl/widgets@npm:~9.4.0":
+  version: 9.4.1
+  resolution: "@deck.gl/widgets@npm:9.4.1"
+  dependencies:
+    "@floating-ui/dom": "npm:^1.7.5"
+    preact: "npm:^10.17.0"
+  peerDependencies:
+    "@deck.gl/core": ~9.4.0
+    "@luma.gl/core": ~9.4.0
+  checksum: 10c0/2cb09884de3b00ec80e712903aa8b020f7f12bd659d2d8f26cb499c07273a305274522e1229509cc509b80f87fbe8febf31605e49944a1d442499927801ef127
+  languageName: node
+  linkType: hard
+
 "@discoveryjs/json-ext@npm:0.5.7":
   version: 0.5.7
   resolution: "@discoveryjs/json-ext@npm:0.5.7"
@@ -3418,6 +3431,32 @@ __metadata:
   version: 0.28.2
   resolution: "@esbuild/win32-x64@npm:0.28.2"
   conditions: os=win32 & cpu=x64
+  languageName: node
+  linkType: hard
+
+"@floating-ui/core@npm:^1.8.0":
+  version: 1.8.0
+  resolution: "@floating-ui/core@npm:1.8.0"
+  dependencies:
+    "@floating-ui/utils": "npm:^0.2.12"
+  checksum: 10c0/cece958f6fab0f8cd7740cd57988c4f8bc5356dca39dd4c093433d44c91952c3a02c7a54d93d7ed6c078b6544d531a29f66621d2839c8bfbb4467dca6aed7df0
+  languageName: node
+  linkType: hard
+
+"@floating-ui/dom@npm:^1.7.5":
+  version: 1.8.0
+  resolution: "@floating-ui/dom@npm:1.8.0"
+  dependencies:
+    "@floating-ui/core": "npm:^1.8.0"
+    "@floating-ui/utils": "npm:^0.2.12"
+  checksum: 10c0/c32b2de7a596b69cfffa909c7028825e14f6319be1b45da529f8943c89fe16b75a49c214e800c87ded3f172353d3b99163d50072f11410488e756961b7b629cc
+  languageName: node
+  linkType: hard
+
+"@floating-ui/utils@npm:^0.2.12":
+  version: 0.2.12
+  resolution: "@floating-ui/utils@npm:0.2.12"
+  checksum: 10c0/bb910b90d56991a62011afaf5f8e0c4b7fb6dab69403f4dd17fbd6eb25560b28d533dff9791f270b4f459852e9006a1077b5d73cbedb5e34d9424afc6a828314
   languageName: node
   linkType: hard
 
@@ -20022,11 +20061,14 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "tangram-basemap-map-view-example@workspace:examples/layers/basemap-layer-map-view"
   dependencies:
+    "@deck.gl-community/panels": "npm:^9.4.2"
+    "@deck.gl-community/widgets": "npm:^9.4.2"
     "@deck.gl/core": "npm:~9.4.0"
     "@deck.gl/extensions": "npm:~9.4.0"
     "@deck.gl/geo-layers": "npm:~9.4.0"
     "@deck.gl/layers": "npm:~9.4.0"
     "@deck.gl/mesh-layers": "npm:~9.4.0"
+    "@deck.gl/widgets": "npm:~9.4.0"
     "@loaders.gl/core": "npm:^4.5.1"
     "@luma.gl/core": "npm:~9.4.0"
     "@luma.gl/engine": "npm:~9.4.0"
@@ -20049,6 +20091,7 @@ __metadata:
     "@vitest/coverage-v8": "npm:^4.0.18"
     chai: "npm:^4.5.0"
     esbuild: "npm:^0.28.1"
+    maplibre-gl: "npm:6.13.0"
     playwright: "npm:^1.58.0"
     pngjs: "npm:^7.0.0"
     sinon: "npm:^19.0.2"

@@ -1222,7 +1222,7 @@ class StyledMVTLayer extends SharedMVTLayer {
   renderSubLayers(props: Parameters<SharedMVTLayer['renderSubLayers']>[0]) {
     if (!this.isTileShown(props.tile)) {
       this.state.staleTiles?.add(props.tile.id);
-      return null;
+      return [];
     }
     this.state.zoomPaintContext ||= new ZoomPaintContext();
     const {zoomPaintContext} = this.state;
@@ -1653,12 +1653,12 @@ function createVectorLayerGroup({
         shape: 'geojson-table'
       }
     },
-    onTileError: error => {
+    onTileError: (error: unknown) => {
       logBasemapRuntimeError('Vector tile layer failed', error, {
         sourceId
       });
     },
-    onTileLoad: tile => {
+    onTileLoad: (tile: Parameters<NonNullable<SharedMVTLayer['props']['onTileLoad']>>[0]) => {
       const features = Array.isArray(tile.content) ? tile.content : [];
       if (features.length === 0) {
         logBasemapRuntimeEvent('Loaded empty vector tile', {
@@ -1714,16 +1714,21 @@ function createVectorLayerGroup({
           labelPlacement
         });
       })) as RenderLabelLayers,
-    renderSubLayers: props => {
+    renderSubLayers: (props: Parameters<SharedMVTLayer['renderSubLayers']>[0]) => {
+      const styleProps = props as typeof props & {
+        styleAutoHighlight?: boolean;
+        highlightedFeatureId?: string | number | null;
+        zoomPaintContext?: ZoomPaintContext | null;
+      };
       const features = getTileFeatures(props.data);
       const layers: any[] = [];
       // Where the tile layer collects them, a tile's labels are drawn with the other tiles'.
       const labelFeatures = (props as any)[TILE_LABEL_FEATURES] as Map<number, any[]> | undefined;
       const highlights =
-        Boolean(props[AUTO_HIGHLIGHT]) ||
-        (props.highlightedFeatureId !== null && props.highlightedFeatureId !== undefined);
+        Boolean(styleProps[AUTO_HIGHLIGHT]) ||
+        (styleProps.highlightedFeatureId !== null && styleProps.highlightedFeatureId !== undefined);
       // Fills and lines take zoom-dependent paint from a texture (see `createGeometrySubLayer`).
-      const zoomPaintContext = props[ZOOM_PAINT_CONTEXT] as ZoomPaintContext | null | undefined;
+      const zoomPaintContext = styleProps[ZOOM_PAINT_CONTEXT];
       // Consecutive fills and lines that can share a sublayer (see `getBatchKey`), and the index
       // of the first, which places the batch among all tiles' sublayers (`sortTileSubLayers`).
       let batch: GeometryStyle[] = [];

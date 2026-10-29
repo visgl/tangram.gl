@@ -9,10 +9,11 @@ import {
   ColumnPanel,
   MarkdownPanel,
   SettingsPanel,
+  getValueAtPath,
   type SettingsSchema,
   type SettingsState
-} from '../../../modules/panels/src';
-import {BoxPanelWidget} from '../../../modules/widgets/src';
+} from '@deck.gl-community/panels';
+import {BoxPanelWidget} from '@deck.gl-community/widgets';
 
 import '@deck.gl/widgets/stylesheet.css';
 
@@ -112,6 +113,7 @@ const SETTINGS_SCHEMA: SettingsSchema = {
   sections: [
     {
       id: 'settings',
+      name: 'Settings',
       settings: [
         {
           name: 'view.mode',
@@ -141,8 +143,9 @@ const DEFAULT_GLOBE_STYLE_ID: ExampleStyleOption['id'] = 'blue-marble';
 export function mountBasemapLayerMapViewExample(container: HTMLElement): () => void {
   const rootElement = createRoot(container);
   const defaultStyleId = DEFAULT_FLAT_STYLE_ID;
-  const flatView = new MapView();
-  const globeView = new _GlobeView();
+  const clearColor = [0.92, 0.94, 0.94, 1];
+  const flatView = new MapView({clearColor});
+  const globeView = new _GlobeView({clearColor});
   const state = {
     settings: {
       view: {
@@ -244,7 +247,6 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
     views: getView(state.settings, flatView, globeView),
     initialViewState: getViewState(state.settings),
     controller: true,
-    parameters: {clearColor: [0.92, 0.94, 0.94, 1]},
     layers: [createBasemapLayer(state.settings, status, trackedFetch)],
     widgets: [infoWidget]
   });
@@ -319,16 +321,12 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
             schema: SETTINGS_SCHEMA,
             settings: state.settings as unknown as SettingsState,
             onSettingsChange: nextSettings => {
-              const nextMode = nextSettings.view?.mode as
-                | ExampleSettings['view']['mode']
-                | undefined;
-              const nextStyleId = nextSettings.basemap?.style as
-                | ExampleStyleOption['id']
-                | undefined;
-              if (nextMode) {
+              const nextMode = getValueAtPath(nextSettings, 'view.mode');
+              const nextStyleId = getValueAtPath(nextSettings, 'basemap.style');
+              if (nextMode === 'flat' || nextMode === 'globe') {
                 handleViewModeChange(nextMode);
               }
-              if (nextStyleId) {
+              if (nextStyleId === 'positron' || nextStyleId === 'dark' || nextStyleId === 'liberty' || nextStyleId === 'blue-marble') {
                 handleStyleChange(nextStyleId);
               }
             }

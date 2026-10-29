@@ -9,7 +9,7 @@
 import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
-import {BasemapLayer} from '../src/basemap-layer';
+import {BasemapLayer, type BasemapLayerProps} from '../src/basemap-layer';
 
 // A tile that is hidden while the style changes, then shown again, draws as a fresh basemap draws
 // the same view: its kept sublayers are not drawn once it is shown.
@@ -100,7 +100,7 @@ function style(fillColor: unknown) {
 
 const ZOOM_COLOR = ['step', ['zoom'], '#ff0000', 4.25, '#0000ff'];
 
-function basemap(styleDefinition: unknown) {
+function basemap(styleDefinition: BasemapLayerProps['style']) {
   return new BasemapLayer({id: 'basemap', mode: 'map', fetch: fetchTile, style: styleDefinition});
 }
 

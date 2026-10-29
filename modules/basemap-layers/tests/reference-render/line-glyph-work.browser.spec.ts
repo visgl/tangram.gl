@@ -21,7 +21,6 @@ import '@fontsource/montserrat/latin-400-italic.css';
 import '@fontsource/open-sans/latin-400-italic.css';
 import type {Deck} from '@deck.gl/core';
 import {Model} from '@luma.gl/engine';
-import type {WebGLDevice} from '@luma.gl/webgl';
 import {expect, test, vi} from 'vitest';
 import {commands} from 'vitest/browser';
 import {LINE_GLYPH_ATTRIBUTE_STATS} from '../../src/label-text-layer';
@@ -126,7 +125,7 @@ test('counts the work of glyphs along lines in an orbit, a tilt and a zoom', asy
         } finally {
           draw.mockRestore();
           // Keep submitted GPU work inside the test, rather than deferring it to iframe removal.
-          (deck.device as WebGLDevice).gl.finish();
+          deck.getCanvas()?.getContext('webgl2')?.finish();
         }
       }
     }

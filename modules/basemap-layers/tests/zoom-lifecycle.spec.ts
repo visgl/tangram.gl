@@ -46,9 +46,11 @@ describe('BasemapLayer zoom lifecycle', () => {
   test('regenerates sublayers at zoom steps and at fractional minzoom, not in between', async () => {
     const renderCounts: number[] = [];
     await testLayerAsync({
-      Layer: LoadedBasemapLayer as any,
+      Layer: LoadedBasemapLayer,
       createSpy: (obj: any, method: string) => vi.spyOn(obj, method),
-      resetSpy: spy => spy.mockClear(),
+      resetSpy: spy => {
+        if ('mockClear' in spy && typeof spy.mockClear === 'function') spy.mockClear();
+      },
       onError: error => {
         throw error;
       },
@@ -85,7 +87,7 @@ describe('BasemapLayer zoom lifecycle', () => {
           title: 'z8.2: same zoom step, no regeneration',
           viewport: viewportAt(8.2),
           onAfterUpdate: ({spies}) => {
-            renderCounts.push(spies.renderLayers.mock.calls.length);
+            renderCounts.push(spies.renderLayers.mock?.calls.length ?? 0);
           }
         }
       ]

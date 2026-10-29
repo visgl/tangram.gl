@@ -196,7 +196,7 @@ describe('MVTLabelLayer text layout', () => {
     ] as const;
     for (const [layer, expected] of layers) {
       expect(layer.getLineHeight()).toBe(expected);
-      const textLayer = layer.renderLayers().find(sublayer => sublayer.id.endsWith('-text'));
+      const textLayer = layer.renderLayers().find((sublayer: {id: string}) => sublayer.id.endsWith('-text'));
       expect(textLayer?.props.lineHeight).toBe(expected);
     }
   });

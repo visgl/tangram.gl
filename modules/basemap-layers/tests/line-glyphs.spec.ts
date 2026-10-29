@@ -7,8 +7,8 @@ import Point from '@mapbox/point-geometry';
 import {mat4} from 'gl-matrix';
 import {WebMercatorViewport, _GlobeViewport as GlobeViewport} from '@deck.gl/core';
 // MapLibre GL JS's own functions, from the source its package ships, to compare against.
-import {placeGlyphAlongLine} from '../node_modules/maplibre-gl/src/symbol/projection.ts';
-import {PathInterpolator} from '../node_modules/maplibre-gl/src/symbol/path_interpolator.ts';
+import {placeGlyphAlongLine} from '@maplibre-test/projection';
+import {PathInterpolator} from '@maplibre-test/path-interpolator';
 import {LabelCharactersLayer} from '../src/label-text-layer';
 import {GridIndex} from '../src/grid-index';
 import {

@@ -31,6 +31,8 @@
     "**/build/**",
     "**/dist/**",
     "**/lib/**",
+    "website/static/examples/**",
+    "website/static/modules/**",
     "node_modules"
   ]
 }

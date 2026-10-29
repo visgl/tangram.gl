@@ -84,7 +84,7 @@ function renderCenterPixel(
       ],
       onAfterRender: () => {
         const layers = (deck as any)?.layerManager?.getLayers() || [];
-        if (!layers.length || layers.some(layer => !layer.isLoaded)) {
+        if (!layers.length || layers.some((layer: {isLoaded: boolean}) => !layer.isLoaded)) {
           return;
         }
         // Read the frame back in the render callback, before the drawing buffer is cleared.

@@ -4,7 +4,7 @@
 
 import {afterEach, describe, expect, test, vi} from 'vitest';
 // MapLibre GL JS's own functions, from the source its package ships, to compare against.
-import {mergeLines as mapLibreMergeLines} from '../node_modules/maplibre-gl/src/symbol/merge_lines.ts';
+import {mergeLines as mapLibreMergeLines} from '@maplibre-test/merge-lines';
 import {
   clipLine,
   getLineAnchors,

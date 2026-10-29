@@ -136,7 +136,7 @@ function fillTile(
  */
 function render(
   layers: unknown[],
-  viewState: Record<string, number>,
+  viewState: {zoom: number; [key: string]: number},
   view: MapView | GlobeView = new MapView({id: 'fill-test'})
 ) {
   parent = document.createElement('div');

@@ -232,12 +232,11 @@ describe('LabelTextLayer in the browser', () => {
     expect(ink[1]).toBe(0);
 
     // The other view zooms in to the main view's zoom: its glyphs are placed again, and drawn.
-    deck!.setProps({
-      viewState: {
+    const multiViewDeck = deck as Deck<OrthographicView[]>;
+    multiViewDeck.setProps({viewState: {
         main: {target: [0, 0, 0], zoom: 0},
         mini: {target: [0, 0, 0], zoom: 0}
-      }
-    });
+    }});
     ink = await drawn();
     expect(ink[0]).toBeGreaterThan(20);
     expect(ink[1]).toBeGreaterThan(20);

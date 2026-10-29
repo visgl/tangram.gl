@@ -58,7 +58,9 @@ function createTileLayer(tiles: any[]) {
   // The calls that generated sublayers, rather than leaving out a hidden tile.
   const renderSubLayers = {
     get calls() {
-      return spy.mock.results.filter(result => result.value).length;
+      return spy.mock.results.filter(result =>
+        result.value && (!Array.isArray(result.value) || result.value.length > 0)
+      ).length;
     },
     mockClear: () => spy.mockClear()
   };

@@ -173,7 +173,7 @@ describe('parseGlyphRange', () => {
     ]);
     const store = new GlyphStore({
       url: 'https://tiles.example.com/fonts/{fontstack}/{range}.pbf',
-      fetch: (async () => new Response(range)) as unknown as typeof fetch
+      fetch: (async () => new Response(new Uint8Array(range).buffer)) as unknown as typeof fetch
     });
     await store.load('Test Regular', ['Union Square']);
     const measure = getGlyphCharacterMeasurer(store, 'Test Regular');

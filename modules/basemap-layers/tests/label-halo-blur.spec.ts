@@ -182,17 +182,14 @@ describe('TextHaloBlurExtension', () => {
   const extension = new TextHaloBlurExtension();
 
   test('injects the blur into the outline alpha on WebGL', () => {
-    const shaders: any = extension.getShaders.call(
-      {context: {device: {type: 'webgl'}}} as any,
-      extension
-    );
+    const shaders: any = extension.getShaders.call({context: {device: {type: 'webgl'}}} as any);
     expect(shaders.modules.map((module: any) => module.name)).toEqual(['textHaloBlur']);
     expect(Object.keys(shaders.inject)).toEqual(['alpha = inBorder;']);
   });
 
   test('leaves the shaders unchanged on WebGPU', () => {
     expect(
-      extension.getShaders.call({context: {device: {type: 'webgpu'}}} as any, extension)
+      extension.getShaders.call({context: {device: {type: 'webgpu'}}} as any)
     ).toEqual({});
   });
 
@@ -207,9 +204,7 @@ describe('TextHaloBlurExtension', () => {
           context: {device: {type: 'webgl'}},
           props,
           setShaderModuleProps: (moduleProps: unknown) => set.push(moduleProps)
-        } as any,
-        {} as any,
-        extension
+        } as any
       );
     }
     expect(set).toEqual([

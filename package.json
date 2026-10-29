@@ -83,6 +83,7 @@
     "@vitest/coverage-v8": "^4.0.18",
     "chai": "^4.5.0",
     "esbuild": "^0.28.1",
+    "maplibre-gl": "6.13.0",
     "playwright": "^1.58.0",
     "pngjs": "^7.0.0",
     "sinon": "^19.0.2",

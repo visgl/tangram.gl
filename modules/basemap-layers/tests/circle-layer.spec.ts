@@ -300,7 +300,7 @@ describe('circle layers', () => {
   test('the blur extension adds no shader code on WebGPU', () => {
     const extension = new CircleBlurExtension();
     const layer: any = {context: {device: {type: 'webgpu'}}};
-    expect(extension.getShaders.call(layer, extension)).toEqual({});
+    expect(extension.getShaders.call(layer)).toEqual({});
   });
 
   test.each([

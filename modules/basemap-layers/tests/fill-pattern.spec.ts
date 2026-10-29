@@ -101,7 +101,7 @@ describe('fill-pattern', () => {
       'fill-pattern': 'wetland',
       'fill-opacity': 0.5
     });
-    expect(layer.props.extensions.some(ext => ext instanceof FillPatternExtension)).toBe(true);
+    expect(layer.props.extensions.some((ext: unknown) => ext instanceof FillPatternExtension)).toBe(true);
     expect(layer.props.fillPatternAtlas).toBe(DEFAULT_SPRITE.image);
     expect(layer.props.fillPatternMapping).toBe(DEFAULT_SPRITE.mapping);
     expect(layer.props.fillPatternMask).toBe(false);
@@ -162,18 +162,18 @@ describe('fill-pattern', () => {
     expect(defaultLayer.props.data).toEqual([features[0], features[3]]);
     expect(defaultLayer.props.fillPatternMapping).toBe(DEFAULT_SPRITE.mapping);
     expect(
-      defaultLayer.props.data.map(f => evaluate(defaultLayer.props.getFillPattern, f))
+      defaultLayer.props.data.map((f: unknown) => evaluate(defaultLayer.props.getFillPattern, f))
     ).toEqual(['wetland', 'sand']);
     // The default sprite's images share a pixel ratio, so the scale is a constant.
     expect(defaultLayer.props.getFillPatternScale).toBe(2 ** -12 / 2);
     expect(baseLayer.props.data).toEqual([features[1], features[4]]);
     expect(baseLayer.props.fillPatternAtlas).toBe(BASE_SPRITE.image);
-    expect(baseLayer.props.data.map(f => evaluate(baseLayer.props.getFillPattern, f))).toEqual([
+    expect(baseLayer.props.data.map((f: unknown) => evaluate(baseLayer.props.getFillPattern, f))).toEqual([
       'hatched',
       'striped'
     ]);
     // The base sprite's images do not.
-    expect(baseLayer.props.data.map(f => evaluate(baseLayer.props.getFillPatternScale, f))).toEqual(
+    expect(baseLayer.props.data.map((f: unknown) => evaluate(baseLayer.props.getFillPatternScale, f))).toEqual(
       [2 ** -12, 2 ** -12 / 2]
     );
   });
@@ -244,7 +244,7 @@ describe('fill-translate', () => {
       'fill-color': '#000000',
       'fill-translate': [-2, 3]
     });
-    expect(layer.props.extensions.some(ext => ext instanceof FillTranslateExtension)).toBe(true);
+    expect(layer.props.extensions.some((ext: unknown) => ext instanceof FillTranslateExtension)).toBe(true);
     expect(layer.props.fillTranslate).toEqual([-2, 3]);
     expect(layer.props.fillTranslateAnchor).toBe('map');
     const [viewport] = renderFills({
@@ -281,7 +281,7 @@ describe('fill-translate', () => {
       'fill-pattern': 'wetland',
       'fill-translate': [1, 0]
     });
-    expect(layer.props.extensions.map(ext => ext.constructor)).toEqual([
+    expect(layer.props.extensions.map((ext: object) => ext.constructor)).toEqual([
       FillPatternExtension,
       FillTranslateExtension
     ]);
@@ -309,8 +309,8 @@ describe('fill extensions on WebGPU', () => {
     ]);
     expect(pattern.getSubLayerProps.call(layer('webgl'), pattern).getFillColor).toBeUndefined();
     const translate = new FillTranslateExtension();
-    expect(translate.getShaders.call(layer('webgpu'), translate)).toEqual({});
-    expect(translate.getShaders.call(layer('webgl'), translate).modules).toHaveLength(1);
+    expect(translate.getShaders.call(layer('webgpu'))).toEqual({});
+    expect(translate.getShaders.call(layer('webgl')).modules).toHaveLength(1);
   });
 });
 

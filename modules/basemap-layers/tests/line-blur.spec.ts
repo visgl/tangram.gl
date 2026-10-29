@@ -35,7 +35,7 @@ function line(properties: Record<string, unknown> = {}) {
 /** Renders one line style layer for one tile and returns all its sublayers. */
 function renderLines(
   paint: Record<string, unknown>,
-  features = [line()],
+  features: {type: string; geometry: {type: string; coordinates: number[][] | number[][][]}; properties: Record<string, unknown>}[] = [line()],
   zoom = 12,
   extensions?: unknown[],
   type = 'line'
@@ -132,7 +132,7 @@ describe('line-blur', () => {
   });
 
   test('blurs with antialiasing, after the tile and path style extensions', () => {
-    const tileExtension = new LayerExtension();
+    const tileExtension = new (class extends LayerExtension {})();
     const paint = {'line-blur': 3, 'line-dasharray': [2, 1]};
     const [layer] = renderLines(paint, [line()], 12, [tileExtension]);
     const {extensions} = layer.props;

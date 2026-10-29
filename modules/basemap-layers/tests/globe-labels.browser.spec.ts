@@ -14,7 +14,7 @@ import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {MVTLabelLayer} from '../src/mvt-label-layer';
 import {isGlobeViewport} from '../src/is-globe-viewport';
-import {encodeBoxTile} from '../../geo-layers/test/shared-mvt-layer/mvt-test-tile';
+import {encodeBoxTile} from './fixtures/mvt-test-tile';
 import {loadSpriteAtlases} from '../src/sprite';
 import type {SpriteAtlas} from '../src/sprite';
 
@@ -79,7 +79,7 @@ function createGlobeLabelLayer(
  */
 function renderGlobe(
   layers: MVTLabelLayer[],
-  viewState: Record<string, number> = {longitude: 0, latitude: 0, zoom: 0},
+  viewState: {longitude: number; latitude: number; zoom: number} = {longitude: 0, latitude: 0, zoom: 0},
   view: GlobeView = new GlobeView({id: 'globe-label-test'})
 ): Promise<ImageData> {
   parent = document.createElement('div');

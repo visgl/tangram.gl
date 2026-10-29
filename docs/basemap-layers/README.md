@@ -5,6 +5,7 @@ Copyright (c) vis.gl contributors
  */}
 
 import SplitViewDemo from '@site/src/examples/basemap-layers/split-view';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 
 # Overview
 
@@ -32,7 +33,7 @@ when you tilt down. Differences in rendering show the module's current style sup
   <SplitViewDemo />
 </div>
 
-[Open the full split view example](/examples/basemap-layers/split-view).
+<a href={useBaseUrl('/examples/basemap-layers/split-view')}>Open the full split view example</a>.
 
 ## Overview
 

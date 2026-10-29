@@ -83,7 +83,7 @@ function getTileLayer(zoom: number, styleLayers: any[], minzoom?: number): any {
 function renderAt(
   zoom: number,
   state?: any,
-  styleLayers = STYLE_LAYERS,
+  styleLayers: Array<{id: string; type: string; source: string; 'source-layer': string; paint?: Record<string, unknown>; layout?: Record<string, unknown>}> = STYLE_LAYERS,
   minzoom?: number,
   webgl = true
 ) {

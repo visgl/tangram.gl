@@ -5,7 +5,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import {describe, expect, test, vi} from 'vitest';
 import {WebMercatorViewport} from '@deck.gl/core';
-import {SharedTileset2D} from '../../geo-layers/src';
+import {SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {BasemapLayer} from '../src/basemap-layer';
 import {createDemTileset} from '../src';
 import {getBasemapLayers, getStyleLayerRuns} from '../src/globe-layers';

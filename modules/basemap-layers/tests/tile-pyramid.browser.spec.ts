@@ -12,7 +12,7 @@ import {afterEach, describe, expect, test} from 'vitest';
 import {parse} from '@loaders.gl/core';
 import {MVTLoader} from '@loaders.gl/mvt';
 import {BasemapLayer, getBasemapLayers} from '../src/index';
-import {encodeBoxTile} from '../../geo-layers/test/shared-mvt-layer/mvt-test-tile';
+import {encodeBoxTile} from './fixtures/mvt-test-tile';
 
 const SIZE = 128;
 
@@ -94,7 +94,7 @@ function getVectorLayers(): any[] {
  * Renders `layers` on a globe at `viewState` and returns the frame drawn once every layer has
  * loaded the tiles it selected (or has selected none).
  */
-async function renderGlobe(viewState: Record<string, number>, layers: any[]): Promise<ImageData> {
+async function renderGlobe(viewState: {longitude: number; latitude: number; zoom: number}, layers: any[]): Promise<ImageData> {
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise<ImageData>((resolve, reject) => {
