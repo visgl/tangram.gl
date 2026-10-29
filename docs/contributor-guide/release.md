@@ -10,6 +10,9 @@ All workspaces are currently `private: true` and unpublished. The scripts below
 prepare version changes; they are **not** an npm publication path for private
 packages.
 
+See [npm publishing preparation](./npm-publishing.md) for the intended package
+names, first-publish bootstrap, and trusted-publishing configuration.
+
 ## Before a release
 
 1. Decide which packages may be published; do not remove `private` incidentally.
