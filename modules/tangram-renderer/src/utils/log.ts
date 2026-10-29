@@ -42,9 +42,6 @@ const methods: Partial<Record<LogLevel, ConsoleMethod>> = {};
 let loggedOnce: Record<string, true> = {};
 
 function getMethodForLevel(level: LogLevel): ConsoleMethod | undefined {
-  if (!Thread.is_main) {
-    return;
-  }
   if (!methods[level]) {
     const consoleMethods = console as unknown as Record<string, ConsoleMethod | undefined>;
     methods[level] = (consoleMethods[level] || console.log).bind(console);
@@ -96,7 +93,7 @@ log.setLevel = (level: LogLevel): void => {
   }
 };
 
-if (Thread.is_main) {
+if (!Thread.is_worker) {
   log.setWorkers = (workers: BrokerWorker[] | null): void => {
     log.workers = workers;
   };
