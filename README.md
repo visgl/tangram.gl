@@ -19,11 +19,11 @@ to GitHub Pages.
 
 ## Packages
 
-- [`@vis.gl/tangram-renderer`](modules/tangram-renderer/) contains the complete
+- [`@tangram.gl/tangram-renderer`](modules/tangram-renderer/) contains the complete
   Tangram scene, tile, style, label, and luma.gl rendering runtime. It preserves
   the classic default Tangram API and additionally exposes named renderer
   entrypoints for host integrations.
-- [`@vis.gl/tangram-layers`](modules/tangram-layers/) contains the experimental
+- [`@tangram.gl/tangram-layers`](modules/tangram-layers/) contains the experimental
   `TangramLayer` deck.gl adapter. deck.gl owns the device, view state, and render
   pass; Tangram owns scene traversal and basemap drawing.
 

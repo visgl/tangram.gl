@@ -5,7 +5,7 @@
 import {Deck, FirstPersonView, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {PathLayer, ScatterplotLayer} from '@deck.gl/layers';
 import {webgpuAdapter} from '@luma.gl/webgpu';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 import {resolveDeckExampleViewMode} from './app-loader.js';
 import {createCollapsibleInfoCard} from './info-card.js';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';

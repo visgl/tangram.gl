@@ -18,9 +18,9 @@ import {getTerrainEyeCoordinate, constrainTerrainEye, constrainTerrainMotion} fr
 import {selectTerrainDetail} from './terrain-detail';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';
 import {createDrapedBasemap} from './draped-basemap';
-import type {SceneDefinition, TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
-import {TerrainSurfaceCollection} from '@vis.gl/tangram-renderer/core';
-import {TerrainResourceBudget, TerrainHeightField, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import type {SceneDefinition, TerrainDrapingOptions} from '@tangram.gl/tangram-renderer/core';
+import {TerrainSurfaceCollection} from '@tangram.gl/tangram-renderer/core';
+import {TerrainResourceBudget, TerrainHeightField, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 /** One mounted example owns its canvas, controls, workers and GPU resources. */
@@ -102,12 +102,12 @@ export function mountTerrainExample(host: HTMLElement, options: {
   attribution.append(basemapCredits); basemapCredits.hidden = !draping.checked;
   const basemapScene = options.basemap || createDrapedBasemap();
   updateAttribution(creditValue, getConfiguredAttributions(basemapScene));
-  let BasemapLayer: typeof import('@vis.gl/tangram-layers').TangramLayer | undefined;
+  let BasemapLayer: typeof import('@tangram.gl/tangram-layers').TangramLayer | undefined;
   let fieldSignature = '';
   let terrain: TerrainDrapingOptions = {grids: [], transitionDuration: 200};
   const resourceBudget = new TerrainResourceBudget(512 * 1024 * 1024);
   let navigationGrids: readonly TerrainHeightGrid[] = [], navigationField = new TerrainHeightField([]);
-  let activeBasemap: InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer> | undefined;
+  let activeBasemap: InstanceType<typeof import('@tangram.gl/tangram-layers').TangramLayer> | undefined;
   let basemapError = '';
   let lastDrapingStatus = 0;
   const bounds = getTerrainTileBounds(11, 1068, 728);
@@ -238,7 +238,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     }
     const visible = new Set(drawable.map(tile => tile.key));
     for (const key of geometry.keys()) if (!visible.has(key)) geometry.delete(key);
-    const layers: (TerrainLayer | InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer>)[] = [];
+    const layers: (TerrainLayer | InstanceType<typeof import('@tangram.gl/tangram-layers').TangramLayer>)[] = [];
     if (!draping.checked) activeBasemap = undefined;
     let triangles = 0;
     for (const tile of drawable) {
@@ -328,7 +328,7 @@ export function mountTerrainExample(host: HTMLElement, options: {
     void request.catch(exception => {if (!disposed) status.textContent = `Fullscreen unavailable: ${exception.message}`;});
   }, {signal: abort.signal});
   updateSelection();
-  const basemapReady = options.basemap === false ? Promise.resolve() : import('@vis.gl/tangram-layers').then(module => {
+  const basemapReady = options.basemap === false ? Promise.resolve() : import('@tangram.gl/tangram-layers').then(module => {
     if (!disposed) {BasemapLayer = module.TangramLayer; schedule();}
   }).catch(exception => {if (!disposed) {draping.checked = false; basemapCredits.hidden = true; selection.textContent = `Basemap unavailable: ${String(exception)}`; schedule();}});
   const ready = Promise.all([tileset.waitForIdle(), basemapReady]).then(() => {if (!disposed) updateLayers();});

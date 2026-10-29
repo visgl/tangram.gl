@@ -27,7 +27,7 @@ vi.mock('@deck.gl/core', () => ({
   OrthographicView: class {}
 }));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
-vi.mock('@vis.gl/tangram-layers/experimental/projected-basemaps', () => ({
+vi.mock('@tangram.gl/tangram-layers/experimental/projected-basemaps', () => ({
   ProjectedBasemapLayer: class {constructor(readonly props: Record<string, unknown>) {}},
   createProjectedBasemapScene: (scene: unknown) => scene,
   ProjectedBasemapNavigation: class {
@@ -36,7 +36,7 @@ vi.mock('@vis.gl/tangram-layers/experimental/projected-basemaps', () => ({
   },
   selectProjectedTileDetail: fixtures.detail
 }));
-vi.mock('@vis.gl/tangram-renderer/core', () => ({countProjectedTileCoordinates: (_bounds: unknown, zoom: number) => 4 ** zoom}));
+vi.mock('@tangram.gl/tangram-renderer/core', () => ({countProjectedTileCoordinates: (_bounds: unknown, zoom: number) => 4 ** zoom}));
 vi.mock('../examples/projected/projection-engine.js', () => ({createProjectedExampleProjectionEngine: () => ({})}));
 vi.mock('../examples/classic/app/attribution.js', async importOriginal => ({
   ...await importOriginal<typeof import('../examples/classic/app/attribution.js')>(),

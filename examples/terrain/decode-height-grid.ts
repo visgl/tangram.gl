@@ -5,7 +5,7 @@
 import {parse} from '@loaders.gl/core';
 import {ImageBitmapLoader, getImageData, type ImageBitmapLoaderOptions} from '@loaders.gl/images';
 import {lngLatToWorld} from '@math.gl/web-mercator';
-import {TERRARIUM_DECODER, decodeTerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {TERRARIUM_DECODER, decodeTerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import {validateTerrainImage, type TerrainGridData, type TerrainNoDataPolicy} from './terrain-payload';
 
 /** Decode one data-preserving bitmap into physical samples, without a second image parse or adaptive tessellation. */

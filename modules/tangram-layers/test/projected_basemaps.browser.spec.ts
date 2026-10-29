@@ -4,7 +4,7 @@
 
 import {afterEach, expect, test, vi} from 'vitest';
 import {OrthographicView, WebMercatorViewport} from '@deck.gl/core';
-import {HostFrame} from '@vis.gl/tangram-renderer/core';
+import {HostFrame} from '@tangram.gl/tangram-renderer/core';
 import {createProjectedBasemapScene, getProjectedViewFrame, ProjectedBasemapLayer} from '../src/experimental/projected-basemaps';
 import {createContextFixture, createRecordFixture, createRendererFixture} from './fixtures/lifecycle';
 

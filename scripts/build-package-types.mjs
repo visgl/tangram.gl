@@ -19,8 +19,8 @@ const ambientPaths = [...ts.sys.readDirectory(resolve(repositoryDirectory, 'type
 const options = {...parsed.options, allowJs: false, noEmit: false, declaration: true,
   emitDeclarationOnly: true, rootDir: sourceDirectory, outDir: outputDirectory,
   ...(process.argv[2] === 'modules/tangram-renderer' ? {paths: {
-    '@vis.gl/tangram-renderer': [resolve(sourceDirectory, 'index.d.ts')],
-    '@vis.gl/tangram-renderer/core': [resolve(sourceDirectory, 'core.d.ts')]
+    '@tangram.gl/tangram-renderer': [resolve(sourceDirectory, 'index.d.ts')],
+    '@tangram.gl/tangram-renderer/core': [resolve(sourceDirectory, 'core.d.ts')]
   }} : {})};
 const program = ts.createProgram([...ambientPaths, ...entryPaths], options);
 const diagnostics = ts.getPreEmitDiagnostics(program);

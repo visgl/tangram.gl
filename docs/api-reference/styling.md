@@ -136,7 +136,7 @@ availability, data schemas and licenses are independent of format support.
 For an archive containing MLT, combine `loaders-pmtiles` with `loaders-mlt`.
 
 Build the sidecar with
-`yarn workspace @vis.gl/tangram-renderer build:loaders-gl-worker`.
+`yarn workspace @tangram.gl/tangram-renderer build:loaders-gl-worker`.
 Serve it at the absolute URL in `scene.scripts`; the URL above assumes the
 website's assembled asset layout. A custom host must copy the asset itself.
 The provider acquires encoded bytes; decoders return named feature collections
@@ -149,8 +149,8 @@ The renderer exports a Zod schema for runtime validation and a generated
 Draft 7 JSON Schema for editors and language servers:
 
 ```js
-import {TangramStyleSheetSchema} from '@vis.gl/tangram-renderer/style-schema';
-import tangramStyleJsonSchema from '@vis.gl/tangram-renderer/tangram-style.schema.json'
+import {TangramStyleSheetSchema} from '@tangram.gl/tangram-renderer/style-schema';
+import tangramStyleJsonSchema from '@tangram.gl/tangram-renderer/tangram-style.schema.json'
   with {type: 'json'};
 
 const result = TangramStyleSheetSchema.safeParse(sceneDocument);
@@ -200,8 +200,8 @@ before styling.
 `order` determines draw ordering within the Tangram scene. For coplanar geometry, use
 different orders or a small `z` offset instead of relying on depth precision.
 Text and line widths are expressed in screen-aware units by the renderer. The
-same scene document can therefore be passed to `@vis.gl/tangram-renderer` or
-to `@vis.gl/tangram-layers` without changing the style format.
+same scene document can therefore be passed to `@tangram.gl/tangram-renderer` or
+to `@tangram.gl/tangram-layers` without changing the style format.
 
 For a complete working document, see the scene files in
 [`examples/classic/styles`](https://github.com/visgl/tangram.gl/tree/master/examples/classic/styles)

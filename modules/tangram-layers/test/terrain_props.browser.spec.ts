@@ -4,11 +4,11 @@
 
 import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
-import {DrapedTerrainSurfaceSnapshot} from '@vis.gl/tangram-renderer/core';
+import {DrapedTerrainSurfaceSnapshot} from '@tangram.gl/tangram-renderer/core';
 import {createContextFixture, createRecordFixture, createRendererFixture, getLiveRecord} from './fixtures/lifecycle';
-import type {Scene} from '@vis.gl/tangram-renderer';
+import type {Scene} from '@tangram.gl/tangram-renderer';
 import type {TangramLayerProps} from '../src/tangram-layer';
-import {TerrainResourceBudget} from '@vis.gl/tangram-renderer/map-logic';
+import {TerrainResourceBudget} from '@tangram.gl/tangram-renderer/map-logic';
 
 test('the borrowed terrain budget reaches the renderer and a different pool recreates its owner', async () => {
     class BaseLayer {}

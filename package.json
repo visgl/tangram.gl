@@ -33,13 +33,13 @@
     "@loaders.gl/worker-utils@npm:4.5.4": "4.5.3"
   },
   "scripts": {
-    "start": "yarn workspace @vis.gl/tangram-renderer watch",
+    "start": "yarn workspace @tangram.gl/tangram-renderer watch",
     "bootstrap": "yarn install && ocular-bootstrap",
     "clean": "ocular-clean",
     "website:start": "yarn workspace tangram-layers-website start",
     "website:build": "yarn workspace tangram-layers-website build",
     "build": "yarn clean && yarn build:modules && yarn workspace @vis.gl/tangram-classic build && yarn workspace @vis.gl/tangram-terrain-example build && yarn build:examples",
-    "build:modules": "yarn workspace @vis.gl/tangram-renderer build && yarn workspace @vis.gl/tangram-layers build && yarn build:artifacts",
+    "build:modules": "yarn workspace @tangram.gl/tangram-renderer build && yarn workspace @tangram.gl/tangram-layers build && yarn workspace @tangram.gl/basemap-layers build && yarn build:artifacts",
     "build:artifacts": "node scripts/check-renderer-artifacts.mjs",
     "build:packages": "yarn build",
     "bundle-size": "yarn build:modules && node scripts/report-bundle-size.mjs",
@@ -68,7 +68,7 @@
     "typescript:scope": "node scripts/check-typescript-migration.mjs",
     "playwright:install": "playwright install chromium",
     "test-website": "yarn website:build",
-    "test-build-worker": "yarn workspace @vis.gl/tangram-renderer test-build-worker && yarn workspace @vis.gl/tangram-terrain-example build",
+    "test-build-worker": "yarn workspace @tangram.gl/tangram-renderer test-build-worker && yarn workspace @vis.gl/tangram-terrain-example build",
     "publish:beta": "ocular-publish version-only-beta",
     "publish:prod": "ocular-publish version-only-prod",
     "build:examples": "node scripts/build-examples.mjs"

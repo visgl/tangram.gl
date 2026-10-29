@@ -14,7 +14,7 @@ Copyright (c) vis.gl contributors
 Inputs must be finite, ordered rectangles; viewport dimensions must be positive.
 
 ```ts
-import {intersectsScreenBounds, unionScreenBounds} from '@vis.gl/tangram-renderer/map-logic';
+import {intersectsScreenBounds, unionScreenBounds} from '@tangram.gl/tangram-renderer/map-logic';
 
 intersectsScreenBounds([0, 0, 20, 20], [20, 0, 40, 20]); // false: edge contact
 unionScreenBounds([0, 0, 20, 20], [-5, 10, 30, 40]); // [-5, 0, 30, 40]

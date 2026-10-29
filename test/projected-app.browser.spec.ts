@@ -16,8 +16,8 @@ vi.mock('@deck.gl/core', () => ({
     }, OrthographicView: class {}
 }));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
-vi.mock('@vis.gl/tangram-renderer/core', () => ({countProjectedTileCoordinates: () => 64}));
-vi.mock('@vis.gl/tangram-layers/experimental/projected-basemaps', () => ({
+vi.mock('@tangram.gl/tangram-renderer/core', () => ({countProjectedTileCoordinates: () => 64}));
+vi.mock('@tangram.gl/tangram-layers/experimental/projected-basemaps', () => ({
     createProjectedBasemapScene: mocks.prepare, ProjectedBasemapLayer: class {},
     ProjectedBasemapNavigation: class {dispose = mocks.dispose; reprojectViewState = mocks.reproject;},
     selectProjectedTileDetail: vi.fn()

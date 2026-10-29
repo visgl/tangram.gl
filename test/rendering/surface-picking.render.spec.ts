@@ -5,7 +5,7 @@
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Matrix4} from '@math.gl/core';
-import {pickXRSurface} from '@vis.gl/tangram-layers/experimental/webxr';
+import {pickXRSurface} from '@tangram.gl/tangram-layers/experimental/webxr';
 import {RenderingHarness, coloredPixels, DEVICE_TYPE} from './harness';
 
 let harness: RenderingHarness | undefined;

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {WebXRSurfaceGrabber} from '@vis.gl/tangram-layers/experimental/webxr';
+import {WebXRSurfaceGrabber} from '@tangram.gl/tangram-layers/experimental/webxr';
 
 /** Keep the example's accepted room placement stable after release; reset at session end. */
 export function createSurfaceGrabControls() {
@@ -13,7 +13,7 @@ export function createSurfaceGrabControls() {
     isGrabbing: () => grabber.isGrabbing(),
     /**
      * Process the entire grab frame before allowing thumbstick navigation.
-     * @param {(intent: import('@vis.gl/tangram-layers/experimental/webxr').XRInteractionIntent) => void} [dispatchNavigation] Apply navigation only when no grab owns this frame.
+     * @param {(intent: import('@tangram.gl/tangram-layers/experimental/webxr').XRInteractionIntent) => void} [dispatchNavigation] Apply navigation only when no grab owns this frame.
      */
     update(intents, context, dispatchNavigation) {
       for (const intent of intents) {

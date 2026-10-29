@@ -20,7 +20,7 @@ const sidebars = {
     },
     {
       type: 'category',
-      label: '@vis.gl/tangram-layers',
+      label: '@tangram.gl/tangram-layers',
       collapsed: false,
       items: [
         {type: 'doc', id: 'deck', label: 'MapView perspective'},
@@ -35,7 +35,7 @@ const sidebars = {
     },
     {
       type: 'category',
-      label: '@vis.gl/tangram-layers (WebXR)',
+      label: '@tangram.gl/tangram-layers (WebXR)',
       collapsed: false,
       items: [
         {type: 'doc', id: 'webxr', label: 'GlobeView'},
@@ -46,7 +46,7 @@ const sidebars = {
     },
     {
       type: 'category',
-      label: '@vis.gl/tangram-renderer',
+      label: '@tangram.gl/tangram-renderer',
       collapsed: false,
       items: [
         {type: 'doc', id: 'classic', label: 'Classic playground'},

@@ -1,7 +1,7 @@
 {
-  "name": "@vis.gl/tangram-layers",
+  "name": "@tangram.gl/tangram-layers",
   "homepage": "https://vis.gl/tangram.gl/",
-  "version": "1.0.0-alpha.0",
+  "version": "0.0.0",
   "private": true,
   "description": "deck.gl layers for Tangram basemaps",
   "type": "module",
@@ -49,10 +49,10 @@
     "build": "yarn build:types && yarn build:bundle",
     "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-layers index.ts experimental/projected-basemaps.ts experimental/terrain.ts",
     "build:bundle": "yarn build:bundle:main && yarn build:bundle:webxr && yarn build:bundle:projected && yarn build:bundle:terrain",
-    "build:bundle:terrain": "ocular-bundle ./experimental-terrain.js --env=dev --output=dist/experimental/terrain.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
-    "build:bundle:projected": "ocular-bundle ./experimental-projected-basemaps.js --env=dev --output=dist/experimental/projected-basemaps.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
-    "build:bundle:main": "ocular-bundle ./bundle.js --env=dev --output=dist/index.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
-    "build:bundle:webxr": "ocular-bundle ./experimental-webxr.js --env=dev --output=dist/experimental/webxr.js --externals=@vis.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
+    "build:bundle:terrain": "ocular-bundle ./experimental-terrain.js --env=dev --output=dist/experimental/terrain.js --externals=@tangram.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
+    "build:bundle:projected": "ocular-bundle ./experimental-projected-basemaps.js --env=dev --output=dist/experimental/projected-basemaps.js --externals=@tangram.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
+    "build:bundle:main": "ocular-bundle ./bundle.js --env=dev --output=dist/index.js --externals=@tangram.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
+    "build:bundle:webxr": "ocular-bundle ./experimental-webxr.js --env=dev --output=dist/experimental/webxr.js --externals=@tangram.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "prepack": "yarn build"
   },
   "devDependencies": {
@@ -62,7 +62,7 @@
   },
   "dependencies": {
     "@math.gl/culling": "5.0.0-alpha.18",
-    "@vis.gl/tangram-renderer": "workspace:^"
+    "@tangram.gl/tangram-renderer": "workspace:^"
   },
   "peerDependencies": {
     "@deck.gl/core": "^9.4.0",

@@ -40,7 +40,7 @@ export default mergeConfig(getVitestConfig({
     optimizeDeps: {
       include: ['@deck.gl/core', '@luma.gl/core', '@luma.gl/engine', '@luma.gl/webgl', '@math.gl/core',
         '@math.gl/culling', '@loaders.gl/mvt', 'maplibre-gl', '@maplibre/maplibre-gl-style-spec'],
-      exclude: ['@vis.gl/tangram-renderer', '@vis.gl/tangram-layers']
+      exclude: ['@tangram.gl/tangram-renderer', '@tangram.gl/tangram-layers']
     },
     plugins: [conformanceFixtureServer({
       fixtureRoots: paths.fixtureRoots,

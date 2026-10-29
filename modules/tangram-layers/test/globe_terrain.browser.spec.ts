@@ -5,7 +5,7 @@
 import {expect, test, vi} from 'vitest';
 import {_GlobeViewport as GlobeViewport, WebMercatorViewport, LayerExtension, type UpdateParameters} from '@deck.gl/core';
 import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation, getGlobeScreenRatio} from '../src/experimental/terrain';
-import {GlobeTerrainPreparation, getPreparedGlobeTerrainTemplate, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainPreparation, getPreparedGlobeTerrainTemplate, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 
 /** Marker extension exercising the deliberately unsupported vertex-extension boundary. */
 class TestExtension extends LayerExtension {}

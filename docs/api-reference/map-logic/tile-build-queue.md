@@ -13,7 +13,7 @@ bounded concurrency, latest queued generations and stale-completion protection.
 It owns metadata only; the caller owns cancellation, workers and resources.
 
 ```ts
-import {TileBuildQueue} from '@vis.gl/tangram-renderer/map-logic';
+import {TileBuildQueue} from '@tangram.gl/tangram-renderer/map-logic';
 
 const queue = new TileBuildQueue();
 queue.setLimit(2);

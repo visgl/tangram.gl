@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Layer} from '@deck.gl/core';
-import {Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
+import {Renderer as ClassicWebGLRenderer} from '@tangram.gl/tangram-renderer/core';
 import createTangramLayerClass, {
   getExternalCameraFrame,
   getFirstPersonViewFrame,

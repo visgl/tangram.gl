@@ -5,7 +5,7 @@
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Deck, _GlobeView as GlobeView} from '@deck.gl/core';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 import {createBasemapBackground} from '../../examples/deck/basemap-background';
 import {createGlobePolarCaps} from '../../examples/deck/globe-polar-caps';
 import {RenderingHarness, readCanvasPixels, DEVICE_TYPE} from './harness';

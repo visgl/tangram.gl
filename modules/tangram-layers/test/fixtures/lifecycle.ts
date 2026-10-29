@@ -5,7 +5,7 @@
 import {Device} from '@luma.gl/core';
 import {WebMercatorViewport} from '@deck.gl/core';
 import {vi} from 'vitest';
-import type {Scene} from '@vis.gl/tangram-renderer';
+import type {Scene} from '@tangram.gl/tangram-renderer';
 import type {TangramBridgeRenderer, TangramBridgeDevice, TangramLayerContext, TangramLayerOwner, TangramRecord} from '../../src/tangram-layer-lifecycle';
 
 /** Complete bridge mock; individual tests override only the behavior under inspection. */

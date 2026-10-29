@@ -4,14 +4,14 @@ SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
 -->
 
-# @vis.gl/tangram-layers
+# @tangram.gl/tangram-layers
 
 Experimental deck.gl basemap integration for tangram.gl. This workspace is
 private and unpublished; build it from the repository root with `yarn build:modules`.
 
 ```js
 import {Deck, MapView} from '@deck.gl/core';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 
 const deck = new Deck({
   canvas: 'map',

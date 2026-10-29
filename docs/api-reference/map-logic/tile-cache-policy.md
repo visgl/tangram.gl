@@ -13,7 +13,7 @@ readonly `TileCacheRecord` snapshots with unique `key`, finite non-negative
 `bytes` and a host-computed `protected` flag. No renderer or mesh type is required.
 
 ```ts
-import {TileCachePolicy} from '@vis.gl/tangram-renderer/map-logic';
+import {TileCachePolicy} from '@tangram.gl/tangram-renderer/map-logic';
 
 const policy = new TileCachePolicy();
 policy.touch('old');

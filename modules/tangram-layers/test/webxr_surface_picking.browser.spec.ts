@@ -5,10 +5,10 @@
 import {Matrix4} from '@math.gl/core';
 import {MapView, FirstPersonView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {describe, expect, test} from 'vitest';
-import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
+import {TerrainMeshSurface} from '@tangram.gl/tangram-renderer/core';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
   createXRPlacementMatrix, intersectXRGlobe, intersectXRMap, pickXRSurface,
-  type XRPlacement, type XRSpatialRay} from '@vis.gl/tangram-layers/experimental/webxr';
+  type XRPlacement, type XRSpatialRay} from '@tangram.gl/tangram-layers/experimental/webxr';
 
 /** Real deck views with deterministic scene-independent cameras. */
 function createPresentation(type: 'map' | 'globe' | 'first-person', mode: 'mono' | 'stereo-preview' = 'mono') {

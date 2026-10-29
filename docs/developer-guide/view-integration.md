@@ -111,7 +111,7 @@ eyes' tiles. Camera-only movement invalidates visibility. Each draw uses its
 eye's matrices and the same logical animation time.
 
 The layer exports `WebMercatorViewAdapter`, `FirstPersonViewAdapter` and
-`GlobeViewAdapter`. The host-only `@vis.gl/tangram-renderer/core` entry excludes
+`GlobeViewAdapter`. The host-only `@tangram.gl/tangram-renderer/core` entry excludes
 classic camera construction, Leaflet and deck.gl; the root retains the standalone
 compatibility API. [Projection conventions](./projection-conventions.md) and
 [HostFrame](../api-reference/host-frame.md#coordinates-and-matrices) define axes,

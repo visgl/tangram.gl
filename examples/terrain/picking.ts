@@ -5,7 +5,7 @@
 import {Viewport, WebMercatorViewport, FirstPersonViewport} from '@deck.gl/core';
 import type {Mesh} from '@loaders.gl/schema';
 import {pixelsToWorld} from '@math.gl/web-mercator';
-import {TriangleQueryIndex} from '@vis.gl/tangram-renderer/map-logic';
+import {TriangleQueryIndex} from '@tangram.gl/tangram-renderer/map-logic';
 
 /** Screen hit on the loaded triangles, with physical elevation rather than common units. */
 export interface TerrainScreenHit {

@@ -13,7 +13,7 @@ It uses math.gl's two-sided ray/bounds and ray/triangle kernels, without a scene
 projection, camera, GPU, worker or loading dependency.
 
 ```ts
-import {TriangleQueryIndex} from '@vis.gl/tangram-renderer/map-logic';
+import {TriangleQueryIndex} from '@tangram.gl/tangram-renderer/map-logic';
 
 const index = new TriangleQueryIndex(positions, indices); // XYZ, three indices per triangle
 const result = index.queryRay([x, y, z], [0, 0, -1], maximumDistance);

@@ -32,10 +32,10 @@ test('renderer worker bundles before layer artifacts exist', () => {
         mkdirSync(join(rendererDirectory, 'src/experimental'), {recursive: true});
         mkdirSync(layersDirectory, {recursive: true});
         writeFileSync(join(rendererDirectory, 'package.json'), JSON.stringify({
-            name: '@vis.gl/tangram-renderer'
+            name: '@tangram.gl/tangram-renderer'
         }));
         writeFileSync(join(layersDirectory, 'package.json'), JSON.stringify({
-            name: '@vis.gl/tangram-layers'
+            name: '@tangram.gl/tangram-layers'
         }));
         // Keep the fixture tiny: this checks the real CLI/configuration path,
         // while package builds validate the actual loaders.gl implementation.

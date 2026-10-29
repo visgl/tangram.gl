@@ -12,7 +12,7 @@ Mercator and globe formulas remain the implementation; this boundary does not
 introduce arbitrary CRS support or switch globe rendering to an ellipsoid.
 
 ```ts
-import {getGeographicProjectionProcedure} from '@vis.gl/tangram-renderer/core';
+import {getGeographicProjectionProcedure} from '@tangram.gl/tangram-renderer/core';
 
 const projection = getGeographicProjectionProcedure('globe');
 const commonPosition = projection.project([-73.98, 40.7, 25]);

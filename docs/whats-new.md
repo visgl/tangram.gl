@@ -60,7 +60,7 @@ Copyright (c) vis.gl contributors
   exact linear picking. Diagnostics report retained arrays and CPU update/pick time.
 - Tangram source, renderer bundles, fixtures, and renderer tests now live in
   `modules/tangram-renderer`.
-- The deck.gl adapter is a separate `@vis.gl/tangram-layers` workspace. Both
+- The deck.gl adapter is a separate `@tangram.gl/tangram-layers` workspace. Both
   module packages remain private and unpublished.
 - The renderer exposes luma.gl-backed `ClassicWebGLRenderer`, `Scene`, and
   `LumaDeviceRenderer` integration points while retaining the legacy default

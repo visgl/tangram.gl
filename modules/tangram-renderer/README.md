@@ -5,7 +5,7 @@ Copyright (c) 2013-2016 Brett Camper and Mapzen
 Copyright (c) 2026 vis.gl contributors
 -->
 
-# @vis.gl/tangram-renderer
+# @tangram.gl/tangram-renderer
 
 Tangram scene rendering powered by luma.gl, with WebGL 2 and WebGPU host paths.
 The renderer loads vector/raster data, evaluates Tangram styles, manages tiles
@@ -22,18 +22,18 @@ yarn build:modules
 
 ```ts
 // Custom host: no classic camera factory or Leaflet integration.
-import {Renderer, HostFrame} from '@vis.gl/tangram-renderer/core';
+import {Renderer, HostFrame} from '@tangram.gl/tangram-renderer/core';
 
 // Standalone compatibility API with classic scene cameras.
-import Tangram from '@vis.gl/tangram-renderer';
+import Tangram from '@tangram.gl/tangram-renderer';
 
 // Optional validation; not included by importing the renderer.
-import {TangramStyleSheetSchema} from '@vis.gl/tangram-renderer/style-schema';
+import {TangramStyleSheetSchema} from '@tangram.gl/tangram-renderer/style-schema';
 ```
 
 The root preserves the default Tangram object and named `Scene`,
 `ClassicWebGLRenderer`/`Renderer`, `HostFrame`, and `LumaDeviceRenderer` exports.
-For deck.gl applications, use `TangramLayer` from `@vis.gl/tangram-layers`.
+For deck.gl applications, use `TangramLayer` from `@tangram.gl/tangram-layers`.
 The classic Leaflet adapter is example code under `examples/classic`.
 
 Builds generate debug/minified ES modules, the core/package entries, declarations,

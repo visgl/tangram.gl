@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, expect, test} from 'vitest';
-import Tangram, {type Scene, type SceneDefinition} from '@vis.gl/tangram-renderer';
+import Tangram, {type Scene, type SceneDefinition} from '@tangram.gl/tangram-renderer';
 import {parseSceneYamlLegacy} from '../../modules/tangram-renderer/src/procedures/scene-yaml-legacy';
 import {changedPixels, DEVICE_TYPE, readCanvasPixels} from './harness';
 import {LEGACY_HEIGHT_GLSL} from './fixtures/legacy-height-horizon';

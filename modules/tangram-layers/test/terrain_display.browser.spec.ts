@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
-import {GlobeTerrainPreparation, TerrainResourceBudget, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainPreparation, TerrainResourceBudget, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import {GlobeTerrainDisplayPreparation, resolveGlobeTerrainDisplay} from '../src/experimental/terrain-display';
 
 /** Hermetic immutable physical grid, optionally touching another footprint. */

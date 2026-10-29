@@ -37,8 +37,8 @@ yarn install --immutable
 yarn build
 ```
 
-Use `@vis.gl/tangram-renderer` when building a standalone Tangram scene. Use
-`TangramLayer` from `@vis.gl/tangram-layers` when the host application is a
+Use `@tangram.gl/tangram-renderer` when building a standalone Tangram scene. Use
+`TangramLayer` from `@tangram.gl/tangram-layers` when the host application is a
 deck.gl application. The adapter expects deck.gl to provide the luma.gl
 `Device`, viewport, and render pass; it does not create a second WebGL context.
 

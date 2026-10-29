@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {HostFrameOptions, HostRenderView} from '@vis.gl/tangram-renderer';
-import type {TerrainSurface, TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
+import type {HostFrameOptions, HostRenderView} from '@tangram.gl/tangram-renderer';
+import type {TerrainSurface, TerrainSurfaceHit} from '@tangram.gl/tangram-renderer/core';
 import type {Controller, FirstPersonViewState, MapViewState, View, Viewport} from '@deck.gl/core';
 import type {Matrix4} from '@math.gl/core';
 

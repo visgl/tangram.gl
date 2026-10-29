@@ -30,7 +30,7 @@ import Tangram, {
   ClassicWebGLRenderer,
   HostFrame,
   LumaDeviceRenderer
-} from '@vis.gl/tangram-renderer';
+} from '@tangram.gl/tangram-renderer';
 ```
 
 The default `Tangram` object contains the same named members plus the historical
@@ -39,7 +39,7 @@ The default `Tangram` object contains the same named members plus the historical
 ## Leaflet example integration
 
 The classic example packages the historical adapter locally rather than making
-it part of `@vis.gl/tangram-renderer`:
+it part of `@tangram.gl/tangram-renderer`:
 
 ```js
 import L from 'leaflet';

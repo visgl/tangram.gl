@@ -8,7 +8,7 @@ import {getTerrainEyeCoordinate, constrainTerrainEye, constrainTerrainMotion} fr
 import {selectTerrainTiles, getTerrainTileKey} from '../examples/terrain/tile-selection';
 import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
-import {projectGeographicPosition, TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
+import {projectGeographicPosition, TerrainMeshSurface} from '@tangram.gl/tangram-renderer/core';
 import type {LoadedTerrain} from '../examples/terrain/load-terrain';
 
 test.each([-70, 0, 70])('eye offsets at latitude %s resolve through the actual deck camera', latitude => {

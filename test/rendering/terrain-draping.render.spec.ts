@@ -4,13 +4,13 @@
 
 import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {commands} from 'vitest/browser';
-import type {TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
+import type {TerrainDrapingOptions} from '@tangram.gl/tangram-renderer/core';
 import {RenderingHarness, coloredPixels, readCanvasPixels, type ViewKind} from './harness';
 import {createRasterScene, createScene} from './scene';
 import {Matrix4} from '@math.gl/core';
 import {Deck, MapView} from '@deck.gl/core';
-import {TangramLayer} from '@vis.gl/tangram-layers';
-import {sampleTerrainElevation} from '@vis.gl/tangram-renderer/core';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
+import {sampleTerrainElevation} from '@tangram.gl/tangram-renderer/core';
 
 const harnesses: RenderingHarness[] = [];
 const decks: Deck<MapView>[] = [];

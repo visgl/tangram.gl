@@ -8,7 +8,7 @@ Copyright (c) vis.gl contributors
 
 <span className="badge badge--warning">Status: Experimental</span>
 
-The optional `@vis.gl/tangram-renderer/experimental/shader-modules` entry exports
+The optional `@tangram.gl/tangram-renderer/experimental/shader-modules` entry exports
 luma.gl `ShaderModule` definitions without importing the renderer or any runtime
 dependency. Normal renderer and core entries do not re-export these modules.
 Names and contracts may change before upstreaming.
@@ -16,7 +16,7 @@ Names and contracts may change before upstreaming.
 ## hillshade
 
 ```typescript
-import {hillshade} from '@vis.gl/tangram-renderer/experimental/shader-modules';
+import {hillshade} from '@tangram.gl/tangram-renderer/experimental/shader-modules';
 
 // Supply this object in a luma ShaderAssembler or Model's modules array.
 const modules = [hillshade];
@@ -57,7 +57,7 @@ PR does not automatically rewrite existing styles or translate arbitrary GLSL to
 ## Material coordinate helpers
 
 ```typescript
-import {triplanar, planar, sphereMap} from '@vis.gl/tangram-renderer/experimental/shader-modules';
+import {triplanar, planar, sphereMap} from '@tangram.gl/tangram-renderer/experimental/shader-modules';
 
 const modules = [triplanar, planar, sphereMap];
 ```
@@ -121,7 +121,7 @@ rebased before mapping when large magnitudes would lose fractional detail.
 ## heightDecode
 
 ```typescript
-import {heightDecode} from '@vis.gl/tangram-renderer/experimental/shader-modules';
+import {heightDecode} from '@tangram.gl/tangram-renderer/experimental/shader-modules';
 ```
 
 GLSL and WGSL expose `heightDecode_getTerrarium(rgb)`,
@@ -157,7 +157,7 @@ terrain displacement or terrain picking. The standalone module supports both lan
 ## globeHorizon
 
 ```typescript
-import {globeHorizon} from '@vis.gl/tangram-renderer/experimental/shader-modules';
+import {globeHorizon} from '@tangram.gl/tangram-renderer/experimental/shader-modules';
 ```
 
 ```glsl

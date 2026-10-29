@@ -93,7 +93,7 @@ When bringing one of the [original demo repositories](../README.md#original-demo
 this monorepo:
 
 1. Copy the scene and its local assets into a package under `/examples`.
-2. Replace legacy script tags with `@vis.gl/tangram-renderer` entrypoints.
+2. Replace legacy script tags with `@tangram.gl/tangram-renderer` entrypoints.
 3. Keep scene-relative URLs relative to the package's built output.
 4. Move API keys and service URLs to runtime options or URL parameters.
 5. Prefer `TangramLayer` when deck.gl should own the device and viewport.

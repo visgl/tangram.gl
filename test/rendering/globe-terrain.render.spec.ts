@@ -4,8 +4,8 @@
 
 import {afterEach, expect, test} from 'vitest';
 import {Deck, _GlobeView as GlobeView} from '@deck.gl/core';
-import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation} from '@vis.gl/tangram-layers/experimental/terrain';
-import {GlobeTerrainPreparation, TerrainResourceBudget, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation} from '@tangram.gl/tangram-layers/experimental/terrain';
+import {GlobeTerrainPreparation, TerrainResourceBudget, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import {RenderingHarness, readCanvasPixels, DEVICE_TYPE} from './harness';
 
 /** Snow-covered terrain is nearly grayscale, so use coverage rather than color saturation. */

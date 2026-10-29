@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {TerrainSurfaceCollection, sampleTerrainElevation, PROJECTION_CONSTANTS} from '@vis.gl/tangram-renderer/core';
+import {TerrainSurfaceCollection, sampleTerrainElevation, PROJECTION_CONSTANTS} from '@tangram.gl/tangram-renderer/core';
 import type {LoadedTerrain} from './load-terrain';
-import type {TerrainSurface} from '@vis.gl/tangram-renderer/core';
+import type {TerrainSurface} from '@tangram.gl/tangram-renderer/core';
 
 /** Sample the highest loaded top triangle at a geographic anchor, excluding visual skirts. */
 export function sampleTerrainAnchor(tiles: Iterable<LoadedTerrain>, coordinate: readonly [number, number], clearance: number, displayedSurface?: TerrainSurface): number | null {

@@ -6,7 +6,7 @@ import {Matrix4, Quaternion} from '@math.gl/core';
 import {describe, expect, test} from 'vitest';
 import {WebXRInputAdapter, WebXRSurfaceGrabber, createXRPlacementMatrix, pickXRSurface,
   type XRInteractionIntent, type XRMapPlacement, type XRGlobePlacement, type XRSpatialRay,
-  type XRSurfaceGrabContext} from '@vis.gl/tangram-layers/experimental/webxr';
+  type XRSurfaceGrabContext} from '@tangram.gl/tangram-layers/experimental/webxr';
 
 /** Geographic content deliberately crossing the antimeridian at high latitude. */
 const map: XRMapPlacement = {type: 'map', anchor: [179.9, 65, 0], metersPerXRUnit: 1000,

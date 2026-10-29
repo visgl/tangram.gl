@@ -27,11 +27,11 @@ the default OpenFreeMap and NASA Blue Marble choices.
 
 | Use case | Entry | Start here |
 | --- | --- | --- |
-| Basemap in a deck.gl application | `@vis.gl/tangram-layers` | [TangramLayer](../api-reference/tangram-layer.md) |
-| A custom host owns cameras and GPU passes | `@vis.gl/tangram-renderer/core` | [Renderer](../api-reference/renderer.md) and [HostFrame](../api-reference/host-frame.md) |
+| Basemap in a deck.gl application | `@tangram.gl/tangram-layers` | [TangramLayer](../api-reference/tangram-layer.md) |
+| A custom host owns cameras and GPU passes | `@tangram.gl/tangram-renderer/core` | [Renderer](../api-reference/renderer.md) and [HostFrame](../api-reference/host-frame.md) |
 | Classic Tangram scene cameras or Leaflet | Renderer root plus example-local adapter | [Classic API](../api-reference/classic-api.md) |
-| Flat earth projections | `@vis.gl/tangram-layers/experimental/projected-basemaps` | [Projected basemaps](../developer-guide/projected-basemaps.md) |
-| Stereo preview or immersive VR | `@vis.gl/tangram-layers/experimental/webxr` | [WebXR presentation](../api-reference/webxr-presentation.md) |
+| Flat earth projections | `@tangram.gl/tangram-layers/experimental/projected-basemaps` | [Projected basemaps](../developer-guide/projected-basemaps.md) |
+| Stereo preview or immersive VR | `@tangram.gl/tangram-layers/experimental/webxr` | [WebXR presentation](../api-reference/webxr-presentation.md) |
 
 The renderer is independent of deck.gl and Leaflet, but has its own parsing,
 math and luma.gl dependencies. The layer uses the host's device and render pass;

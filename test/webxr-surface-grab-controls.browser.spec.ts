@@ -5,7 +5,7 @@
 import {expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import {WebXRInputAdapter, WebXRViewManager, WebXRMapView, WebXRGlobeView, createXRPlacementMatrix,
-  type XRMapPlacement, type XRPlacement} from '@vis.gl/tangram-layers/experimental/webxr';
+  type XRMapPlacement, type XRPlacement} from '@tangram.gl/tangram-layers/experimental/webxr';
 import {createSurfaceGrabControls, bindReferenceSpaceReset} from '../examples/webxr/surface-grabbing.js';
 
 test.each(['map', 'globe'] as const)('%s grab acquisition suppresses the entire frame of thumbstick navigation', type => {

@@ -32,7 +32,7 @@ basemap.
 ```js
 import {Deck, MapView} from '@deck.gl/core';
 import {PathLayer} from '@deck.gl/layers';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 
 const scene = {
   sources: {
@@ -87,8 +87,8 @@ new Deck({
 ```ts
 import {Deck, MapView} from '@deck.gl/core';
 import {PathLayer} from '@deck.gl/layers';
-import {TangramLayer} from '@vis.gl/tangram-layers';
-import type {SceneDefinition} from '@vis.gl/tangram-renderer';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
+import type {SceneDefinition} from '@tangram.gl/tangram-renderer';
 
 type Route = {
   path: [longitude: number, latitude: number][];
@@ -148,7 +148,7 @@ new Deck({
 import React, {useMemo} from 'react';
 import DeckGL from '@deck.gl/react';
 import {MapView} from '@deck.gl/core';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 
 const INITIAL_VIEW_STATE = {
   longitude: -74.0098,
@@ -219,7 +219,7 @@ yarn build
 ```
 
 ```js
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 
 new TangramLayer({...props});
 ```

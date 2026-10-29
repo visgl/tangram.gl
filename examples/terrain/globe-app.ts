@@ -4,8 +4,8 @@
 
 import {Deck, _GlobeView as GlobeView, type GlobeViewState} from '@deck.gl/core';
 import {webgpuAdapter} from '@luma.gl/webgpu';
-import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation, getGlobeScreenRatio, type GlobeTerrainDisplaySnapshot} from '@vis.gl/tangram-layers/experimental/terrain';
-import {GlobeTerrainPreparation, getGlobeTerrainExaggeration, type TerrainHeightGrid, TerrainResourceBudget, measureTerrainError, selectTerrainMeshResolution, boundProjectedDisplacement} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation, getGlobeScreenRatio, type GlobeTerrainDisplaySnapshot} from '@tangram.gl/tangram-layers/experimental/terrain';
+import {GlobeTerrainPreparation, getGlobeTerrainExaggeration, type TerrainHeightGrid, TerrainResourceBudget, measureTerrainError, selectTerrainMeshResolution, boundProjectedDisplacement} from '@tangram.gl/tangram-renderer/map-logic';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainTileset} from './terrain-tileset';
 import {getTerrainTileBounds, getTerrainTileKey} from './tile-selection';
@@ -16,7 +16,7 @@ import type {TerrainGridData} from './terrain-payload';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';
 import type {TerrainExample} from './app';
 import {createDrapedBasemap} from './draped-basemap';
-import {sampleTerrainElevation, type SceneDefinition, type TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
+import {sampleTerrainElevation, type SceneDefinition, type TerrainDrapingOptions} from '@tangram.gl/tangram-renderer/core';
 import {getConfiguredAttributions, updateAttribution} from '../classic/app/attribution.js';
 
 /** Mount bounded global terrain with ordinary GlobeView navigation and physical-meter picking. */
@@ -97,8 +97,8 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const exaggeration = element<HTMLInputElement>('exaggeration'), wireframe = element<HTMLInputElement>('wireframe');
     const draping = element<HTMLInputElement>('draping'); draping.checked = options.basemap !== false; draping.disabled = options.basemap === false; wireframe.disabled = draping.checked;
     const basemapScene = options.basemap || createDrapedBasemap();
-    let BasemapLayer: typeof import('@vis.gl/tangram-layers').TangramLayer | undefined;
-    let basemap: InstanceType<typeof import('@vis.gl/tangram-layers').TangramLayer> | undefined;
+    let BasemapLayer: typeof import('@tangram.gl/tangram-layers').TangramLayer | undefined;
+    let basemap: InstanceType<typeof import('@tangram.gl/tangram-layers').TangramLayer> | undefined;
     let terrainInput: TerrainDrapingOptions = {grids: [], querySurfaceStyles: ['ground']};
     let groundResolution = 32, projectedGroundError = 0, groundDetailLimited = false;
     let basemapError = '';
@@ -316,7 +316,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     const coordinates = Array.from({length: 16}, (_, index) => ({zoom: 2, column: index % 4, row: Math.floor(index / 4)}));
     selectionSignature = coordinates.map(getTerrainTileKey).join(',');
     tileset.update(coordinates, 10000);
-    const basemapReady = options.basemap === false ? Promise.resolve() : import('@vis.gl/tangram-layers').then(module => {
+    const basemapReady = options.basemap === false ? Promise.resolve() : import('@tangram.gl/tangram-layers').then(module => {
         if (!disposed) {BasemapLayer = module.TangramLayer; schedule();}
     }).catch(error => {if (!disposed) {draping.checked = false; basemapCredits.hidden = true; wireframe.disabled = false; basemapError = String(error); element('draping-status').textContent = basemapError; schedule();}});
     return {ready: Promise.all([tileset.waitForIdle(), basemapReady]).then(() => {updateLayers();}), destroy() {

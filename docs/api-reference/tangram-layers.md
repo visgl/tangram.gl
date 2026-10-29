@@ -4,12 +4,12 @@ SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
  */}
 
-# `@vis.gl/tangram-layers`
+# `@tangram.gl/tangram-layers`
 
 The adapter package contains the experimental deck.gl integration.
 
 ```js
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 
 const basemap = new TangramLayer({
   id: 'tangram-basemap',
@@ -40,10 +40,10 @@ See [TangramLayer](./tangram-layer.md) for property and lifecycle limits.
 
 ## Experimental entries
 
-- `@vis.gl/tangram-layers/experimental/projected-basemaps` provides
+- `@tangram.gl/tangram-layers/experimental/projected-basemaps` provides
   `ProjectedBasemapLayer`, scene preparation and geographic navigation for
   OrthographicView. See [projected basemaps](../developer-guide/projected-basemaps.md).
-- `@vis.gl/tangram-layers/experimental/webxr` provides room placement, shared
+- `@tangram.gl/tangram-layers/experimental/webxr` provides room placement, shared
   controls, per-eye frames and surface interaction. See [WebXR presentation](./webxr-presentation.md).
 
 These opt-in entries do not enter the normal layer bundle. All workspace

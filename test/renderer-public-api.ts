@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {ClassicWebGLRenderer, HostFrame} from '@vis.gl/tangram-renderer';
-import type {HostFrameOptions, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, RendererOptions, FeatureSelectionResult} from '@vis.gl/tangram-renderer';
-import type {LumaLight, TangramLight, TangramPointLight, TangramLightMapping} from '@vis.gl/tangram-renderer';
-import {convertLumaLight} from '@vis.gl/tangram-renderer/core';
-import type {ProjectionEngine} from '@vis.gl/tangram-renderer/core';
-import type {TangramLayerProps} from '@vis.gl/tangram-layers';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {ClassicWebGLRenderer, HostFrame} from '@tangram.gl/tangram-renderer';
+import type {HostFrameOptions, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, RendererOptions, FeatureSelectionResult} from '@tangram.gl/tangram-renderer';
+import type {LumaLight, TangramLight, TangramPointLight, TangramLightMapping} from '@tangram.gl/tangram-renderer';
+import {convertLumaLight} from '@tangram.gl/tangram-renderer/core';
+import type {ProjectionEngine} from '@tangram.gl/tangram-renderer/core';
+import type {TangramLayerProps} from '@tangram.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 
 declare const projectionEngine: ProjectionEngine;
 const projectedRendererOptions = {projectionEngine} satisfies RendererOptions;

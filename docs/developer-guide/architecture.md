@@ -11,14 +11,14 @@ to deck.gl's device, viewport, and render-pass lifecycle.
 
 ## Package boundaries
 
-- `@vis.gl/tangram-renderer/core` contains scene loading, tiles, styles, labels,
+- `@tangram.gl/tangram-renderer/core` contains scene loading, tiles, styles, labels,
   external cameras and luma.gl draw submission. It excludes deck.gl, Leaflet
   and Tangram's classic perspective/flat/isometric camera factory. A build-time
   dependency-graph check enforces that separation.
-- `@vis.gl/tangram-renderer` retains the default Tangram object and standalone
+- `@tangram.gl/tangram-renderer` retains the default Tangram object and standalone
   `Scene` API, including classic scene cameras. The Leaflet adapter lives in
   `examples/classic`, not in either renderer entry.
-- `@vis.gl/tangram-layers` supplies deck.gl view adapters and `TangramLayer`.
+- `@tangram.gl/tangram-layers` supplies deck.gl view adapters and `TangramLayer`.
   Optional projected-basemap and WebXR APIs have separate experimental subpaths.
 
 The dependency direction is layer → renderer, never renderer → deck.gl.

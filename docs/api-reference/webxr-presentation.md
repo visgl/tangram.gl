@@ -10,15 +10,15 @@ Copyright (c) vis.gl contributors
 
 # Experimental WebXR presentation
 
-`@vis.gl/tangram-layers/experimental/webxr` is a tree-shakable, opt-in entry point. Importing the
-normal `@vis.gl/tangram-layers` entry does not include WebXR, controller, or placement code.
+`@tangram.gl/tangram-layers/experimental/webxr` is a tree-shakable, opt-in entry point. Importing the
+normal `@tangram.gl/tangram-layers` entry does not include WebXR, controller, or placement code.
 
 ```ts
 import {
   WebXRMapView,
   WebXRPresentation,
   WebXRInputAdapter
-} from '@vis.gl/tangram-layers/experimental/webxr';
+} from '@tangram.gl/tangram-layers/experimental/webxr';
 ```
 
 ## Presentation model
@@ -153,7 +153,7 @@ its forward exit. The dependency is used only by the experimental WebXR entry, n
 the normal layer entry or renderer core.
 
 ```ts
-import {pickXRSurface} from '@vis.gl/tangram-layers/experimental/webxr';
+import {pickXRSurface} from '@tangram.gl/tangram-layers/experimental/webxr';
 
 const frame = presentation.createFrame({width, height});
 const hit = pickXRSurface({
@@ -243,7 +243,7 @@ unsupported; desktop mono/stereo retains its normal deck.gl controls.
 
 ```ts
 import {WebXRSurfaceGrabber, createXRPlacementMatrix}
-  from '@vis.gl/tangram-layers/experimental/webxr';
+  from '@tangram.gl/tangram-layers/experimental/webxr';
 
 const grabber = new WebXRSurfaceGrabber();
 // Process one input frame before creating the render frame for either eye.

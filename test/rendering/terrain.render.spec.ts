@@ -10,7 +10,7 @@ import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './
 import {parseTerrainTile} from '../../examples/terrain/load-terrain';
 import {pickTerrainSurface} from '../../examples/terrain/picking';
 import {createTerrainFixture} from '../terrain-fixture';
-import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
+import {projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
 import {buildTerrainRenderMesh} from '../../examples/terrain/terrain-mesh';
 import {createTerrainStreamFixture} from '../terrain-stream-fixture';
 import {sampleTerrainAnchor} from '../../examples/terrain/ground-following';

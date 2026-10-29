@@ -32,7 +32,7 @@ export default getVitestConfig({
         // The optional CPU query index is imported after other test pages load.
         // Prebundle its CommonJS helper before that import can invalidate URLs.
         'quickselect', 'maplibre-gl'],
-      exclude: ['@vis.gl/tangram-renderer', '@vis.gl/tangram-layers']
+      exclude: ['@tangram.gl/tangram-renderer', '@tangram.gl/tangram-layers']
     }
   },
   projects: {

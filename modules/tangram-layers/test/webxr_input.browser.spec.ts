@@ -4,7 +4,7 @@
 
 import {describe, expect, test, vi} from 'vitest';
 import {WebXRInputAdapter, setWebXRSessionWithFallback}
-  from '@vis.gl/tangram-layers/experimental/webxr';
+  from '@tangram.gl/tangram-layers/experimental/webxr';
 
 describe('WebXR reference-space negotiation', () => {
   test('tries local-floor first and falls back only when unsupported', async () => {

@@ -24,7 +24,7 @@ import {webgl2Adapter} from '@luma.gl/webgl';
 import {expression, latest} from '@maplibre/maplibre-gl-style-spec';
 import * as maplibregl from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 import {beforeAll, describe, expect, test} from 'vitest';
 import tangramLayersPackage from '../../modules/tangram-layers/package.json';
 import {

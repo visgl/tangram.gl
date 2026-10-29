@@ -14,7 +14,7 @@ const configuration = await getOcularConfig({root: repositoryDirectory});
 const worker = await build({absWorkingDir: repositoryDirectory,
   entryPoints: ['examples/terrain/terrain-worker.ts'], outfile: 'examples/terrain/dist/terrain-worker.js',
   bundle: true, format: 'esm', platform: 'browser', minify: true, target: configuration.bundle.target,
-  alias: {'@vis.gl/tangram-renderer/map-logic': resolve(repositoryDirectory, 'modules/tangram-renderer/src/map-logic/index.ts')},
+  alias: {'@tangram.gl/tangram-renderer/map-logic': resolve(repositoryDirectory, 'modules/tangram-renderer/src/map-logic/index.ts')},
   sourcemap: true, sourcesContent: false, metafile: true, logLevel: 'info'});
 for (const [path, output] of Object.entries(worker.metafile.outputs)) {
   if (output.imports.some(dependency => dependency.external)) throw new Error(`Terrain worker has unresolved imports: ${path}`);

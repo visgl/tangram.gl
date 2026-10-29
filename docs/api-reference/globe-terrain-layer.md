@@ -13,7 +13,7 @@ separate layer, not terrain draping in `TangramLayer`. Importing it is opt-in:
 the normal package entry does not include mesh-layers or this adapter.
 
 ```ts
-import {GlobeTerrainLayer} from '@vis.gl/tangram-layers/experimental/terrain';
+import {GlobeTerrainLayer} from '@tangram.gl/tangram-layers/experimental/terrain';
 
 const terrain = new GlobeTerrainLayer({
   id: 'terrain',
@@ -98,7 +98,7 @@ and query surface. The ordinary synchronous path remains unchanged without this 
 
 ```ts
 import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation}
-  from '@vis.gl/tangram-layers/experimental/terrain';
+  from '@tangram.gl/tangram-layers/experimental/terrain';
 
 const display = new GlobeTerrainDisplayPreparation(); // owns no animation loop
 display.request(terrainSnapshot, effectiveExaggeration);
