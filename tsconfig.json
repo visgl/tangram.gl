@@ -11,7 +11,13 @@
     "checkJs": false,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@tangram.gl/basemap-layers": ["./modules/basemap-layers/src/index.ts"],
+      "@tangram.gl/basemap-layers/map-style": ["./modules/basemap-layers/src/map-style.ts"]
+    }
   },
   "include": [
     "types/**/*.d.ts",
@@ -25,6 +31,8 @@
     "**/build/**",
     "**/dist/**",
     "**/lib/**",
+    "website/static/examples/**",
+    "website/static/modules/**",
     "node_modules"
   ]
 }

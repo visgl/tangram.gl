@@ -11,6 +11,15 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: '@tangram.gl/basemap-layers',
+      collapsed: false,
+      items: [
+        {type: 'doc', id: 'basemap-layers/map-view', label: 'BasemapLayer'},
+        {type: 'doc', id: 'basemap-layers/split-view', label: 'MapLibre comparison'}
+      ]
+    },
+    {
+      type: 'category',
       label: '@vis.gl/tangram-layers',
       collapsed: false,
       items: [

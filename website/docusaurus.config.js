@@ -65,11 +65,24 @@ const config = {
           // otherwise excluded), in both client and server compilations.
           const module = {rules: [{
             test: /\.[jt]sx?$/i,
-            include: path.dirname(require.resolve('thor.gl', {paths: [path.resolve(__dirname, '../examples/webxr')]})),
+            include: [
+              path.dirname(require.resolve('thor.gl', {paths: [path.resolve(__dirname, '../examples/webxr')]})),
+              path.resolve(__dirname, '../modules/basemap-layers/src'),
+              path.resolve(__dirname, '../examples/basemap-layers'),
+              path.resolve(__dirname, '../examples/layers/basemap-layer-map-view'),
+              path.resolve(__dirname, '../examples/utils')
+            ],
             use: [getJSLoader({isServer})]
           }]};
-          if (isServer) return {module};
-          return {module, optimization: {splitChunks: {cacheGroups: {
+          const resolve = {
+            alias: {
+              '@tangram.gl/basemap-layers$': path.resolve(__dirname, '../modules/basemap-layers/src/index.ts')
+            },
+            // Source worker URLs use the emitted .js suffix before compilation.
+            extensionAlias: {'.js': ['.js', '.ts']}
+          };
+          if (isServer) return {module, resolve};
+          return {module, resolve, optimization: {splitChunks: {cacheGroups: {
             nativeExampleShared: {
               name: 'example-runtime-shared', chunks: 'async', minChunks: 2,
               // Share the renderer and installed vis.gl dependencies between native demos.

@@ -11,11 +11,20 @@ const REPOSITORY_ROOT = resolve(import.meta.dirname, '..');
 describe('workspace package publication safety', () => {
   test.each(['modules', 'examples'])('marks every %s package as private', async (directory) => {
     const workspaceDirectory = resolve(REPOSITORY_ROOT, directory);
-    const entries = await readdir(workspaceDirectory, {withFileTypes: true});
-    const packageFiles = entries
-      // Shared browser application chunks are generated output, not a workspace.
-      .filter((entry) => entry.isDirectory() && entry.name !== 'dist')
-      .map((entry) => resolve(workspaceDirectory, entry.name, 'package.json'));
+    const packageFiles = [];
+    const pendingDirectories = [workspaceDirectory];
+    while (pendingDirectories.length) {
+      const currentDirectory = pendingDirectories.pop();
+      const entries = await readdir(currentDirectory, {withFileTypes: true});
+      for (const entry of entries) {
+        const path = resolve(currentDirectory, entry.name);
+        if (entry.isFile() && entry.name === 'package.json') {
+          packageFiles.push(path);
+        } else if (entry.isDirectory() && !['node_modules', 'dist', 'build'].includes(entry.name)) {
+          pendingDirectories.push(path);
+        }
+      }
+    }
 
     expect(packageFiles.length).toBeGreaterThan(0);
     for (const packageFile of packageFiles) {

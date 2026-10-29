@@ -1,0 +1,28 @@
+{
+  "license": "MIT",
+  "scripts": {
+    "start": "vite --open",
+    "start-local": "vite --config ../../vite.config.local.mjs"
+  },
+  "dependencies": {
+    "@deck.gl-community/panels": "^9.4.2",
+    "@deck.gl-community/widgets": "^9.4.2",
+    "@deck.gl/core": "~9.4.0",
+    "@deck.gl/extensions": "~9.4.0",
+    "@deck.gl/geo-layers": "~9.4.0",
+    "@deck.gl/layers": "~9.4.0",
+    "@deck.gl/mesh-layers": "~9.4.0",
+    "@loaders.gl/core": "^4.5.1",
+    "@luma.gl/core": "~9.4.0",
+    "@luma.gl/engine": "~9.4.0",
+    "@luma.gl/shadertools": "~9.4.0",
+    "@math.gl/web-mercator": "^4.1.0",
+    "@tangram.gl/basemap-layers": "workspace:*",
+    "maplibre-gl": "6.4.1"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  },
+  "name": "basemap-layers-split-view-example",
+  "private": true
+}
