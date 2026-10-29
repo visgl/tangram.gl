@@ -39,8 +39,12 @@ jobs:
         run: test ! -e modules/tangram-renderer/dist
       - name: Build website and examples from source
         run: yarn website:build
-      - name: Pack the renderer package
-        run: yarn workspace @vis.gl/tangram-renderer pack --out /tmp/tangram-renderer.tgz
+      - name: Pack and verify all three packages
+        run: |
+          yarn workspace @tangram.gl/tangram-renderer pack --out /tmp/tangram-renderer.tgz
+          yarn workspace @tangram.gl/tangram-layers pack --out /tmp/tangram-layers.tgz
+          yarn workspace @tangram.gl/basemap-layers pack --out /tmp/basemap-layers.tgz
+          node scripts/check-package-archives.mjs
       - name: Confirm generated outputs
         run: |
           test -f modules/tangram-renderer/dist/index.js
