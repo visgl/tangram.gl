@@ -31,4 +31,20 @@ describe('npm publication preparation', () => {
       expect(result.stderr).toContain(version === '0.0.0' ? 'publishing is disabled' : 'exact npm version');
     }
   });
+
+  test('coverage resolves the renamed layer entry points to authored source', async () => {
+    const {default: configPromise} = await import('../vitest.config.js');
+    const config = await configPromise;
+    const aliases = config.resolve?.alias;
+    expect(Array.isArray(aliases)).toBe(true);
+    if (!Array.isArray(aliases)) throw new Error('Expected ordered Vitest aliases');
+    for (const specifier of [
+      '@tangram.gl/tangram-layers',
+      '@tangram.gl/tangram-layers/experimental/terrain',
+      '@tangram.gl/tangram-layers/experimental/webxr'
+    ]) {
+      const alias = aliases.find(entry => entry.find instanceof RegExp && entry.find.test(specifier));
+      expect(alias?.replacement).toContain('/modules/tangram-layers/src/');
+    }
+  });
 });
