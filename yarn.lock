@@ -7375,6 +7375,7 @@ __metadata:
     "@maplibre/geojson-vt": "npm:^6.1.2"
     "@maplibre/maplibre-gl-style-spec": "npm:^24.8.1"
     "@turf/polygon-to-line": "npm:^6.0.3"
+    "@vis.gl/dev-tools": "npm:2.0.0-alpha.8"
     bidi-js: "npm:^1.1.0"
     maplibre-gl: "npm:6.13.0"
     vitest: "npm:^4.0.18"

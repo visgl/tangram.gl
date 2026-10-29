@@ -57,6 +57,7 @@
     "@fontsource/noto-sans": "5.3.0",
     "@fontsource/open-sans": "5.3.0",
     "@loaders.gl/core": "^4.5.1",
+    "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "maplibre-gl": "6.13.0",
     "vitest": "^4.0.18"
   },

@@ -14,6 +14,9 @@ are validated; merging this preparation does not publish anything.
 Before the first release, an npm organization administrator must confirm that
 the `tangram.gl` scope exists and the publisher has the necessary permissions.
 Review each package's `yarn pack` output and run the package-consumer checks.
+The renderer's current core entry assumes a browser `self` global when imported;
+test SSR and Node consumers explicitly before deciding whether that limitation
+is acceptable for the first release.
 Then explicitly set `private` to `false` in each package in a reviewed release
 change. Example and development workspaces must remain private.
 
