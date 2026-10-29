@@ -22,3 +22,43 @@ test('server-side logging uses the console without a worker bridge', async () =>
     warning.mockRestore();
   }
 });
+
+test('a worker initializes its shims and handles broker messages', async () => {
+  class TestWorkerScope {
+    static [Symbol.hasInstance](value: unknown): boolean {
+      return value === globalThis;
+    }
+  }
+
+  let handleMessage: ((event: {data: unknown}) => void) | undefined;
+  const postMessage = vi.fn();
+  vi.stubGlobal('WorkerGlobalScope', TestWorkerScope);
+  vi.stubGlobal('self', globalThis);
+  vi.stubGlobal('addEventListener', (_type: string, handler: (event: {data: unknown}) => void) => {
+    handleMessage = handler;
+  });
+  vi.stubGlobal('postMessage', postMessage);
+  vi.resetModules();
+  try {
+    const {default: workerThread} = await import('../modules/tangram-renderer/src/utils/thread');
+    await import('../modules/tangram-renderer/src/utils/log');
+    const {default: broker} = await import('../modules/tangram-renderer/src/utils/worker_broker');
+    expect(workerThread).toEqual({is_worker: true, is_main: false});
+    expect(Reflect.get(Reflect.get(globalThis, 'window'), 'document')).toBe(
+      Reflect.get(globalThis, 'document')
+    );
+
+    broker.addTarget('math', {double: (value: number) => value * 2});
+    expect(handleMessage).toBeDefined();
+    handleMessage?.({data: {type: 'main_send', message_id: 7, method: 'math.double', message: [3]}});
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({type: 'worker_reply', message_id: 7, message: 6}),
+      []
+    );
+  } finally {
+    Reflect.deleteProperty(globalThis, 'window');
+    Reflect.deleteProperty(globalThis, 'document');
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
+});
