@@ -15,4 +15,4 @@ export {
   WebXRViewManager,
   createXRPlacementMatrix,
   setWebXRSessionWithFallback
-} from '@vis.gl/tangram-layers/experimental/webxr';
+} from '@tangram.gl/tangram-layers/experimental/webxr';

@@ -9,9 +9,9 @@ import {createTerrainImageSource} from '../examples/terrain/terrain-source';
 import {lngLatToWorld} from '@math.gl/web-mercator';
 
 const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, decoderDestroy: vi.fn(), selectDetail: vi.fn(), construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]})), elevation: vi.fn((): {coordinate: number[]; position: [number, number, number]} | null => ({coordinate: [80, 25, 1234], position: [0, -256, 0]})), blocker: vi.fn((_start: readonly [number, number, number], _end: readonly [number, number, number], _options?: {startInset?: number; endInset?: number}): {distance: number} | null => null)}));
-const basemapMocks = vi.hoisted(() => ({construct: vi.fn<(props: import('@vis.gl/tangram-layers').TangramLayerProps) => void>(), surface: vi.fn(() => null), pick: vi.fn(() => ({coordinate: [80, 25, 456]}))}));
-vi.mock('@vis.gl/tangram-layers', () => ({TangramLayer: class {
-    constructor(props: import('@vis.gl/tangram-layers').TangramLayerProps) {basemapMocks.construct(props);}
+const basemapMocks = vi.hoisted(() => ({construct: vi.fn<(props: import('@tangram.gl/tangram-layers').TangramLayerProps) => void>(), surface: vi.fn(() => null), pick: vi.fn(() => ({coordinate: [80, 25, 456]}))}));
+vi.mock('@tangram.gl/tangram-layers', () => ({TangramLayer: class {
+    constructor(props: import('@tangram.gl/tangram-layers').TangramLayerProps) {basemapMocks.construct(props);}
     getDrapedTerrainSurface = basemapMocks.surface; getTerrainAt = basemapMocks.pick;
     getTerrainDrapingStatistics = () => ({meshes: 16, meshBytes: 1000, queryBytes: 1000, stagedMeshBytes: 0, maximumPreparationMs: 1});
 }}));
@@ -27,7 +27,7 @@ vi.mock('@deck.gl/core', async original => {
         getViewports = () => [new module._GlobeViewport({width: 512, height: 320, longitude: 80, latitude: 25, zoom: mocks.viewportZoom})];
     }};
 });
-vi.mock('@vis.gl/tangram-layers/experimental/terrain', async original => ({...await original<typeof import('@vis.gl/tangram-layers/experimental/terrain')>(), getGlobeScreenRatio: () => 1, GlobeTerrainLayer: class {
+vi.mock('@tangram.gl/tangram-layers/experimental/terrain', async original => ({...await original<typeof import('@tangram.gl/tangram-layers/experimental/terrain')>(), getGlobeScreenRatio: () => 1, GlobeTerrainLayer: class {
     constructor(props: unknown) {mocks.layers(props);}
     pickTerrain = mocks.pick;
     sampleElevation = mocks.elevation;

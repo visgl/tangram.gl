@@ -6,7 +6,7 @@ import {beforeAll, expect, test} from 'vitest';
 import {parseTerrainTile, createTerrainQuerySurface, type LoadedTerrain} from '../examples/terrain/load-terrain';
 import {getTerrainTileBounds} from '../examples/terrain/tile-selection';
 import {createTerrainFixture} from './terrain-fixture';
-import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
+import {projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
 import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';
 import {decodeTerrainTile} from '../examples/terrain/decode-terrain';
 import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';

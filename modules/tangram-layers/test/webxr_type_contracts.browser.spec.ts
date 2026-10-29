@@ -5,7 +5,7 @@
 import {expect, expectTypeOf, test} from 'vitest';
 import {WebXRPresentation, WebXRMapView, WebXRFirstPersonView, WebXRGlobeView,
     type XRDeckView, type XRPresentationFrame, type XRViewState}
-    from '@vis.gl/tangram-layers/experimental/webxr';
+    from '@tangram.gl/tangram-layers/experimental/webxr';
 
 test('published view and presentation declarations match their checked implementations', () => {
     expectTypeOf<WebXRMapView>().toExtend<XRDeckView>();

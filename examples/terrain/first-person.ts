@@ -5,9 +5,9 @@
 import {FirstPersonViewport, type FirstPersonViewState} from '@deck.gl/core';
 import type {LoadedTerrain} from './load-terrain';
 import {sampleTerrainAnchor} from './ground-following';
-import {TerrainSurfaceCollection, projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
-import type {TerrainSurface} from '@vis.gl/tangram-renderer/core';
-import {TerrainHeightField, guardTerrainMotion} from '@vis.gl/tangram-renderer/map-logic';
+import {TerrainSurfaceCollection, projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
+import type {TerrainSurface} from '@tangram.gl/tangram-renderer/core';
+import {TerrainHeightField, guardTerrainMotion} from '@tangram.gl/tangram-renderer/map-logic';
 
 /** Geographic FirstPerson state with a required meter offset and finite anchor. */
 export type TerrainEyeState = FirstPersonViewState & {

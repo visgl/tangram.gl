@@ -8,7 +8,7 @@ Copyright (c) vis.gl contributors
 
 <span className="badge badge--warning">Status: Experimental</span>
 
-The optional `@vis.gl/tangram-renderer/map-logic` entry provides CPU-only map
+The optional `@tangram.gl/tangram-renderer/map-logic` entry provides CPU-only map
 algorithms and types. It has no renderer, deck.gl, luma.gl, DOM or worker imports.
 Triangle queries use lightweight `@math.gl/culling/queries` kernels with cooperative
 in-place bounds partitioning. Terrain helpers use math.gl coordinate/vector APIs;

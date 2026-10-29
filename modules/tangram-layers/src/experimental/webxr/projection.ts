@@ -4,7 +4,7 @@
 
 import {Matrix4} from '@math.gl/core';
 import {PlaneShape, SphereShape} from '@math.gl/culling';
-import {PROJECTION_CONSTANTS, unprojectGlobePosition} from '@vis.gl/tangram-renderer/core';
+import {PROJECTION_CONSTANTS, unprojectGlobePosition} from '@tangram.gl/tangram-renderer/core';
 import type {
   XRGeographicPosition,
   XRGlobePlacement,

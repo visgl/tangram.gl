@@ -7,7 +7,7 @@ import {TerrainTileset} from '../examples/terrain/terrain-tileset';
 import {selectTerrainTiles, getTerrainTileKey, getTerrainParent, type TerrainTileCoordinate} from '../examples/terrain/tile-selection';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import type {TerrainTileData, TerrainGridData} from '../examples/terrain/terrain-payload';
-import {TerrainResourceBudget} from '@vis.gl/tangram-renderer/map-logic';
+import {TerrainResourceBudget} from '@tangram.gl/tangram-renderer/map-logic';
 
 /** Controlled completion without timers or public network. */
 function deferred<T>() {

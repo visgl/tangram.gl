@@ -12,7 +12,7 @@ const jsonSchema = z.toJSONSchema(TangramStyleSheetSchema, {
     reused: 'ref'
 });
 
-jsonSchema.$id = 'https://unpkg.com/@vis.gl/tangram-renderer/tangram-style.schema.json';
+jsonSchema.$id = 'https://unpkg.com/@tangram.gl/tangram-renderer/tangram-style.schema.json';
 jsonSchema.title = 'Tangram scene style sheet';
 
 await writeFile(

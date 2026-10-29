@@ -14,7 +14,7 @@ Copyright (c) vis.gl contributors
 Explore the runnable Tangram integrations. Each example is a first-class Docusaurus
 page, so the examples sidebar stays visible while you move between demos.
 
-## @vis.gl/tangram-layers
+## @tangram.gl/tangram-layers
 
 <div className="example-tile-grid">
   <a className="example-tile" href="/tangram.gl/examples/deck">
@@ -63,7 +63,7 @@ page, so the examples sidebar stays visible while you move between demos.
   </a>
 </div>
 
-## @vis.gl/tangram-layers (WebXR)
+## @tangram.gl/tangram-layers (WebXR)
 
 <div className="example-tile-grid">
   <a className="example-tile" href="/tangram.gl/examples/webxr">
@@ -92,7 +92,7 @@ page, so the examples sidebar stays visible while you move between demos.
   </a>
 </div>
 
-## @vis.gl/tangram-renderer
+## @tangram.gl/tangram-renderer
 
 <div className="example-tile-grid">
   <a className="example-tile" href="/tangram.gl/examples/classic?scene=styles/mapterhorn.yaml">

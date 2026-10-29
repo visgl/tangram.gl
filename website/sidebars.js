@@ -50,7 +50,7 @@ module.exports = {
       items: [
         {
           type: 'category',
-          label: '@vis.gl/tangram-renderer',
+          label: '@tangram.gl/tangram-renderer',
           items: [
             {
               type: 'doc',
@@ -83,7 +83,7 @@ module.exports = {
         },
         {
           type: 'category',
-          label: '@vis.gl/tangram-layers',
+          label: '@tangram.gl/tangram-layers',
           items: [
             {
               type: 'doc',

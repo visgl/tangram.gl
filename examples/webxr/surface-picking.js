@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {pickXRSurface} from '@vis.gl/tangram-layers/experimental/webxr';
+import {pickXRSurface} from '@tangram.gl/tangram-layers/experimental/webxr';
 
 /**
  * Keep surface-coordinate readout separate from renderer feature selection.
  * @param {{canvas: HTMLCanvasElement, output: HTMLElement | null,
- * getContext: () => Omit<import('@vis.gl/tangram-layers/experimental/webxr').XRSurfacePickingOptions, 'pointer'> | null}} options
+ * getContext: () => Omit<import('@tangram.gl/tangram-layers/experimental/webxr').XRSurfacePickingOptions, 'pointer'> | null}} options
  * @returns Desktop/XR selection handler with explicit listener teardown.
  */
 export function createSurfacePicker({canvas, output, getContext}) {

@@ -7,14 +7,14 @@ import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Deck, OrthographicView, type Layer, type LayerProps} from '@deck.gl/core';
 import {Matrix4} from '@math.gl/core';
-import {HostFrame} from '@vis.gl/tangram-renderer/core';
+import {HostFrame} from '@tangram.gl/tangram-renderer/core';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';
 import {ProjectedBasemapLayer, createProjectedBasemapScene, ProjectedBasemapNavigation,
-  selectProjectedTileDetail} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+  selectProjectedTileDetail} from '@tangram.gl/tangram-layers/experimental/projected-basemaps';
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {createRasterScene} from './scene';
 import type Scene from '../../modules/tangram-renderer/src/scene/scene';
-import type {HostTileResourceOptions, ProjectedBasemapOptions, ProjectionExecutionOptions, Renderer} from '@vis.gl/tangram-renderer/core';
+import type {HostTileResourceOptions, ProjectedBasemapOptions, ProjectionExecutionOptions, Renderer} from '@tangram.gl/tangram-renderer/core';
 import type {ProjectionEngine} from '@math.gl/projection/types';
 import {createProjectedExampleProjectionEngine} from '../../examples/projected/projection-engine.js';
 

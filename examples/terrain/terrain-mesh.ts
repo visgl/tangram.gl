@@ -4,7 +4,7 @@
 
 import type {Mesh} from '@loaders.gl/schema';
 import {worldToLngLat} from '@math.gl/web-mercator';
-import {sampleTerrainNeighborhood, type TerrainHeightGrid} from '@vis.gl/tangram-renderer/map-logic';
+import {sampleTerrainNeighborhood, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import type {TerrainTileData} from './terrain-payload';
 import {createTerrainQuerySurface, type LoadedTerrain} from './load-terrain';
 

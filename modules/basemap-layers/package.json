@@ -1,7 +1,7 @@
 {
   "name": "@tangram.gl/basemap-layers",
   "private": true,
-  "version": "9.4.8",
+  "version": "0.0.0",
   "description": "Basemap layer and map-style helpers for deck.gl.",
   "license": "MIT",
   "keywords": [
@@ -19,19 +19,21 @@
   },
   "type": "module",
   "sideEffects": false,
-  "types": "./dist/index.d.ts",
+  "types": "./dist/types/index.d.ts",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./dist/types/index.d.ts",
       "require": "./dist/index.cjs",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./map-style": {
-      "types": "./dist/map-style.d.ts",
+      "types": "./dist/types/map-style.d.ts",
       "require": "./dist/map-style.cjs",
-      "import": "./dist/map-style.js"
+      "import": "./dist/map-style.js",
+      "default": "./dist/map-style.js"
     }
   },
   "files": [
@@ -40,6 +42,11 @@
     "THIRD-PARTY-NOTICES.md"
   ],
   "scripts": {
+    "build": "yarn build:types && yarn build:bundle && yarn build:worker",
+    "build:types": "node ../../scripts/build-package-types.mjs modules/basemap-layers index.ts map-style.ts",
+    "build:bundle": "ocular-bundle src/index.ts --env=dev --format=esm --output=dist/index.js --externals=@loaders.gl/loader-utils,@loaders.gl/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=esm --output=dist/map-style.js --externals=@loaders.gl/loader-utils,@loaders.gl/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/index.ts --env=dev --format=cjs --output=dist/index.cjs --externals=@loaders.gl/loader-utils,@loaders.gl/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=cjs --output=dist/map-style.cjs --externals=@loaders.gl/loader-utils,@loaders.gl/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false",
+    "build:worker": "ocular-bundle src/geojson-worker.ts --env=dev --format=iife --output=dist/geojson-worker.js --sourcemap=true --sourcesContent=false",
+    "prepack": "yarn build",
     "test": "yarn --cwd ../.. vitest run --config modules/basemap-layers/vitest.config.ts",
     "test-watch": "yarn --cwd ../.. vitest --config modules/basemap-layers/vitest.config.ts"
   },
@@ -50,6 +57,7 @@
     "@fontsource/noto-sans": "5.3.0",
     "@fontsource/open-sans": "5.3.0",
     "@loaders.gl/core": "^4.5.1",
+    "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "maplibre-gl": "6.13.0",
     "vitest": "^4.0.18"
   },

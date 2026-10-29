@@ -12,7 +12,7 @@ import {
 } from '@deck.gl/core';
 import type {FirstPersonViewProps, GlobeViewProps, MapViewState, GlobeViewState, WebMercatorViewport, FirstPersonViewport, _GlobeViewport as GlobeViewport} from '@deck.gl/core';
 import type {MjolnirGestureEvent} from 'mjolnir.js';
-import type {HostCamera} from '@vis.gl/tangram-renderer/core';
+import type {HostCamera} from '@tangram.gl/tangram-renderer/core';
 import WebMercatorViewAdapter from '../../web_mercator_view_adapter.js';
 import FirstPersonViewAdapter, {getFirstPersonFrameForCamera} from '../../first_person_view_adapter.js';
 import GlobeViewAdapter from '../../globe_view_adapter.js';

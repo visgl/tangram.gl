@@ -24,7 +24,7 @@ vi.mock('@deck.gl/core', async importOriginal => ({
     MapView: class {}, FirstPersonView: class {}, LightingEffect: class {}, AmbientLight: class {}, DirectionalLight: class {}
 }));
 vi.mock('@deck.gl/geo-layers', () => ({TerrainLayer: class {}}));
-vi.mock('@vis.gl/tangram-layers', () => ({TangramLayer: class {constructor(properties: unknown) {mocks.basemap(properties);} getDrapedTerrainSurface() {return null;} getTerrainAt() {return null;}}}));
+vi.mock('@tangram.gl/tangram-layers', () => ({TangramLayer: class {constructor(properties: unknown) {mocks.basemap(properties);} getDrapedTerrainSurface() {return null;} getTerrainAt() {return null;}}}));
 vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
 vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
     decodeMesh = mocks.parse;

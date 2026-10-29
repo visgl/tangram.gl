@@ -8,12 +8,12 @@ Copyright (c) vis.gl contributors
 
 <span className="badge badge--warning">Status: Experimental</span>
 
-Import from `@vis.gl/tangram-renderer/map-logic`. These CPU helpers do not fetch
+Import from `@tangram.gl/tangram-renderer/map-logic`. These CPU helpers do not fetch
 images, render terrain or require deck.gl/loaders.gl.
 
 ```ts
 import {TERRARIUM_DECODER, decodeTerrainHeightGrid, sampleTerrainHeight}
-  from '@vis.gl/tangram-renderer/map-logic';
+  from '@tangram.gl/tangram-renderer/map-logic';
 
 const grid = decodeTerrainHeightGrid({
   width: image.width,
@@ -63,7 +63,7 @@ display exaggeration. Treat its sample arrays as immutable while shared.
 
 `adaptTerrainQuerySource(source)` accepts a read-only external surface and returns
 Tangram's existing `TerrainSurface` interface. Import it and `TerrainQuerySource`
-from `@vis.gl/tangram-renderer/map-logic`. No loaders.gl version upgrade is required.
+from `@tangram.gl/tangram-renderer/map-logic`. No loaders.gl version upgrade is required.
 
 ```ts
 const surface = adaptTerrainQuerySource(externalTerrainSurface);
@@ -209,7 +209,7 @@ slices. It has no timer, worker, network or deck.gl dependency. The normal
 synchronous helpers remain available and produce the same packed geometry.
 
 ```ts
-import {GlobeTerrainPreparation} from '@vis.gl/tangram-renderer/map-logic';
+import {GlobeTerrainPreparation} from '@tangram.gl/tangram-renderer/map-logic';
 
 const preparation = new GlobeTerrainPreparation(96 * 1024 * 1024);
 preparation.request(heightGrids, 64);

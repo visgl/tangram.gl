@@ -13,7 +13,7 @@ const files = [
   ['Experimental WebXR package entry', 'modules/tangram-layers/dist/experimental/webxr.js'],
   ['Experimental globe terrain entry', 'modules/tangram-layers/dist/experimental/terrain.js'],
   ['WebXR example source', 'examples/webxr/app.js'],
-  ['@vis.gl/tangram-renderer package entry', 'modules/tangram-renderer/dist/index.js'],
+  ['@tangram.gl/tangram-renderer package entry', 'modules/tangram-renderer/dist/index.js'],
   ['Tangram renderer minified ESM', 'modules/tangram-renderer/dist/tangram.min.mjs'],
   ['Tangram renderer debug ESM', 'modules/tangram-renderer/dist/tangram.debug.mjs']
 ];

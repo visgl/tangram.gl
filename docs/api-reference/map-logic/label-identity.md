@@ -12,7 +12,7 @@ Copyright (c) vis.gl contributors
 copies of the same label without importing a tile, camera or projection system.
 
 ```ts
-import {areGeographicLabelCopies} from '@vis.gl/tangram-renderer/map-logic';
+import {areGeographicLabelCopies} from '@tangram.gl/tangram-renderer/map-logic';
 
 const original = {
   identity: 'city:123', sourceTileIdentity: 'tile-a', sourceZoom: 0,

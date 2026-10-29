@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-export {ClassicWebGLRenderer as Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from '@vis.gl/tangram-renderer';
+export {ClassicWebGLRenderer as Renderer, HostFrame, LumaDeviceRenderer, WebMercatorGlobeVisibilityAdapter, WebMercatorVisibilityAdapter} from '@tangram.gl/tangram-renderer';
 export {DrapedTerrainSurfaceSnapshot} from './selection/draped-terrain-surface';
 export type {TerrainDrapingOptions, TerrainDrapingStatistics} from './procedures/terrain-draping';
-export type {FeatureSelectionResult, FeatureSelectionOptions} from '@vis.gl/tangram-renderer';
+export type {FeatureSelectionResult, FeatureSelectionOptions} from '@tangram.gl/tangram-renderer';
 export {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt} from './selection/terrain_surface';
 export type {TerrainSurface, TerrainSurfaceBounds, TerrainRay, TerrainSurfaceHit, TerrainMeshOptions, TerrainMeshStatistics, TerrainSurfaceEntry, TerrainCollectionHit, TerrainElevationProbe} from './selection/terrain_surface';
 export {calculatePlanarGroundBounds, calculatePlanarVolumeBounds} from './scene/ground_footprint';
@@ -25,5 +25,5 @@ export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmb
     TangramPositionalLightExtensions, TangramLightColor} from './lights/light-definitions';
 export type {Light as LumaLight} from '@luma.gl/shadertools';
 export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
-export type {HostFrameOptions, HostRenderView, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, TileSourceStatistics, HostCamera, HostProjection, GeographicAnchor, LegacyHostFrame, RendererOptions, RenderOptions, Viewport, SceneDefinition, SceneListeners, SceneLoadOptions, VisibilityLODAdapter, GlobeVisibilityLODAdapter, VisibilityViewState, GlobeVisibilityViewState, CalculatedViewBounds} from '@vis.gl/tangram-renderer';
+export type {HostFrameOptions, HostRenderView, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, TileSourceStatistics, HostCamera, HostProjection, GeographicAnchor, LegacyHostFrame, RendererOptions, RenderOptions, Viewport, SceneDefinition, SceneListeners, SceneLoadOptions, VisibilityLODAdapter, GlobeVisibilityLODAdapter, VisibilityViewState, GlobeVisibilityViewState, CalculatedViewBounds} from '@tangram.gl/tangram-renderer';
 export type {ProjectionEngine, ProjectionEngineOptions, ProjectionEngineTransform} from './types.js';

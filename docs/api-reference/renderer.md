@@ -12,7 +12,7 @@ render passes. The package root also exports this renderer as
 standalone default Tangram object.
 
 ```js
-import {Renderer, HostFrame} from '@vis.gl/tangram-renderer/core';
+import {Renderer, HostFrame} from '@tangram.gl/tangram-renderer/core';
 
 const renderer = Renderer.create(scene, {
   device,
@@ -126,7 +126,7 @@ state through its existing WebGL state manager.
 
 `Renderer.create(scene, {projectionEngine})` (also named `ClassicWebGLRenderer`)
 accepts an optional math.gl-compatible `ProjectionEngine` factory. Tangram's
-structural type is exported from `@vis.gl/tangram-renderer/core`, so ordinary
+structural type is exported from `@tangram.gl/tangram-renderer/core`, so ordinary
 consumers do not need the optional math.gl projection peer. The option applies
 to scenes using `scene.cpu_projection` and the opt-in projection worker; it
 does not replace built-in Mercator/globe cameras or change `HostFrame`.
@@ -282,7 +282,7 @@ resources. Use `color` in byte RGB (`0..255`), `intensity` as a multiplier,
 and `spot` with cone angles in radians:
 
 ```ts
-import type {LumaLight} from '@vis.gl/tangram-renderer';
+import type {LumaLight} from '@tangram.gl/tangram-renderer';
 
 const lights = [
   {type: 'ambient', color: [255, 255, 255], intensity: 0.3},
@@ -317,7 +317,7 @@ are assignable directly; a separate wrapper or conversion step is not needed
 for arrays. For example:
 
 ```ts
-import type {TangramPointLight} from '@vis.gl/tangram-renderer';
+import type {TangramPointLight} from '@tangram.gl/tangram-renderer';
 
 const lamp = {
   type: 'point',
@@ -352,7 +352,7 @@ copy; latitudes outside Mercator's domain are clamped for planar projection.
 Invalid/nonfinite coordinates and latitudes outside ±90° are rejected.
 
 ```ts
-import type {TangramSpotLight} from '@vis.gl/tangram-renderer';
+import type {TangramSpotLight} from '@tangram.gl/tangram-renderer';
 
 const lamp = {
   type: 'spot', color: [255, 240, 220], positionSpace: 'geographic',
@@ -492,7 +492,7 @@ unknown eyes, non-finite pixels, a nonzero `radius`, projection mismatches, and
 queries without a live `HostFrame` throw. Querying does not change the active camera.
 
 ```ts
-import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
+import {TerrainMeshSurface} from '@tangram.gl/tangram-renderer/core';
 
 const surface = new TerrainMeshSurface({
   projection: 'web-mercator',
@@ -558,7 +558,7 @@ globe brackets crossing the center reject instead of sampling the far hemisphere
 choosing brackets without exposing query buffers.
 
 ```ts
-import {TerrainSurfaceCollection, resolveTerrainClearance} from '@vis.gl/tangram-renderer/core';
+import {TerrainSurfaceCollection, resolveTerrainClearance} from '@tangram.gl/tangram-renderer/core';
 
 const terrain = new TerrainSurfaceCollection('web-mercator', loadedSurfaces);
 const resolved = resolveTerrainClearance(terrain, [longitude, latitude, altitude], 2, {
@@ -587,7 +587,7 @@ The package root exports the runtime classes together with `RendererOptions`,
 frame without widening its render-view identifiers:
 
 ```ts
-import type {HostFrameOptions} from '@vis.gl/tangram-renderer';
+import type {HostFrameOptions} from '@tangram.gl/tangram-renderer';
 
 const frameOptions = {
   viewport: {width, height},

@@ -8,13 +8,13 @@ import GlobeViewAdapter from './globe_view_adapter.js';
 import type {GlobeViewAdapterOptions} from './globe_view_adapter.js';
 import type {FirstPersonViewAdapterOptions} from './first_person_view_adapter.js';
 import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types.js';
-import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
-import type {ProjectionEngine, ProjectionExecutionOptions} from '@vis.gl/tangram-renderer/core';
+import type {HostFrameOptions} from '@tangram.gl/tangram-renderer/core';
+import type {ProjectionEngine, ProjectionExecutionOptions} from '@tangram.gl/tangram-renderer/core';
 import type {LayerProps} from '@deck.gl/core';
-import type {Scene} from '@vis.gl/tangram-renderer';
-import type {SceneDefinition, FeatureSelectionOptions, FeatureSelectionResult} from '@vis.gl/tangram-renderer/core';
-import type {TerrainSurface, TerrainSurfaceHit} from '@vis.gl/tangram-renderer/core';
-import type {RendererOptions, RenderOptions, HostTileResourceOptions} from '@vis.gl/tangram-renderer/core';
+import type {Scene} from '@tangram.gl/tangram-renderer';
+import type {SceneDefinition, FeatureSelectionOptions, FeatureSelectionResult} from '@tangram.gl/tangram-renderer/core';
+import type {TerrainSurface, TerrainSurfaceHit} from '@tangram.gl/tangram-renderer/core';
+import type {RendererOptions, RenderOptions, HostTileResourceOptions} from '@tangram.gl/tangram-renderer/core';
 import type {TangramRecord, PendingTangramRecord, TangramRendererFactory, TangramLayerViewport, TangramLayerContext, TangramBridgeScene} from './tangram-layer-lifecycle';
 
 /** Tangram-specific properties in addition to ordinary deck.gl layer properties. */
@@ -22,9 +22,9 @@ export type TangramLayerProps = LayerProps & {
   /** Inline scene or URL loaded by the renderer. */
   scene: SceneDefinition;
   /** Opt-in physical-height draping; host owns DEM acquisition and supplies immutable grids. */
-  terrain?: import('@vis.gl/tangram-renderer/core').RendererOptions['terrain'];
+  terrain?: import('@tangram.gl/tangram-renderer/core').RendererOptions['terrain'];
   /** Borrowed application admission pool, shared with terrain acquisition; changing it recreates the renderer. */
-  terrainResourceBudget?: import('@vis.gl/tangram-renderer/core').RendererOptions['terrainResourceBudget'];
+  terrainResourceBudget?: import('@tangram.gl/tangram-renderer/core').RendererOptions['terrainResourceBudget'];
   /** Visual terrain relief multiplier; changing it does not refetch or rebuild meshes. */
   terrainExaggeration?: number;
   /** Caller-owned CRS factory for CPU-projected basemaps; omitted keeps worker-local math.gl transforms. */
@@ -50,8 +50,8 @@ export type TangramLayerProps = LayerProps & {
   onSceneError?: (error: Error, scene: Scene) => void;
   onAttributionChange?: (credits: string[], scene: Scene) => void;
   /** Optional CPU-projected subclass's existing callback and projection policy. */
-  projectedProjection?: import('@vis.gl/tangram-renderer/core').ProjectedBasemapOptions;
-  onProjectionChange?: (projection: import('@vis.gl/tangram-renderer/core').ProjectedBasemapOptions) => void;
+  projectedProjection?: import('@tangram.gl/tangram-renderer/core').ProjectedBasemapOptions;
+  onProjectionChange?: (projection: import('@tangram.gl/tangram-renderer/core').ProjectedBasemapOptions) => void;
   /** Remaining existing Tangram bridge properties. */
   [property: string]: unknown;
 };
@@ -261,13 +261,13 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}:
     }
 
     /** Exact admitted ground triangles at the last frame, including temporal relief and globe projection. */
-    getDrapedTerrainSurface(): import('@vis.gl/tangram-renderer/core').DrapedTerrainSurfaceSnapshot | null {
+    getDrapedTerrainSurface(): import('@tangram.gl/tangram-renderer/core').DrapedTerrainSurfaceSnapshot | null {
       const record = this.state?.tangramRecord;
       return record && !record.disposed && record.loaded && !record.loadFailed ? record.renderer.getDrapedTerrainSurface() : null;
     }
 
     /** Resident worker preparation costs; GPU, source and scratch allocations are separate. */
-    getTerrainDrapingStatistics(): import('@vis.gl/tangram-renderer/core').TerrainDrapingStatistics | undefined {
+    getTerrainDrapingStatistics(): import('@tangram.gl/tangram-renderer/core').TerrainDrapingStatistics | undefined {
       const record = this.state?.tangramRecord;
       return record && !record.disposed ? record.renderer.getTerrainDrapingStatistics() : undefined;
     }

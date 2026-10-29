@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {countProjectedTileCoordinates, WebMercatorVisibilityAdapter, projectGeographicPosition,
-    getTileGeographicBounds} from '@vis.gl/tangram-renderer/core';
+    getTileGeographicBounds} from '@tangram.gl/tangram-renderer/core';
 import {validateProjectedGeographicBounds, validateProjectedNavigationViewport} from './projected-navigation';
 import type {ProjectedBasemapNavigation, ProjectedBasemapType, ProjectedGeographicBounds,
     ProjectedNavigationViewport} from './projected-navigation';

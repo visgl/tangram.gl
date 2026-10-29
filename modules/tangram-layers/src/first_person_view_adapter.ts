@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
-import {calculatePlanarVolumeBounds, type HostCamera, type LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
+import {calculatePlanarVolumeBounds, type HostCamera, type LegacyHostFrame} from '@tangram.gl/tangram-renderer/core';
 import WebMercatorViewAdapter from './web_mercator_view_adapter.js';
 import type {FirstPersonViewport} from './view_adapter_types.js';
 

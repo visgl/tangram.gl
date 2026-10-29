@@ -11,10 +11,10 @@
     "build": "node scripts/build.mjs && yarn build:playground && yarn build:editor-workers",
     "build:playground": "node scripts/build-playground.mjs",
     "build:editor-workers": "ocular-bundle ./monaco-editor.worker.js --format=iife --env=prod --output=dist/monaco-editor.worker.js && ocular-bundle ./monaco-json.worker.js --format=iife --env=prod --output=dist/monaco-json.worker.js",
-    "start": "yarn workspace @vis.gl/tangram-renderer build && yarn build && node scripts/serve.mjs"
+    "start": "yarn workspace @tangram.gl/tangram-renderer build && yarn build && node scripts/serve.mjs"
   },
   "dependencies": {
-    "@vis.gl/tangram-renderer": "workspace:^"
+    "@tangram.gl/tangram-renderer": "workspace:^"
   },
   "devDependencies": {
     "@deck.gl-community/panels": "9.4.2",

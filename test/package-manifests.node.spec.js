@@ -19,12 +19,12 @@ describe('workspace package manifests', () => {
     const renderer = await readPackageManifest('modules/tangram-renderer');
     const layers = await readPackageManifest('modules/tangram-layers');
 
-    expect(renderer.name).toBe('@vis.gl/tangram-renderer');
+    expect(renderer.name).toBe('@tangram.gl/tangram-renderer');
     expect(renderer.private).toBe(true);
     expect(renderer.types).toBe('dist/types/index.d.ts');
     expect(renderer.exports['.'].types).toBe('./dist/types/index.d.ts');
     expect(renderer.exports['.'].import).toBe('./dist/index.js');
-    expect(layers.name).toBe('@vis.gl/tangram-layers');
+    expect(layers.name).toBe('@tangram.gl/tangram-layers');
     expect(layers.private).toBe(true);
     expect(layers.exports['.'].import).toBe('./dist/index.js');
     expect(layers.exports['./experimental/webxr'].import).toBe('./dist/experimental/webxr.js');

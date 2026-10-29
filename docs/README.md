@@ -49,7 +49,7 @@ Start with [Getting started](get-started/getting-started.md), try the
 
 ## API reference
 
-### `@vis.gl/tangram-renderer`
+### `@tangram.gl/tangram-renderer`
 
 [Package entries](api-reference/tangram-renderer.md) ·
 [Classic API](api-reference/classic-api.md) ·
@@ -58,7 +58,7 @@ Start with [Getting started](get-started/getting-started.md), try the
 [HostFrame](api-reference/host-frame.md) ·
 [Styling](api-reference/styling.md)
 
-### `@vis.gl/tangram-layers`
+### `@tangram.gl/tangram-layers`
 
 [Package entries](api-reference/tangram-layers.md) ·
 [TangramLayer](api-reference/tangram-layer.md) ·

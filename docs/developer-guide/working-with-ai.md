@@ -38,9 +38,9 @@ declarations before using an API. Build the workspace before inspecting generate
 
 Choose the correct boundary:
 
-- **deck.gl basemaps:** `@vis.gl/tangram-layers`; deck.gl owns the view,
+- **deck.gl basemaps:** `@tangram.gl/tangram-layers`; deck.gl owns the view,
   controller, device, render pass and frame scheduling.
-- **Custom hosts:** `@vis.gl/tangram-renderer/core`; feed camera and pass state
+- **Custom hosts:** `@tangram.gl/tangram-renderer/core`; feed camera and pass state
   through [HostFrame](../api-reference/host-frame.md).
 - **Classic scenes:** the renderer root and example-local Leaflet adapter.
 - **Projected basemaps or WebXR:** the explicit experimental layer subpaths;

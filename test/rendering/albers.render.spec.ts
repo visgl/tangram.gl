@@ -4,7 +4,7 @@
 
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
-import Tangram, {type Scene, type SceneDefinition} from '@vis.gl/tangram-renderer';
+import Tangram, {type Scene, type SceneDefinition} from '@tangram.gl/tangram-renderer';
 import {changedPixels, DEVICE_TYPE, readCanvasPixels} from './harness';
 
 /** Classic scene inspection needed to drive its render loop without Leaflet or public services. */

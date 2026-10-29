@@ -3,8 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import type {Device, RenderPass} from '@luma.gl/core';
-import type {Scene} from '@vis.gl/tangram-renderer';
-import type {Renderer, RendererOptions, SceneDefinition, SceneListeners, SceneLoadOptions, RenderOptions} from '@vis.gl/tangram-renderer/core';
+import type {Scene} from '@tangram.gl/tangram-renderer';
+import type {Renderer, RendererOptions, SceneDefinition, SceneListeners, SceneLoadOptions, RenderOptions} from '@tangram.gl/tangram-renderer/core';
 import type {TangramLayerProps} from './tangram-layer';
 import type {FirstPersonViewport} from './view_adapter_types';
 

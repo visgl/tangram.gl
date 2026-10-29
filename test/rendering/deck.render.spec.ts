@@ -5,7 +5,7 @@
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Deck, type Layer, type LayerProps, MapView, FirstPersonView, _GlobeView as GlobeView} from '@deck.gl/core';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {createScene} from './scene';
 

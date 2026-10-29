@@ -6,14 +6,14 @@ import {expect} from 'vitest';
 import {luma, type Device} from '@luma.gl/core';
 import {webgl2Adapter} from '@luma.gl/webgl';
 import {webgpuAdapter} from '@luma.gl/webgpu';
-import {HostFrame, Renderer as ClassicWebGLRenderer} from '@vis.gl/tangram-renderer/core';
-import type {HostTileLODOptions, HostTileResourceOptions} from '@vis.gl/tangram-renderer/core';
-import type {TerrainDrapingOptions} from '@vis.gl/tangram-renderer/core';
-import type {Scene, SceneDefinition} from '@vis.gl/tangram-renderer';
+import {HostFrame, Renderer as ClassicWebGLRenderer} from '@tangram.gl/tangram-renderer/core';
+import type {HostTileLODOptions, HostTileResourceOptions} from '@tangram.gl/tangram-renderer/core';
+import type {TerrainDrapingOptions} from '@tangram.gl/tangram-renderer/core';
+import type {Scene, SceneDefinition} from '@tangram.gl/tangram-renderer';
 import {Timeline} from '@luma.gl/engine';
 import {WebXRPresentation, WebXRMapView, WebXRGlobeView, WebXRFirstPersonView,
   WebXRMapController, WebXRGlobeController, WebXRFirstPersonController,
-  type XRPresentationMode, type XRFrameState} from '@vis.gl/tangram-layers/experimental/webxr';
+  type XRPresentationMode, type XRFrameState} from '@tangram.gl/tangram-layers/experimental/webxr';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';
 import {createScene, createFixture} from './scene';
 

@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
+import {TerrainMeshSurface} from '@tangram.gl/tangram-renderer/core';
 import {assertGlobeTerrainPreparationSnapshot, getPreparedGlobeTerrainTemplate, getGlobeTerrainExaggeration, scaleGlobeTerrainMeshSteps,
     type GlobeTerrainMesh, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid,
-    type TerrainResourceBudget, type TerrainResourceLease} from '@vis.gl/tangram-renderer/map-logic';
+    type TerrainResourceBudget, type TerrainResourceLease} from '@tangram.gl/tangram-renderer/map-logic';
 
 /** Packed attributes shared with deck.gl; raw spherical/physical arrays are copied into the query owner. */
 export function getTerrainRenderMesh(mesh: GlobeTerrainMesh) {

@@ -10,8 +10,8 @@ import {
   createProjectedBasemapScene,
   ProjectedBasemapNavigation,
   selectProjectedTileDetail
-} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
-import {countProjectedTileCoordinates} from '@vis.gl/tangram-renderer/core';
+} from '@tangram.gl/tangram-layers/experimental/projected-basemaps';
+import {countProjectedTileCoordinates} from '@tangram.gl/tangram-renderer/core';
 import {createProjectedExampleScene, getProjectedExampleTileZoom} from './scene.js';
 import {getProjectedExampleBounds, getProjectedExampleDetailChoices} from './detail.js';
 import {createProjectedExampleProjectionEngine} from './projection-engine.js';

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {LegacyHostFrame} from '@vis.gl/tangram-renderer/core';
+import type {LegacyHostFrame} from '@tangram.gl/tangram-renderer/core';
 import type {GlobeViewport} from './view_adapter_types.js';
 const DECK_TO_TANGRAM_ZOOM_OFFSET = 1;
 

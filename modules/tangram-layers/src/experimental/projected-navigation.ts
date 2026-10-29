@@ -3,9 +3,9 @@
 // Copyright (c) vis.gl contributors
 
 import {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE, countProjectedTileCoordinates,
-    normalizeProjectedBasemapOptions, ProjectionBatchExecutor} from '@vis.gl/tangram-renderer/core';
-import type {ProjectionEngine, ProjectionEngineTransform, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
-import type {ProjectionExecutionOptions, ProjectionExecutionStatistics} from '@vis.gl/tangram-renderer/core';
+    normalizeProjectedBasemapOptions, ProjectionBatchExecutor} from '@tangram.gl/tangram-renderer/core';
+import type {ProjectionEngine, ProjectionEngineTransform, ProjectedBasemapOptions} from '@tangram.gl/tangram-renderer/core';
+import type {ProjectionExecutionOptions, ProjectionExecutionStatistics} from '@tangram.gl/tangram-renderer/core';
 
 /** Cancellation for one coordinate request; compiled transforms remain shared and reusable. */
 export interface ProjectedNavigationRequestOptions {

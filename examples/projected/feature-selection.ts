@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {FeatureSelectionResult} from '@vis.gl/tangram-renderer/core';
+import type {FeatureSelectionResult} from '@tangram.gl/tangram-renderer/core';
 
 /** Query one click without publishing results after navigation, scene changes or disposal. */
 export async function queryProjectedFeature(

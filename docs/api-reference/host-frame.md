@@ -10,7 +10,7 @@ Copyright (c) vis.gl contributors
 camera state. It has no deck.gl dependency.
 
 ```js
-import {HostFrame} from '@vis.gl/tangram-renderer/core';
+import {HostFrame} from '@tangram.gl/tangram-renderer/core';
 ```
 
 ## Constructor
@@ -212,7 +212,7 @@ visibility without rebuilding scene styles or cached geometry.
 
 ### Coordinates and matrices
 
-The `@vis.gl/tangram-renderer/core` entry exports shared, deck-independent
+The `@tangram.gl/tangram-renderer/core` entry exports shared, deck-independent
 projection helpers: `PROJECTION_CONSTANTS`, `projectGeographicPosition`,
 `projectGeographicVector`, and `unprojectGlobePosition`.
 Positions are `[longitude, latitude, altitude]` in degrees/degrees/meters;

@@ -6,7 +6,7 @@ import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {_GlobeViewport as GlobeViewport} from '@deck.gl/core';
 import {Buffer} from '@luma.gl/core';
-import {TerrainMeshSurface} from '@vis.gl/tangram-renderer/core';
+import {TerrainMeshSurface} from '@tangram.gl/tangram-renderer/core';
 import {GLOBE_VISIBILITY_GLSL, GLOBE_VISIBILITY_WGSL} from '../../modules/tangram-renderer/src/styles/globe_visibility_wgsl';
 import {GLOBE_PROJECTION_WGSL, GLOBE_PROJECTION_GLSL} from '../../modules/tangram-renderer/src/scene/projection_shaders';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';

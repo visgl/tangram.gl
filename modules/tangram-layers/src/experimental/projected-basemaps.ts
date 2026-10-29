@@ -4,8 +4,8 @@
 
 import {Layer} from '@deck.gl/core';
 import {Matrix4} from '@math.gl/core';
-import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates, getProjectedRoadUnit, validateProjectedLights} from '@vis.gl/tangram-renderer/core';
-import type {HostFrameOptions, HostTileResourceOptions, ProjectedBasemapOptions} from '@vis.gl/tangram-renderer/core';
+import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates, getProjectedRoadUnit, validateProjectedLights} from '@tangram.gl/tangram-renderer/core';
+import type {HostFrameOptions, HostTileResourceOptions, ProjectedBasemapOptions} from '@tangram.gl/tangram-renderer/core';
 import createTangramLayerClass from '../tangram-layer.js';
 
 export {ProjectedBasemapNavigation, getProjectedGeographicBounds} from './projected-navigation';
@@ -261,7 +261,7 @@ export class ProjectedBasemapLayer extends BaseProjectedBasemapLayer {
      * This is not deck.gl's synchronous picking API. The host must keep rendering
      * until the selection pass and worker lookup finish; the layer requests a redraw.
      */
-    getFeatureAt(pixel: {x: number; y: number}, options: import('@vis.gl/tangram-renderer/core').FeatureSelectionOptions = {}): Promise<import('@vis.gl/tangram-renderer/core').FeatureSelectionResult | undefined> {
+    getFeatureAt(pixel: {x: number; y: number}, options: import('@tangram.gl/tangram-renderer/core').FeatureSelectionOptions = {}): Promise<import('@tangram.gl/tangram-renderer/core').FeatureSelectionResult | undefined> {
         return super.getFeatureAt(pixel, options);
     }
     /** deck.gl's stable layer identity for state transfer between property updates. */

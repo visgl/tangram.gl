@@ -23,10 +23,10 @@ Values use decimal KB (1 KB = 1,000 bytes), not KiB:
 | Asset | Raw | Gzip |
 | --- | ---: | ---: |
 | Deck example source | 0.5 KB | 0.3 KB |
-| `@vis.gl/tangram-layers` package entry | 27.0 KB | 6.5 KB |
-| `@vis.gl/tangram-layers/experimental/webxr` package entry | 56.7 KB | 13.3 KB |
+| `@tangram.gl/tangram-layers` package entry | 27.0 KB | 6.5 KB |
+| `@tangram.gl/tangram-layers/experimental/webxr` package entry | 56.7 KB | 13.3 KB |
 | WebXR example source | 29.3 KB | 7.9 KB |
-| `@vis.gl/tangram-renderer` package entry | 0.7 KB | 0.3 KB |
+| `@tangram.gl/tangram-renderer` package entry | 0.7 KB | 0.3 KB |
 | Minified Tangram renderer ESM | 1,126.6 KB | 333.9 KB |
 | Debug Tangram renderer ESM | 2,175.5 KB | 487.8 KB |
 | **TangramLayer + minified renderer** | **1,153.6 KB** | **340.4 KB** |
@@ -51,7 +51,7 @@ rebuilds package artifacts, though the workspace remains private and unpublished
 
 ```js
 import {Deck} from '@deck.gl/core';
-import {TangramLayer} from '@vis.gl/tangram-layers';
+import {TangramLayer} from '@tangram.gl/tangram-layers';
 
 // A scene URL, or a stable parsed scene object; see the styling reference.
 const sceneYaml = '/scenes/basemap.yaml';

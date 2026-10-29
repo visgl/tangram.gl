@@ -14,8 +14,8 @@ original candidate objects, without mutating inputs. Each invocation owns its
 index and state.
 
 ```ts
-import {resolveLabelPlacement} from '@vis.gl/tangram-renderer/map-logic';
-import type {ScreenLabelCandidate, ScreenBounds} from '@vis.gl/tangram-renderer/map-logic';
+import {resolveLabelPlacement} from '@tangram.gl/tangram-renderer/map-logic';
+import type {ScreenLabelCandidate, ScreenBounds} from '@tangram.gl/tangram-renderer/map-logic';
 
 const candidates: ScreenLabelCandidate[] = [
   {id: 'primary', boxes: new Map<string, ScreenBounds>([['map', [10, 10, 50, 30]]])},

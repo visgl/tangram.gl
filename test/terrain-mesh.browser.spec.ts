@@ -7,7 +7,7 @@ import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {sampleTerrainAnchor} from '../examples/terrain/ground-following';
 import {worldToLngLat} from '@math.gl/web-mercator';
-import {projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
+import {projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
 
 test.each([
   {side: 'east', axis: 0, coarseEdge: 1, fineEdge: 0, upper: [2, 1, 3, 2], lower: [2, 0, 3, 1]},

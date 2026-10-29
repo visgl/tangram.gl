@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {TileBuildQueue, TileCachePolicy, TileResidency} from '@vis.gl/tangram-renderer/map-logic';
+import {TileBuildQueue, TileCachePolicy, TileResidency} from '@tangram.gl/tangram-renderer/map-logic';
 import type {TerrainTileData, TerrainPayload} from './terrain-payload';
 import {getTerrainParent, getTerrainTileKey, type TerrainTileCoordinate} from './tile-selection';
 import {getTerrainChildren, terrainTileContains, terrainTilesTouch} from './globe-detail';
-import type {TerrainResourceBudget, TerrainResourceLease} from '@vis.gl/tangram-renderer/map-logic';
+import type {TerrainResourceBudget, TerrainResourceLease} from '@tangram.gl/tangram-renderer/map-logic';
 
 /** One cached source tile; presentation changes never discard its image bytes. */
 export interface TerrainTileRecord<Data extends TerrainPayload = TerrainTileData> {

@@ -6,7 +6,7 @@ import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Matrix4} from '@math.gl/core';
 import {WebXRSurfaceGrabber, type XRFrameState, type XRInteractionIntent, type XRPlacement}
-  from '@vis.gl/tangram-layers/experimental/webxr';
+  from '@tangram.gl/tangram-layers/experimental/webxr';
 import {RenderingHarness, coloredPixels, changedPixels, DEVICE_TYPE} from './harness';
 
 let harness: RenderingHarness | undefined;

@@ -16,8 +16,8 @@
     "@luma.gl/webgpu": "^9.4.2",
     "@math.gl/core": "5.0.0-alpha.18",
     "@math.gl/projection": "5.0.0-alpha.18",
-    "@vis.gl/tangram-layers": "workspace:^",
-    "@vis.gl/tangram-renderer": "workspace:^",
+    "@tangram.gl/tangram-layers": "workspace:^",
+    "@tangram.gl/tangram-renderer": "workspace:^",
     "mjolnir.js": "^3.1.0"
   }
 }

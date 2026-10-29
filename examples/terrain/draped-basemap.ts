@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {SceneDefinition} from '@vis.gl/tangram-renderer/core';
+import type {SceneDefinition} from '@tangram.gl/tangram-renderer/core';
 
 /** Lightweight OpenMapTiles styling; source parsing and displacement remain renderer-owned. */
 export function createDrapedBasemap(): SceneDefinition {

@@ -6,7 +6,7 @@ Copyright (c) vis.gl contributors
 
 # Experimental projected basemaps
 
-The optional `@vis.gl/tangram-layers/experimental/projected-basemaps` entry renders
+The optional `@tangram.gl/tangram-layers/experimental/projected-basemaps` entry renders
 Tangram polygons, raster meshes, meter/pixel roads and point/text annotations in deck.gl's `OrthographicView`. Workers
 subdivide the packed tile geometry and project it with math.gl before transferring
 the mesh. The ordinary renderer does not bundle the math.gl projection kernels.
@@ -26,7 +26,7 @@ import {Deck, OrthographicView} from '@deck.gl/core';
 import {
   ProjectedBasemapLayer,
   createProjectedBasemapScene
-} from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+} from '@tangram.gl/tangram-layers/experimental/projected-basemaps';
 
 const scene = createProjectedBasemapScene({
   sources: {map: {type: 'MVT', url: '', tilejson: 'https://tiles.openfreemap.org/planet'}},
@@ -303,7 +303,7 @@ factory and the same CRS pairs and meter/common scaling as the renderer:
 
 ```ts
 import {ProjectedBasemapNavigation, getProjectedGeographicBounds}
-  from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+  from '@tangram.gl/tangram-layers/experimental/projected-basemaps';
 
 const navigation = new ProjectedBasemapNavigation(projectionEngine);
 const type = 'equal-earth';
@@ -395,7 +395,7 @@ explicit detail and fixed footprint remain unchanged:
 
 ```ts
 import {selectProjectedTileDetail}
-  from '@vis.gl/tangram-layers/experimental/projected-basemaps';
+  from '@tangram.gl/tangram-layers/experimental/projected-basemaps';
 
 const detail = await selectProjectedTileDetail(navigation, deck.getViewports()[0],
   type, {visibleBounds: getProjectedGeographicBounds(type),

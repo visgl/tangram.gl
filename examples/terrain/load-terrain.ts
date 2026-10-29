@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {Mesh} from '@loaders.gl/schema';
-import {TerrainMeshSurface, projectGeographicPosition} from '@vis.gl/tangram-renderer/core';
+import {TerrainMeshSurface, projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
 import {decodeTerrainTile} from './decode-terrain';
 import type {TerrainTileData, TerrainNoDataPolicy} from './terrain-payload';
 

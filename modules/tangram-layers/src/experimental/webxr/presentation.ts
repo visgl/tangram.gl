@@ -6,7 +6,7 @@ import {Matrix4} from '@math.gl/core';
 import {DoubleClickDrag, EventManager, Pan, Pinch, Tap} from 'mjolnir.js';
 import {createXRPlacementMatrix, getXRGlobeVisibleBounds} from './projection.js';
 import type {MapController, InteractionState, ViewStateChangeParameters} from '@deck.gl/core';
-import type {HostFrameOptions} from '@vis.gl/tangram-renderer/core';
+import type {HostFrameOptions} from '@tangram.gl/tangram-renderer/core';
 import type {XRDeckController, XRDeckView, XRFrameState, XRInteractionIntent, XRPlacement,
   XRHostFrameFields, XRPresentationFrame, XRPresentationMode, XRPresentationRenderView, XRViewState,
   XRViewportSize, XRVector3} from './types.js';

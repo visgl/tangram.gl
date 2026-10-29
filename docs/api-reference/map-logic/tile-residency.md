@@ -14,7 +14,7 @@ selection, start loading, or unload resources. Selected keys may not yet be load
 visible keys may represent fallback ancestors rather than selected detail.
 
 ```ts
-import {TileResidency} from '@vis.gl/tangram-renderer/map-logic';
+import {TileResidency} from '@tangram.gl/tangram-renderer/map-logic';
 
 const residency = new TileResidency<string>();
 residency.updateConsumer('left-eye', ['detail'], ['ancestor']);
