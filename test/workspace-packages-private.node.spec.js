@@ -7,9 +7,14 @@ import {resolve} from 'node:path';
 import {describe, expect, test} from 'vitest';
 
 const REPOSITORY_ROOT = resolve(import.meta.dirname, '..');
+const PUBLIC_PACKAGE_FILES = new Set([
+  'modules/tangram-renderer/package.json',
+  'modules/tangram-layers/package.json',
+  'modules/basemap-layers/package.json'
+].map(path => resolve(REPOSITORY_ROOT, path)));
 
 describe('workspace package publication safety', () => {
-  test.each(['modules', 'examples'])('marks every %s package as private', async (directory) => {
+  test.each(['modules', 'examples'])('only allows intended public packages in %s', async (directory) => {
     const workspaceDirectory = resolve(REPOSITORY_ROOT, directory);
     const packageFiles = [];
     const pendingDirectories = [workspaceDirectory];
@@ -29,7 +34,8 @@ describe('workspace package publication safety', () => {
     expect(packageFiles.length).toBeGreaterThan(0);
     for (const packageFile of packageFiles) {
       const packageJson = JSON.parse(await readFile(packageFile, 'utf8'));
-      expect(packageJson.private, `${packageJson.name} must not be publishable`).toBe(true);
+      expect(packageJson.private, `unexpected publication status for ${packageJson.name}`)
+        .toBe(!PUBLIC_PACKAGE_FILES.has(packageFile));
     }
   });
 });
