@@ -14,7 +14,7 @@ for (const packageName of packages) {
   if (manifest.name !== `@tangram.gl/${packageName}` || manifest.version !== version) {
     throw new Error(`${packageName}: package name or version does not match the release.`);
   }
-  if (manifest.private !== false) {
-    throw new Error(`${packageName}: publishing is disabled until private is explicitly set to false.`);
+  if (manifest.private !== undefined && manifest.private !== false) {
+    throw new Error(`${packageName}: publishing is disabled by the private field.`);
   }
 }

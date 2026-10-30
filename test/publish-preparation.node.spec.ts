@@ -11,24 +11,28 @@ const root = resolve(import.meta.dirname, '..');
 const packageNames = ['tangram-renderer', 'tangram-layers', 'basemap-layers'];
 
 describe('npm publication preparation', () => {
-  test.each(packageNames)('%s has a guarded public package identity', packageName => {
+  test.each(packageNames)('%s has a public package identity', packageName => {
     const manifest = JSON.parse(readFileSync(resolve(root, `modules/${packageName}/package.json`), 'utf8'));
     expect(manifest.name).toBe(`@tangram.gl/${packageName}`);
     expect(manifest.version).toBe('0.0.0');
-    expect(manifest.private).toBe(true);
+    expect(manifest.private ?? false).toBe(false);
     expect(manifest.publishConfig.access).toBe('public');
     expect(manifest.scripts.prepack).toBe('yarn build');
   });
 
-  test('release preflight rejects private packages and malformed versions', () => {
+  test('release preflight accepts the release version and rejects malformed versions', () => {
     for (const version of ['0.0.0', 'not-a-version']) {
       const result = spawnSync(process.execPath, ['scripts/check-publish-ready.mjs'], {
         cwd: root,
         env: {...process.env, RELEASE_VERSION: version},
         encoding: 'utf8'
       });
-      expect(result.status).not.toBe(0);
-      expect(result.stderr).toContain(version === '0.0.0' ? 'publishing is disabled' : 'exact npm version');
+      if (version === '0.0.0') {
+        expect(result.status, result.stderr).toBe(0);
+      } else {
+        expect(result.status).not.toBe(0);
+        expect(result.stderr).toContain('exact npm version');
+      }
     }
   });
 

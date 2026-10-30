@@ -8,17 +8,17 @@ Copyright (c) vis.gl contributors
 
 The intended public packages are `@tangram.gl/tangram-renderer`,
 `@tangram.gl/tangram-layers`, and `@tangram.gl/basemap-layers`. Their initial
-version is `0.0.0`. They remain private while package artifacts and consumers
-are validated; merging this preparation does not publish anything.
+version is `0.0.0`. Merging the release preparation does not publish anything.
 
 Before the first release, an npm organization administrator must confirm that
 the `tangram.gl` scope exists and the publisher has the necessary permissions.
 Review each package's `yarn pack` output and run the package-consumer checks.
-The renderer and deck-layer package entries can be imported in Node and SSR
-without browser globals. Rendering still requires a supported browser and GPU;
+The `@tangram.gl/tangram-renderer` and `@tangram.gl/tangram-layers` package
+entries can be imported in Node and SSR without browser globals. Rendering
+still requires a supported browser and GPU;
 test the packed artifacts in consumer environments before the first release.
-Then explicitly set `private` to `false` in each package in a reviewed release
-change. Example and development workspaces must remain private.
+The three package manifests must be public. Example and development workspaces
+must remain private.
 
 npm currently requires a package to exist before a trusted publisher can be
 configured. An authorized maintainer must publish the initial version of each

@@ -2,7 +2,6 @@
   "name": "@tangram.gl/tangram-layers",
   "homepage": "https://vis.gl/tangram.gl/",
   "version": "0.0.0",
-  "private": true,
   "description": "deck.gl layers for Tangram basemaps",
   "type": "module",
   "main": "dist/index.js",
