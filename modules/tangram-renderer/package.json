@@ -1,7 +1,7 @@
 {
   "name": "@tangram.gl/tangram-renderer",
   "version": "0.0.0",
-  "private": true,
+  "private": false,
   "description": "Tangram vector-tile scene renderer powered by luma.gl",
   "homepage": "https://vis.gl/tangram.gl/",
   "type": "module",
