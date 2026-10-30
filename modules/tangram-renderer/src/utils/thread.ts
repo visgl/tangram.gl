@@ -8,26 +8,19 @@ export type ThreadState = {
   is_main: boolean;
 };
 
-// Mark thread as main or worker
-const Thread = {} as ThreadState;
+// Node/SSR is neither a browser main thread nor a Web Worker. In particular,
+// do not install worker-only global shims while a server imports the package.
+const isMain = typeof window !== 'undefined' && typeof Window !== 'undefined' &&
+  typeof HTMLDocument !== 'undefined' && window instanceof Window && window.document instanceof HTMLDocument;
+const isWorker = typeof WorkerGlobalScope !== 'undefined' && globalThis instanceof WorkerGlobalScope;
+const Thread: ThreadState = {is_worker: isWorker, is_main: isMain};
 
-try {
-  if (window instanceof Window && window.document instanceof HTMLDocument) {
-    Thread.is_worker = false;
-    Thread.is_main = true;
-  }
-} catch {
-  Thread.is_worker = true;
-  Thread.is_main = false;
-
+if (isWorker) {
   // Patch for third-party libraries that require these globals to be present, specifically
   // FontFaceObserver. This allows that library to load on worker threads.
-  const workerGlobal = self as unknown as {
-    window: {document: Record<string, unknown>};
-    document: Record<string, unknown>;
-  };
-  workerGlobal.window = {document: {}};
-  workerGlobal.document = workerGlobal.window.document;
+  const workerWindow = {document: {}};
+  Reflect.set(globalThis, 'window', workerWindow);
+  Reflect.set(globalThis, 'document', workerWindow.document);
 }
 
 export default Thread;
