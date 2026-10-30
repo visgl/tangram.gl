@@ -17,7 +17,7 @@ describe('independent module coverage reports', () => {
   test('preserves the existing renderer gates independently of the layers package', () => {
     expect(COVERAGE_MODULES[0]).toMatchObject({name: 'tangram-renderer',
       thresholds: {statements: 78, branches: 69, functions: 82, lines: 78}});
-    expect(new Set(COVERAGE_MODULES.map(module => module.sourceGlob)).size).toBe(2);
+    expect(new Set(COVERAGE_MODULES.map(module => module.sourceGlob)).size).toBe(3);
     expect(COVERAGE_MODULES.every(module => Object.keys(module.thresholds).length === 4)).toBe(true);
   });
 

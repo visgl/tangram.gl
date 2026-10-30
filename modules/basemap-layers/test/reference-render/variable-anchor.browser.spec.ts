@@ -254,7 +254,7 @@ async function writeRender(name: string, pixels: Uint8ClampedArray) {
   canvas.height = height;
   canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(pixels), width), 0, 0);
   await commands.writeFile(
-    `modules/basemap-layers/tests/reference-render/__output__/variable-anchor-${name}.png`,
+    `modules/basemap-layers/test/reference-render/__output__/variable-anchor-${name}.png`,
     canvas.toDataURL('image/png').split(',')[1],
     'base64'
   );
@@ -306,7 +306,7 @@ describe('text-variable-anchor', () => {
   afterAll(async () => {
     if (OUTPUT) {
       await commands.writeFile(
-        'modules/basemap-layers/tests/reference-render/__output__/variable-anchor.json',
+        'modules/basemap-layers/test/reference-render/__output__/variable-anchor.json',
         `${JSON.stringify(measured, null, 2)}\n`
       );
     }

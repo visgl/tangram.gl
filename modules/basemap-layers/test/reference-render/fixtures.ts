@@ -25,7 +25,7 @@ import {REFERENCE_STYLES, type ReferenceStyleId} from './scenes';
  * public domain. They were rounded down to whole meters (blue channel zeroed) to halve their size,
  * and are committed as such: recording them again would replace them with the unrounded tiles.
  */
-export const FIXTURE_ROOT = 'modules/basemap-layers/tests/reference-render/fixtures';
+export const FIXTURE_ROOT = 'modules/basemap-layers/test/reference-render/fixtures';
 
 /** The fixture file path of a remote URL, relative to {@link FIXTURE_ROOT}. */
 export function getFixturePath(url: string): string {

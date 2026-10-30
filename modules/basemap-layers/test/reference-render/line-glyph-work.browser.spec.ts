@@ -131,7 +131,7 @@ test('counts the work of glyphs along lines in an orbit, a tilt and a zoom', asy
     }
   );
   await commands.writeFile(
-    'modules/basemap-layers/tests/reference-render/__output__/line-glyph-work.json',
+    'modules/basemap-layers/test/reference-render/__output__/line-glyph-work.json',
     JSON.stringify(work, null, 1)
   );
   const total = (frames: FrameWork[], key: keyof FrameWork) =>
