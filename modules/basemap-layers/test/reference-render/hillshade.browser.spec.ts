@@ -194,7 +194,7 @@ async function writeComparison(
   context.putImageData(new ImageData(difference, width, height), width * 2, 0);
   const name = id.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
   await commands.writeFile(
-    `modules/basemap-layers/tests/reference-render/__output__/hillshade-${name}.png`,
+    `modules/basemap-layers/test/reference-render/__output__/hillshade-${name}.png`,
     canvas.toDataURL('image/png').split(',')[1],
     'base64'
   );
@@ -238,7 +238,7 @@ describe('hillshade', () => {
   afterAll(async () => {
     if (OUTPUT) {
       await commands.writeFile(
-        'modules/basemap-layers/tests/reference-render/__output__/hillshade.json',
+        'modules/basemap-layers/test/reference-render/__output__/hillshade.json',
         `${JSON.stringify(measured, null, 2)}\n`
       );
     }

@@ -130,7 +130,7 @@ async function writeComparison(
   context.putImageData(new ImageData(new Uint8ClampedArray(candidate), width, height), width, 0);
   const name = id.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
   await commands.writeFile(
-    `modules/basemap-layers/tests/reference-render/__output__/extrusion-lighting-${name}.png`,
+    `modules/basemap-layers/test/reference-render/__output__/extrusion-lighting-${name}.png`,
     canvas.toDataURL('image/png').split(',')[1],
     'base64'
   );
@@ -169,7 +169,7 @@ describe('fill-extrusion lighting', () => {
   afterAll(async () => {
     if (OUTPUT) {
       await commands.writeFile(
-        'modules/basemap-layers/tests/reference-render/__output__/extrusion-lighting.json',
+        'modules/basemap-layers/test/reference-render/__output__/extrusion-lighting.json',
         `${JSON.stringify(measured, null, 2)}\n`
       );
     }

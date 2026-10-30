@@ -145,12 +145,13 @@ Use small deterministic fixtures, not live CDNs or tile services.
 
 CI collects Node and Chromium coverage blobs, merges them, and enforces separate
 module gates before uploading to Coveralls and the `module-coverage` artifact.
-Neither package can hide a regression in the other. The committed gates are:
+No package can hide a regression in another. The committed gates are:
 
 | Module | Statements | Branches | Functions | Lines |
 | --- | ---: | ---: | ---: | ---: |
 | Renderer | 78% | 69% | 82% | 78% |
 | Layers | 92% | 90% | 95% | 94% |
+| Basemap layers | 96% | 91% | 98% | 97% |
 
 The source of truth is `scripts/coverage-modules.mjs`. Coverage includes all
 authored source, including experimental entries and unexecuted files; generated,

@@ -79,7 +79,7 @@ export const SCENES: ConformanceScene[] = [
     note: 'Street grid, buildings, overzoomed z14 data'
   },
   // Control scenes: basemap-layers' own reference scenes, rendered by the shared runner. Their
-  // scores must match `modules/basemap-layers/tests/reference-render` (same fixtures, same
+  // scores must match `modules/basemap-layers/test/reference-render` (same fixtures, same
   // metrics), which checks that the shared runner measures what the original harness measures.
   {
     id: 'paris-liberty-z13.3',
