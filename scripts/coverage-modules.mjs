@@ -17,6 +17,12 @@ export const COVERAGE_MODULES = [
     sourcePath: 'modules/tangram-layers/src',
     sourceGlob: 'modules/tangram-layers/src/**/*.{js,ts}',
     thresholds: {statements: 92, branches: 90, functions: 95, lines: 94}
+  },
+  {
+    name: 'basemap-layers',
+    sourcePath: 'modules/basemap-layers/src',
+    sourceGlob: 'modules/basemap-layers/src/**/*.{js,ts}',
+    thresholds: {statements: 96, branches: 91, functions: 98, lines: 97}
   }
 ];
 

@@ -175,7 +175,7 @@ async function writeComparison(
   context.putImageData(new ImageData(new Uint8ClampedArray(candidate), width, height), width, 0);
   const name = id.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
   await commands.writeFile(
-    `modules/basemap-layers/tests/reference-render/__output__/geojson-source-${name}.png`,
+    `modules/basemap-layers/test/reference-render/__output__/geojson-source-${name}.png`,
     canvas.toDataURL('image/png').split(',')[1],
     'base64'
   );
@@ -217,7 +217,7 @@ describe('geojson sources', () => {
   afterAll(async () => {
     if (OUTPUT) {
       await commands.writeFile(
-        'modules/basemap-layers/tests/reference-render/__output__/geojson-source.json',
+        'modules/basemap-layers/test/reference-render/__output__/geojson-source.json',
         `${JSON.stringify(measured, null, 2)}\n`
       );
     }
