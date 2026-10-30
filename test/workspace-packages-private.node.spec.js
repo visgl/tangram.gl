@@ -34,8 +34,11 @@ describe('workspace package publication safety', () => {
     expect(packageFiles.length).toBeGreaterThan(0);
     for (const packageFile of packageFiles) {
       const packageJson = JSON.parse(await readFile(packageFile, 'utf8'));
-      expect(packageJson.private, `unexpected publication status for ${packageJson.name}`)
-        .toBe(!PUBLIC_PACKAGE_FILES.has(packageFile));
+      if (PUBLIC_PACKAGE_FILES.has(packageFile)) {
+        expect(packageJson.private ?? false, `${packageJson.name} should be public`).toBe(false);
+      } else {
+        expect(packageJson.private, `${packageJson.name} must remain private`).toBe(true);
+      }
     }
   });
 });

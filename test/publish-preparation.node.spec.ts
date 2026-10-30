@@ -15,7 +15,7 @@ describe('npm publication preparation', () => {
     const manifest = JSON.parse(readFileSync(resolve(root, `modules/${packageName}/package.json`), 'utf8'));
     expect(manifest.name).toBe(`@tangram.gl/${packageName}`);
     expect(manifest.version).toBe('0.0.0');
-    expect(manifest.private).toBe(false);
+    expect(manifest.private ?? false).toBe(false);
     expect(manifest.publishConfig.access).toBe('public');
     expect(manifest.scripts.prepack).toBe('yarn build');
   });

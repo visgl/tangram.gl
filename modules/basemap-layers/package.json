@@ -1,6 +1,5 @@
 {
   "name": "@tangram.gl/basemap-layers",
-  "private": false,
   "version": "0.0.0",
   "description": "Basemap layer and map-style helpers for deck.gl.",
   "license": "MIT",
