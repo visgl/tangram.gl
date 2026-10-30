@@ -11,7 +11,8 @@ Tangram scene rendering powered by luma.gl, with WebGL 2 and WebGPU host paths.
 The renderer loads vector/raster data, evaluates Tangram styles, manages tiles
 and labels, and submits scene GPU work. It has no deck.gl or Leaflet dependency.
 
-This workspace is private and unpublished. Build from the repository root:
+Install the published package with `npm install @tangram.gl/tangram-renderer`.
+To build from the repository root:
 
 ```sh
 yarn install --immutable

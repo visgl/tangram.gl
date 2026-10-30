@@ -5,7 +5,7 @@
 import {execFileSync} from 'node:child_process';
 
 const packages = ['tangram-renderer', 'tangram-layers', 'basemap-layers'];
-const expectedVersion = process.env.RELEASE_VERSION || '0.0.0';
+const expectedVersion = process.env.RELEASE_VERSION || '0.0.1';
 
 /** Verify exported entry points and dependency metadata in packed artifacts. */
 for (const packageName of packages) {

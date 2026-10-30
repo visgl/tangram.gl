@@ -6,8 +6,9 @@ Copyright (c) vis.gl contributors
 
 # @tangram.gl/tangram-layers
 
-Experimental deck.gl basemap integration for tangram.gl. This workspace is
-private and unpublished; build it from the repository root with `yarn build:modules`.
+Experimental deck.gl basemap integration for tangram.gl. Install with
+`npm install @tangram.gl/tangram-layers`, or build from the repository root
+with `yarn build:modules`.
 
 ```js
 import {Deck, MapView} from '@deck.gl/core';
