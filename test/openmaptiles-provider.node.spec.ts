@@ -5,7 +5,7 @@
 import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import {expect, test} from 'vitest';
-import {MVTWriter} from '@loaders.gl/mvt';
+import {MVTWriter} from '@loaders.gl/tiles/mvt';
 import {parseMvtWithLegacy} from '../modules/tangram-renderer/src/procedures/mvt-legacy';
 
 test('OpenMapTiles tile properties survive MVT decoding and the classic Tilezen compatibility transform', () => {

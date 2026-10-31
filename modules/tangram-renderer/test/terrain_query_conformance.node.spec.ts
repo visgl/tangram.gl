@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
-import {TriangleBVH} from '@math.gl/spatial-index';
+import {TriangleBVH} from '@math.gl/geometry';
 import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
 
 test('math.gl and the retained terrain query index agree on triangle identity, clipping and barycentric weights', () => {

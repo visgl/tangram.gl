@@ -25,7 +25,7 @@
     "@luma.gl/experimental": "9.4.2",
     "@luma.gl/shadertools": "9.4.2",
     "@luma.gl/webgpu": "9.4.2",
-    "@math.gl/core": "5.0.0-alpha.18",
+    "@math.gl/core": "5.0.0-beta.2",
     "@tangram.gl/tangram-layers": "workspace:^",
     "@tangram.gl/tangram-renderer": "workspace:^",
     "maplibre-gl": "6.13.0",

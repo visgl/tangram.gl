@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
-import {intersectRayTriangle} from '@math.gl/culling/queries';
+import {intersectRayTriangle} from '@math.gl/geometry/culling';
 import {TriangleQueryIndex} from '../modules/tangram-renderer/src/map-logic/triangle-query-index';
 
 /** Small separated patches with a sloped nearest layer and reversed farther winding. */

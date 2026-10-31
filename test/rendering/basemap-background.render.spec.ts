@@ -4,7 +4,7 @@
 
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
-import {MVTWriter} from '@loaders.gl/mvt';
+import {MVTWriter} from '@loaders.gl/tiles/mvt';
 import {createBasemapBackground} from '../../examples/deck/basemap-background';
 import {RenderingHarness, DEVICE_TYPE} from './harness';
 import {getOpenMapTilesAnchor} from './openmaptiles-scene';

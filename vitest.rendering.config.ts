@@ -27,7 +27,7 @@ export default getVitestConfig({
     // Exercise published bundles (including the inlined scene worker).
     optimizeDeps: {
       include: ['@deck.gl/core', '@luma.gl/core', '@luma.gl/engine', '@luma.gl/webgl', '@luma.gl/webgpu',
-        '@luma.gl/experimental', '@math.gl/core', '@math.gl/culling', '@math.gl/culling/queries', '@loaders.gl/mvt',
+        '@luma.gl/experimental', '@math.gl/core', '@math.gl/geometry/culling', '@math.gl/geometry/culling', '@loaders.gl/mvt',
         '@deck.gl/geo-layers', '@deck.gl/mesh-layers', '@loaders.gl/terrain', '@loaders.gl/images', 'mjolnir.js',
         // The optional CPU query index is imported after other test pages load.
         // Prebundle its CommonJS helper before that import can invalidate URLs.

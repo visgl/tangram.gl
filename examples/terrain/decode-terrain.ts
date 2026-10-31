@@ -3,8 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {parse} from '@loaders.gl/core';
-import {TerrainLoader, type TerrainLoaderOptions} from '@loaders.gl/terrain';
-import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';
+import {TerrainLoader, type TerrainLoaderOptions} from '@loaders.gl/raster/terrain';
+import {lngLatToWorld, worldToLngLat} from '@math.gl/geospatial';
 import {TERRARIUM_DECODER} from '@tangram.gl/tangram-renderer/map-logic';
 import {decodeTerrainGrid} from './decode-height-grid';
 import {isTerrainMesh, validateTerrainImage, type TerrainTileData, type TerrainNoDataPolicy} from './terrain-payload';

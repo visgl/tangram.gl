@@ -7,7 +7,7 @@ import {buildGlobeTerrainMesh, prepareGlobeTerrainMesh, scaleGlobeTerrainMesh, g
 import {createHash} from 'node:crypto';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
 import {TerrainMeshSurface} from '../src/selection/terrain_surface';
-import {lngLatToWorld} from '@math.gl/web-mercator';
+import {lngLatToWorld} from '@math.gl/geospatial';
 
 /** Small deterministic DEM with north-positive meter bounds and physical source heights. */
 function grid(height = 1000, bounds: [number, number, number, number] = [-100000, -100000, 100000, 100000]): TerrainHeightGrid {

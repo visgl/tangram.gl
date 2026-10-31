@@ -14,7 +14,7 @@ import {projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
 import {buildTerrainRenderMesh} from '../../examples/terrain/terrain-mesh';
 import {createTerrainStreamFixture} from '../terrain-stream-fixture';
 import {sampleTerrainAnchor} from '../../examples/terrain/ground-following';
-import {worldToLngLat} from '@math.gl/web-mercator';
+import {worldToLngLat} from '@math.gl/geospatial';
 
 let harness: RenderingHarness | undefined;
 let deck: Deck<MapView | FirstPersonView> | undefined;

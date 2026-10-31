@@ -193,9 +193,12 @@ function getCoreBuildOptions() {
 /** Builds the camera-free host entry and rejects accidental classic/deck dependencies. */
 async function buildCore() {
   const result = await esbuild.build(getCoreBuildOptions());
-  for (const input of Object.keys(result.metafile.inputs)) {
+  const emittedInputs = Object.values(result.metafile.outputs).flatMap(output =>
+    Object.entries(output.inputs).filter(([, details]) => details.bytesInOutput > 0).map(([input]) => input)
+  );
+  for (const input of emittedInputs) {
     // This package is an independent CPU test oracle, not a production projection dependency.
-    if (/node_modules\/@math\.gl\/(geospatial|projection)\//.test(input)) {
+    if (/node_modules\/@math\.gl\/geospatial\/dist\/projection\//.test(input)) {
       throw new Error(`Core entry includes the development-only projection oracle: ${input}`);
     }
     if (/scene\/(camera|classic_scene)\.ts$/.test(input) || /node_modules\/(@deck\.gl|leaflet)\//.test(input)) {

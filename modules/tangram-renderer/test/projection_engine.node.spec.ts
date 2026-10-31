@@ -3,11 +3,11 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, test, vi} from 'vitest';
-import {createProjectionEngine, createProjectionDescriptor} from '@math.gl/projection/core';
-import {equalEarth} from '@math.gl/projection/projections/eqearth';
-import {albersEqualArea} from '@math.gl/projection/projections/aea';
-import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
-import {mercator} from '@math.gl/projection/projections/merc';
+import {createProjectionEngine, createProjectionDescriptor} from '@math.gl/geospatial/projection/core';
+import {equalEarth} from '@math.gl/geospatial/projection/projections/eqearth';
+import {albersEqualArea} from '@math.gl/geospatial/projection/projections/aea';
+import {equidistantCylindrical} from '@math.gl/geospatial/projection/projections/eqc';
+import {mercator} from '@math.gl/geospatial/projection/projections/merc';
 import {HostProjectionEngineAdapter, getProjectedCoordinateOptions, validateProjectionEngine,
     PROJECTED_COMMON_SCALE} from '../src/procedures/projected-coordinate-transform';
 

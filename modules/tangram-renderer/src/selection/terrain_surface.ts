@@ -7,7 +7,7 @@ import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import type HostFrame from '../scene/host_frame';
 import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS} from '../scene/projection_math';
 import type {FeatureSelectionOptions} from '../types';
-import {intersectRayBounds} from '@math.gl/culling/queries';
+import {intersectRayBounds} from '@math.gl/geometry/culling';
 
 /** Detached conservative content-space bounds; null means the surface has no admitted triangles. */
 export interface TerrainSurfaceBounds {

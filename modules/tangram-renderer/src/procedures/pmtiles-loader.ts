@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {PMTilesSourceLoader} from '@loaders.gl/pmtiles';
+import {PMTilesSourceLoader} from '@loaders.gl/tiles/pmtiles';
 import type {MvtProviderMetadata, MvtTileProviderFactory, MvtTileProviderSource} from './mvt-tile-provider';
 
 type PMTilesTileSource = ReturnType<typeof PMTilesSourceLoader.createDataSource>;

@@ -65,17 +65,16 @@ test('classic playground keeps loaders core and its Arrow peer on the compatible
   expect(repositoryPackage.resolutions['@loaders.gl/arrow@npm:4.5.1']).toBe(coreVersion);
 });
 
-test('renderer loaders use pinned v5 alphas and layer math peers match the renderer', () => {
+test('renderer loaders use pinned v5 betas and layer math peers match the renderer', () => {
   const loadersVersions = Object.entries(rendererPackage.devDependencies)
     .filter(([name]) => name.startsWith('@loaders.gl/'))
     .map(([, version]) => version);
   expect(loadersVersions.length).toBeGreaterThan(0);
-  // All directly used loaders packages now have a coordinated v5 alpha release.
-  for (const version of loadersVersions) expect(version).toMatch(/^5\.0\.0-alpha\.\d+$/);
+  for (const version of loadersVersions) expect(version).toMatch(/^5\.0\.0-beta\.\d+$/);
   expect(new Set(loadersVersions).size).toBe(1);
-  expect(rendererPackage.dependencies['@math.gl/web-mercator']).toBe(mathVersion);
+  expect(rendererPackage.dependencies['@math.gl/geospatial']).toBe(mathVersion);
   expect(rendererPackage.devDependencies['@math.gl/geospatial']).toBe(mathVersion);
-  expect(rendererPackage.devDependencies['@math.gl/projection']).toBe(mathVersion);
+  expect(rendererPackage.dependencies['@math.gl/geometry']).toBe(mathVersion);
   const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
   const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
   expect(layerPackage.peerDependencies['@math.gl/core']).toBe(mathVersion);
@@ -96,7 +95,6 @@ test('math resolutions align only the older v5 alpha and preserve deck math 4', 
     JSON.parse(readFileSync(new URL('../package.json', pathToFileURL(require.resolve('@math.gl/core'))), 'utf8')).version;
   expect(readMathVersion(rendererRequire)).toBe(mathVersion);
   expect(readMathVersion(deckRequire)).toMatch(/^4\./);
-  expect(repositoryPackage.devDependencies['@math.gl/spatial-index']).toBe(mathVersion);
 });
 
 test('installed workspace dependencies cover the layer and optional WebXR source graphs', () => {

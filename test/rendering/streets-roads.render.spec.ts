@@ -4,7 +4,7 @@
 
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
-import {MVTWriter} from '@loaders.gl/mvt';
+import {MVTWriter} from '@loaders.gl/tiles/mvt';
 import {createStreetsRoadRules} from '../../examples/deck/streets-cartography';
 import {createUnlitVectorStyles} from '../../examples/deck/basemap-styling';
 import {createComparisonStyle} from '../../examples/deck/comparison-style';

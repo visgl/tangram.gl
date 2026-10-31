@@ -6,7 +6,7 @@ import {afterEach, expect, test, vi} from 'vitest';
 import {mountGlobeTerrainExample} from '../examples/terrain/globe-app';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {createTerrainImageSource} from '../examples/terrain/terrain-source';
-import {lngLatToWorld} from '@math.gl/web-mercator';
+import {lngLatToWorld} from '@math.gl/geospatial';
 
 const mocks = vi.hoisted(() => ({autoLoad: true, viewportZoom: 1, decoderDestroy: vi.fn(), selectDetail: vi.fn(), construct: vi.fn(), setProps: vi.fn(), finalize: vi.fn(), layers: vi.fn(), pick: vi.fn(() => ({coordinate: [80, 25, 1234]})), elevation: vi.fn((): {coordinate: number[]; position: [number, number, number]} | null => ({coordinate: [80, 25, 1234], position: [0, -256, 0]})), blocker: vi.fn((_start: readonly [number, number, number], _end: readonly [number, number, number], _options?: {startInset?: number; endInset?: number}): {distance: number} | null => null)}));
 const basemapMocks = vi.hoisted(() => ({construct: vi.fn<(props: import('@tangram.gl/tangram-layers').TangramLayerProps) => void>(), surface: vi.fn(() => null), pick: vi.fn(() => ({coordinate: [80, 25, 456]}))}));

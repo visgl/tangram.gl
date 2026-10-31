@@ -4,7 +4,7 @@
 
 import {describe, expect, test} from 'vitest';
 import {Ellipsoid} from '@math.gl/geospatial';
-import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';
+import {lngLatToWorld, worldToLngLat} from '@math.gl/geospatial';
 import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS, getProjectionSurface} from '../src/scene/projection_math';
 import type {GeographicProjectionPosition} from '../src/scene/projection_math';
 import Geo from '../src/utils/geo';

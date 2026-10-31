@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {MLTLoader} from '@loaders.gl/mlt/bundled';
+import {MLTLoader} from '@loaders.gl/tiles/mlt/bundled';
 import Geo from '../utils/geo';
 import {parseMvtJsonProperties, type ParseJsonOption} from './mvt-properties';
 
