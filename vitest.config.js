@@ -24,7 +24,14 @@ export default getVitestConfig({
         {find: /^@tangram\.gl\/tangram-layers\/experimental\/webxr$/,
           replacement: fileURLToPath(new URL('./modules/tangram-layers/src/experimental/webxr/index.ts', import.meta.url))},
         {find: /^@tangram\.gl\/tangram-layers$/,
-          replacement: fileURLToPath(new URL('./modules/tangram-layers/src/index.ts', import.meta.url))}
+          replacement: fileURLToPath(new URL('./modules/tangram-layers/src/index.ts', import.meta.url))},
+        // basemap-layers tests compare symbol placement with MapLibre's own source modules.
+        {find: '@maplibre-test/projection',
+          replacement: fileURLToPath(new URL('./node_modules/maplibre-gl/src/symbol/projection.ts', import.meta.url))},
+        {find: '@maplibre-test/path-interpolator',
+          replacement: fileURLToPath(new URL('./node_modules/maplibre-gl/src/symbol/path_interpolator.ts', import.meta.url))},
+        {find: '@maplibre-test/merge-lines',
+          replacement: fileURLToPath(new URL('./node_modules/maplibre-gl/src/symbol/merge_lines.ts', import.meta.url))}
       ]
     },
     optimizeDeps: {include: [

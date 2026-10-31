@@ -259,7 +259,7 @@ async function writeRender(name: string, pixels: Uint8ClampedArray) {
     .getContext('2d')!
     .putImageData(new ImageData(new Uint8ClampedArray(pixels), width, height), 0, 0);
   await commands.writeFile(
-    `modules/basemap-layers/tests/reference-render/__output__/line-sort-key-${name}.png`,
+    `modules/basemap-layers/test/reference-render/__output__/line-sort-key-${name}.png`,
     canvas.toDataURL('image/png').split(',')[1],
     'base64'
   );
@@ -298,7 +298,7 @@ describe('line-sort-key', () => {
   afterAll(async () => {
     if (OUTPUT) {
       await commands.writeFile(
-        'modules/basemap-layers/tests/reference-render/__output__/line-sort-key.json',
+        'modules/basemap-layers/test/reference-render/__output__/line-sort-key.json',
         `${JSON.stringify(measured, null, 2)}\n`
       );
     }
