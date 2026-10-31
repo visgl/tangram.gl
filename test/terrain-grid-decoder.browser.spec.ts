@@ -7,7 +7,7 @@ import {decodeTerrainGrid} from '../examples/terrain/decode-height-grid';
 import {createTerrainFixture} from './terrain-fixture';
 
 // A grid-only import and request must never initialize the adaptive terrain parser.
-vi.mock('@loaders.gl/terrain', () => {throw new Error('Grid decoder imported the unused adaptive terrain parser');});
+vi.mock('@loaders.gl/raster/terrain', () => {throw new Error('Grid decoder imported the unused adaptive terrain parser');});
 let bytes: ArrayBuffer;
 beforeAll(async () => {bytes = (await createTerrainFixture()).bytes;});
 
