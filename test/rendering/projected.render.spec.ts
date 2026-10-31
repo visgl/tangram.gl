@@ -15,7 +15,7 @@ import {RenderingHarness, coloredPixels, readCanvasPixels, DEVICE_TYPE} from './
 import {createRasterScene} from './scene';
 import type Scene from '../../modules/tangram-renderer/src/scene/scene';
 import type {HostTileResourceOptions, ProjectedBasemapOptions, ProjectionExecutionOptions, Renderer} from '@tangram.gl/tangram-renderer/core';
-import type {ProjectionEngine} from '@math.gl/projection/types';
+import type {ProjectionEngine} from '@math.gl/geospatial/projection/types';
 import {createProjectedExampleProjectionEngine} from '../../examples/projected/projection-engine.js';
 
 let harness: RenderingHarness | undefined;

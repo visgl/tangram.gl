@@ -22,12 +22,12 @@ This structure lets us measure compatibility before changing runtime behavior:
 
 | Procedure | Production implementation | Candidate | Current result |
 | --- | --- | --- | --- |
-| Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/config/yaml-loader` alpha.11 | All 26 classic scene files match; flow merges, timestamps and scientific scalar syntax still differ |
-| Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/mvt/mvt-geojson-loader` alpha.11 | Points, lines, polygons, extents, IDs and `parse_json` match; an authored `__tangram_layer` property is still overwritten by the candidate |
-| Archive loading | Optional worker provider | `@loaders.gl/pmtiles` alpha.11 | Hermetic 16 KB PMTiles v3 fixture checks range requests, raw bytes, metadata, credits and both MVT decoders |
-| Web Mercator | `@math.gl/web-mercator` plus Tangram meter adapter | Tangram projection formulas | Edge-domain round trips and tile selection match within numeric tolerance |
+| Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/documents/yaml-loader` beta.2 | Classic scenes and flow merges match; timestamp and scientific scalar syntax still differ |
+| Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/tiles/mvt-geojson-loader` beta.2 | Points, lines, polygons, extents, IDs and `parse_json` match; an authored `__tangram_layer` property is still overwritten by the candidate |
+| Archive loading | Optional worker provider | `@loaders.gl/tiles/pmtiles` beta.2 | Hermetic 16 KB PMTiles v3 fixture checks range requests, raw bytes, metadata, credits and both MVT decoders |
+| Web Mercator | `@math.gl/geospatial/web-mercator` plus Tangram meter adapter | Tangram projection formulas | Edge-domain round trips and tile selection match within numeric tolerance |
 | Matrix operations | `@math.gl/core` `Matrix3`/`Matrix4` in camera and tile paths | Golden outputs captured from `gl-mat3@1.0.0` and `gl-mat4@1.1.4` | Identity, transforms, projection, look-at, inversion, and singular-matrix behavior match in conformance tests |
-| WebXR surface rays | `@math.gl/culling` analytic plane/sphere shapes | Captured Tangram ground/sphere formulas | +Z/+Y axis adapter, forward/inside/tangent/miss cases, ground tolerance and physical tabletop edges match; existing per-eye picking/grabbing tests cover placement and clipping |
+| WebXR surface rays | `@math.gl/geometry/culling` analytic plane/sphere shapes | Captured Tangram ground/sphere formulas | +Z/+Y axis adapter, forward/inside/tangent/miss cases, ground tolerance and physical tabletop edges match; existing per-eye picking/grabbing tests cover placement and clipping |
 
 The published YAML parser now supports anchors, aliases, block merge keys and
 unquoted `rgba(...)`. The complete classic corpus is compared directly, without

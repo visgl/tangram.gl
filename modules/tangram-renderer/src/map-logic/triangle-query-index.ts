@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {intersectRayBounds, intersectRayTriangle} from '@math.gl/culling/queries';
+import {intersectRayBounds, intersectRayTriangle} from '@math.gl/geometry/culling';
 
 /** Nearest two-sided triangle; the ray parameter retains the supplied direction scale. */
 export interface IndexedTriangleHit {

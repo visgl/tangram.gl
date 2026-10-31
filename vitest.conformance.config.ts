@@ -39,7 +39,7 @@ export default mergeConfig(getVitestConfig({
     // Exercise published bundles (including the inlined scene worker), as the rendering tests do.
     optimizeDeps: {
       include: ['@deck.gl/core', '@luma.gl/core', '@luma.gl/engine', '@luma.gl/webgl', '@math.gl/core',
-        '@math.gl/culling', '@loaders.gl/mvt', 'maplibre-gl', '@maplibre/maplibre-gl-style-spec'],
+        '@math.gl/geometry/culling', '@loaders.gl/mvt', '@loaders.gl/tiles/mvt', 'maplibre-gl', '@maplibre/maplibre-gl-style-spec'],
       exclude: ['@tangram.gl/tangram-renderer', '@tangram.gl/tangram-layers']
     },
     plugins: [conformanceFixtureServer({

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {Mesh} from '@loaders.gl/schema';
+import type {Mesh} from '@loaders.gl/core/schema';
 import type {TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 
 /** Physical samples only; globe display topology is prepared independently. */

@@ -88,7 +88,7 @@ See [HostFrame](../api-reference/host-frame.md) and
 `projection_conformance.node.spec.ts` uses the published math.gl v5 packages as
 independent CPU oracles:
 
-- `@math.gl/web-mercator` forward/inverse results are converted from the
+- `@math.gl/geospatial/web-mercator` forward/inverse results are converted from the
   512-unit world to meters, with Tangram's explicit clamp and world-copy policy.
 - A development-only `@math.gl/geospatial` sphere produces ECEF meters.
   `[x, y, z]` maps to Tangram `[y, -x, z] × 256 / 6370972`; inverse tests undo

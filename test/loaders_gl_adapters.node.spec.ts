@@ -10,15 +10,15 @@ const {createDataSource, getTile, parseSync} = vi.hoisted(() => ({
   parseSync: vi.fn()
 }));
 
-vi.mock('@loaders.gl/pmtiles', () => ({
+vi.mock('@loaders.gl/tiles/pmtiles', () => ({
   PMTilesSourceLoader: {createDataSource}
 }));
 
-vi.mock('@loaders.gl/mlt/bundled', () => ({
+vi.mock('@loaders.gl/tiles/mlt/bundled', () => ({
   MLTLoader: {parseSync}
 }));
 
-vi.mock('@loaders.gl/mvt/mvt-geojson-loader', () => ({
+vi.mock('@loaders.gl/tiles/mvt-geojson-loader', () => ({
   MVTGeoJSONLoaderWithParser: {parseSync}
 }));
 

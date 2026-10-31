@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
-import {intersectRayTriangle} from '@math.gl/culling/queries';
+import {intersectRayTriangle} from '@math.gl/geometry/culling';
 import VertexLayout from '../src/gl/vertex_layout';
 import {conformTerrainStyledMesh} from '../src/procedures/terrain-styled-topology';
 import {drapeTerrainMesh, normalizeTerrainDraping, getTerrainVertexLayout, extractDrapedTerrainQueryMesh} from '../src/procedures/terrain-draping';

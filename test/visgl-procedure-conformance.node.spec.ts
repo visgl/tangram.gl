@@ -5,7 +5,7 @@
 import {readFileSync, readdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {describe, expect, it} from 'vitest';
-import {MVTWriter} from '@loaders.gl/mvt';
+import {MVTWriter} from '@loaders.gl/tiles/mvt';
 import {parseSceneYamlLegacy} from '../modules/tangram-renderer/src/procedures/scene-yaml-legacy.js';
 import {parseSceneYamlWithLoaders} from '../modules/tangram-renderer/src/procedures/scene-yaml-loaders.js';
 import {parseMvtWithLegacy} from '../modules/tangram-renderer/src/procedures/mvt-legacy.js';
@@ -66,10 +66,10 @@ describe('vis.gl procedure conformance', () => {
     ])('preserves scene scalar and merge semantics: %s', source => {
       expect(parseSceneYamlWithLoaders(source)).toEqual(parseSceneYamlLegacy(source));
     });
-    it('keeps production YAML on the legacy parser while published scalar/flow-merge gaps remain', () => {
+    it('matches flow merges while retaining production YAML for remaining scalar differences', () => {
       const flowMerge = 'defaults: &defaults {width: 2, color: cyan}\nroads: {<<: *defaults, width: 4}\n';
       expect(parseSceneYamlLegacy(flowMerge)).toEqual({defaults: {width: 2, color: 'cyan'}, roads: {width: 4, color: 'cyan'}});
-      expect(parseSceneYamlWithLoaders(flowMerge)).toEqual({defaults: {width: 2, color: 'cyan'}, roads: {'<<': {width: 2, color: 'cyan'}, width: 4}});
+      expect(parseSceneYamlWithLoaders(flowMerge)).toEqual(parseSceneYamlLegacy(flowMerge));
       expect(parseSceneYamlLegacy('value: 1e3\n')).toEqual({value: '1e3'});
       expect(parseSceneYamlWithLoaders('value: 1e3\n')).toEqual({value: 1000});
       expect(parseSceneYamlLegacy('date: 2026-10-04\n')).toEqual({date: new Date('2026-10-04')});

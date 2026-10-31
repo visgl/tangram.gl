@@ -4,7 +4,7 @@
 
 import {expect, test} from 'vitest';
 import {Map as MapLibreMap, setWorkerUrl} from 'maplibre-gl';
-import {MVTWriter} from '@loaders.gl/mvt';
+import {MVTWriter} from '@loaders.gl/tiles/mvt';
 import {createComparisonStyle} from '../../examples/deck/comparison-style';
 import {getOpenMapTilesAnchor} from './openmaptiles-scene';
 import {readCanvasPixels} from './harness';

@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import {createProjectionEngine} from '@math.gl/projection/core';
+import {createProjectionEngine} from '@math.gl/geospatial/projection/core';
 import createTangramLayerClass from '../src/tangram-layer';
 import Renderer from '../../tangram-renderer/src/scene/renderer';
 import WorkerBroker from '../../tangram-renderer/src/utils/worker_broker';

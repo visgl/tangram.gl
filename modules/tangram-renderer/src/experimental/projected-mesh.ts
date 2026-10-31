@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {ProjectionTransform} from '@math.gl/projection/core';
-import {equalEarth} from '@math.gl/projection/projections/eqearth';
-import {albersEqualArea} from '@math.gl/projection/projections/aea';
-import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
-import {mercator} from '@math.gl/projection/projections/merc';
+import {ProjectionTransform} from '@math.gl/geospatial/projection/core';
+import {equalEarth} from '@math.gl/geospatial/projection/projections/eqearth';
+import {albersEqualArea} from '@math.gl/geospatial/projection/projections/aea';
+import {equidistantCylindrical} from '@math.gl/geospatial/projection/projections/eqc';
+import {mercator} from '@math.gl/geospatial/projection/projections/merc';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from '../procedures/projected-coordinate-transform';

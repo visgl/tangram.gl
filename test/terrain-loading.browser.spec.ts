@@ -7,7 +7,7 @@ import {parseTerrainTile, createTerrainQuerySurface, type LoadedTerrain} from '.
 import {getTerrainTileBounds} from '../examples/terrain/tile-selection';
 import {createTerrainFixture} from './terrain-fixture';
 import {projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
-import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';
+import {lngLatToWorld, worldToLngLat} from '@math.gl/geospatial';
 import {decodeTerrainTile} from '../examples/terrain/decode-terrain';
 import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';
 

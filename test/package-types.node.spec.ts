@@ -72,7 +72,7 @@ test.each([ts.ModuleKind.Node16, ts.ModuleKind.NodeNext])('public layer declarat
     ts.createSourceFile(path, source, languageVersion, true) : getSourceFile(path, languageVersion, onError, shouldCreateNewSourceFile);
   const optionalPeerRequests: string[] = [];
   host.resolveModuleNameLiterals = (literals, containingFile, redirectedReference, compilerOptions, containingSourceFile) => literals.map(literal => {
-    if (literal.text.startsWith('@math.gl/projection')) {
+    if (literal.text.startsWith('@math.gl/geospatial/projection')) {
       optionalPeerRequests.push(literal.text);
       return {resolvedModule: undefined};
     }

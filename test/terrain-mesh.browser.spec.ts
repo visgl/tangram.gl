@@ -6,7 +6,7 @@ import {expect, test, vi} from 'vitest';
 import {buildTerrainRenderMesh} from '../examples/terrain/terrain-mesh';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 import {sampleTerrainAnchor} from '../examples/terrain/ground-following';
-import {worldToLngLat} from '@math.gl/web-mercator';
+import {worldToLngLat} from '@math.gl/geospatial';
 import {projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
 
 test.each([
