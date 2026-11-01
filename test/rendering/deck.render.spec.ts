@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {afterEach, beforeEach, expect, test} from 'vitest';
+import {afterEach, beforeEach, expect, test, vi} from 'vitest';
 import {commands} from 'vitest/browser';
 import {Deck, type Layer, type LayerProps, MapView, FirstPersonView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {TangramLayer} from '@tangram.gl/tangram-layers';
@@ -28,12 +28,22 @@ afterEach(async () => {
       deck = undefined;
       harness?.destroy();
       harness = undefined;
+      vi.restoreAllMocks();
     }
   }
 });
 
 test.each(['flat', 'perspective', 'globe', 'first-person'] as const)(
   `${DEVICE_TYPE}: TangramLayer renders through deck.gl %s`, async kind => {
+    const operations: string[] = [];
+    const postMessage = Worker.prototype.postMessage;
+    vi.spyOn(Worker.prototype, 'postMessage').mockImplementation(function (this: Worker, message: unknown, options?: unknown) {
+      const packet = message as {source?: string; type?: string; payload?: {input?: {operation?: string}}};
+      if (packet.source === 'loaders.gl' && packet.type === 'process' && packet.payload?.input?.operation) {
+        operations.push(packet.payload.input.operation);
+      }
+      return postMessage.call(this, message, options as StructuredSerializeOptions);
+    });
     harness = new RenderingHarness(kind);
     await harness.initializeDevice();
     const errors = harness.errors;
@@ -54,5 +64,8 @@ test.each(['flat', 'perspective', 'globe', 'first-person'] as const)(
       expect(errors).toEqual([]);
       return coloredPixels(await readCanvasPixels(canvas));
     }, {timeout: 15000, interval: 100}).toBeGreaterThan(100);
+    await expect.poll(() => operations, {timeout: 15000, interval: 100}).toContain('build-tile');
+    expect(operations).toContain('initialize');
+    expect(operations).toContain('update-config');
   }
 );

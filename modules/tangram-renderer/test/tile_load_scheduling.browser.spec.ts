@@ -71,6 +71,17 @@ test('per-worker snapshots stay detached and do not aggregate source slots with 
     } finally { Reflect.set(WorkerBroker, 'postMessage', original); }
 });
 
+test('task-capable scene workers supply tile statistics via math.gl tasks', async () => {
+    const workers = [{}, {}];
+    const statistics = new DecodedTileStore(undefined, {maxConcurrentLoads: 3}).getStatistics();
+    const task = vi.fn(async () => ({...statistics, sharingEnabled: true}));
+    const scene = Object.assign(Scene.create({}), {workers});
+    Reflect.set(scene, 'workerThreads', workers.map(worker => ({worker, supportsTasks: true, getTileSourceStatistics: task})));
+    const result = await scene.getTileSourceStatistics();
+    expect(task).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject([{workerId: 0, maxConcurrentLoads: 3}, {workerId: 1, maxConcurrentLoads: 3}]);
+});
+
 test('statistics reject worker-pool replacement and transport failures instead of returning partial counts', async () => {
     const scene = Object.assign(Scene.create({}), {workers: [{postMessage: vi.fn(), addEventListener: vi.fn()}]});
     const original = Reflect.get(WorkerBroker, 'postMessage');

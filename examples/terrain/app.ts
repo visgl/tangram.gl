@@ -8,7 +8,7 @@ import {webgpuAdapter} from '@luma.gl/webgpu';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainScreenQuery, type TerrainScreenHit} from './picking';
 import {terrainMarkup} from './view';
-import {TerrainDecoderPool} from './decoder-pool';
+import {TerrainTaskPool as TerrainDecoderPool} from './terrain-task-pool';
 import {formatTerrainDecoderStatus} from './decoder-status';
 import {selectTerrainTiles, getTerrainTileKey, getTerrainTileBounds} from './tile-selection';
 import {TerrainTileset} from './terrain-tileset';

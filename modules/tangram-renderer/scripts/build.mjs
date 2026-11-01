@@ -21,6 +21,23 @@ const targets = ocularConfig.bundle.target;
 const gitSha = execFileSync('git', ['rev-parse', 'HEAD'], {cwd: repositoryDirectory, encoding: 'utf8'}).trim();
 const licenseBanner = `// Tangram\n// SPDX-License-Identifier: MIT\n// Copyright (c) 2013-2016 Brett Camper and Mapzen`;
 
+/** Options for the separately packaged classic scene worker. */
+function getSceneWorkerBuildOptions() {
+  return {
+    entryPoints: [workerEntry],
+    outfile: resolve(outputDirectory, 'scene-worker.js'),
+    bundle: true,
+    format: 'iife',
+    platform: 'browser',
+    target: targets,
+    loader: {'.glsl': 'text'},
+    banner: {js: licenseBanner},
+    sourcemap: 'external',
+    sourcesContent: false,
+    logLevel: 'info'
+  };
+}
+
 /** Builds the worker as source text and embeds it in each renderer bundle. */
 function createWorkerPlugin(minified) {
   let workerSource = '';
@@ -68,8 +85,10 @@ function createEntry() {
   `;
   return `
     import Tangram from ${JSON.stringify(resolve(sourceDirectory, 'index.ts'))};
+    import {registerTaskWorkerURL} from ${JSON.stringify(resolve(sourceDirectory, 'scene/worker_url.ts'))};
     import workerSource from 'tangram-worker';
     Tangram.workerURL = URL.createObjectURL(new Blob([workerSource], {type: 'text/javascript'}));
+    registerTaskWorkerURL(Tangram.workerURL);
     Tangram.debug.ESM = true;
     Tangram.debug.SHA = ${JSON.stringify(gitSha)};
     globalThis.Tangram = Tangram;
@@ -249,12 +268,15 @@ if (process.argv.includes('--test-worker')) {
 
   if (process.argv.includes('--watch')) {
     await startRepositoryServer();
+    const workerContext = await esbuild.context(getSceneWorkerBuildOptions());
+    await workerContext.watch();
     await Promise.all([
       watchRenderer(false),
       watchRenderer(true),
       watchCore()
     ]);
   } else {
+    await esbuild.build(getSceneWorkerBuildOptions());
     await buildRenderer(false);
     await buildRenderer(true);
     await buildCore();

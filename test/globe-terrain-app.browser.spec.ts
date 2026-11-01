@@ -34,7 +34,7 @@ vi.mock('@tangram.gl/tangram-layers/experimental/terrain', async original => ({.
     intersectTerrainSegment = mocks.blocker;
     getStatistics = () => ({tileCount: 16, exaggeration: 100, displayBytes: 4096, queryIndexBytes: 0, updateMs: 1, queryMs: 2});
 }}));
-vi.mock('../examples/terrain/decoder-pool', () => ({TerrainDecoderPool: class {
+vi.mock('../examples/terrain/terrain-task-pool', () => ({TerrainTaskPool: class {
     decodeGrid = vi.fn(async (_bytes: ArrayBuffer, bounds: readonly [number, number, number, number]) => {
         const southwest = lngLatToWorld([bounds[0], bounds[1]]), northeast = lngLatToWorld([bounds[2], bounds[3]]), scale = 2 * Math.PI * 6378137 / 512;
         return {grid: createTerrainStreamFixture([(southwest[0] - 256) * scale, (southwest[1] - 256) * scale, (northeast[0] - 256) * scale, (northeast[1] - 256) * scale]).grid};
