@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
+import {unprojectScreenSegment} from '../../screen-ray';
 import WebMercatorViewAdapter from '../../web_mercator_view_adapter';
 import {createXRPlacementMatrix, intersectContentSurface, transformXRRayToContent, isContentPointWithinMapBounds} from './projection';
 import type {XRPresentationFrame, XRPresentationRenderView, XRSpatialRay, XRSurfaceHit,
@@ -60,13 +61,11 @@ export function pickXRSurface(options: XRSurfacePickingOptions): XRSurfaceHit | 
     if (placement.type !== 'globe') clipMatrix.multiplyRight(camera.view);
     if (!isInvertibleMatrix(clipMatrix)) return null;
     const inverse = clipMatrix.invert();
-    const horizontal = 2 * (pointer.x - (viewport.x ?? 0)) / viewport.width - 1;
-    const vertical = 1 - 2 * (pointer.y - (viewport.y ?? 0)) / viewport.height;
-    const nearPoint = unprojectPoint(inverse, horizontal, vertical, -1);
-    farPoint = unprojectPoint(inverse, horizontal, vertical, 1) || undefined;
-    if (!nearPoint || !farPoint) return null;
-    ray = {origin: nearPoint, direction: [farPoint[0] - nearPoint[0],
-      farPoint[1] - nearPoint[1], farPoint[2] - nearPoint[2]]};
+    const segment = unprojectScreenSegment(inverse, viewport, [pointer.x, pointer.y]);
+    if (!segment) return null;
+    ray = segment;
+    farPoint = [segment.origin[0] + segment.direction[0], segment.origin[1] + segment.direction[1],
+      segment.origin[2] + segment.direction[2]];
   }
   const length = Math.hypot(...ray.direction);
   if (!isFiniteVector(ray.origin) || !Number.isFinite(length) || length === 0) return null;
@@ -104,13 +103,6 @@ function isInvertibleMatrix(matrix: ArrayLike<number>): boolean {
   if (matrix.length !== 16 || !Array.from(matrix).every(Number.isFinite)) return false;
   const determinant = new Matrix4(Array.from(matrix)).determinant();
   return Number.isFinite(determinant) && determinant !== 0;
-}
-
-/** Unproject a clip-space point with an explicit homogeneous divide. */
-function unprojectPoint(matrix: Matrix4, x: number, y: number, z: number): XRVector3 | null {
-  const point = matrix.transform([x, y, z, 1]);
-  if (!point.every(Number.isFinite) || point[3] === 0) return null;
-  return [point[0] / point[3], point[1] / point[3], point[2] / point[3]];
 }
 
 /** Narrow input validation without modifying application-owned arrays. */

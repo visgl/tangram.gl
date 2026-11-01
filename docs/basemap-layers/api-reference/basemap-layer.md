@@ -46,6 +46,27 @@ import {BasemapLayer} from '@deck.gl-community/basemap-layers';
 - generates `background`, `fill`, `line`, `symbol`, and `raster` sublayers
 - supports both flat map rendering and globe rendering
 
+## Terrain queries (experimental)
+
+`layer.getTerrainAt(viewport, pixel, surface, commonToSurface)` queries a caller-owned
+`TerrainSurface` structurally compatible with `@loaders.gl/raster/terrain`. `pixel` is an absolute, top-origin CSS
+pixel and `viewport` is the actual deck view or stereo eye containing it. The explicit,
+invertible affine matrix converts viewport common coordinates to the surface's content
+coordinates. The method returns the nearest intersection on the camera's finite near-to-far
+segment, or `null`; a miss does not imply that terrain coverage is complete.
+
+The hit's `position` describes displayed geometry, while `coordinate[2]` remains the physical,
+unexaggerated elevation in meters. The caller owns the provider and must keep it synchronized
+with the displayed terrain; this API does not load, mesh or draw terrain. The same operation is
+available as `pickTerrainSurface` from `@tangram.gl/basemap-layers`. See the
+[offline terrain query example](/examples/basemap-layers/terrain-contract).
+
+`TangramLayer.getTerrainAt` instead uses the renderer's last frame and, unless a
+surface is supplied, its admitted draped terrain snapshot. BasemapLayer does not
+own such a snapshot, so its caller supplies the current surface, viewport and
+coordinate transform explicitly. Both APIs return physical source elevation
+separately from displayed position; neither treats a miss as proof of coverage.
+
 ## Props
 
 ### `style`
