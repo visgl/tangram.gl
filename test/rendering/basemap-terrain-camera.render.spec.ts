@@ -6,7 +6,7 @@ import {expect, test} from 'vitest';
 import {Deck, OrbitView, COORDINATE_SYSTEM} from '@deck.gl/core';
 import {PolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
-import {pickTerrainSurface} from '@tangram.gl/basemap-layers';
+import {pickTerrainSurface} from '../../modules/basemap-layers/src/terrain-query';
 import {createFixtureTerrain} from '../../examples/layers/terrain-contract/terrain-fixture';
 import {RenderingHarness, DEVICE_TYPE} from './harness';
 
@@ -51,9 +51,13 @@ test(`${DEVICE_TYPE}: rendered OrbitView and terrain queries agree across relief
       ]) {
         const displayed = [horizontal, vertical, elevation * exaggeration];
         const pixel = viewport.project(displayed);
-        expect(deck.pickObject({x: pixel[0], y: pixel[1], radius: 1})?.layer?.id).toBe(
-          'terrain-camera-mesh'
-        );
+        // deck.gl's synchronous GPU picking currently requires WebGL readback.
+        // WebGPU still exercises the rendered viewport and CPU ray agreement below.
+        if (DEVICE_TYPE === 'webgl') {
+          expect(deck.pickObject({x: pixel[0], y: pixel[1], radius: 1})?.layer?.id).toBe(
+            'terrain-camera-mesh'
+          );
+        }
         const hit = pickTerrainSurface(
           viewport,
           [pixel[0], pixel[1]],
