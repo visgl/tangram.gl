@@ -124,7 +124,7 @@ describe('scene diagnostics', () => {
         setupSceneDebug(scene);
         vi.spyOn(console, 'profile').mockImplementation(() => {});
         vi.spyOn(console, 'profileEnd').mockImplementation(() => {});
-        const post = vi.spyOn(WorkerBroker, 'postMessage').mockImplementation(() => {});
+        const post = vi.spyOn(WorkerBroker, 'postMessage').mockImplementation(() => Promise.resolve());
         scene.debug.profile('load');
         scene.debug.profileEnd('load');
         expect(console.profile).toHaveBeenCalledWith('main thread: load');

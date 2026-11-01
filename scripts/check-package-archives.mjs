@@ -3,13 +3,14 @@
 // Copyright (c) vis.gl contributors
 
 import {execFileSync} from 'node:child_process';
+import {join} from 'node:path';
 
 const packages = ['tangram-renderer', 'tangram-layers', 'basemap-layers'];
 const expectedVersion = process.env.RELEASE_VERSION || '0.0.1';
 
 /** Verify exported entry points and dependency metadata in packed artifacts. */
 for (const packageName of packages) {
-  const archive = `/tmp/${packageName}.tgz`;
+  const archive = join(process.env.PACKAGE_ARCHIVE_DIR || '/tmp', `${packageName}.tgz`);
   const files = new Set(execFileSync('tar', ['-tzf', archive], {encoding: 'utf8'}).trim().split('\n'));
   const read = path => execFileSync('tar', ['-xOzf', archive, path], {encoding: 'utf8'});
   const manifest = JSON.parse(read('package/package.json'));
@@ -33,10 +34,18 @@ for (const packageName of packages) {
     }
   };
   verifyExport(manifest.exports);
-  if (packageName === 'basemap-layers') {
-    const worker = read('package/dist/geojson-worker.js');
+  if (packageName === 'tangram-renderer') {
+    const worker = read('package/dist/scene-worker.js');
     if (/^\s*import\s/m.test(worker)) {
-      throw new Error('basemap-layers: the browser worker has unresolved module imports.');
+      throw new Error('tangram-renderer: the scene worker has unresolved module imports.');
+    }
+  }
+  if (packageName === 'basemap-layers') {
+    for (const path of ['package/dist/geojson-worker.js', 'package/dist/geojson-task-worker.js']) {
+      const worker = read(path);
+      if (/^\s*import\s/m.test(worker)) {
+        throw new Error(`basemap-layers: ${path} has unresolved module imports.`);
+      }
     }
   }
   console.log(`${manifest.name}@${manifest.version}: package exports verified`);

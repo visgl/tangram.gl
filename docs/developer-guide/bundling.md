@@ -42,10 +42,28 @@ the download size of the running example.
 The package root currently points at the debug ESM renderer entry so that the
 published-style API remains easy to inspect during this experimental phase.
 Production applications should use their bundler's minification and tree
-shaking. The normal scene worker is embedded as a Blob URL; a custom `workerURL`
-or optional loaders/projection sidecar must be hosted separately. See the
+shaking. The normal scene worker is embedded as a Blob URL by default. The package
+also includes `dist/scene-worker.js`, which an application can host and pass as
+`workerURL` when Blob workers are not permitted. Set `workerProtocol: 'tasks'`
+for this packaged worker; unknown custom worker URLs otherwise use the legacy
+broker protocol for compatibility. Optional loaders/projection
+sidecars must also be hosted separately. See the
 [worker setup](./projected-basemaps.md#usage). The renderer's `prepack` hook
-rebuilds package artifacts, though the workspace remains private and unpublished.
+rebuilds package artifacts.
+
+## Worker protocols
+
+Renderer-generated scene workers use the math.gl task protocol for scene
+initialization, configuration, tile requests, feature queries and diagnostics.
+The existing broker still carries worker-to-main callbacks, including transferable
+mesh data. Custom worker URLs use the legacy broker unless `workerProtocol: 'tasks'`
+is set. External loaders and projection scripts remain worker-loaded sidecars,
+not separate worker threads.
+
+The basemap layer packages a stateful GeoJSON task worker next to its entry bundle;
+it keeps source indexes in the worker and falls back to main-thread tiling when
+the worker cannot be used. The terrain examples package a task worker and retain
+their older worker URL for compatibility. Monaco workers use Monaco's own protocol.
 
 ## Minimal application shape
 

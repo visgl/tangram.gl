@@ -6,6 +6,7 @@
 import log from '../utils/log';
 import Texture from '../gl/texture';
 import WorkerBroker from '../utils/worker_broker';
+import {getSceneWorkerThread} from '../scene/scene-worker-thread';
 import type {Device, Framebuffer} from '@luma.gl/core';
 import {Texture as DeviceTexture} from '@luma.gl/core';
 import {findSelectionKey, readSelectionPixels} from './selection_pixels';
@@ -346,10 +347,10 @@ export default class FeatureSelection {
                 // If feature found, ask appropriate web worker to lookup feature
                 if (worker_id !== 255) { // 255 indicates an empty selection buffer pixel
                     if (this.workers[worker_id] != null) {
-                        WorkerBroker.postMessage<SelectionReply>(
-                            this.workers[worker_id],
-                            'self.getFeatureSelection',
-                            { id: request.id, key: feature_key })
+                        const worker = this.workers[worker_id];
+                        const thread = getSceneWorkerThread(worker);
+                        const query = {id: request.id, key: feature_key};
+                        (thread ? thread.getFeatureSelection(query) : WorkerBroker.postMessage<SelectionReply>(worker, 'self.getFeatureSelection', query))
                             .then(message => {
                                 this.finishRead(message);
                             });
@@ -386,8 +387,10 @@ export default class FeatureSelection {
                 const hit = findSelectionKey(pixels, width, height);
                 if (hit && hit.workerId !== 255 && this.workers[hit.workerId]) {
                     request.sent = true;
-                    const message = await WorkerBroker.postMessage<SelectionReply>(this.workers[hit.workerId], 'self.getFeatureSelection',
-                        {id: request.id, key: hit.key});
+                    const worker = this.workers[hit.workerId];
+                    const thread = getSceneWorkerThread(worker);
+                    const query = {id: request.id, key: hit.key};
+                    const message = await (thread ? thread.getFeatureSelection(query) : WorkerBroker.postMessage<SelectionReply>(worker, 'self.getFeatureSelection', query));
                     if (!this.destroyed && this.requests[request.id] === request) this.finishRead(message);
                 } else {
                     this.finishRead({id: request.id});

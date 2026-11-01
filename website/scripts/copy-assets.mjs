@@ -43,6 +43,7 @@ await cp(resolve(repositoryDirectory, 'examples/terrain/index.html'), resolve(st
 await cp(resolve(repositoryDirectory, 'examples/terrain/dist/app.js'), resolve(staticDirectory, 'examples/terrain/app.js'));
 await cp(resolve(repositoryDirectory, 'examples/terrain/dist'), resolve(staticDirectory, 'examples/terrain/dist'), {recursive: true});
 await cp(resolve(repositoryDirectory, 'examples/terrain/dist/terrain-worker.js'), resolve(staticDirectory, 'examples/terrain/terrain-worker.js'));
+await cp(resolve(repositoryDirectory, 'examples/terrain/dist/terrain-task-worker.js'), resolve(staticDirectory, 'examples/terrain/terrain-task-worker.js'));
 await cp(resolve(repositoryDirectory, 'modules/tangram-renderer/dist/map-logic.js'), resolve(staticDirectory, 'modules/tangram-renderer/dist/map-logic.js'));
 await cp(resolve(repositoryDirectory, 'examples/mounted-example.css'), resolve(staticDirectory, 'examples/mounted-example.css'));
 // Standalone demos remain optional; the website routes mount their source runtimes directly.
@@ -58,6 +59,10 @@ await cp(
 await cp(
   resolve(repositoryDirectory, 'modules/tangram-renderer/dist/loaders-gl-worker.js'),
   resolve(staticDirectory, 'modules/tangram-renderer/dist/loaders-gl-worker.js')
+);
+await cp(
+  resolve(repositoryDirectory, 'modules/tangram-renderer/dist/scene-worker.js'),
+  resolve(staticDirectory, 'modules/tangram-renderer/dist/scene-worker.js')
 );
 await cp(
   resolve(repositoryDirectory, 'modules/tangram-renderer/dist/tangram-style.schema.json'),

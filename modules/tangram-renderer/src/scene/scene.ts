@@ -35,7 +35,8 @@ import TextCanvas from '../styles/text/text_canvas';
 import FontManager from '../styles/text/font_manager';
 import MediaCapture from '../utils/media_capture';
 import setupSceneDebug from './scene_debug';
-import {getWorkerURL} from './worker_url';
+import {getWorkerURL, isTaskWorkerURL} from './worker_url';
+import {SceneWorkerThread} from './scene-worker-thread';
 import type {ViewScene} from './view';
 import type {ViewOptions} from './view';
 import type {SubscriptionMethods} from '../utils/subscribe';
@@ -111,6 +112,8 @@ import {normalizeProjectionExecutionOptions} from '../procedures/projection-batc
 
 // Load scene definition: pass an object directly, or a URL as string to load remotely
 export default class Scene {
+    /** math.gl ownership for the scene's broker-compatible workers. */
+    declare private workerThreads: SceneWorkerThread[] | undefined;
     /** Next scene identity used by broker targets. */
     declare static id: number;
     /** Next globally unique style/source generation. */
@@ -121,6 +124,8 @@ export default class Scene {
     declare num_workers: number;
     /** Optional caller-supplied worker bundle URL. */
     declare worker_url: string | undefined;
+    /** Explicit protocol override for a host-supplied scene worker. */
+    declare worker_protocol: 'tasks' | 'legacy' | undefined;
     /** Authored URL or object retained for reloads. */
     declare config_source: SceneDefinition | null;
     /** Root resolver for normalized scene resource paths. */
@@ -359,6 +364,7 @@ export default class Scene {
         this.tile_manager = new TileManager({ scene: this });
         this.num_workers = options.numWorkers || 2;
         this.worker_url = options.workerURL;
+        this.worker_protocol = options.workerProtocol;
         if (options.disableVertexArrayObjects === true) {
             VertexArrayObject.disabled = true;
         }
@@ -501,7 +507,10 @@ export default class Scene {
 
                 // Clean up resources from prior scene
                 this.destroyFeatureSelection();
-                WorkerBroker.postMessage(this.activeWorkers, 'self.clearFunctionStringCache');
+                void Promise.all(this.activeWorkers.map(worker => {
+                    const thread = this.workerThreads?.find(candidate => candidate.worker === worker && candidate.supportsTasks);
+                    return thread ? thread.clearFunctionCache() : WorkerBroker.postMessage(worker, 'self.clearFunctionStringCache');
+                })).catch(error => log('warn', 'Failed to clear worker function cache:', error));
 
                 // Scene loaded from a JS object, or modified by a `load` event, may contain compiled JS functions
                 // which need to be serialized, while one loaded only from a URL does not.
@@ -787,6 +796,7 @@ export default class Scene {
 
         let queue = [];
         this.workers = [];
+        this.workerThreads = [];
         for (let id=0; id < this.num_workers; id++) {
             let url = this.worker_url || getWorkerURL();
             if (!url) {
@@ -794,14 +804,19 @@ export default class Scene {
                 url = typeof fallbackValue === 'string' ? fallbackValue : undefined;
             }
             if (!url) throw new Error('Scene has no worker URL');
-            let worker = new Worker(url); // eslint-disable-line no-undef
+            const workerThread = new SceneWorkerThread(url, id,
+                this.worker_protocol === 'tasks' || (this.worker_protocol !== 'legacy' && isTaskWorkerURL(url)));
+            this.workerThreads.push(workerThread);
+            let worker = workerThread.worker;
             this.workers[id] = worker;
 
             WorkerBroker.addWorker(worker);
 
             log('debug', `Scene.makeWorkers: initializing worker ${id}`);
             let _id = id;
-            queue.push(WorkerBroker.postMessage(worker, 'self.init', this.id, id, this.num_workers, this.log_level, Utils.device_pixel_ratio, has_element_index_uint, this.external_scripts, this.maxConcurrentTileLoadsPerWorker).then(
+            const parameters = [this.id, id, this.num_workers, this.log_level, Utils.device_pixel_ratio, has_element_index_uint, this.external_scripts, this.maxConcurrentTileLoadsPerWorker];
+            const initialization = workerThread.supportsTasks ? workerThread.initialize(...parameters) : WorkerBroker.postMessage(worker, 'self.init', ...parameters);
+            queue.push(initialization.then(
                 (id) => {
                     log('debug', `Scene.makeWorkers: initialized worker ${id}`);
                     return id;
@@ -823,9 +838,14 @@ export default class Scene {
         this.destroyFeatureSelection(); // selections retain worker references and must be recreated
         if (Array.isArray(this.workers)) {
             log.setWorkers?.(null);
-            this.workers.forEach((worker) => {
-                if ('terminate' in worker && typeof worker.terminate === 'function') worker.terminate();
-            });
+            if (this.workerThreads) {
+                this.workerThreads.forEach(worker => worker.destroy());
+                this.workerThreads = undefined;
+            } else {
+                this.workers.forEach((worker) => {
+                    if ('terminate' in worker && typeof worker.terminate === 'function') worker.terminate();
+                });
+            }
             this.workers = null;
         }
     }
@@ -841,7 +861,10 @@ export default class Scene {
     // Resize the map when device pixel ratio changes, e.g. when switching between displays
     updateDevicePixelRatio () {
         if (Utils.updateDevicePixelRatio()) {
-            WorkerBroker.postMessage(this.activeWorkers, 'self.updateDevicePixelRatio', Utils.device_pixel_ratio)
+            Promise.all(this.activeWorkers.map(worker => {
+                const thread = this.workerThreads?.find(candidate => candidate.worker === worker && candidate.supportsTasks);
+                return thread ? thread.updateDevicePixelRatio(Utils.device_pixel_ratio) : WorkerBroker.postMessage(worker, 'self.updateDevicePixelRatio', Utils.device_pixel_ratio);
+            }))
                 .then(() => this.rebuild())
                 .then(() => {const {width, height} = this.view.size.css; if (width !== undefined && height !== undefined) this.resizeMap(width, height);});
         }
@@ -1570,7 +1593,13 @@ export default class Scene {
         });
 
         const tile_keys = this.activeTileManager.getRenderableTiles().map(t => t.key);
-        const results = await WorkerBroker.postMessage<import('../types').SceneFeature[]>(this.activeWorkers, 'self.queryFeatures', { filter, visible, geometry, tile_keys });
+        const query = {filter, visible, geometry, tile_keys};
+        const queryThreads = this.activeWorkers.map(worker => this.workerThreads?.find(candidate => candidate.worker === worker && candidate.supportsTasks));
+        const results = queryThreads.every(thread => !thread)
+            ? await WorkerBroker.postMessage<import('../types').SceneFeature[]>(this.activeWorkers, 'self.queryFeatures', query)
+            : await Promise.all(this.activeWorkers.map((worker, index) => queryThreads[index]
+                ? queryThreads[index]!.queryFeatures(query)
+                : WorkerBroker.postMessage<import('../types').SceneFeature[]>(worker, 'self.queryFeatures', query)));
         const features: import('../types').SceneFeature[] = [];
         const keys: Record<string, boolean> = {};
         const groups: Record<string, import('../types').SceneFeature[]> = {};
@@ -2085,7 +2114,11 @@ export default class Scene {
         if (providerNames.length > 0) {
             if (!this.workers?.length) throw new Error('Provider metadata requires an initialized scene worker');
             const generation = this.generation;
-            Object.assign(metadata, await WorkerBroker.postMessage(this.workers[0], 'self.getSourceMetadata', providerNames, generation));
+            const workerThread = this.workerThreads?.[0];
+            const providerMetadata = workerThread?.supportsTasks && workerThread.worker === this.workers[0]
+                ? await workerThread.getSourceMetadata(providerNames, generation)
+                : await WorkerBroker.postMessage(this.workers[0], 'self.getSourceMetadata', providerNames, generation);
+            Object.assign(metadata, providerMetadata);
             if (generation !== this.generation) throw new Error('Scene changed during metadata loading');
         }
         if (Object.keys(sources).length !== Object.keys(this.sources).length ||
@@ -2104,7 +2137,12 @@ export default class Scene {
     async getTileSourceStatistics(): Promise<TileSourceStatistics[]> {
         const workers = this.workers?.slice() ?? [];
         if (workers.length === 0) return [];
-        const statistics = await WorkerBroker.postMessage<Omit<TileSourceStatistics, 'workerId'>>(workers, 'self.getTileSourceStatistics');
+        const threads = this.workerThreads;
+        // Custom worker URLs may still implement only the public legacy broker protocol.
+        const statistics = threads?.length === workers.length &&
+            threads.every((thread, index) => thread.supportsTasks && thread.worker === workers[index])
+            ? await Promise.all(threads.map(thread => thread.getTileSourceStatistics())) as Omit<TileSourceStatistics, 'workerId'>[]
+            : await WorkerBroker.postMessage<Omit<TileSourceStatistics, 'workerId'>>(workers, 'self.getTileSourceStatistics');
         const currentWorkers = this.workers;
         if (workers.length !== currentWorkers?.length || workers.some((worker, index) => worker !== currentWorkers?.[index])) {
             throw new Error('Workers changed during tile-source statistics loading');
@@ -2180,11 +2218,16 @@ export default class Scene {
             shader_language: this.shader_language
         };
         const method = terrainRibbonZoom !== undefined ? 'self.updateTerrainView' : 'self.updateConfig';
-        if (!this.terrainTransaction) return WorkerBroker.postMessage(this.activeWorkers, method, configuration, debugSettings);
+        const sendConfiguration = (worker: import('../utils/worker-types').BrokerWorker) => {
+            const thread = this.workerThreads?.find(candidate => candidate.worker === worker && candidate.supportsTasks);
+            return thread ? thread.updateConfiguration(terrainRibbonZoom !== undefined, configuration, debugSettings)
+                : WorkerBroker.postMessage(worker, method, configuration, debugSettings);
+        };
+        if (!this.terrainTransaction) return Promise.all(this.activeWorkers.map(sendConfiguration));
         // Promise.all rejects at the first worker failure while other broker messages
         // still retain the snapshot. Drain all replies before recovery can release it.
         return Promise.allSettled(this.activeWorkers.map(worker => Promise.resolve().then(() =>
-            WorkerBroker.postMessage(worker, method, configuration, debugSettings)
+            sendConfiguration(worker)
         ))).then(results => {
             const failure = results.find(result => result.status === 'rejected');
             if (failure?.status === 'rejected') throw failure.reason;
@@ -2300,7 +2343,11 @@ export default class Scene {
 
     resetWorkerFeatureSelection(sources: string[] | null = null) {
         if (this.workers) {
-            WorkerBroker.postMessage(this.activeWorkers, 'self.resetFeatureSelection', sources);
+            for (const worker of this.activeWorkers) {
+                const thread = this.workerThreads?.find(candidate => candidate.worker === worker && candidate.supportsTasks);
+                if (thread) void thread.resetFeatureSelection(sources).catch(error => log('warn', 'Failed to reset worker selection:', error));
+                else void WorkerBroker.postMessage(worker, 'self.resetFeatureSelection', sources);
+            }
         }
     }
 
@@ -2308,7 +2355,13 @@ export default class Scene {
     getFeatureSelectionMapSize() {
         // Only allow one fetch process to run at a time
         if (this.fetching_selection_map == null) {
-            this.fetching_selection_map = WorkerBroker.postMessage<number>(this.activeWorkers, 'self.getFeatureSelectionMapSize')
+            const threads = this.activeWorkers.map(worker => this.workerThreads?.find(candidate => candidate.worker === worker && candidate.supportsTasks));
+            const sizes = threads.every(thread => !thread)
+                ? WorkerBroker.postMessage<number>(this.activeWorkers, 'self.getFeatureSelectionMapSize')
+                : Promise.all(this.activeWorkers.map((worker, index) => threads[index]
+                    ? threads[index]!.getFeatureSelectionMapSize()
+                    : WorkerBroker.postMessage<number>(worker, 'self.getFeatureSelectionMapSize')));
+            this.fetching_selection_map = sizes
                 .then(sizes => {
                     this.fetching_selection_map = null;
                     return sizes.reduce((a, b) => a + b);

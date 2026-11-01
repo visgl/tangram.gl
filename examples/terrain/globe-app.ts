@@ -10,7 +10,7 @@ import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainTileset} from './terrain-tileset';
 import {getTerrainTileBounds, getTerrainTileKey} from './tile-selection';
 import {selectGlobeTerrainDetail, type GlobeTerrainDetail} from './globe-detail';
-import {TerrainDecoderPool} from './decoder-pool';
+import {TerrainTaskPool as TerrainDecoderPool} from './terrain-task-pool';
 import {formatTerrainDecoderStatus} from './decoder-status';
 import type {TerrainGridData} from './terrain-payload';
 import {createMapterhornTerrainSource, validateTerrainImageSource, type TerrainImageSource} from './terrain-source';

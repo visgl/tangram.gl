@@ -7,12 +7,13 @@
 // Copyright (c) vis.gl contributors
 
 /**
- * The messages between `geojson-source.ts` and `geojson-worker.ts`, run in one Node thread: a fake
- * `Worker` hands each message, cloned as `postMessage` clones it, to the worker module's handler.
- * Node has no `Worker` global, so without the fake every tile is cut on the main thread.
+ * The GeoJSON source adapter, exercised in Node using a fake resource transport. Chromium tests
+ * separately exercise the actual math.gl transport and packaged worker.
  */
 
 import {afterEach, describe, expect, test, vi} from 'vitest';
+import {createGeoJsonResourceState, runGeoJsonResource} from '../src/geojson-resource';
+import type {GeoJsonWorkerRequest} from '../src/geojson-worker';
 
 /** Polygons with a hole, enough of them to go to the worker in several batches. */
 function makePolygons(count: number) {
@@ -77,45 +78,54 @@ type Fake = {
 };
 
 /**
- * Loads `geojson-source.ts` afresh with a fake `Worker`: `mode` 'run' runs the worker module in
- * this thread, 'fail' fails to load it, as a missing worker file does.
+ * Loads `geojson-source.ts` afresh with a fake worker resource; 'fail' simulates a load failure.
  */
 async function loadWithFakeWorker(mode: 'run' | 'fail') {
   vi.resetModules();
   const fakes: Fake[] = [];
-  let handleInWorker: ((event: {data: unknown}) => void) | null = null;
-  let answer: (data: unknown) => void = () => {};
-
-  if (mode === 'run') {
-    vi.stubGlobal('postMessage', (message: unknown, transfer: Transferable[]) =>
-      setTimeout(() => answer(structuredClone(message, {transfer})))
-    );
-    await import('../src/geojson-worker');
-    handleInWorker = (globalThis as any).onmessage;
-    (globalThis as any).onmessage = null;
-  }
-
   class FakeWorker {
     onmessage: ((event: {data: unknown}) => void) | null = null;
     onerror: ((event: Event) => void) | null = null;
     onmessageerror: (() => void) | null = null;
     fake: Fake;
+    state = createGeoJsonResourceState();
     constructor(url: URL, options: unknown) {
       this.fake = {url: String(url), options, messages: []};
       fakes.push(this.fake);
-      answer = data => this.onmessage?.({data});
       if (mode === 'fail') {
         setTimeout(() => this.onerror?.(new Event('error')));
       }
     }
-    postMessage(message: {type: string}) {
-      this.fake.messages.push(message);
-      const data = structuredClone(message);
-      setTimeout(() => handleInWorker?.({data}));
+    postMessage(message: {type: string; payload: {input: {operation: string; input?: GeoJsonWorkerRequest}}}) {
+      const request = structuredClone(message.payload.input);
+      if (request.operation === 'run' && request.input) this.fake.messages.push(request.input);
+      setTimeout(() => {
+        let value;
+        try {
+          value = request.operation === 'run' && request.input
+            ? {tile: runGeoJsonResource(this.state, request.input)}
+            : undefined;
+        } catch (error) {
+          value = {error: error instanceof Error ? error.message : String(error)};
+        }
+        this.onmessage?.({data: {source: 'loaders.gl', type: 'done', payload: {result: {value}}}});
+      });
     }
     terminate() {}
   }
   vi.stubGlobal('Worker', FakeWorker);
+  // Exercise our source adapter in Node; real math.gl transport is covered in Chromium.
+  vi.doMock('@math.gl/core/tasks', () => ({
+    createWorkerResource: async (task: {loadWorker: () => FakeWorker}) => {
+      const worker = task.loadWorker();
+      const run = (input: GeoJsonWorkerRequest) => new Promise((resolve, reject) => {
+        worker.onmessage = ({data}: any) => resolve(data.payload.result.value);
+        worker.onerror = () => reject(new Error('worker failed'));
+        worker.postMessage({type: 'process', payload: {input: {operation: 'run', input}}});
+      });
+      return {run, destroy: async () => worker.terminate()};
+    }
+  }));
   const module = await import('../src/geojson-source');
   return {module, fakes};
 }
@@ -130,6 +140,7 @@ async function getMainThreadTiles(data: unknown) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.doUnmock('@math.gl/core/tasks');
 });
 
 describe('GeoJSON worker', () => {
@@ -146,7 +157,7 @@ describe('GeoJSON worker', () => {
 
     // One worker, started as a module next to the source's module, got the data in batches.
     expect(fakes).toHaveLength(1);
-    expect(fakes[0].url).toMatch(/\/geojson-worker\.js$/);
+    expect(fakes[0].url).toMatch(/\/geojson-task-worker\.js$/);
     expect(fakes[0].options).toEqual({type: 'module'});
     const types = fakes[0].messages.map(message => message.type);
     expect(types.filter(type => type === 'features').length).toBe(3);
