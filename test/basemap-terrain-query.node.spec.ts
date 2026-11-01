@@ -2,16 +2,38 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {expect, test, vi} from 'vitest';
+import {expect, expectTypeOf, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import {WebMercatorViewport} from '@deck.gl/core';
 import {BasemapLayer} from '../modules/basemap-layers/src/basemap-layer';
 import {pickTerrainSurface} from '../modules/basemap-layers/src/terrain-query';
 import type {TerrainSurface} from '../modules/basemap-layers/src/terrain-query';
+import type {TerrainSurface as LoadersTerrainSurface} from '@loaders.gl/raster/terrain';
+import type {TerrainQuerySource} from '../modules/tangram-renderer/src/map-logic/terrain-query';
+import type {TerrainSurface as RendererTerrainSurface} from '../modules/tangram-renderer/src/selection/terrain_surface';
+import {unprojectScreenSegment} from '../modules/tangram-layers/src/screen-ray';
 import {createFixtureTerrain} from '../examples/layers/terrain-contract/terrain-fixture';
 
 const viewport = {x: 100, y: 50, width: 200, height: 100, viewProjectionMatrix: new Matrix4()};
 const identity = new Matrix4();
+
+test('terrain query contracts remain structurally compatible across packages', () => {
+  expectTypeOf<LoadersTerrainSurface>().toExtend<TerrainSurface>();
+  expectTypeOf<TerrainSurface>().toExtend<LoadersTerrainSurface>();
+  expectTypeOf<TerrainQuerySource>().toExtend<TerrainSurface>();
+  expectTypeOf<RendererTerrainSurface>().toExtend<TerrainSurface>();
+});
+
+test.each([[100, 50], [200, 100], [299, 149]] as const)(
+  'basemap and Tangram-layer unprojection agree at %i,%i', (horizontal, vertical) => {
+    const surface: TerrainSurface = {projection: 'globe', intersectRay: vi.fn(() => null)};
+    const matrix = new Matrix4().translate([3, 5, 7]).scale([2, 3, 4]);
+    const expected = unprojectScreenSegment(matrix.clone().invert(), viewport, [horizontal, vertical]);
+    expect(expected).not.toBeNull();
+    pickTerrainSurface({...viewport, viewProjectionMatrix: matrix}, [horizontal, vertical], surface, identity);
+    expect(surface.intersectRay).toHaveBeenCalledWith(expected, Math.hypot(...expected!.direction));
+  }
+);
 
 test('BasemapLayer forwards a query without owning the provider or loading a style', () => {
   const layer = new BasemapLayer({id: 'terrain-query', style: null});

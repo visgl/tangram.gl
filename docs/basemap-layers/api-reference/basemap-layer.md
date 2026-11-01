@@ -61,6 +61,12 @@ with the displayed terrain; this API does not load, mesh or draw terrain. The sa
 available as `pickTerrainSurface` from `@tangram.gl/basemap-layers`. See the
 [offline terrain query example](/examples/basemap-layers/terrain-contract).
 
+`TangramLayer.getTerrainAt` instead uses the renderer's last frame and, unless a
+surface is supplied, its admitted draped terrain snapshot. BasemapLayer does not
+own such a snapshot, so its caller supplies the current surface, viewport and
+coordinate transform explicitly. Both APIs return physical source elevation
+separately from displayed position; neither treats a miss as proof of coverage.
+
 ## Props
 
 ### `style`
