@@ -1,0 +1,19 @@
+{
+  "name": "tangram-basemap-terrain-contract-example",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "vite --open"
+  },
+  "dependencies": {
+    "@deck.gl/core": "~9.4.0",
+    "@deck.gl/layers": "~9.4.0",
+    "@loaders.gl/raster": "5.0.0-beta.2",
+    "@math.gl/core": "5.0.0-beta.2",
+    "@math.gl/web-mercator": "5.0.0-beta.2",
+    "@tangram.gl/basemap-layers": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  }
+}

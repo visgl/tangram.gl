@@ -3,6 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import type {TerrainSurface, TerrainSurfaceHit} from '@loaders.gl/raster/terrain';
+import {pickTerrainSurface} from './terrain-query';
 import {isGlobeViewport} from './is-globe-viewport';
 import type {BasemapSource} from './style-resolver';
 import {
@@ -173,6 +175,11 @@ type BasemapLayerState = {
  * corresponding basemap sublayers.
  */
 export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
+  /** Query a caller-owned displayed terrain surface through the selected deck viewport. */
+  getTerrainAt(viewport: Viewport, pixel: readonly [number, number], surface: TerrainSurface,
+    commonToSurface: Readonly<ArrayLike<number>>): TerrainSurfaceHit | null {
+    return pickTerrainSurface(viewport, pixel, surface, commonToSurface);
+  }
   /** Deck.gl layer name. */
   static layerName = 'BasemapLayer';
 
