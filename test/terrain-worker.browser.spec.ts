@@ -4,18 +4,19 @@
 
 import {beforeAll, expect, test} from 'vitest';
 import {decodeTerrainInWorker} from '../examples/terrain/worker-client';
-import {TerrainDecoderPool} from '../examples/terrain/decoder-pool';
+import {TerrainDecoderPool} from './legacy-terrain-decoder-pool';
 import {decodeTerrainGrid} from '../examples/terrain/decode-height-grid';
 import {parseTerrainTile} from '../examples/terrain/load-terrain';
 import {createTerrainFixture} from './terrain-fixture';
 
 let bytes: ArrayBuffer;
 const bounds: [number, number, number, number] = [0, 0, 0.01, 0.01];
-const workerUrl = `${location.origin}/examples/terrain/dist/terrain-worker.js`;
+const workerUrl = `${location.origin}/examples/terrain/dist/terrain-task-worker.js`;
+const legacyWorkerUrl = `${location.origin}/examples/terrain/dist/terrain-worker.js`;
 beforeAll(async () => {bytes = (await createTerrainFixture()).bytes;});
 
 test('one warm worker handles independent grid-only jobs then Mercator topology, preserving grid conformance and bytes', async () => {
-  const pool = new TerrainDecoderPool(workerUrl, 1), original = bytes.slice(0);
+  const pool = new TerrainDecoderPool(legacyWorkerUrl, 1), original = bytes.slice(0);
   try {
     const first = await pool.decodeGrid(bytes, bounds, new AbortController().signal);
     const second = await pool.decodeGrid(bytes, bounds, new AbortController().signal);

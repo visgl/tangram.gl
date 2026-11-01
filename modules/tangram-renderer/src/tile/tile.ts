@@ -13,6 +13,7 @@ import {addLayerDebugEntry} from '../styles/style';
 import StyleParser from '../styles/style_parser';
 import Collision from '../labels/collision';
 import WorkerBroker from '../utils/worker_broker';
+import {getSceneWorkerThread} from '../scene/scene-worker-thread';
 import Task from '../utils/task';
 import Texture from '../gl/texture';
 import {getTileSourceRequest, updateTileSourceRequest} from '../sources/tile_source_state';
@@ -173,7 +174,7 @@ export default class Tile {
 
     destroy() {
         Task.removeForTile(this.id);
-        this.workerMessage('self.removeTile', this.key);
+        void this.workerMessage('self.removeTile', this.key).catch(error => log('warn', 'Failed to remove worker tile:', error));
         this.freeResources();
         this.worker = null;
         this.valid = false;
@@ -215,6 +216,9 @@ export default class Tile {
     }
 
     workerMessage (method: BrokerMethod, ...message: unknown[]) {
+        const thread = this.worker && getSceneWorkerThread(this.worker);
+        if (thread && method === 'self.buildTile') return thread.buildTile(message[0]);
+        if (thread && method === 'self.removeTile' && typeof message[0] === 'string') return thread.removeTile(message[0]);
         return WorkerBroker.postMessage(this.worker!, method, ...message); // Calls precede destroy(), which clears the worker.
     }
 
