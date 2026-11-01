@@ -1,3 +1,9 @@
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+
 # Shared terrain contracts
 
 Run `yarn workspace tangram-basemap-terrain-contract-example start` from the repository root.
@@ -15,5 +21,5 @@ is a fixture, not a production terrain index. No live tiles, image decoding,
 terrain meshing, no-data repair, mixed-LOD stitching or draping are claimed.
 `pickTerrainSurface` also accepts providers implementing loaders.gl's proposed
 terrain contract or Tangram's existing `TerrainSurface` interface without a
-runtime dependency on either package. A future release can replace the structural
-type declarations with type imports; community remains on its current 4.x stack.
+runtime dependency on either package. Tangram uses structural types to avoid
+coupling the basemap package to a particular loaders.gl release.

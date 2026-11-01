@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {worldToLngLat} from '@math.gl/web-mercator';
-import type {TerrainSurface} from '@loaders.gl/raster/terrain';
+import type {TerrainSurface} from '@tangram.gl/basemap-layers';
 
 /** Same north-first physical grid convention as loaders.gl and Tangram; no network or provider. */
 export const terrainGrid = {

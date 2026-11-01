@@ -5,7 +5,40 @@
 import type {Viewport} from '@deck.gl/core';
 import {Matrix4} from '@math.gl/core';
 
-import type {TerrainSurface, TerrainSurfaceHit} from '@loaders.gl/raster/terrain';
+/** Structural loaders.gl-compatible hit, separating displayed geometry from source elevation. */
+export type TerrainSurfaceHit = {
+  /** Displayed content position, in the same units as the query ray. */
+  readonly position: readonly [number, number, number];
+  /** Longitude/latitude degrees and physical, unexaggerated source elevation meters. */
+  readonly coordinate: readonly [number, number, number];
+  /** Distance in content units, independent of direction length. */
+  readonly distance: number;
+  /** Unit normal following displayed triangle winding. */
+  readonly normal: readonly [number, number, number];
+  /** Original triangle identity, not a GPU feature index. */
+  readonly triangleIndex: number;
+  /** Weights in original vertex order. */
+  readonly barycentric: readonly [number, number, number];
+};
+
+/**
+ * Borrowed displayed terrain query owner. Structurally compatible with loaders.gl 5
+ * and Tangram without requiring either renderer or an alpha dependency upgrade.
+ */
+export type TerrainSurface = {
+  /** Mercator XYZ meters or host-defined center-relative globe common units. */
+  readonly projection: 'web-mercator' | 'globe';
+  /** Nearest loaded hit inside the inclusive distance; a miss does not certify coverage. */
+  intersectRay(
+    ray: {
+      /** Absolute content origin, before camera and room-placement transforms. */
+      readonly origin: readonly [number, number, number];
+      /** Nonzero finite direction, not necessarily normalized. */
+      readonly direction: readonly [number, number, number];
+    },
+    maxDistance?: number
+  ): TerrainSurfaceHit | null;
+};
 
 /**
  * Route an absolute top-origin CSS pixel through one actual deck viewport/eye.

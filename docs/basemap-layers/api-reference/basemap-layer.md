@@ -49,7 +49,7 @@ import {BasemapLayer} from '@deck.gl-community/basemap-layers';
 ## Terrain queries (experimental)
 
 `layer.getTerrainAt(viewport, pixel, surface, commonToSurface)` queries a caller-owned
-`TerrainSurface` from `@loaders.gl/raster/terrain`. `pixel` is an absolute, top-origin CSS
+`TerrainSurface` structurally compatible with `@loaders.gl/raster/terrain`. `pixel` is an absolute, top-origin CSS
 pixel and `viewport` is the actual deck view or stereo eye containing it. The explicit,
 invertible affine matrix converts viewport common coordinates to the surface's content
 coordinates. The method returns the nearest intersection on the camera's finite near-to-far

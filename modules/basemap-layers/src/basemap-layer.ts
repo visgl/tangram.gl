@@ -3,8 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
-import type {TerrainSurface, TerrainSurfaceHit} from '@loaders.gl/raster/terrain';
-import {pickTerrainSurface} from './terrain-query';
+import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from './terrain-query';
 import {isGlobeViewport} from './is-globe-viewport';
 import type {BasemapSource} from './style-resolver';
 import {

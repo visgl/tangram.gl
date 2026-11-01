@@ -63,7 +63,6 @@
   "dependencies": {
     "@loaders.gl/loader-utils": "^4.5.1",
     "@loaders.gl/mvt": "^4.5.1",
-    "@loaders.gl/raster": "5.0.0-beta.2",
     "@mapbox/tiny-sdf": "^2.0.5",
     "@maplibre/geojson-vt": "^6.1.2",
     "@maplibre/maplibre-gl-style-spec": "^24.8.1",

@@ -5,10 +5,10 @@
 import {expect, test, vi} from 'vitest';
 import {Matrix4} from '@math.gl/core';
 import {WebMercatorViewport} from '@deck.gl/core';
-import {BasemapLayer} from '../src/basemap-layer';
-import {pickTerrainSurface} from '../src/terrain-query';
-import type {TerrainSurface} from '@loaders.gl/raster/terrain';
-import {createFixtureTerrain} from '../../../examples/layers/terrain-contract/terrain-fixture';
+import {BasemapLayer} from '../modules/basemap-layers/src/basemap-layer';
+import {pickTerrainSurface} from '../modules/basemap-layers/src/terrain-query';
+import type {TerrainSurface} from '../modules/basemap-layers/src/terrain-query';
+import {createFixtureTerrain} from '../examples/layers/terrain-contract/terrain-fixture';
 
 const viewport = {x: 100, y: 50, width: 200, height: 100, viewProjectionMatrix: new Matrix4()};
 const identity = new Matrix4();

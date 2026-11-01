@@ -7,15 +7,17 @@ import {Deck, OrbitView, COORDINATE_SYSTEM} from '@deck.gl/core';
 import {PolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {pickTerrainSurface} from '@tangram.gl/basemap-layers';
-import {createFixtureTerrain} from '../examples/layers/terrain-contract/terrain-fixture';
+import {createFixtureTerrain} from '../../examples/layers/terrain-contract/terrain-fixture';
+import {RenderingHarness, DEVICE_TYPE} from './harness';
 
-test('actual rendered OrbitView and terrain queries agree in both faces before and after relief changes', async () => {
-  const container = document.createElement('div');
-  container.style.cssText = 'position:fixed;left:0;top:0;width:600px;height:400px';
-  document.body.append(container);
+test(`${DEVICE_TYPE}: rendered OrbitView and terrain queries agree across relief changes`, async () => {
+  const harness = new RenderingHarness();
+  await harness.initializeDevice();
   let rendered = 0;
   const deck = new Deck({
-    parent: container,
+    canvas: harness.canvas,
+    device: harness.device,
+    useDevicePixels: false,
     width: 600,
     height: 400,
     views: new OrbitView({id: 'terrain-camera', orbitAxis: 'Z'}),
@@ -65,6 +67,6 @@ test('actual rendered OrbitView and terrain queries agree in both faces before a
     }
   } finally {
     deck.finalize();
-    container.remove();
+    harness.destroy();
   }
 }, 60000);
