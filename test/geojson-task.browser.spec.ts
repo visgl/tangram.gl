@@ -44,7 +44,7 @@ test('packaged GeoJSON task worker retains independent source indexes', async ()
     inputOwnership: 'copy'
   });
   const options = {maxZoom: 0, extent: 4096, buffer: 0, tolerance: 0};
-  const feature = (name: string) => ({type: 'Feature', properties: {name}, geometry: {type: 'Point', coordinates: [0, 0]}});
+  const feature = (name: string) => ({type: 'Feature', properties: {name, values: new Uint8Array([1, 2, 3])}, geometry: {type: 'Point', coordinates: [0, 0]}});
   try {
     await resource.run({type: 'features', source: 1, features: [feature('one')]});
     await resource.run({type: 'index', source: 1, options});
@@ -53,6 +53,9 @@ test('packaged GeoJSON task worker retains independent source indexes', async ()
     const second = await resource.run({type: 'tile', source: 2, request: 2, x: 0, y: 0, z: 0});
     expect('tile' in first && first.tile && decodeTile(first.tile)[0].properties).toMatchObject({name: 'one'});
     expect('tile' in second && second.tile && decodeTile(second.tile)[0].properties).toMatchObject({name: 'two'});
+    const repeated = await resource.run({type: 'tile', source: 1, request: 4, x: 0, y: 0, z: 0});
+    expect('tile' in first && first.tile && decodeTile(first.tile)[0].properties).toMatchObject({values: new Uint8Array([1, 2, 3])});
+    expect('tile' in repeated && repeated.tile && decodeTile(repeated.tile)[0].properties).toMatchObject({values: new Uint8Array([1, 2, 3])});
     await resource.run({type: 'remove', source: 1});
     expect(await resource.run({type: 'tile', source: 1, request: 3, x: 0, y: 0, z: 0})).toEqual({error: 'GeoJSON source has no index'});
   } finally {

@@ -13,7 +13,9 @@ export function installGeoJsonTaskHandler(): Promise<void> {
     initialize: createGeoJsonResourceState,
     run: (state: GeoJsonResourceState, input: GeoJsonWorkerRequest): GeoJsonTaskResult => {
       try {
-        return {tile: runGeoJsonResource(state, input)};
+        // Tile properties can reference the retained source index. The task transport
+        // transfers result buffers, so detach a copy rather than the index's data.
+        return {tile: structuredClone(runGeoJsonResource(state, input))};
       } catch (error) {
         return {error: error instanceof Error ? error.message : String(error)};
       }
