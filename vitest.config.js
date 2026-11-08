@@ -14,7 +14,7 @@ const GENERATED_OR_EXTERNAL_COVERAGE_PATHS = [
   '**/*.d.ts'
 ];
 
-export default getVitestConfig({
+const config = getVitestConfig({
   overrides: {
     resolve: {
       // Unit tests exercise authored source; artifact smoke tests separately verify dist.
@@ -106,3 +106,25 @@ export default getVitestConfig({
     }
   }
 });
+
+// basemap-layers is a deck.gl 9.4 package and keeps loaders.gl 4.x; the other modules use 5.x. A
+// browser project pre-bundles one copy of each dependency, so basemap-layers runs in its own.
+const BASEMAP_LAYERS_BROWSER_TESTS = 'modules/basemap-layers/test/**/*.browser.spec.{js,ts}';
+const headless = config.test.projects.find(project => project.test?.name === 'headless');
+config.test.projects.push({
+  ...headless,
+  cacheDir: 'node_modules/.vite/headless-basemap-layers',
+  test: {
+    ...headless.test,
+    name: 'headless-basemap-layers',
+    include: [BASEMAP_LAYERS_BROWSER_TESTS],
+    // Vitest names each browser instance in place: the copy needs instances of its own.
+    browser: {...headless.test.browser, instances: headless.test.browser.instances.map(instance => ({...instance}))}
+  }
+});
+headless.test.exclude = [...(headless.test.exclude || []), BASEMAP_LAYERS_BROWSER_TESTS];
+// deck.gl 9.4 imports loaders.gl 4.x core beside the 5.x one, and a pre-bundled copy would serve
+// one of them to both: each importer loads its own.
+headless.optimizeDeps = {exclude: ['@loaders.gl/core']};
+
+export default config;
