@@ -15,6 +15,7 @@ import {
   LabelTextLayer,
   LINE_GLYPH_ATTRIBUTE_STATS
 } from '../src/label-text-layer';
+import {getLabelFontRenderer} from '../src/label-font-renderer';
 
 const WIDTH = 320;
 const HEIGHT = 64;
@@ -97,6 +98,8 @@ function referenceTextLayer(props: Record<string, unknown>): any {
   return new TextLayer({
     id: 'text',
     ...props,
+    // The glyphs of `LabelTextLayer`'s atlas keep their overhang: a default atlas would place them apart.
+    _getFontRenderer: getLabelFontRenderer,
     _subLayerProps: {
       characters: {type: LabelCharactersLayer, sdfRadius: (props as any).fontSettings.radius}
     }
