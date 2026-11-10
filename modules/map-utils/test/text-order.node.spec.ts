@@ -14,11 +14,11 @@ test('canvas preparation preserves logical text while explicit bidi produces vis
 });
 
 test('explicit line break offsets apply to shaped text, not the original label', () => {
-  const shaped = applyArabicShaping('لا\nאב');
-  expect(shaped).toBe('ﻻ\nאב');
-  expect(orderVisualText({order: 'logical', text: shaped}, [2])).toEqual({
+  const shaped = applyArabicShaping('لاאב');
+  expect(shaped).toBe('ﻻאב');
+  expect(orderVisualText({order: 'logical', text: shaped}, [1])).toEqual({
     order: 'visual',
-    lines: ['ﻻ\n', 'בא']
+    lines: ['ﻻ', 'בא']
   });
 });
 

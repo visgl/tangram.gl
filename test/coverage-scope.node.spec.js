@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {basename} from 'node:path';
 import {describe, expect, test} from 'vitest';
 import {
   collectAuthoredSourceFiles,
@@ -46,7 +47,7 @@ describe('coverage scope guard', () => {
 
   test('collects JavaScript and TypeScript sources but ignores declarations', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/tangram-renderer/src');
-    expect(sourceFiles).toHaveLength(202);
+    expect(sourceFiles).toHaveLength(201);
     expect(sourceFiles.some(filePath => filePath.endsWith('scene/scene-worker-thread.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('procedures/terrain-globe.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('map-logic/terrain-query.ts'))).toBe(true);
@@ -110,6 +111,13 @@ describe('coverage scope guard', () => {
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-basemaps.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/webxr/grabbing.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('.d.ts'))).toBe(false);
+  });
+
+  test('includes the extracted shared text sources in the authored inventory', () => {
+    const sourceFiles = collectAuthoredSourceFiles('modules/map-utils/src');
+    expect(sourceFiles.map(filePath => basename(filePath)).sort()).toEqual([
+      'arabic-shaping.ts', 'bidi.ts', 'canvas.ts', 'explicit.ts', 'types.ts'
+    ]);
   });
 
   test('requires both modules including experimental WebXR and type-only sources', () => {
