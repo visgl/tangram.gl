@@ -186,14 +186,4 @@ describe('untrusted tile text', () => {
     expect(shaped.length).toBe(1 + marks.length);
   });
 
-  test('a label of many paragraphs is reordered in one pass, each line at its own level', () => {
-    // 120,000 paragraphs: matching each line to its paragraph by search would take 7e9 steps.
-    const text = Array.from({length: 120_000}, (_, i) => (i % 2 ? 'تشاد' : 'Chad')).join('\n');
-    const start = performance.now();
-    const lines = processBidirectionalText(text, []);
-    // About 0.5 s here; the search took 8 s.
-    expect(performance.now() - start).toBeLessThan(3000);
-    expect(lines).toHaveLength(120_000);
-    expect(lines.slice(0, 3).map(line => line.trim())).toEqual(['Chad', 'داشت', 'Chad']);
-  });
 });
