@@ -1,11 +1,21 @@
 // Tangram
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
+// Copyright (c) 2026 vis.gl contributors
 
 // Text directionality (right-to-left, bi-directional) and segmentation (curved labels, Arabic handling)
 
 // Right-to-left / bi-directional text handling
 // Taken from http://stackoverflow.com/questions/12006095/javascript-how-to-check-if-character-is-rtl
+
+import type {LogicalLabelText} from './types';
+
+/** Keep text in logical order for browser shaping; report the legacy segmentation constraints. */
+export function prepareCanvasText(text: string): LogicalLabelText & {rtl: boolean; noCurving: boolean} {
+    const hasRTL = isTextRTL(text);
+    const rtl = hasRTL && isTextNeutral(text);
+    return {order: 'logical', text, rtl, noCurving: (hasRTL && !rtl) || isTextCurveBlacklisted(text)};
+}
 
 type SegmentCache = {
     segment: Record<string, string[]>;

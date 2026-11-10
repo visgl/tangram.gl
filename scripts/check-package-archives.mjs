@@ -18,6 +18,9 @@ for (const packageName of packages) {
     throw new Error(`${packageName}: unexpected packed package identity.`);
   }
   for (const dependencies of [manifest.dependencies, manifest.peerDependencies]) {
+    if (Object.hasOwn(dependencies || {}, '@tangram.gl/map-utils')) {
+      throw new Error(`${packageName}: private map-utils must not be a runtime dependency.`);
+    }
     for (const value of Object.values(dependencies || {})) {
       if (typeof value === 'string' && value.startsWith('workspace:')) {
         throw new Error(`${packageName}: unresolved workspace dependency.`);
@@ -34,6 +37,15 @@ for (const packageName of packages) {
     }
   };
   verifyExport(manifest.exports);
+  const codeFiles = [...files].filter(file =>
+    file.startsWith('package/dist/') && /\.(?:[cm]?js|d\.ts)$/.test(file)
+  );
+  const code = execFileSync('tar', ['-xOzf', archive, ...codeFiles], {
+    encoding: 'utf8', maxBuffer: 32 * 1024 * 1024
+  });
+  if (/["']@tangram\.gl\/map-utils(?:\/[^"']*)?["']/.test(code)) {
+    throw new Error(`${packageName}: emitted code references the private map-utils workspace.`);
+  }
   if (packageName === 'tangram-renderer') {
     const worker = read('package/dist/scene-worker.js');
     if (/^\s*import\s/m.test(worker)) {

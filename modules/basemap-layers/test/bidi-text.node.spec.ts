@@ -7,8 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, test} from 'vitest';
-import {applyArabicShaping} from '../src/arabic-shaping';
-import {containsRightToLeftText, processBidirectionalText} from '../src/bidi';
+import {applyArabicShaping, containsRightToLeftText, processBidirectionalText} from '@tangram.gl/map-utils/text/explicit';
 import {MVTLabelLayer} from '../src/mvt-label-layer';
 import {orderBidirectionalText, transformText, wrapText} from '../src/text-layout';
 

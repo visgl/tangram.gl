@@ -28,6 +28,7 @@ website/static/modules
 website/static/robots.txt
 modules/tangram-layers/dist
 modules/tangram-renderer/dist
+modules/map-utils/dist
 examples/classic/dist
 examples/terrain/dist
 examples/dist

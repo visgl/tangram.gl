@@ -9,7 +9,7 @@ import {buildFilter} from '../src/styles/filter';
 import {TangramSourceSchema, TangramStyleSheetSchema} from '../src/styles/style-schema';
 import PointAnchor from '../src/labels/point_anchor';
 import {boxIntersectsBox, boxIntersectsList} from '../src/labels/intersect';
-import {isTextNeutral, isTextRTL, splitLabelText} from '../src/styles/text/text_segments';
+import {isTextNeutral, isTextRTL, splitLabelText} from '@tangram.gl/map-utils/text/canvas';
 import MultiLine from '../src/styles/text/text_wrap';
 
 describe('renderer pure logic', () => {

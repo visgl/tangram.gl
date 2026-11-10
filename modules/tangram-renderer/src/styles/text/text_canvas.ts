@@ -23,7 +23,7 @@ const typedTexture = Texture as unknown as {
     release(name: string): void;
 };
 import MultiLine from './text_wrap';
-import { splitLabelText, isTextRTL, isTextNeutral, isTextCurveBlacklisted } from './text_segments';
+import { prepareCanvasText, splitLabelText } from '@tangram.gl/map-utils/text/canvas';
 import debugSettings from '../../utils/debug_settings';
 
 /** Measures, packs, and rasterizes per-tile label atlases on the main thread. */
@@ -129,24 +129,14 @@ export default class TextCanvas {
 
                 // if text may curve, calculate per-segment as well
                 if (text_settings.can_articulate) {
-                    let rtl = false;
-                    let bidi = false;
-                    if (isTextRTL(text)) {
-                        if (!isTextNeutral(text)) {
-                            bidi = true;
-                        }
-                        else {
-                            rtl = true;
-                        }
-                    }
-
+                    const {text: logicalText, rtl, noCurving} = prepareCanvasText(text);
                     text_info.isRTL = rtl;
-                    text_info.no_curving = bidi || isTextCurveBlacklisted(text); // used in LabelLine to prevent curved labels
+                    text_info.no_curving = noCurving; // used in LabelLine to prevent curved labels
                     text_info.vertical_buffer = this.vertical_text_buffer;
                     text_info.segment_sizes = [];
 
                     if (!text_info.no_curving) {
-                        let segments = splitLabelText(text, rtl, TextCanvas.cache);
+                        let segments = splitLabelText(logicalText, rtl, TextCanvas.cache);
                         text_info.segments = segments;
                         for (let i = 0; i < segments.length; i++){
                             text_info.segment_sizes!.push(this.textSize(style, segments[i], text_settings).size);
