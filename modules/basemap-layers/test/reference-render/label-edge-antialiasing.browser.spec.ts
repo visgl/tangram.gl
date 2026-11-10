@@ -215,7 +215,7 @@ describe('label edge antialiasing', () => {
   afterAll(async () => {
     if (RECORD) {
       await commands.writeFile(
-        'modules/basemap-layers/tests/reference-render/__output__/label-edges.json',
+        'modules/basemap-layers/test/reference-render/__output__/label-edges.json',
         `${JSON.stringify(recorded, null, 2)}\n`
       );
     }

@@ -98,7 +98,7 @@ async function renderGlobe(viewState: {longitude: number; latitude: number; zoom
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise<ImageData>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 10_000);
+    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
     let frames = 0;
     deck = new Deck({
       parent,

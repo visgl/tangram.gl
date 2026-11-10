@@ -63,7 +63,7 @@ import {
 import {renderBasemapLayer, renderMapLibre, type Render} from './renderers';
 import {DEFAULT_SCENES, VIEWPORT, selectScenes, type ReferenceScene} from './scenes';
 
-const DIRECTORY = 'modules/basemap-layers/tests/reference-render';
+const DIRECTORY = 'modules/basemap-layers/test/reference-render';
 const OUTPUT = `${DIRECTORY}/__output__`;
 const env = (import.meta as any).env || {};
 const MODE: 'check' | 'update' | 'reset' | 'record' = env.VITE_REFERENCE_RENDER_MODE || 'check';
