@@ -4,7 +4,7 @@
 
 // Word wrapping
 
-import { isTextRTL, isTextNeutral, RTL_MARKER } from './text_segments';
+import { isTextRTL, isTextNeutral, RTL_MARKER } from '@tangram.gl/map-utils/text/canvas';
 
 interface TextMeasurementContext {
     measureText(text: string): {width: number};

@@ -45,6 +45,14 @@ for (const artifactPath of requiredArtifacts) {
   }
 }
 
+// Canvas labels must not pull the explicit Unicode engine into classic builds.
+const rendererSources = JSON.parse(
+  readFileSync(resolve(rendererDirectory, 'dist/tangram.debug.mjs.map'), 'utf8')
+).sources;
+if (rendererSources.some(source => /bidi-js|map-utils\/src\/text\/(?:arabic-shaping|bidi|explicit)\.ts/.test(source))) {
+  throw new Error('The classic renderer unexpectedly bundles the explicit bidi engine.');
+}
+
 const expectedExports = {
   '.': './dist/index.js',
   './core': './dist/core.js',

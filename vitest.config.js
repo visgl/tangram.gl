@@ -71,7 +71,7 @@ const config = getVitestConfig({
   coverage: {
     provider: 'v8',
     reporter: ['text', 'lcov', 'json-summary'],
-    // Both authored modules belong in the report, including experimental WebXR.
+    // All authored modules belong in the report, including experimental WebXR.
     // Generated packages, declarations, and vendored code are not independent source.
     include: COVERAGE_MODULES.map(module => module.sourceGlob),
     exclude: GENERATED_OR_EXTERNAL_COVERAGE_PATHS,

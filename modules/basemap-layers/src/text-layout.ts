@@ -7,8 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 // Line breaking follows MapLibre GL JS's src/symbol/shaping.ts (BSD-3-Clause).
-import {applyArabicShaping} from './arabic-shaping';
-import {containsRightToLeftText, processBidirectionalText} from './bidi';
+import {applyArabicShaping, containsRightToLeftText, orderVisualText} from '@tangram.gl/map-utils/text/explicit';
 
 const WHITESPACE = new Set([0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20]);
 const BREAKABLE = new Set([
@@ -304,7 +303,7 @@ function layOutLines(text: string, breaks: number[] | null): string {
         codeUnitBreaks.push(codeUnit);
       }
     }
-    return processBidirectionalText(text, codeUnitBreaks)
+    return orderVisualText({order: 'logical', text}, codeUnitBreaks).lines
       .map(line => trimLine(Array.from(line)))
       .join('\n');
   }

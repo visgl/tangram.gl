@@ -1,0 +1,22 @@
+{
+  "name": "@tangram.gl/map-utils",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./text/canvas": {
+      "types": "./dist/types/text/canvas.d.ts",
+      "default": "./src/text/canvas.ts"
+    },
+    "./text/explicit": {
+      "types": "./dist/types/text/explicit.d.ts",
+      "default": "./src/text/explicit.ts"
+    }
+  },
+  "scripts": {
+    "build:types": "node ../../scripts/build-package-types.mjs modules/map-utils text/canvas.ts text/explicit.ts"
+  },
+  "dependencies": {
+    "bidi-js": "^1.1.0"
+  }
+}

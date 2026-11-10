@@ -152,6 +152,14 @@ No package can hide a regression in another. The committed gates are:
 | Renderer | 78% | 69% | 82% | 78% |
 | Layers | 92% | 90% | 95% | 94% |
 | Basemap layers | 96% | 91% | 98% | 97% |
+| Map utilities | 90% | 80% | 95% | 90% |
+
+`@tangram.gl/map-utils` is an internal workspace, not a published runtime dependency.
+Its canvas text entry leaves text in logical order for Tangram's browser rasterizer;
+its explicit entry provides Arabic shaping and visual-order lines for Basemap Layers'
+glyph renderer. Keep those entries independent so the renderer's canvas path does
+not load the explicit bidi engine. Measurement, line wrapping, glyph storage, atlas
+packing, and placement decisions remain with the frontends.
 
 The source of truth is `scripts/coverage-modules.mjs`. Coverage includes all
 authored source, including experimental entries and unexecuted files; generated,
