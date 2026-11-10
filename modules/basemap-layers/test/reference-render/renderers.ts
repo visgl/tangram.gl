@@ -368,6 +368,15 @@ async function drawBasemapLayer(
   {pixelRatio = 1, pitch = 0, bearing = 0, onRendered}: BasemapLayerRenderOptions
 ): Promise<BasemapLayerDraw> {
   const parent = createContainer();
+  // Start at the final physical size: resizing a newly created WebGL canvas can
+  // leave the driver's viewport at 1x while luma's state cache reports 2x.
+  // Warm second-pass resources can reach readback before that state is corrected.
+  const canvas = document.createElement('canvas');
+  canvas.width = VIEWPORT.width * pixelRatio;
+  canvas.height = VIEWPORT.height * pixelRatio;
+  canvas.style.width = `${VIEWPORT.width}px`;
+  canvas.style.height = `${VIEWPORT.height}px`;
+  parent.append(canvas);
   performance.clearResourceTimings();
   performance.setResourceTimingBufferSize(100_000);
   const start = performance.now();
@@ -388,6 +397,7 @@ async function drawBasemapLayer(
       new Promise<Uint8ClampedArray>((resolve, reject) => {
         deck = new Deck({
           parent,
+          canvas,
           width: VIEWPORT.width,
           height: VIEWPORT.height,
           useDevicePixels: pixelRatio === 1 ? false : pixelRatio,
