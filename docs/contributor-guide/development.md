@@ -161,6 +161,11 @@ glyph renderer. Keep those entries independent so the renderer's canvas path doe
 not load the explicit bidi engine. Measurement, line wrapping, glyph storage, atlas
 packing, and placement decisions remain with the frontends.
 
+The `/screen-ray` entry shares viewport hit testing and finite near-to-far
+unprojection between Basemap Layers and Tangram terrain/XR. Callers still
+select the eye, supply the clip-to-content transform, and decide how to
+query the resulting segment.
+
 The source of truth is `scripts/coverage-modules.mjs`. Coverage includes all
 authored source, including experimental entries and unexecuted files; generated,
 vendored, declaration and test files are outside the denominator.

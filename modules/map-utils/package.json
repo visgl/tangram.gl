@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./screen-ray": {
+      "types": "./dist/types/screen-ray.d.ts",
+      "default": "./src/screen-ray.ts"
+    },
     "./text/canvas": {
       "types": "./dist/types/text/canvas.d.ts",
       "default": "./src/text/canvas.ts"
@@ -14,7 +18,7 @@
     }
   },
   "scripts": {
-    "build:types": "node ../../scripts/build-package-types.mjs modules/map-utils text/canvas.ts text/explicit.ts"
+    "build:types": "node ../../scripts/build-package-types.mjs modules/map-utils screen-ray.ts text/canvas.ts text/explicit.ts"
   },
   "dependencies": {
     "bidi-js": "^1.1.0"
