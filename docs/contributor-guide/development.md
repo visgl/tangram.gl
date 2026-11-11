@@ -177,6 +177,21 @@ as in `.github/workflows/test.yml`. `yarn coverage:scope` audits a generated
 merged report against the authored source inventory. Never lower a threshold
 or exclude untested source to pass a check.
 
+### Merge queue
+
+The `Test` workflow runs the same jobs on pull requests, merge groups, and pushes
+to `master`. On merge groups, the coverage job still enforces the module
+thresholds and uploads the report artifact, but does not publish the temporary
+merge-group commit to Coveralls. Basemap conformance remains report-only.
+
+After the merge-group workflow is on `master`, a repository administrator can
+import `.github/rulesets/master-merge-queue.json` under **Settings → Rules →
+Rulesets → New ruleset → Import a ruleset**. Committing the JSON does not apply
+it. Keep the existing protections in place. The new ruleset targets only
+`master`, uses squash merges, and requires the eight checks from `Test`. It
+adds no bypass or review requirement. Verify the next queued PR runs those
+checks on its merge-group commit before relying on the queue.
+
 ## Rendering and interaction regressions
 
 `test/rendering/*.render.spec.ts` uses packaged entries, real Chromium software
