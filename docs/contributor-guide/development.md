@@ -179,18 +179,9 @@ or exclude untested source to pass a check.
 
 ### Merge queue
 
-The `Test` workflow runs the same jobs on pull requests, merge groups, and pushes
-to `master`. On merge groups, the coverage job still enforces the module
-thresholds and uploads the report artifact, but does not publish the temporary
-merge-group commit to Coveralls. Basemap conformance remains report-only.
-
-After the merge-group workflow is on `master`, a repository administrator can
-import `.github/rulesets/master-merge-queue.json` under **Settings → Rules →
-Rulesets → New ruleset → Import a ruleset**. Committing the JSON does not apply
-it. Keep the existing protections in place. The new ruleset targets only
-`master`, uses squash merges, and requires the eight checks from `Test`. It
-adds no bypass or review requirement. Verify the next queued PR runs those
-checks on its merge-group commit before relying on the queue.
+The `Test` workflow runs on merge-group commits as well as pull requests and
+pushes to `master`. Repository administrators manage the `master` merge queue
+and its required checks in GitHub **Settings → Rules → Rulesets**.
 
 ## Rendering and interaction regressions
 
