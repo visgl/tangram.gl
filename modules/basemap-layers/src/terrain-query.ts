@@ -64,6 +64,7 @@ export function pickTerrainSurface(
   ) {
     throw new RangeError('Terrain queries require a finite affine common-to-surface matrix');
   }
+  // deck viewports require an explicit origin; the shared helper also accepts omitted origins.
   if (!Number.isFinite(viewport.x) || !Number.isFinite(viewport.y) ||
       !containsScreenPixel(viewport, pixel)) return null;
   const conversion = new Matrix4(Array.from(commonToSurface));
