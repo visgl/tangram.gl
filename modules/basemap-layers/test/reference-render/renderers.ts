@@ -392,6 +392,14 @@ async function drawBasemapLayer(
           height: VIEWPORT.height,
           useDevicePixels: pixelRatio === 1 ? false : pixelRatio,
           deviceProps: {adapters: [webgl2Adapter]},
+          // luma.gl 9.4.2's WebGL state cache starts at a viewport of [0, 0, 1024, 1024], not the
+          // context's own, so it never sets a first viewport of exactly that size (a 512 px view
+          // at pixel ratio 2): the drawing stays at the size the canvas had when it was created.
+          // visgl/luma.gl#3396, fixed by visgl/luma.gl#3410 after 9.4.2: remove after 9.4.3.
+          onDeviceInitialized: device => {
+            const gl = (device as any).gl as WebGL2RenderingContext;
+            gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+          },
           views: new MapView(),
           initialViewState: {
             longitude: scene.center[0],
