@@ -5,7 +5,7 @@
 import {CompositeLayer, COORDINATE_SYSTEM, type LayerProps, type UpdateParameters, type Viewport} from '@deck.gl/core';
 import {SimpleMeshLayer} from '@deck.gl/mesh-layers';
 import {Matrix4} from '@math.gl/core';
-import {unprojectScreenSegment} from '../screen-ray';
+import {unprojectScreenSegment} from '@tangram.gl/map-utils/screen-ray';
 import {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, PROJECTION_CONSTANTS, type TerrainSurfaceHit, type TerrainCollectionHit} from '@tangram.gl/tangram-renderer/core';
 import {prepareGlobeTerrainMesh, getPreparedGlobeTerrainTemplate, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import {getTerrainRenderMesh, resolveGlobeTerrainDisplay, type GlobeTerrainDisplaySnapshot} from './terrain-display';

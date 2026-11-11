@@ -102,8 +102,7 @@ describe('coverage scope guard', () => {
     expect(sourceFiles.some(filePath => filePath.endsWith('selection/selection-types.ts'))).toBe(true);
     expect(sourceFiles.some(filePath => filePath.endsWith('index.d.ts'))).toBe(false);
     const layerFiles = collectAuthoredSourceFiles('modules/tangram-layers/src');
-    expect(layerFiles).toHaveLength(21);
-    expect(layerFiles.some(filePath => filePath.endsWith('screen-ray.ts'))).toBe(true);
+    expect(layerFiles).toHaveLength(20);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/terrain-display.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/terrain.ts'))).toBe(true);
     expect(layerFiles.some(filePath => filePath.endsWith('experimental/projected-navigation.ts'))).toBe(true);
@@ -116,7 +115,7 @@ describe('coverage scope guard', () => {
   test('includes the extracted shared text sources in the authored inventory', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/map-utils/src');
     expect(sourceFiles.map(filePath => basename(filePath)).sort()).toEqual([
-      'arabic-shaping.ts', 'bidi.ts', 'canvas.ts', 'explicit.ts', 'types.ts'
+      'arabic-shaping.ts', 'bidi.ts', 'canvas.ts', 'explicit.ts', 'screen-ray.ts', 'types.ts'
     ]);
   });
 

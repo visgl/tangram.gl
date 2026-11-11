@@ -46,7 +46,7 @@
   },
   "scripts": {
     "build": "yarn build:types && yarn build:bundle",
-    "build:types": "node ../../scripts/build-package-types.mjs modules/tangram-layers index.ts experimental/projected-basemaps.ts experimental/terrain.ts",
+    "build:types": "yarn workspace @tangram.gl/map-utils build:types && node ../../scripts/build-package-types.mjs modules/tangram-layers index.ts experimental/projected-basemaps.ts experimental/terrain.ts",
     "build:bundle": "yarn build:bundle:main && yarn build:bundle:webxr && yarn build:bundle:projected && yarn build:bundle:terrain",
     "build:bundle:terrain": "ocular-bundle ./experimental-terrain.js --env=dev --output=dist/experimental/terrain.js --externals=@tangram.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
     "build:bundle:projected": "ocular-bundle ./experimental-projected-basemaps.js --env=dev --output=dist/experimental/projected-basemaps.js --externals=@tangram.gl/tangram-renderer --sourcemap=true --sourcesContent=false",
@@ -55,6 +55,7 @@
     "prepack": "yarn build"
   },
   "devDependencies": {
+    "@tangram.gl/map-utils": "workspace:*",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "playwright": "^1.58.0",
     "vitest": "^4.0.18"
