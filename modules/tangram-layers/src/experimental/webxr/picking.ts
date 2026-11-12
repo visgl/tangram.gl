@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
-import {containsScreenPixel, unprojectScreenSegment} from '@tangram.gl/map-utils/screen-ray';
+import {unprojectScreenRay} from '@math.gl/geometry/culling';
+import {containsScreenPixel} from '@tangram.gl/map-utils/screen-ray';
 import WebMercatorViewAdapter from '../../web_mercator_view_adapter';
 import {createXRPlacementMatrix, intersectContentSurface, transformXRRayToContent, isContentPointWithinMapBounds} from './projection';
 import type {XRPresentationFrame, XRPresentationRenderView, XRSpatialRay, XRSurfaceHit,
@@ -61,7 +62,7 @@ export function pickXRSurface(options: XRSurfacePickingOptions): XRSurfaceHit | 
     if (placement.type !== 'globe') clipMatrix.multiplyRight(camera.view);
     if (!isInvertibleMatrix(clipMatrix)) return null;
     const inverse = clipMatrix.invert();
-    const segment = unprojectScreenSegment(inverse, viewport, [pointer.x, pointer.y]);
+    const segment = unprojectScreenRay(inverse, viewport, [pointer.x, pointer.y]);
     if (!segment) return null;
     ray = segment;
     farPoint = [segment.origin[0] + segment.direction[0], segment.origin[1] + segment.direction[1],

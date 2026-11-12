@@ -62,7 +62,7 @@ test('batches a large GeoJSON source before indexing it once in the worker', asy
     const requests = postMessage.mock.calls.flatMap(([message]) => {
       const request = message?.payload?.input;
       const input: GeoJsonWorkerRequest | undefined =
-        request?.operation === 'run' ? request.input : undefined;
+        request?.operation === 'process' ? request.input : undefined;
       return input && input.type !== 'remove' ? [input] : [];
     });
     expect(requests.map(request => request.type)).toEqual([

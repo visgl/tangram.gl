@@ -22,23 +22,19 @@ This structure lets us measure compatibility before changing runtime behavior:
 
 | Procedure | Production implementation | Candidate | Current result |
 | --- | --- | --- | --- |
-| Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/documents/yaml-loader` beta.2 | Classic scenes and flow merges match; timestamp and scientific scalar syntax still differ |
-| Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/tiles/mvt-geojson-loader` beta.2 | Points, lines, polygons, extents, IDs and `parse_json` match; an authored `__tangram_layer` property is still overwritten by the candidate |
-| Archive loading | Optional worker provider | `@loaders.gl/tiles/pmtiles` beta.2 | Hermetic 16 KB PMTiles v3 fixture checks range requests, raw bytes, metadata, credits and both MVT decoders |
+| Scene YAML | Tangram's `js-yaml` fork | `@loaders.gl/documents/yaml-loader` beta.8 | Classic scenes and flow merges match; timestamp and scientific scalar syntax still differ |
+| Vector tiles | `pbf` and `@mapbox/vector-tile` | `@loaders.gl/tiles/mvt-geojson-loader` beta.8 | Points, lines, polygons, extents, IDs and `parse_json` match; an authored `__tangram_layer` property is still overwritten by the candidate |
+| Archive loading | Optional worker provider | `@loaders.gl/tiles/pmtiles` beta.8 | Hermetic 16 KB PMTiles v3 fixture checks range requests, raw bytes, metadata, credits and both MVT decoders |
 | Web Mercator | `@math.gl/geospatial/web-mercator` plus Tangram meter adapter | Tangram projection formulas | Edge-domain round trips and tile selection match within numeric tolerance |
 | Matrix operations | `@math.gl/core` `Matrix3`/`Matrix4` in camera and tile paths | Golden outputs captured from `gl-mat3@1.0.0` and `gl-mat4@1.1.4` | Identity, transforms, projection, look-at, inversion, and singular-matrix behavior match in conformance tests |
 | WebXR surface rays | `@math.gl/geometry/culling` analytic plane/sphere shapes | Captured Tangram ground/sphere formulas | +Z/+Y axis adapter, forward/inside/tangent/miss cases, ground tolerance and physical tabletop edges match; existing per-eye picking/grabbing tests cover placement and clipping |
 
-The published YAML parser now supports anchors, aliases, block merge keys and
+The published YAML parser supports anchors, aliases, block and flow merge keys and
 unquoted `rgba(...)`. The complete classic corpus is compared directly, without
 expected failures or edits to scene fixtures. Additional semantic checks expose
-remaining gaps: flow-style `<<` remains a literal property, timestamps remain
-strings instead of `Date`, and `1e3` becomes a number instead of Tangram's string.
-Flow merge handling and explicit-key precedence are addressed in
-[loaders.gl #4195](https://github.com/visgl/loaders.gl/pull/4195); the pinned
-release and production parser remain unchanged until that fix is published and
-conformance is rerun. These are explicit incompatibility tests, not a claim that the default parser
-can safely change. MVT also retains its legacy default until the injected
+remaining gaps: timestamps remain strings instead of `Date`, and `1e3` becomes
+a number instead of Tangram's string. Tangram keeps its production parser until
+those differences are resolved. MVT also retains its legacy default until the injected
 layer-property collision can be eliminated without losing authored properties.
 MLT remains an explicitly selected worker decoder; there is no legacy MLT parser
 to replace or basis for claiming a full MVT/MLT conformance corpus.
@@ -57,7 +53,7 @@ The YAML and MVT candidates are not imported by normal package entrypoints or th
 production renderer graph. The opt-in `loaders-gl-worker.js` bundles MVT, MLT and
 PMTiles integrations separately. Keeping them in `devDependencies` prevents those
 evaluations from changing application bundle size or requiring applications to
-install both implementations. The exact loaders.gl alpha is pinned while its
+install both implementations. The exact loaders.gl beta is pinned while its
 new config loader is evaluated. The math.gl projection and matrix classes are
 runtime dependencies. Legacy matrix packages are no longer installed: the
 matrix conformance test keeps their captured numeric outputs as stable fixtures.
@@ -88,7 +84,7 @@ an implementation. Keep Tangram styling and packed vertex formats in renderer ad
 
 | Priority | Owner | Candidate and required boundary |
 | --- | --- | --- |
-| 1 | loaders.gl/config | Fix flow-style merge handling and offer explicit scalar-schema compatibility for timestamps/scientific notation. The existing scene corpus and semantic mismatch cases are ready-made regression fixtures. |
+| 1 | loaders.gl/documents | Offer explicit scalar-schema compatibility for timestamps and scientific notation. The existing scene corpus and semantic mismatch cases are ready-made regression fixtures. |
 | 2 | loaders.gl/mvt | Return source-layer provenance separately from authored properties, so an internal grouping field cannot overwrite a user's property. Preserve the lightweight GeoJSON parser subpath and Tangram's normalization/`parse_json` adapter. |
 | 3 | math.gl/polygon | Extend triangle subdivision with asynchronous/batched transforms and pluggable attribute interpolation. Tangram currently batches edge/interior probes through a worker RPC; a synchronous per-position callback cannot replace that contract. Preserve indexed seams, height-aware wall topology, budgets and determinism. |
 | 4 | loaders.gl/tiles | Evaluate shared Tileset2D with Tangram's existing traversal adapter. Request/cache primitives already exist upstream; compare generation cancellation, worker-build completion, parent fallback pinning and CPU/GPU resource release before replacing Tangram's build queue/cache. Upstream only the missing lifecycle hooks. |

@@ -4,7 +4,8 @@
 
 import type {Viewport} from '@deck.gl/core';
 import {Matrix4} from '@math.gl/core';
-import {containsScreenPixel, unprojectScreenSegment} from '@tangram.gl/map-utils/screen-ray';
+import {unprojectScreenRay} from '@math.gl/geometry/culling';
+import {containsScreenPixel} from '@tangram.gl/map-utils/screen-ray';
 
 /** Structural loaders.gl-compatible hit, separating displayed geometry from source elevation. */
 export type TerrainSurfaceHit = {
@@ -79,10 +80,7 @@ export function pickTerrainSurface(
   const projection = new Matrix4(viewport.viewProjectionMatrix);
   if (!Number.isFinite(projection.determinant()) || projection.determinant() === 0) return null;
   const transform = conversion.multiplyRight(projection.invert());
-  const segment = unprojectScreenSegment(transform, viewport, pixel);
+  const segment = unprojectScreenRay(transform, viewport, pixel);
   if (!segment) return null;
-  const distance = Math.hypot(...segment.direction);
-  return Number.isFinite(distance) && distance > 0
-    ? surface.intersectRay(segment, distance)
-    : null;
+  return surface.intersectRay(segment, Math.hypot(...segment.direction));
 }

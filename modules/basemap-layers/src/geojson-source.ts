@@ -3,8 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {GeoJSONVT, GeoJSONVTOptions} from '@maplibre/geojson-vt';
-import {createWorkerResource} from '@math.gl/core/tasks';
-import type {WorkerResource} from '@math.gl/core/tasks';
+import {TaskRunner, type InitializedTask} from '@math.gl/tasks';
 import {createTileIndex, cutTile, decodeTile, GEOJSON_TILE_EXTENT} from './geojson-tiler';
 import type {GeoJsonWorkerRequest} from './geojson-worker';
 import {GeoJsonTask} from './geojson-task';
@@ -104,7 +103,8 @@ export function setGeoJsonWorkerEnabled(enabled: boolean): void {
  */
 class GeoJsonWorker {
   failed = false;
-  private resource: Promise<WorkerResource<GeoJsonWorkerRequest, GeoJsonTaskResult>>;
+  private readonly runner = new TaskRunner();
+  private readonly resource: Promise<InitializedTask<typeof GeoJsonTask>>;
   private queue: Promise<void> = Promise.resolve();
   private nextId = 0;
   private sources = new WeakMap<BasemapSource, {id: number; sent: Promise<void>}>();
@@ -113,7 +113,7 @@ class GeoJsonWorker {
   );
 
   constructor() {
-    this.resource = createWorkerResource(GeoJsonTask, null, {inputOwnership: 'copy'});
+    this.resource = this.runner.initializeTask(GeoJsonTask, {}, {execution: 'worker'});
   }
 
   /** Cuts a tile of `source` in the worker, sending the source's data first if it is new. */
@@ -176,10 +176,11 @@ class GeoJsonWorker {
       if (this.failed) return undefined;
       try {
         const resource = await this.resource;
-        return await resource.run(message, {inputOwnership: 'copy'});
+        // The tile can reference properties owned by the retained index.
+        return await resource.runTask(message, {inputOwnership: 'copy', outputOwnership: 'copy'});
       } catch {
         this.failed = true;
-        void this.resource.then(resource => resource.destroy()).catch(() => {});
+        void this.runner.terminate().catch(() => {});
         return undefined;
       }
     });
