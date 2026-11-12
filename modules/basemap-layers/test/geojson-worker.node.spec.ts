@@ -78,7 +78,8 @@ type Fake = {
 };
 
 /**
- * Loads `geojson-source.ts` afresh with a fake worker resource; 'fail' simulates a load failure.
+ * Loads `geojson-source.ts` afresh with a fake worker resource; 'fail' simulates a load failure
+ * followed by a teardown rejection.
  */
 async function loadWithFakeWorker(mode: 'run' | 'fail') {
   vi.resetModules();
@@ -127,7 +128,10 @@ async function loadWithFakeWorker(mode: 'run' | 'fail') {
         });
         return {runTask: run};
       }
-      async terminate() { this.worker?.terminate(); }
+      async terminate() {
+        this.worker?.terminate();
+        if (mode === 'fail') throw new Error('Worker teardown failed');
+      }
     }
   }));
   const module = await import('../src/geojson-source');
@@ -170,11 +174,20 @@ describe('GeoJSON worker', () => {
   });
 
   test('every geometry type and the source options cross to the worker', async () => {
+    const collection = {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {name: 'nested'},
+        geometry: {type: 'GeometryCollection', geometries: MIXED.features.map(feature => feature.geometry)}
+      }]
+    };
     const sources = [
       {type: 'geojson', data: MIXED, buffer: 0},
       {type: 'geojson', data: MIXED, promoteId: 'name'},
       {type: 'geojson', data: MIXED.features[0], generateId: true},
-      {type: 'geojson', data: makePolygons(50), cluster: false, tolerance: 3}
+      {type: 'geojson', data: makePolygons(50), cluster: false, tolerance: 3},
+      {type: 'geojson', data: collection}
     ];
     vi.resetModules();
     const mainThread = await import('../src/geojson-source');
@@ -216,7 +229,7 @@ describe('GeoJSON worker', () => {
     await expect(module.getGeoJsonTileFeatures(source, TILES[1])).rejects.toThrow();
   });
 
-  test('a worker that fails to load is replaced by the main thread', async () => {
+  test('a worker that fails to load falls back even when teardown rejects', async () => {
     const expected = await getMainThreadTiles(DATA);
     const {module, fakes} = await loadWithFakeWorker('fail');
     const source = {type: 'geojson', data: DATA};
