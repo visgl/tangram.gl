@@ -7,7 +7,7 @@
 /*jshint worker: true*/
 
 import Utils from '../utils/utils';
-import {createWorker} from '@math.gl/core/tasks';
+import {createWorker} from '@math.gl/core-legacy-tasks/tasks';
 import type {SceneWorkerTask} from './scene-worker-thread';
 import {compileFunctionStrings, functionStringCache, clearFunctionStringCache} from '../utils/functions';
 import debugSettings, {mergeDebugSettings} from '../utils/debug_settings';

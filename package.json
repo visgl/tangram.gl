@@ -17,8 +17,8 @@
   },
   "homepage": "https://vis.gl/tangram.gl/",
   "resolutions": {
-    "@math.gl/core@npm:5.0.0-alpha.15": "5.0.0-beta.2",
-    "@math.gl/geospatial@npm:5.0.0-alpha.15": "5.0.0-beta.2",
+    "@math.gl/core@npm:5.0.0-alpha.15": "5.0.0-beta.8",
+    "@math.gl/geospatial@npm:5.0.0-alpha.15": "5.0.0-beta.8",
     "@loaders.gl/arrow@npm:4.5.1": "4.5.3",
     "@loaders.gl/worker-utils@npm:4.5.4": "4.5.3"
   },
@@ -65,9 +65,11 @@
   },
   "devDependencies": {
     "@deck.gl/core": "^9.4.0",
-    "@loaders.gl/core": "5.0.0-beta.2",
-    "@loaders.gl/tiles": "5.0.0-beta.2",
+    "@loaders.gl/core": "5.0.0-beta.8",
+    "@loaders.gl/tiles": "5.0.0-beta.8",
     "@maplibre/maplibre-gl-style-spec": "26.4.4",
+    "@math.gl/core-legacy-tasks": "npm:@math.gl/core@5.0.0-beta.2",
+    "@math.gl/tasks": "5.0.0-beta.8",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "@vitest/coverage-v8": "^4.0.18",
     "chai": "^4.5.0",

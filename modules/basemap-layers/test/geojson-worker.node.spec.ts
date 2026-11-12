@@ -115,15 +115,19 @@ async function loadWithFakeWorker(mode: 'run' | 'fail') {
   }
   vi.stubGlobal('Worker', FakeWorker);
   // Exercise our source adapter in Node; real math.gl transport is covered in Chromium.
-  vi.doMock('@math.gl/core/tasks', () => ({
-    createWorkerResource: async (task: {loadWorker: () => FakeWorker}) => {
-      const worker = task.loadWorker();
-      const run = (input: GeoJsonWorkerRequest) => new Promise((resolve, reject) => {
-        worker.onmessage = ({data}: any) => resolve(data.payload.result.value);
-        worker.onerror = () => reject(new Error('worker failed'));
-        worker.postMessage({type: 'process', payload: {input: {operation: 'run', input}}});
-      });
-      return {run, destroy: async () => worker.terminate()};
+  vi.doMock('@math.gl/tasks', () => ({
+    TaskRunner: class {
+      private worker?: FakeWorker;
+      async initializeTask(task: {worker: {create: () => FakeWorker}}) {
+        const worker = this.worker = task.worker.create();
+        const run = (input: GeoJsonWorkerRequest) => new Promise((resolve, reject) => {
+          worker.onmessage = ({data}: any) => resolve(data.payload.result.value);
+          worker.onerror = () => reject(new Error('worker failed'));
+          worker.postMessage({type: 'process', payload: {input: {operation: 'run', input}}});
+        });
+        return {runTask: run};
+      }
+      async terminate() { this.worker?.terminate(); }
     }
   }));
   const module = await import('../src/geojson-source');
@@ -140,7 +144,7 @@ async function getMainThreadTiles(data: unknown) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.doUnmock('@math.gl/core/tasks');
+  vi.doUnmock('@math.gl/tasks');
 });
 
 describe('GeoJSON worker', () => {

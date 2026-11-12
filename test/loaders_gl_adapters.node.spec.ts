@@ -4,14 +4,14 @@
 
 import {afterEach, describe, expect, test, vi} from 'vitest';
 
-const {createDataSource, getTile, parseSync} = vi.hoisted(() => ({
-  createDataSource: vi.fn(),
+const {createDataSourceSync, getTile, parseSync} = vi.hoisted(() => ({
+  createDataSourceSync: vi.fn(),
   getTile: vi.fn(),
   parseSync: vi.fn()
 }));
 
 vi.mock('@loaders.gl/tiles/pmtiles', () => ({
-  PMTilesSourceLoader: {createDataSource}
+  PMTilesSourceLoader: {createDataSourceSync}
 }));
 
 vi.mock('@loaders.gl/tiles/mlt/bundled', () => ({
@@ -104,7 +104,7 @@ describe('loaders.gl tile adapters', () => {
   test('reuses a PMTiles source and requests the supplied tile index', async () => {
     const tileBytes = new Uint8Array([1, 2, 3]).buffer;
     getTile.mockResolvedValue(tileBytes);
-    createDataSource.mockReturnValue({getTile, metadata: Promise.resolve({format: 'pmtiles', maxZoom: 14}),
+    createDataSourceSync.mockReturnValue({getTile, metadata: Promise.resolve({format: 'pmtiles', maxZoom: 14}),
       pmtiles: {getMetadata: async () => ({})}});
 
     const archiveUrl = 'https://tiles.example.test/basemap.pmtiles';
@@ -113,7 +113,7 @@ describe('loaders.gl tile adapters', () => {
     const firstTile = await source.getTile(tileIndex);
     const secondTile = await source.getTile(tileIndex);
 
-    expect(createDataSource).toHaveBeenCalledExactlyOnceWith(archiveUrl, {core: {fetch: expect.any(Function)}});
+    expect(createDataSourceSync).toHaveBeenCalledExactlyOnceWith(archiveUrl, {core: {fetch: expect.any(Function)}});
     expect(getTile).toHaveBeenNthCalledWith(1, {...tileIndex, signal: undefined});
     expect(getTile).toHaveBeenNthCalledWith(2, {...tileIndex, signal: undefined});
     expect(await source.getMetadata?.()).toMatchObject({format: 'pmtiles', maxZoom: 14});
@@ -124,10 +124,10 @@ describe('loaders.gl tile adapters', () => {
   });
 
   test('archive transport keeps headers and disposal cancellation through body completion', async () => {
-    createDataSource.mockReturnValue({getTile, metadata: Promise.resolve({format: 'pmtiles',
+    createDataSourceSync.mockReturnValue({getTile, metadata: Promise.resolve({format: 'pmtiles',
       attributions: [], tilejson: {htmlAttribution: 'archive credit'}}), pmtiles: {getMetadata: async () => ({attribution: 'raw credit'})}});
     const source = createPMTilesSource('archive.pmtiles', {headers: {Authorization: 'source-token'}});
-    const transport: (url: string, options: RequestInit) => Promise<Response> = createDataSource.mock.calls[0][1].core.fetch;
+    const transport: (url: string, options: RequestInit) => Promise<Response> = createDataSourceSync.mock.calls[0][1].core.fetch;
     let signal: AbortSignal | null | undefined;
     let rejectBody: (reason: Error) => void = () => {};
     const body = new Promise<ArrayBuffer>((_resolve, reject) => { rejectBody = reject; });
@@ -149,9 +149,9 @@ describe('loaders.gl tile adapters', () => {
   });
 
   test('archive transport forwards per-request abort without retiring the source', async () => {
-    createDataSource.mockReturnValue({getTile, metadata: Promise.resolve({format: 'pmtiles'}), pmtiles: {getMetadata: async () => ({})}});
+    createDataSourceSync.mockReturnValue({getTile, metadata: Promise.resolve({format: 'pmtiles'}), pmtiles: {getMetadata: async () => ({})}});
     const source = createPMTilesSource('archive.pmtiles');
-    const transport: (url: string, options: RequestInit) => Promise<Response> = createDataSource.mock.calls[0][1].core.fetch;
+    const transport: (url: string, options: RequestInit) => Promise<Response> = createDataSourceSync.mock.calls[0][1].core.fetch;
     const controller = new AbortController();
     let signal: AbortSignal | null | undefined;
     vi.stubGlobal('fetch', vi.fn(async (_url: string, options: RequestInit) => {

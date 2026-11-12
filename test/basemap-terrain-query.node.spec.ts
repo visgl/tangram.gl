@@ -129,6 +129,14 @@ test('singular and nonfinite view matrices cannot silently produce a different q
   expect(source.intersectRay).not.toHaveBeenCalled();
 });
 
+test('does not send a terrain ray whose clip segment crosses homogeneous infinity', () => {
+  const source: TerrainSurface = {projection: 'globe', intersectRay: vi.fn(() => null)};
+  // Swap clip z and w so the endpoints have opposite homogeneous signs.
+  const viewProjectionMatrix = new Matrix4([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0]);
+  expect(pickTerrainSurface({...viewport, viewProjectionMatrix}, [200, 100], source, identity)).toBeNull();
+  expect(source.intersectRay).not.toHaveBeenCalled();
+});
+
 test.each([
   {point: [500, 500], triangleIndex: 0, weights: [0.5, 0.25, 0.25], elevation: 17.5},
   {point: [1500, 1500], triangleIndex: 1, weights: [0.25, 0.5, 0.25], elevation: 12.5}
