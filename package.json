@@ -66,7 +66,6 @@
     "@loaders.gl/core": "5.0.0-beta.8",
     "@loaders.gl/tiles": "5.0.0-beta.8",
     "@maplibre/maplibre-gl-style-spec": "26.4.4",
-    "@math.gl/core-legacy-tasks": "npm:@math.gl/core@5.0.0-beta.2",
     "@math.gl/tasks": "5.0.0-beta.8",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "@vitest/coverage-v8": "^4.0.18",

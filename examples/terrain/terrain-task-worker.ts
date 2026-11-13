@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {createWorker} from '@math.gl/core-legacy-tasks/tasks';
-import {processTerrainTask} from './terrain-task';
+import {initializeTaskWorker} from '@math.gl/tasks';
+import {TerrainDecodeTask} from './terrain-task';
 
 // Install math.gl's task protocol on the worker global.
-void createWorker(processTerrainTask);
+void initializeTaskWorker(TerrainDecodeTask);

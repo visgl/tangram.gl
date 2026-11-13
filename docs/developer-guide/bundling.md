@@ -55,6 +55,8 @@ rebuilds package artifacts.
 
 Renderer-generated scene workers use the math.gl task protocol for scene
 initialization, configuration, tile requests, feature queries and diagnostics.
+When hosting this worker separately, deploy it together with the renderer: the
+new task protocol is not wire-compatible with the older task transport.
 The existing broker still carries worker-to-main callbacks, including transferable
 mesh data. Custom worker URLs use the legacy broker unless `workerProtocol: 'tasks'`
 is set. External loaders and projection scripts remain worker-loaded sidecars,

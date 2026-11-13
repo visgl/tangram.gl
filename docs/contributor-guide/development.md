@@ -165,9 +165,10 @@ The `/screen-ray` entry shares viewport hit testing. Basemap Layers and
 Tangram terrain/XR use math.gl's `unprojectScreenRay` for finite near-to-far
 unprojection; callers still select the eye and supply the clip-to-content transform.
 
-Basemap's GeoJSON tiler uses `@math.gl/tasks`. The scene and terrain workers
-still use the older transport through `@math.gl/core-legacy-tasks/tasks`
-until they migrate their worker lifecycle and message handling.
+Basemap's GeoJSON tiler, the renderer's scene worker, and the example terrain
+decoder use `@math.gl/tasks`. The scene worker runs concurrent operations while
+the Tangram broker still delivers mesh callbacks. Each terrain decoder slot
+retains one task instance and replaces it after cancellation or invalid output.
 
 The source of truth is `scripts/coverage-modules.mjs`. Coverage includes all
 authored source, including experimental entries and unexecuted files; generated,

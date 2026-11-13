@@ -24,9 +24,9 @@
     "@luma.gl/engine": "10.0.0-alpha.14",
     "@luma.gl/shaders": "10.0.0-alpha.14",
     "@math.gl/core": "5.0.0-beta.8",
-    "@math.gl/core-legacy-tasks": "npm:@math.gl/core@5.0.0-beta.2",
     "@math.gl/geometry": "5.0.0-beta.8",
     "@math.gl/geospatial": "5.0.0-beta.8",
+    "@math.gl/tasks": "5.0.0-beta.8",
     "@tangram.gl/tangram-layers": "workspace:^",
     "@tangram.gl/tangram-renderer": "workspace:^",
     "mjolnir.js": "^3.1.0"

@@ -38,9 +38,14 @@ test.each(['flat', 'perspective', 'globe', 'first-person'] as const)(
     const operations: string[] = [];
     const postMessage = Worker.prototype.postMessage;
     vi.spyOn(Worker.prototype, 'postMessage').mockImplementation(function (this: Worker, message: unknown, options?: unknown) {
-      const packet = message as {source?: string; type?: string; payload?: {input?: {operation?: string}}};
-      if (packet.source === 'loaders.gl' && packet.type === 'process' && packet.payload?.input?.operation) {
-        operations.push(packet.payload.input.operation);
+      const packet = message as {
+        source?: string; type?: string;
+        payload?: {kind?: string; operation?: string; value?: {input?: {operation?: string}}};
+      };
+      const request = packet.payload;
+      if (packet.source === 'loaders.gl/tasks' && packet.type === 'task-channel' &&
+        request?.kind === 'request' && request.operation === 'process' && request.value?.input?.operation) {
+        operations.push(request.value.input.operation);
       }
       return postMessage.call(this, message, options as StructuredSerializeOptions);
     });

@@ -3,10 +3,20 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import {runTask} from '@math.gl/core-legacy-tasks/tasks';
-import {TerrainDecodeTask, type TerrainTaskInput} from '../examples/terrain/terrain-task';
+import {TaskRunner} from '@math.gl/tasks';
+import {TerrainDecodeTask, getTerrainWorkerTask, type TerrainTaskInput} from '../examples/terrain/terrain-task';
 import {TerrainTaskPool} from '../examples/terrain/terrain-task-pool';
 import {createTerrainFixture} from './terrain-fixture';
+
+async function runTerrainTask(input: TerrainTaskInput, workerUrl?: string) {
+  const runner = new TaskRunner();
+  try {
+    const task = workerUrl ? getTerrainWorkerTask(() => new Worker(workerUrl, {type: 'module'})) : TerrainDecodeTask;
+    return (await runner.runTask(task, input, {execution: workerUrl ? 'worker' : 'main-thread'})).data;
+  } finally {
+    await runner.terminate();
+  }
+}
 
 test('terrain task worker matches local decoding and preserves cached image bytes', async () => {
   const {bytes} = await createTerrainFixture();
@@ -15,10 +25,8 @@ test('terrain task worker matches local decoding and preserves cached image byte
   const workerUrl = `${location.origin}/examples/terrain/dist/terrain-task-worker.js`;
   for (const mode of ['grid', 'mesh'] as const) {
     const request = {...input, mode};
-    const local = await runTask(TerrainDecodeTask, request, {execution: 'main-thread', inputOwnership: 'copy'});
-    const worker = await runTask(TerrainDecodeTask, request, {
-      execution: 'worker', 'tangram-terrain-decode': {workerUrl}, workerType: 'module', reuseWorkers: false, inputOwnership: 'copy'
-    });
+    const local = await runTerrainTask(request);
+    const worker = await runTerrainTask(request, workerUrl);
     expect(worker.grid).toEqual(local.grid);
     if (mode === 'mesh') expect(worker.mesh?.indices?.value).toEqual(local.mesh?.indices?.value);
     else expect(worker.mesh).toBeUndefined();
@@ -29,32 +37,9 @@ test('terrain task worker matches local decoding and preserves cached image byte
 test('the legacy terrain worker URL also accepts math.gl tasks', async () => {
   const {bytes} = await createTerrainFixture();
   const input: TerrainTaskInput = {mode: 'grid', bytes, bounds: [0, 0, 0.01, 0.01], meshMaxError: 0, noData: 'opaque'};
-  const local = await runTask(TerrainDecodeTask, input, {execution: 'main-thread', inputOwnership: 'copy'});
-  const result = await runTask(TerrainDecodeTask, input, {
-    execution: 'worker', 'tangram-terrain-decode': {workerUrl: `${location.origin}/examples/terrain/dist/terrain-worker.js`},
-    workerType: 'module', reuseWorkers: false, inputOwnership: 'copy'
-  });
+  const local = await runTerrainTask(input);
+  const result = await runTerrainTask(input, `${location.origin}/examples/terrain/dist/terrain-worker.js`);
   expect(result).toEqual(local);
-});
-
-test('legacy terrain worker dispatches an early burst of task messages exactly once', async () => {
-  const worker = new Worker(`${location.origin}/examples/terrain/dist/terrain-worker.js`, {type: 'module'});
-  try {
-    const replies: unknown[] = [];
-    const received = new Promise<void>(resolve => worker.addEventListener('message', event => {
-      if (event.data?.source === 'loaders.gl' && event.data.type === 'error') {
-        replies.push(event.data);
-        if (replies.length === 2) resolve();
-      }
-    }));
-    const input = {mode: 'grid', bytes: new ArrayBuffer(8), bounds: [0, 0, 1, 1], meshMaxError: -1, noData: 'opaque'};
-    for (let index = 0; index < 2; index++) worker.postMessage({source: 'loaders.gl', type: 'process', payload: {input, options: {}}});
-    await received;
-    await new Promise(resolve => setTimeout(resolve, 50));
-    expect(replies).toHaveLength(2);
-  } finally {
-    worker.terminate();
-  }
 });
 
 test('the task pool reuses a worker, enforces capacity and preserves source bytes', async () => {
@@ -98,7 +83,7 @@ test('aborting an active task releases capacity without detaching its source', a
 test('malformed task results retire the worker before it can be reused', async () => {
   const {bytes} = await createTerrainFixture();
   const workerUrl = URL.createObjectURL(new Blob([
-    `self.onmessage = event => { if (event.data.type === 'process') self.postMessage({source: 'loaders.gl', type: 'done', payload: {result: {invalid: true}}}); };`
+    `self.onmessage = event => { if (event.data.type === 'process') self.postMessage({source: 'loaders.gl', type: 'done', payload: {result: {data: {}, decodeMs: 0}}}); };`
   ], {type: 'text/javascript'}));
   const pool = new TerrainTaskPool(workerUrl, 1);
   const bounds: [number, number, number, number] = [0, 0, 0.01, 0.01];
@@ -117,12 +102,17 @@ test('retiring a bad worker does not interrupt another active slot', async () =>
   const workerUrl = URL.createObjectURL(new Blob([`
     self.onmessage = event => {
       if (event.data.type !== 'process') return;
-      const input = event.data.payload.input;
+      const request = event.data.payload.input;
+      if (request.operation !== 'process') {
+        self.postMessage({source: 'loaders.gl', type: 'done', payload: {result: {}}});
+        return;
+      }
+      const input = request.input;
       const invalid = new Uint8Array(input.bytes)[0] === 1;
       const result = invalid ? {} : {grid: {width: 2, height: 2, bounds: input.bounds,
         heights: new Float32Array([1, 2, 3, 4]), valid: new Uint8Array([1, 1, 1, 1]),
         registration: 'pixel-center', verticalDatum: 'unknown'}};
-      setTimeout(() => self.postMessage({source: 'loaders.gl', type: 'done', payload: {result}}), invalid ? 0 : 50);
+      setTimeout(() => self.postMessage({source: 'loaders.gl', type: 'done', payload: {result: {data: result, decodeMs: 0}}}), invalid ? 0 : 50);
     };
   `], {type: 'text/javascript'}));
   const pool = new TerrainTaskPool(workerUrl, 2);

@@ -8,7 +8,7 @@ import {SceneWorkerThread} from '../modules/tangram-renderer/src/scene/scene-wor
 import WorkerBroker from '../modules/tangram-renderer/src/utils/worker_broker';
 import log from '../modules/tangram-renderer/src/utils/log';
 
-test('packaged scene worker supports concurrent broker calls through a math.gl thread', async () => {
+test('packaged scene worker shares a classic Worker between concurrent tasks and the broker', async () => {
     const url = `${location.origin}/modules/tangram-renderer/dist/scene-worker.js`;
     const fixtureUrl = URL.createObjectURL(new Blob([`
         self.seedQueryFixture = () => {
@@ -92,11 +92,18 @@ test('destroy rejects pending tasks and prevents new work', async () => {
 });
 
 test('worker startup failure rejects pending and future tasks', async () => {
-    class FailedWorker {
+    class FailedWorker extends EventTarget {
         onerror: ((error: ErrorEvent) => void) | null = null;
         onmessage: ((event: MessageEvent) => void) | null = null;
         onmessageerror: (() => void) | null = null;
-        constructor() {queueMicrotask(() => this.onerror?.(new ErrorEvent('error', {message: 'startup failed'})));}
+        constructor() {
+            super();
+            queueMicrotask(() => {
+                const event = new ErrorEvent('error', {message: 'startup failed'});
+                this.dispatchEvent(event);
+                this.onerror?.(event);
+            });
+        }
         postMessage(): void {}
         terminate(): void {}
     }
@@ -120,6 +127,19 @@ test('an explicitly hosted packaged worker can opt into tasks', async () => {
         const statistics = await scene.getTileSourceStatistics();
         expect(statistics).toHaveLength(1);
         expect(statistics[0].workerId).toBe(0);
+    } finally {
+        scene.destroyWorkers();
+    }
+});
+
+test('an explicitly hosted worker can still use only the legacy broker', async () => {
+    const workerURL = `${location.origin}/modules/tangram-renderer/dist/scene-worker.js`;
+    const scene = Object.assign(Scene.create({}, {workerURL, workerProtocol: 'legacy', numWorkers: 1}),
+        {portable_rendering: true, external_scripts: []});
+    try {
+        await scene.makeWorkers();
+        const statistics = await scene.getTileSourceStatistics();
+        expect(statistics.map(worker => worker.workerId)).toEqual([0]);
     } finally {
         scene.destroyWorkers();
     }

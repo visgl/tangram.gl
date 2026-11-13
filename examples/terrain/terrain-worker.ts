@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {processTerrainTask} from './terrain-task';
-import {createWorker} from '@math.gl/core-legacy-tasks/tasks';
+import {processTerrainTask, TerrainDecodeTask} from './terrain-task';
+import {initializeTaskWorker} from '@math.gl/tasks';
 import type {TerrainNoDataPolicy, TerrainPayload} from './terrain-payload';
 
 /** One dedicated worker processes one job; terminating it cancels image/mesh work. */
@@ -35,12 +35,14 @@ let taskReady: Promise<void> | undefined;
 let taskInstalled = false;
 const pendingTaskMessages: unknown[] = [];
 
+// Install the task protocol lazily: its ready packet is not a one-shot decoder reply.
 addEventListener('message', async (event: MessageEvent<unknown>) => {
-    if (event.data && typeof event.data === 'object' && 'source' in event.data && event.data.source === 'loaders.gl') {
+    if (event.data && typeof event.data === 'object' && 'source' in event.data &&
+        typeof event.data.source === 'string' && event.data.source.startsWith('loaders.gl')) {
         if (!taskInstalled) {
             event.stopImmediatePropagation();
             pendingTaskMessages.push(event.data);
-            taskReady ??= createWorker(processTerrainTask).then(() => {
+            taskReady ??= initializeTaskWorker(TerrainDecodeTask).then(() => {
                 taskInstalled = true;
                 for (const data of pendingTaskMessages.splice(0)) dispatchEvent(new MessageEvent('message', {data}));
             });
