@@ -230,7 +230,9 @@ export default class LumaDeviceRenderer implements TangramGPUBackend {
                         image: options.data,
                         width: options.width,
                         height: options.height,
-                        flipY: options.flipY,
+                        // WGSL sampling already converts Tangram's bottom-origin UVs. Luma 10
+                        // honors flipY on WebGPU, so flipping the upload would invert atlases twice.
+                        flipY: this.device.type === 'webgl' && options.flipY,
                         premultipliedAlpha: options.premultipliedAlpha
                     });
                 }

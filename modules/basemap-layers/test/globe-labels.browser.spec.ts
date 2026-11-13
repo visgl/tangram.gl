@@ -8,8 +8,8 @@
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {parse} from '@loaders.gl/core';
-import {MVTLoader} from '@loaders.gl/mvt';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {MVTLoader} from '@loaders.gl/tiles/mvt';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {MVTLabelLayer} from '../src/mvt-label-layer';
@@ -80,7 +80,7 @@ function createGlobeLabelLayer(
 function renderGlobe(
   layers: MVTLabelLayer[],
   viewState: {longitude: number; latitude: number; zoom: number} = {longitude: 0, latitude: 0, zoom: 0},
-  view: GlobeView = new GlobeView({id: 'globe-label-test'})
+  view: GlobeView = new GlobeView({resolution: 36, id: 'globe-label-test'})
 ): Promise<ImageData> {
   parent = document.createElement('div');
   document.body.append(parent);
@@ -207,7 +207,7 @@ describe('labels beyond the horizon of a globe', () => {
     // A perspective camera at zoom -1 would hide a label at longitude 85 (see above).
     const viewState = {longitude: 0, latitude: 0, zoom: -1};
     const layout = {'text-field': 'MM', 'text-size': 16};
-    const view = new GlobeView({id: 'globe-ortho', orthographic: true} as any);
+    const view = new GlobeView({resolution: 36, id: 'globe-ortho', orthographic: true} as any);
     const inside = await renderGlobe(
       [createGlobeLabelLayer('edge', layout, {points: [[85, 0]]})],
       viewState,
@@ -412,7 +412,7 @@ describe('vector tiles across a switch between map and globe views', () => {
     expect(decoded).toHaveLength(1);
 
     const globeFrame = nextRedFrame('GlobeView');
-    deck.setProps({views: new GlobeView({id: 'view'}), layers: [getBasemap('globe')]});
+    deck.setProps({views: new GlobeView({resolution: 36, id: 'view'}), layers: [getBasemap('globe')]});
     const image = await globeFrame;
     const globeViewport = deck.getViewports()[0];
     expect(isGlobeViewport(globeViewport), 'a globe viewport').toBe(true);

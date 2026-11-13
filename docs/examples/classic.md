@@ -16,7 +16,7 @@ playground itself is a buildable example package rather than an embedded iframe.
   </a>
 </div>
 
-The deck.gl-community 9.4.2 `Playground` supplies the full-height community
+The deck.gl-community `Playground` supplies the full-height community
 TextEditorPanel and tabs. **Select Style** shows the available scene cards;
 **Style JSON** edits the active document with the renderer's JSON Schema for
 completion and diagnostics. **Settings** contains camera and debug controls.

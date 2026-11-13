@@ -397,9 +397,12 @@ describe('line-blur', () => {
       extension.initializeState.call(path, undefined as any, extension);
       // Only per feature: a constant takes a uniform.
       expect(Object.keys(path.attributes)).toEqual(perFeature ? ['instanceLineBlur'] : []);
-      const {modules, defines} = extension.getShaders.call(path, extension) as any;
-      expect(modules[0].inject['fs:#main-end']).toContain('edgePixels');
-      expect(modules[0].inject['vs:#main-end']).toContain('lineBlur_blur');
+      const {plugins, defines} = extension.getShaders.call(path, extension);
+      expect(plugins?.[0].injections).toEqual(expect.arrayContaining([
+        expect.objectContaining({stage: 'fragment', target: '#main-end', glsl: expect.stringContaining('edgePixels')}),
+        expect.objectContaining({stage: 'vertex', target: '#main-end', glsl: expect.stringContaining('lineBlur_blur')})
+      ]));
+      if (!defines) throw new Error('Expected line blur shader defines');
       expect(Boolean(defines.LINE_BLUR_PER_FEATURE)).toBe(perFeature);
 
       for (const other of [fakeLayer({}), fakeLayer({pathTesselator: {}}, 'webgpu')]) {

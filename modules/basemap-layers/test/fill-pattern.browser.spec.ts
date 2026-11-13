@@ -7,7 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {getPatternAtlas} from '../src/fill-pattern';
 import {getBasemapLayers} from '../src/index';
@@ -498,7 +498,7 @@ describe('fill-pattern in the browser', () => {
         spriteAtlases: [sprite]
       }),
       {zoom: 5},
-      new GlobeView({id: 'fill-globe-test'})
+      new GlobeView({resolution: 36, id: 'fill-globe-test'})
     );
     expectQuadrants(image, 16);
   });
@@ -591,7 +591,7 @@ describe('fill-translate in the browser', () => {
   });
 
   test('offsets a fill on a globe', async () => {
-    const view = new GlobeView({id: 'translate-globe-test'});
+    const view = new GlobeView({resolution: 36, id: 'translate-globe-test'});
     const SOUTH = [box(-20, -20, 20, 0)];
     const plain = await render(
       fillTile({'fill-color': '#000000'}, SOUTH, {zoom: 5, mode: 'globe'}),

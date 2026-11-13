@@ -15,7 +15,7 @@ vi.mock('@deck.gl/core', () => ({
         getViewports = () => [{width: 512, height: 320}];
     }, OrthographicView: class {}
 }));
-vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
+vi.mock('@luma.gl/core/webgpu', () => ({webgpuAdapter: {}}));
 vi.mock('@tangram.gl/tangram-renderer/core', () => ({countProjectedTileCoordinates: () => 64}));
 vi.mock('@tangram.gl/tangram-layers/experimental/projected-basemaps', () => ({
     createProjectedBasemapScene: mocks.prepare, ProjectedBasemapLayer: class {},

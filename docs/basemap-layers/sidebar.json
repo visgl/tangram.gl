@@ -1,6 +1,6 @@
 {
   "type": "category",
-  "label": "@deck.gl-community/basemap-layers",
+  "label": "@tangram.gl/basemap-layers",
   "items": [
     "modules/basemap-layers/README",
     "modules/basemap-layers/whats-new",

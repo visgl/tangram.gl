@@ -12,7 +12,7 @@ import {
   _GlobeView as GlobeView,
   _GlobeViewport as GlobeViewport
 } from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {HillshadeTileLayer} from '../src/hillshade-layer';
@@ -167,7 +167,7 @@ describe('hillshade layers of one raster-dem source', () => {
 
     // (b) The same basemap, switched to a globe.
     deck.setProps({
-      views: new GlobeView({id: 'view'}),
+      views: new GlobeView({resolution: 36, id: 'view'}),
       layers: [new BasemapLayer({id: 'basemap', mode: 'globe', style, loadOptions})]
     });
     await waitForTiles(true);

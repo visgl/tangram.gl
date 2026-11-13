@@ -4,7 +4,7 @@
 
 import {expect, test} from 'vitest';
 import {Texture} from '@luma.gl/core';
-import {GLSLShaderAssembler, WGSLShaderAssembler, type PlatformInfo} from '@luma.gl/shadertools';
+import {GLSLShaderAssembler, WGSLShaderAssembler, type PlatformInfo} from '@luma.gl/shaders';
 import {heightDecode, globeHorizon} from '../../modules/tangram-renderer/dist/shader-modules.js';
 import {GLOBE_VISIBILITY_GLSL, GLOBE_VISIBILITY_WGSL} from '../../modules/tangram-renderer/src/styles/globe_visibility_wgsl';
 import {LEGACY_HEIGHT_GLSL, LEGACY_HORIZON_GLSL, LEGACY_HORIZON_WGSL} from './fixtures/legacy-height-horizon';

@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, _GlobeView as GlobeView, type GlobeViewState} from '@deck.gl/core';
-import {webgpuAdapter} from '@luma.gl/webgpu';
+import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation, getGlobeScreenRatio, type GlobeTerrainDisplaySnapshot} from '@tangram.gl/tangram-layers/experimental/terrain';
 import {GlobeTerrainPreparation, getGlobeTerrainExaggeration, type TerrainHeightGrid, TerrainResourceBudget, measureTerrainError, selectTerrainMeshResolution, boundProjectedDisplacement} from '@tangram.gl/tangram-renderer/map-logic';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
@@ -167,7 +167,7 @@ export function mountGlobeTerrainExample(host: HTMLElement, options: {
     function createDeck(): Deck<GlobeView> {
         const generation = ++deckGeneration;
         deckReady = false;
-        return new Deck({parent: container, width: '100%', height: '100%', views: new GlobeView({id: 'globe-terrain', controller: true}), viewState: camera,
+        return new Deck({parent: container, width: '100%', height: '100%', views: new GlobeView({resolution: 36, id: 'globe-terrain', controller: true}), viewState: camera,
             deviceProps: device === 'webgpu' ? {type: 'webgpu', adapters: [webgpuAdapter]} : {type: 'webgl'},
             onViewStateChange: ({viewState}) => {
                 if (disposed || generation !== deckGeneration) return;

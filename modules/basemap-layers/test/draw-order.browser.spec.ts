@@ -7,7 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {getBasemapLayers} from '../src/index';
 
@@ -35,7 +35,7 @@ function render(layers: unknown[], viewState: Record<string, unknown>) {
       height: SIZE,
       useDevicePixels: false,
       deviceProps: {adapters: [webgl2Adapter]},
-      views: new GlobeView({id: 'globe'}) as any,
+      views: new GlobeView({resolution: 36, id: 'globe'}) as any,
       initialViewState: viewState as any,
       layers: layers as any,
       onAfterRender: () => {

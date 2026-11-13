@@ -12,7 +12,9 @@ const expectedVersion = process.env.RELEASE_VERSION || '0.0.1';
 for (const packageName of packages) {
   const archive = join(process.env.PACKAGE_ARCHIVE_DIR || '/tmp', `${packageName}.tgz`);
   const files = new Set(execFileSync('tar', ['-tzf', archive], {encoding: 'utf8'}).trim().split('\n'));
-  const read = path => execFileSync('tar', ['-xOzf', archive, path], {encoding: 'utf8'});
+  const read = path => execFileSync('tar', ['-xOzf', archive, path], {
+    encoding: 'utf8', maxBuffer: 32 * 1024 * 1024
+  });
   const manifest = JSON.parse(read('package/package.json'));
   if (manifest.name !== `@tangram.gl/${packageName}` || manifest.version !== expectedVersion) {
     throw new Error(`${packageName}: unexpected packed package identity.`);

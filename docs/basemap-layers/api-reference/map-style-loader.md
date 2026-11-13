@@ -22,7 +22,7 @@ The map-style loader converts a MapLibre / Mapbox style document into the valida
 import {
   MapStyleLoader,
   resolveBasemapStyle
-} from '@deck.gl-community/basemap-layers/map-style';
+} from '@tangram.gl/basemap-layers/map-style';
 ```
 
 ## `MapStyleLoader`
@@ -31,7 +31,7 @@ import {
 
 ```ts
 import {load} from '@loaders.gl/core';
-import {MapStyleLoader} from '@deck.gl-community/basemap-layers/map-style';
+import {MapStyleLoader} from '@tangram.gl/basemap-layers/map-style';
 
 const style = await load(
   'https://tiles.openfreemap.org/styles/positron',
@@ -67,4 +67,4 @@ Both `MapStyleLoader` and `resolveBasemapStyle` return a validated `ResolvedBase
 - relative URLs are normalized to absolute URLs when enough base information is available
 - legacy Mapbox `ref` layers are expanded to concrete resolved layers
 
-Use `ResolvedBasemapStyleSchema` from `@deck.gl-community/basemap-layers/map-style` if you want to re-validate or further refine the output in your own application code.
+Use `ResolvedBasemapStyleSchema` from `@tangram.gl/basemap-layers/map-style` if you want to re-validate or further refine the output in your own application code.

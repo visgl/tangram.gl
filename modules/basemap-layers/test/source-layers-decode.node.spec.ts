@@ -4,7 +4,7 @@
 
 /* eslint-disable import/no-extraneous-dependencies */
 import {parse} from '@loaders.gl/core';
-import {MVTLoader} from '@loaders.gl/mvt';
+import {MVTLoader} from '@loaders.gl/tiles/mvt';
 import {describe, expect, test} from 'vitest';
 import {getSourceLoadOptions} from '../src/globe-layers';
 
@@ -51,15 +51,15 @@ function encodeTile(names: string[]): ArrayBuffer {
 
 /** Decodes `tile` as the shared vector tilesets do, with `loadOptions`. */
 async function decode(tile: ArrayBuffer, loadOptions: any): Promise<string[]> {
-  const features = (await parse(tile, MVTLoader, {
+  const {features} = await parse(tile, MVTLoader, {
     ...loadOptions,
     mvt: {
       ...loadOptions?.mvt,
-      shape: 'geojson',
+      shape: 'geojson-table',
       coordinates: 'local',
       tileIndex: {x: 0, y: 0, z: 0}
     }
-  })) as any[];
+  }) as {features: {properties: {layerName: string}}[]};
   return features.map(feature => feature.properties.layerName).sort();
 }
 

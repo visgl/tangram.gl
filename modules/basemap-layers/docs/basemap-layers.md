@@ -11,7 +11,7 @@ Copyright (c) vis.gl contributors
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 </p>
 
-The `@deck.gl-community/basemap-layers` module provides a [deck.gl](https://deck.gl) `BasemapLayer` and supporting helpers for rendering a style-driven basemap with deck.gl sublayers.
+The `@tangram.gl/basemap-layers` module provides a [deck.gl](https://deck.gl) `BasemapLayer` and supporting helpers for rendering a style-driven basemap with deck.gl sublayers.
 
 In contrast to external basemap integrations such as MapLibre GL, Google Maps, or ArcGIS, `BasemapLayer` is a standard deck.gl `CompositeLayer` subclass. It renders background, raster, vector, and label content using deck.gl layers such as `SolidPolygonLayer`, `MVTLayer`, `TileLayer`, `BitmapLayer`, and `TextLayer`.
 
@@ -21,7 +21,7 @@ Recommended example:
 
 ## What It Exports
 
-From `@deck.gl-community/basemap-layers`:
+From `@tangram.gl/basemap-layers`:
 
 - `BasemapLayer`
   <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
@@ -36,7 +36,7 @@ From `@deck.gl-community/basemap-layers`:
   <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 
-From `@deck.gl-community/basemap-layers/map-style`:
+From `@tangram.gl/basemap-layers/map-style`:
 
 - `filterFeatures`
   <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
@@ -109,11 +109,11 @@ Naturally, contributions in the non-goal areas are still welcome.
 
 ```ts
 import {Deck, _GlobeView} from '@deck.gl/core';
-import {BasemapLayer} from '@deck.gl-community/basemap-layers';
+import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import styleJson from '../../../website/static/mapstyle/deck-light.json';
 
 new Deck({
-  views: new _GlobeView(),
+  views: new _GlobeView({resolution: 36}),
   controller: true,
   layers: [
     new BasemapLayer({

@@ -8,7 +8,7 @@
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {GeoJsonLayer} from '@deck.gl/layers';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {lngLatToWorld} from '@math.gl/web-mercator';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
@@ -230,7 +230,7 @@ describe('fill-extrusion heights on a globe', () => {
   test('a building at latitude 60 rises as in longitude/latitude', async () => {
     const ring = footprint(60, 11);
     const height = heightAt(11);
-    const view = new GlobeView({id: 'globe'});
+    const view = new GlobeView({resolution: 36, id: 'globe'});
     const viewState = viewAt(60, 11, 20);
     const actual = await createDeck([basemap(ring, height, 'globe', 11)], view, viewState);
     const expected = await renderReference(view, viewState, ring, height);

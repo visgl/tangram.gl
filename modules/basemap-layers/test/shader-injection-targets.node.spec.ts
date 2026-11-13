@@ -30,6 +30,7 @@ import {
   _TextBackgroundLayer as TextBackgroundLayer
 } from '@deck.gl/layers';
 import {testLayer} from '@deck.gl/test-utils/vitest';
+import type {ShaderInjection, ShaderPlugin} from '@luma.gl/shaders';
 import {describe, expect, test} from 'vitest';
 import {CircleBlurExtension} from '../src/circle-layer';
 import {FillExtrusionLightingExtension} from '../src/fill-extrusion-lighting-extension';
@@ -39,6 +40,7 @@ import {LabelCharactersLayer} from '../src/label-text-layer';
 import {LineBlurExtension} from '../src/line-blur-extension';
 import {RasterColorExtension} from '../src/raster-color-extension';
 import {TextHaloBlurExtension} from '../src/text-halo-blur-extension';
+import {ZoomPaintExtension} from '../src/zoom-paint-extension';
 
 type Stage = 'vs' | 'fs';
 type StageSources = Record<Stage, string>;
@@ -99,12 +101,21 @@ function getInjections(extension: LayerExtension, layer: unknown): Injection[] {
     shaders.inject || {},
     ...(shaders.modules || []).map((module: any) => module.inject || {})
   ];
-  return injects.flatMap(inject =>
+  const pluginInjections = (shaders.plugins ?? []).flatMap((plugin: ShaderPlugin) =>
+    Array.isArray(plugin.injections)
+      ? plugin.injections.flatMap(({stage, target, glsl}: ShaderInjection) =>
+          glsl ? [{key: `${stage === 'vertex' ? 'vs' : 'fs'}:${target}`, code: glsl}] : []
+        )
+      : Object.entries(plugin.injections ?? {}).flatMap(([key, code]) =>
+          key.startsWith('wgsl:') ? [] : [{key: key.replace(/^glsl:/, ''), code}]
+        )
+  );
+  return [...pluginInjections, ...injects.flatMap(inject =>
     Object.entries(inject).map(([key, value]: [string, any]) => ({
       key,
       code: typeof value === 'string' ? value : value.injection
     }))
-  );
+  )];
 }
 
 /** The first line of injected code, which marks where it landed in the assembled source. */
@@ -458,6 +469,18 @@ describe('shader injection targets in the installed deck.gl', () => {
       });
     });
   }
+
+  test('applies zoom-dependent line width before adding the antialiasing padding', () => {
+    const [shaders] = getModelShaders(PathLayer, {
+      antialiasing: true,
+      getPath: (datum: typeof POINT) => datum.path,
+      extensions: [new ZoomPaintExtension(), new LineBlurExtension()]
+    });
+    const width = shaders.vs.indexOf('size *= zoomPaint_get(');
+    const padding = shaders.vs.indexOf('size.xy += lineBlur_pad;');
+    expect(width).toBeGreaterThanOrEqual(0);
+    expect(padding).toBeGreaterThan(width);
+  });
 
   test('FillPatternExtension: DECKGL_FILTER_GL_POSITION of SolidPolygonLayer', () => {
     const extension = new FillPatternExtension();

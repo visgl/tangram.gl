@@ -90,7 +90,7 @@ export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
 export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
     TangramPositionalLightExtensions, TangramLightColor, NormalizedTangramLight} from './lights/light-definitions';
-export type {Light as LumaLight} from '@luma.gl/shadertools';
+export type {Light as LumaLight} from '@luma.gl/shaders';
 export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
 export type {
     CalculatedViewBounds,

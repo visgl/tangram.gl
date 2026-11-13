@@ -8,7 +8,7 @@
 
 import {LayerExtension} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
-import type {ShaderModule} from '@luma.gl/shadertools';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /** A style's `light`, evaluated at one zoom. */
 export type FillExtrusionLight = {
@@ -102,7 +102,7 @@ vec3 fillExtrusionLighting_shade(vec3 color, vec3 normal, bool isWall, float t, 
 }
 `;
 
-const fillExtrusionLighting: ShaderModule<FillExtrusionLightingProps> = {
+const fillExtrusionLighting = createShaderInjectionPlugin({
   name: 'fillExtrusionLighting',
   inject: {
     'vs:#decl': `${UNIFORMS}${SHADE}
@@ -144,7 +144,7 @@ float fillExtrusionLighting_height;
 `
   },
   uniformTypes: {lightDirectionIntensity: 'vec4<f32>', lightColorGradient: 'vec4<f32>'}
-};
+});
 
 /**
  * The material the extension draws with: deck.gl's lighting leaves the color as it is, for the
@@ -182,7 +182,7 @@ export class FillExtrusionLightingExtension extends LayerExtension {
   }
 
   getShaders(this: Layer, extension: this): any {
-    return extension.isEnabled(this) ? {modules: [fillExtrusionLighting]} : null;
+    return extension.isEnabled(this) ? {plugins: [fillExtrusionLighting]} : null;
   }
 
   draw(this: Layer<any>, params: any, extension: this) {

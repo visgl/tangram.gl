@@ -8,7 +8,7 @@
 
 import {Deck, OrthographicView} from '@deck.gl/core';
 import {TextLayer} from '@deck.gl/layers';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {
   LabelCharactersLayer,

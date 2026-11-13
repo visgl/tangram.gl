@@ -8,7 +8,7 @@
 
 import {LayerExtension} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
-import type {ShaderModule} from '@luma.gl/shadertools';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /**
  * Draws the `PathLayer`s of a fill's outline (`fill-outline-color`) as MapLibre GL JS draws it: as
@@ -31,7 +31,7 @@ export class FillOutlineExtension extends LayerExtension {
     // `vPathPosition.x` runs from -1 to 1 across the stroke. Its screen gradient gives the
     // distance to the path in device pixels, and the direction across the line; the gradient is
     // taken before any fragment of the quad is discarded. Picking draws the same pixels.
-    const fillOutline: ShaderModule = {
+    const fillOutline = createShaderInjectionPlugin({
       name: 'fillOutline',
       inject: {
         // Drawn 1.5 device pixels to each side of the path, so that with multisampling every pixel
@@ -60,8 +60,8 @@ export class FillOutlineExtension extends LayerExtension {
   }
 `
       }
-    };
-    return {modules: [fillOutline]};
+    });
+    return {plugins: [fillOutline]};
   }
 }
 

@@ -8,7 +8,7 @@
 
 import {LayerExtension} from '@deck.gl/core';
 import type {Layer, UpdateParameters} from '@deck.gl/core';
-import type {ShaderModule} from '@luma.gl/shadertools';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 export type LineBlurExtensionOptions = {
   /**
@@ -104,7 +104,7 @@ export class LineBlurExtension extends LayerExtension<LineBlurExtensionOptions> 
     // `vPathPosition.x` rather than its absolute value, whose gradient falls to 0 across the
     // middle of the stroke, where a blur wider than the line keeps it translucent in MapLibre.
     // Gradients are taken before any fragment of the quad is discarded.
-    const lineBlur: ShaderModule<LineBlurProps> = {
+    const lineBlur = createShaderInjectionPlugin({
       name: 'lineBlur',
       inject: {
         'vs:#decl': `${UNIFORMS}
@@ -140,13 +140,13 @@ float lineBlur_widthRatio = 1.0;
 #if defined(DASH_ENABLED) && !defined(PATH_STYLE_OFFSET)
   // PathStyleExtension measured the dashes in the drawn stroke's widths, MapLibre in the line's.
   // Offset lines are not widened, and keep the dash phase that the offset shader corrects.
-  vDashArray *= lineBlur_widthRatio;
+  pathStyle_dashArray *= lineBlur_widthRatio;
 #ifdef HIGH_PRECISION_DASH
-  float lineBlur_dashUnit = vDashArray.x + vDashArray.y;
+  float lineBlur_dashUnit = pathStyle_dashArray.x + pathStyle_dashArray.y;
   float lineBlur_dashPeriod = pathStyle.dashAlignMode == 0.0
     ? lineBlur_dashUnit
-    : vDashPathLength / max(round(vDashPathLength / max(lineBlur_dashUnit, 0.0001)), 1.0);
-  vDashOffset = lineBlur_dashPeriod > 0.0 ? mod(dashOffsetAndLength.x, lineBlur_dashPeriod) : 0.0;
+    : pathStyle_dashPathLength / max(round(pathStyle_dashPathLength / max(lineBlur_dashUnit, 0.0001)), 1.0);
+  pathStyle_dashOffset = lineBlur_dashPeriod > 0.0 ? mod(dashOffsetAndLength.x, lineBlur_dashPeriod) : 0.0;
 #endif
 #endif
 #ifdef LINE_BLUR_PER_FEATURE
@@ -213,9 +213,9 @@ in float lineBlur_padPixels;
 `
       },
       uniformTypes: {blur: 'f32', gapOffset: 'f32', gapSide: 'f32'}
-    };
+    });
     return {
-      modules: [lineBlur],
+      plugins: [lineBlur],
       defines: extension.opts.perFeature ? {LINE_BLUR_PER_FEATURE: true} : {}
     };
   }

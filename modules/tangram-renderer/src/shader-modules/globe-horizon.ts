@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {ShaderModule} from '@luma.gl/shadertools';
+import type {ShaderModule} from '@luma.gl/shaders';
 
 /** Adapt Tangram's globe anchor and segment test to an explicit sphere radius. */
 const glsl = `

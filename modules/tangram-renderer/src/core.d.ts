@@ -23,7 +23,7 @@ export {convertLumaLight, mapTangramLight} from './lights/light-definitions';
 export type {ResolvedTangramLight, TangramLightMapping, TangramLight, TangramAmbientLight,
     TangramDirectionalLight, TangramPointLight, TangramSpotLight, TangramLightExtensions,
     TangramPositionalLightExtensions, TangramLightColor} from './lights/light-definitions';
-export type {Light as LumaLight} from '@luma.gl/shadertools';
+export type {Light as LumaLight} from '@luma.gl/shaders';
 export type {TangramTileSourceMetadata} from './sources/tile_source_metadata';
 export type {HostFrameOptions, HostRenderView, HostTileLODOptions, HostTileResourceOptions, TileResourceStatistics, TileSourceStatistics, HostCamera, HostProjection, GeographicAnchor, LegacyHostFrame, RendererOptions, RenderOptions, Viewport, SceneDefinition, SceneListeners, SceneLoadOptions, VisibilityLODAdapter, GlobeVisibilityLODAdapter, VisibilityViewState, GlobeVisibilityViewState, CalculatedViewBounds} from '@tangram.gl/tangram-renderer';
 export type {ProjectionEngine, ProjectionEngineOptions, ProjectionEngineTransform} from './types.js';

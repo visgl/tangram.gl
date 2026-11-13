@@ -4,7 +4,7 @@
 
 import type {
     AmbientLight, DirectionalLight, PointLight, SpotLight
-} from '@luma.gl/shadertools';
+} from '@luma.gl/shaders';
 
 /** An RGB contribution or position, copied at the adapter boundary. */
 type Triple = readonly [number, number, number];

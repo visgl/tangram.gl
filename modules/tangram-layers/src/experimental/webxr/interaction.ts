@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 // Adapted from visgl/luma.gl WebXR RFC commit 3b6f68a64295bf9cf82930149f5e3491b7c3d969.
 
-import {getWebXRInputRay} from '@luma.gl/experimental';
+import {getWebXRInputRay} from '@luma.gl/engine/experimental/webxr';
 import type {XRInteractionIntent, XRSpatialRay} from './types.ts';
 
 /** Minimal luma.gl input snapshot consumed by {@link WebXRInputAdapter}. */

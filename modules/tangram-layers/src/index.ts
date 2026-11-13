@@ -26,7 +26,7 @@ class TangramLayer extends BaseTangramLayer {
   /** Preserve deck's state update signature through the injected base class. */
   declare setState: Layer<TangramLayerProps>['setState'];
   /** Keep deck's public state surface while the internal adapter checks its own record. */
-  declare state: Layer<TangramLayerProps>['state'];
+  declare state: Layer<TangramLayerProps>['state'] & InstanceType<typeof BaseTangramLayer>['state'];
   /** Stable deck.gl metadata for the typed public subclass. */
   static componentName = 'TangramLayer';
   /** Compatibility name for integrations using deck.gl's historical metadata. */

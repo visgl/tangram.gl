@@ -15,7 +15,7 @@
  */
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
@@ -219,7 +219,7 @@ describe('fill-extrusion lighting on a globe', () => {
         await render(basemap(ring, 'map'), new MapView({id: 'map'}), ...center)
       );
       const onGlobe = getFaceColors(
-        await render(basemap(ring, 'globe'), new GlobeView({id: 'globe'}), ...center)
+        await render(basemap(ring, 'globe'), new GlobeView({resolution: 36, id: 'globe'}), ...center)
       );
       const message = JSON.stringify({onMap, onGlobe});
       // The roof and walls, of which a view may show one wall too thin to count.

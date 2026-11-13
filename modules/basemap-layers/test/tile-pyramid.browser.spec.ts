@@ -7,10 +7,10 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {parse} from '@loaders.gl/core';
-import {MVTLoader} from '@loaders.gl/mvt';
+import {MVTLoader} from '@loaders.gl/tiles/mvt';
 import {BasemapLayer, getBasemapLayers} from '../src/index';
 import {encodeBoxTile} from './fixtures/mvt-test-tile';
 
@@ -92,9 +92,10 @@ function getVectorLayers(): any[] {
 
 /**
  * Renders `layers` on a globe at `viewState` and returns the frame drawn once every layer has
- * loaded the tiles it selected (or has selected none).
+ * loaded the tiles it selected. For the vector case, also wait for the asynchronously resolved
+ * style to create the fill model: fallback globe layers can otherwise report loaded first.
  */
-async function renderGlobe(viewState: {longitude: number; latitude: number; zoom: number}, layers: any[]): Promise<ImageData> {
+async function renderGlobe(viewState: {longitude: number; latitude: number; zoom: number}, layers: any[], waitForVectorFill = false): Promise<ImageData> {
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise<ImageData>((resolve, reject) => {
@@ -106,14 +107,16 @@ async function renderGlobe(viewState: {longitude: number; latitude: number; zoom
       height: SIZE,
       useDevicePixels: false,
       deviceProps: {adapters: [webgl2Adapter]},
-      views: new GlobeView({id: 'globe'}),
+      views: new GlobeView({resolution: 36, id: 'globe'}),
       initialViewState: viewState,
       layers,
       onAfterRender: () => {
         const all = (deck as any)?.layerManager?.getLayers() || [];
-        // Some frames in: a tile layer updates which tiles it shows in the frame after they load.
-        // A basemap first resolves its style, then renders its tile layers.
-        if (++frames < 20 || all.length < 2 || all.some((layer: any) => !layer.isLoaded)) {
+        const fillReady = !waitForVectorFill || all.some((layer: any) =>
+          !layer.isComposite && layer.id.endsWith('-polygons-fill') && layer.id.includes('world') &&
+          layer.props.visible && layer.getModels().length > 0
+        );
+        if (++frames < 20 || all.length < 2 || !fillReady || all.some((layer: any) => !layer.isLoaded)) {
           requestAnimationFrame(() => deck?.redraw('waiting'));
           return;
         }
@@ -150,12 +153,12 @@ describe('tile sources on a globe below zoom 0', () => {
   });
 
   test('a basemap over the north pole at a zoom below 0 draws its vector tiles', async () => {
-    const image = await renderGlobe(POLE, getVectorLayers());
+    const image = await renderGlobe(POLE, getVectorLayers(), true);
     expect(countRedPixels(image)).toBeGreaterThan(500);
   });
 
   test('the same basemap at the equator, at zoom 0, draws its vector tiles', async () => {
-    const image = await renderGlobe(EQUATOR, getVectorLayers());
+    const image = await renderGlobe(EQUATOR, getVectorLayers(), true);
     expect(countRedPixels(image)).toBeGreaterThan(500);
   });
 });

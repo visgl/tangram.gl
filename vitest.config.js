@@ -35,7 +35,7 @@ const config = getVitestConfig({
       ]
     },
     optimizeDeps: {include: [
-      'sinon', '@luma.gl/experimental', '@deck.gl/mesh-layers',
+      'sinon', '@luma.gl/engine/experimental/webxr', '@deck.gl/mesh-layers',
       // Surface queries must not reload a browser test during lazy dependency discovery.
       '@math.gl/geometry/culling', '@math.gl/core-legacy-tasks/tasks', '@math.gl/tasks', 'quickselect',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
@@ -123,8 +123,4 @@ config.test.projects.push({
   }
 });
 headless.test.exclude = [...(headless.test.exclude || []), BASEMAP_LAYERS_BROWSER_TESTS];
-// deck.gl 9.4 imports loaders.gl 4.x core beside the 5.x one, and a pre-bundled copy would serve
-// one of them to both: each importer loads its own.
-headless.optimizeDeps = {exclude: ['@loaders.gl/core']};
-
 export default config;

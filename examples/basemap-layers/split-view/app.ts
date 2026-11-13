@@ -342,7 +342,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
         deck.setProps({
           views:
             viewMode === 'globe'
-              ? new _GlobeView({id: viewMode})
+              ? new _GlobeView({resolution: 36, id: viewMode})
               : new MapView({id: viewMode, repeat: true}),
           viewState
         });

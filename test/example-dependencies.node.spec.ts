@@ -41,28 +41,33 @@ const lumaVersion = rendererPackage.dependencies['@luma.gl/core'].replace(/^\^/,
 test('renderer, layer peers and WebXR use one luma release, including the lazy WebGPU adapter', () => {
   const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
   const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
-  expect(rendererPackage.dependencies['@luma.gl/shadertools']).toBe(`^${lumaVersion}`);
+  expect(rendererPackage.dependencies['@luma.gl/shaders']).toBe(lumaVersion);
   for (const [name, version] of Object.entries(layerPackage.peerDependencies)) {
-    if (name.startsWith('@luma.gl/')) expect(version).toBe(`^${lumaVersion}`);
+    if (name.startsWith('@luma.gl/')) expect(version).toBe(lumaVersion);
   }
   for (const [name, version] of Object.entries(xrPackage.dependencies)) {
     if (name.startsWith('@luma.gl/')) expect(version).toBe(lumaVersion);
   }
   const adapter = readFileSync(new URL('../examples/deck/app-runtime.js', import.meta.url), 'utf8');
-  expect(adapter).toContain("from '@luma.gl/webgpu'");
+  expect(adapter).toContain("from '@luma.gl/core/webgpu'");
 });
 
-test('deck.gl and the renderer resolve the same installed luma Device runtime', () => {
+test('deck.gl and the renderer resolve the same installed luma and math runtimes', () => {
   const rendererRequire = createRequire(new URL('../modules/tangram-renderer/package.json', import.meta.url));
   const deckRequire = createRequire(rendererRequire.resolve('@deck.gl/core'));
   expect(deckRequire.resolve('@luma.gl/core')).toBe(rendererRequire.resolve('@luma.gl/core'));
+  expect(deckRequire.resolve('@math.gl/core')).toBe(rendererRequire.resolve('@math.gl/core'));
+  const lumaRequire = createRequire(rendererRequire.resolve('@luma.gl/core'));
+  const probeVersion = JSON.parse(readFileSync(new URL('../package.json', pathToFileURL(lumaRequire.resolve('probe.gl'))), 'utf8')).version;
+  expect(probeVersion).toMatch(/^5\./);
 });
 
-test('classic playground keeps loaders core and its Arrow peer on the compatible 4.5 patch', () => {
+test('classic playground and deck.gl resolve the same installed loaders core', () => {
   const classicPackage = JSON.parse(readFileSync(new URL('../examples/classic/package.json', import.meta.url), 'utf8'));
-  const repositoryPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  const coreVersion = classicPackage.devDependencies['@loaders.gl/core'].replace(/^\^/, '');
-  expect(repositoryPackage.resolutions['@loaders.gl/arrow@npm:4.5.1']).toBe(coreVersion);
+  const classicRequire = createRequire(new URL('../examples/classic/package.json', import.meta.url));
+  const deckRequire = createRequire(classicRequire.resolve('@deck.gl/core'));
+  expect(classicPackage.devDependencies['@loaders.gl/core']).toBe(rendererPackage.devDependencies['@loaders.gl/core']);
+  expect(classicRequire.resolve('@loaders.gl/core')).toBe(deckRequire.resolve('@loaders.gl/core'));
 });
 
 test('renderer loaders use pinned v5 betas and layer math peers match the renderer', () => {
@@ -81,7 +86,7 @@ test('renderer loaders use pinned v5 betas and layer math peers match the render
   expect(xrPackage.dependencies['@math.gl/core']).toBe(mathVersion);
 });
 
-test('math resolutions align only the older v5 alpha and preserve deck math 4', () => {
+test('math resolutions align only the older v5 alpha', () => {
   const repositoryPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   const resolutions = Object.entries(repositoryPackage.resolutions).filter(([name]) => name.startsWith('@math.gl/'));
   expect(resolutions.length).toBeGreaterThan(0);
@@ -89,12 +94,6 @@ test('math resolutions align only the older v5 alpha and preserve deck math 4', 
     expect(descriptor).toMatch(/^@math\.gl\/[a-z-]+@npm:5\.0\.0-alpha\.15$/);
     expect(version).toBe(mathVersion);
   }
-  const rendererRequire = createRequire(new URL('../modules/tangram-renderer/package.json', import.meta.url));
-  const deckRequire = createRequire(rendererRequire.resolve('@deck.gl/core'));
-  const readMathVersion = (require: ReturnType<typeof createRequire>) =>
-    JSON.parse(readFileSync(new URL('../package.json', pathToFileURL(require.resolve('@math.gl/core'))), 'utf8')).version;
-  expect(readMathVersion(rendererRequire)).toBe(mathVersion);
-  expect(readMathVersion(deckRequire)).toMatch(/^4\./);
 });
 
 test('installed workspace dependencies cover the layer and optional WebXR source graphs', () => {

@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 
@@ -112,7 +112,7 @@ test('shared basemap tiles draw in map, globe and map again', async () => {
       modeName = mode;
       const loaded = waitFrame();
       deck.setProps({
-        views: mode === 'globe' ? new GlobeView({id: 'view'}) : new MapView({id: 'view'}),
+        views: mode === 'globe' ? new GlobeView({resolution: 36, id: 'view'}) : new MapView({id: 'view'}),
         layers: [new BasemapLayer({id: 'basemap', style, fetch, mode})]
       });
       await loaded;

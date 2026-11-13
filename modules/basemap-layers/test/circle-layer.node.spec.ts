@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 /* eslint-disable import/no-extraneous-dependencies */
-import {LayerExtension} from '@deck.gl/core';
+import {LayerExtension, WebMercatorViewport} from '@deck.gl/core';
 import {describe, expect, test} from 'vitest';
 import {CircleBlurExtension} from '../src/circle-layer.ts';
 import {getBasemapLayers} from '../src/index.ts';
@@ -279,6 +279,7 @@ describe('circle layers', () => {
   test('appends the blur to the tile extensions and their shader injections', () => {
     const HOOKS = ['vs:#decl', 'vs:#main-end', 'fs:#decl', 'fs:DECKGL_FILTER_COLOR'];
     class InjectingExtension extends LayerExtension {
+      static componentName = 'InjectingExtension';
       getShaders() {
         return {modules: [], inject: Object.fromEntries(HOOKS.map(hook => [hook, '// extension']))};
       }
@@ -289,7 +290,7 @@ describe('circle layers', () => {
     });
     expect(layer.props.extensions[0]).toBe(tileExtension);
     expect(hasBlurExtension(layer.props)).toBe(true);
-    layer.context = {device: {type: 'webgl'}, defaultShaderModules: []};
+    layer.context = {viewport: new WebMercatorViewport(), device: {type: 'webgl'}, defaultShaderModules: []};
     const {inject} = layer.getShaders();
     for (const hook of HOOKS) {
       expect(inject[hook]).toContain('// extension');

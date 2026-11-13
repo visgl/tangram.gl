@@ -5,6 +5,7 @@
 import {LayerExtension} from '@deck.gl/core';
 import type {Accessor, Layer, LayerContext} from '@deck.gl/core';
 import type {Device, Texture} from '@luma.gl/core';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /** The most style layers whose paint one layer can take from `ZoomPaintExtension`. */
 export const MAX_ZOOM_PAINT_PARTS = 64;
@@ -111,23 +112,23 @@ vec4 zoomPaint_color(vec4 color, int row) {
 `;
 
 /** `PathLayer`: widths and line colors. */
-const PATH_INJECTION = {
+const PATH_PLUGIN = createShaderInjectionPlugin({...zoomPaintModule, inject: {
   'vs:#decl': DECLARATIONS,
-  'vs:DECKGL_FILTER_SIZE': /* glsl */ `
+  'vs:DECKGL_FILTER_SIZE': {order: -1, injection: /* glsl */ `
   size *= zoomPaint_get(${ZOOM_PAINT_WIDTH_ROW}).r;
-`,
+`},
   'vs:DECKGL_FILTER_COLOR': /* glsl */ `
   color = zoomPaint_color(color, ${ZOOM_PAINT_LINE_COLOR_ROW});
 `
-};
+}});
 
 /** `SolidPolygonLayer`: fill colors. Not for extruded polygons, whose colors are lit. */
-const POLYGON_INJECTION = {
+const POLYGON_PLUGIN = createShaderInjectionPlugin({...zoomPaintModule, inject: {
   'vs:#decl': DECLARATIONS,
   'vs:DECKGL_FILTER_COLOR': /* glsl */ `
   color = zoomPaint_color(color, ${ZOOM_PAINT_FILL_COLOR_ROW});
 `
-};
+}});
 
 function getLayerType(layer: Layer): 'path' | 'polygon' | null {
   const state = layer.state as Record<string, unknown> | undefined;
@@ -171,8 +172,7 @@ export class ZoomPaintExtension extends LayerExtension {
       return null;
     }
     return {
-      modules: [zoomPaintModule],
-      inject: type === 'path' ? PATH_INJECTION : POLYGON_INJECTION
+      plugins: [type === 'path' ? PATH_PLUGIN : POLYGON_PLUGIN]
     };
   }
 

@@ -561,7 +561,7 @@ describe('LabelCharactersLayer glyphs along lines', () => {
     expect(vs).toContain('rotate_by_angle(pixelOffset, instanceLineGlyphs.z)');
     expect(vs).toContain('if (instanceLineGlyphs.w < -0.5)');
     const webgpu = new (LabelCharactersLayer as any)({id: 'characters'});
-    webgpu.context = {device: {type: 'webgpu'}, defaultShaderModules: []};
+    webgpu.context = {viewport: {zoom: 14}, device: {type: 'webgpu'}, defaultShaderModules: []};
     expect(webgpu.getShaders().vs).not.toContain('instanceLineGlyphs');
   });
 });

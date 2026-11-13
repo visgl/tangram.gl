@@ -26,7 +26,7 @@ vi.mock('@deck.gl/core', () => ({
   },
   OrthographicView: class {}
 }));
-vi.mock('@luma.gl/webgpu', () => ({webgpuAdapter: {}}));
+vi.mock('@luma.gl/core/webgpu', () => ({webgpuAdapter: {}}));
 vi.mock('@tangram.gl/tangram-layers/experimental/projected-basemaps', () => ({
   ProjectedBasemapLayer: class {constructor(readonly props: Record<string, unknown>) {}},
   createProjectedBasemapScene: (scene: unknown) => scene,

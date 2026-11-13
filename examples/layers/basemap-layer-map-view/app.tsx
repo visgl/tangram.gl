@@ -145,7 +145,7 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
   const defaultStyleId = DEFAULT_FLAT_STYLE_ID;
   const clearColor = [0.92, 0.94, 0.94, 1];
   const flatView = new MapView({clearColor});
-  const globeView = new _GlobeView({clearColor});
+  const globeView = new _GlobeView({resolution: 36, clearColor});
   const state = {
     settings: {
       view: {

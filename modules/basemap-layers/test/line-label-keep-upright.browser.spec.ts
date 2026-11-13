@@ -7,7 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 
@@ -206,7 +206,7 @@ async function turn(scene: Scene): Promise<string[]> {
     height: size,
     useDevicePixels: false,
     deviceProps: {adapters: [webgl2Adapter]},
-    views: scene.mode === 'globe' ? new GlobeView({id: 'view'}) : new MapView({id: 'view'}),
+    views: scene.mode === 'globe' ? new GlobeView({resolution: 36, id: 'view'}) : new MapView({id: 'view'}),
     viewState: {...viewState, bearing: 30},
     layers: [
       new BasemapLayer({

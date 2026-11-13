@@ -4,7 +4,7 @@
 
 import {projectedMarkup} from './view.js';
 import {Deck, OrthographicView} from '@deck.gl/core';
-import {webgpuAdapter} from '@luma.gl/webgpu';
+import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {
   ProjectedBasemapLayer,
   createProjectedBasemapScene,

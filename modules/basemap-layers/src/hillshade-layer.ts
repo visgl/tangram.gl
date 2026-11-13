@@ -71,7 +71,7 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import {COORDINATE_SYSTEM, log} from '@deck.gl/core';
+import {log} from '@deck.gl/core';
 import type {Layer, LayersList, UpdateParameters} from '@deck.gl/core';
 import {SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import type {SharedTile2DLayerProps, SharedTileset2DProps} from '@deck.gl-community/geo-layers';
@@ -765,7 +765,7 @@ export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, Hillsh
       },
       data: null,
       // Positions in the tile are Web Mercator, also on a globe.
-      _imageCoordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+      _imageCoordinateSystem: 'cartesian',
       image: prepared.image,
       bounds: [west, south, east, north],
       hillshadeParameters,

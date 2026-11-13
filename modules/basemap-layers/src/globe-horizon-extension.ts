@@ -4,6 +4,7 @@
 
 import {LayerExtension, project} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /**
  * Hides every vertex of an instance whose anchor (`geometry.worldPosition`) lies beyond the
@@ -19,15 +20,24 @@ import type {Layer} from '@deck.gl/core';
  *   point away from the viewer. The fourth row of an orthographic view-projection matrix is
  *   `(0, 0, 0, 1)`, and its third row is the direction in which depth grows.
  */
-const globeHorizonModule = {
+const globeHorizonModule = createShaderInjectionPlugin({
   name: 'globeHorizon',
   dependencies: [project],
   inject: {
+    'vs:#decl': /* glsl */ `
+bool tangramBillboardOccluded(vec3 commonPosition) {
+  vec3 wRow = vec3(project.viewProjectionMatrix[0][3],
+    project.viewProjectionMatrix[1][3], project.viewProjectionMatrix[2][3]);
+  return dot(wRow, wRow) > 0.0 && project_globe_is_occluded(commonPosition);
+}
+// The native test is perspective-only; the hook below tests parallel rays instead.
+#define project_globe_is_occluded tangramBillboardOccluded
+`,
     'vs:DECKGL_FILTER_GL_POSITION': {
       order: 1,
       injection: /* glsl */ `
   if (project.projectionMode == PROJECTION_MODE_GLOBE) {
-    vec3 globeHorizon_normal = normalize(project_position(geometry.worldPosition));
+    vec3 globeHorizon_normal = normalize(geometry.position.xyz);
     mat4 globeHorizon_m = project.viewProjectionMatrix;
     vec3 globeHorizon_wRow = vec3(globeHorizon_m[0][3], globeHorizon_m[1][3], globeHorizon_m[2][3]);
     bool globeHorizon_hidden = dot(globeHorizon_wRow, globeHorizon_wRow) == 0.0
@@ -42,7 +52,7 @@ const globeHorizonModule = {
 `
     }
   }
-} as const;
+});
 
 /**
  * Hides labels and icons whose anchor is on the far side of the globe in a `GlobeView`, in the
@@ -59,6 +69,6 @@ export class GlobeHorizonExtension extends LayerExtension {
     if (this.context.device.type === 'webgpu') {
       return {};
     }
-    return {modules: [globeHorizonModule]};
+    return {plugins: [globeHorizonModule]};
   }
 }

@@ -7,7 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {toFixtureUrl} from './reference-render/fixtures';
@@ -66,7 +66,7 @@ function render(mode: 'map' | 'globe'): Promise<Uint8ClampedArray> {
       height: SIZE,
       useDevicePixels: false,
       deviceProps: {adapters: [webgl2Adapter]},
-      views: mode === 'globe' ? new GlobeView({id: 'view'}) : new MapView({id: 'view'}),
+      views: mode === 'globe' ? new GlobeView({resolution: 36, id: 'view'}) : new MapView({id: 'view'}),
       viewState: VIEW_STATE as any,
       layers: [new BasemapLayer({id: 'basemap', mode, style: structuredClone(STYLE) as any})],
       onAfterRender: () => {
