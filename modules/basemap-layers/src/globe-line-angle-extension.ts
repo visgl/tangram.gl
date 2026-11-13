@@ -4,6 +4,7 @@
 
 import {LayerExtension, project32} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /**
  * Turns a billboard drawn along a line on a globe from the line's direction at the anchor (the
@@ -24,7 +25,7 @@ import type {Layer} from '@deck.gl/core';
  * The instance angle and pixel offset are only declared in the layer's own shader source, after the
  * hook functions, so they are copied into globals at the start of `main`.
  */
-const getGlobeLineAngleModule = (keepUpright: boolean, pixelOffset?: string) => ({
+const getGlobeLineAngleModule = (keepUpright: boolean, pixelOffset?: string) => createShaderInjectionPlugin({
   name: `globeLineAngle${keepUpright ? 'Upright' : ''}${pixelOffset ? `_${pixelOffset}` : ''}`,
   dependencies: [project32],
   inject: {
@@ -113,15 +114,15 @@ export class GlobeLineAngleExtension extends LayerExtension<{
     }
     const {keepUpright, keepOffsetSide} = extension.opts;
     if (!keepUpright) {
-      return {modules: [GLOBE_LINE_ANGLE_MODULES.free]};
+      return {plugins: [GLOBE_LINE_ANGLE_MODULES.free]};
     }
     if (!keepOffsetSide) {
-      return {modules: [GLOBE_LINE_ANGLE_MODULES.upright]};
+      return {plugins: [GLOBE_LINE_ANGLE_MODULES.upright]};
     }
     // `TextLayer`'s backgrounds name the attribute in the plural.
     const attributes = (this.getAttributeManager() as any)?.attributes || {};
     return {
-      modules: [
+      plugins: [
         attributes.instancePixelOffsets
           ? GLOBE_LINE_ANGLE_MODULES.instancePixelOffsets
           : GLOBE_LINE_ANGLE_MODULES.instancePixelOffset

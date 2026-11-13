@@ -44,6 +44,21 @@ const result = await build({
   outfile: 'examples/terrain/dist/app.js',
   bundle: true, format: 'esm', platform: 'browser', minify: true,
   target: configuration.bundle.target,
+  plugins: [{
+    name: 'lerc-browser-build',
+    setup(builder) {
+      builder.onResolve({filter: /^module$/}, ({importer}) => {
+        // LERC dynamically imports Node's module only inside its Node runtime branch.
+        if (importer.replaceAll('\\', '/').endsWith('/lerc/LercDecode.es.js')) {
+          return {path: 'module', namespace: 'lerc-node-only'};
+        }
+      });
+      builder.onLoad({filter: /^module$/, namespace: 'lerc-node-only'}, () => ({
+        contents: 'export function createRequire() { throw new Error("Node module loading is unavailable in the browser"); }',
+        loader: 'js'
+      }));
+    }
+  }],
   sourcemap: true, sourcesContent: false, metafile: true, logLevel: 'info'
 });
 for (const output of Object.values(result.metafile.outputs)) {

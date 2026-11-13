@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Deck, OrbitView, COORDINATE_SYSTEM} from '@deck.gl/core';
+import {Deck, OrbitView} from '@deck.gl/core';
 import {PolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {pickTerrainSurface} from '@tangram.gl/basemap-layers';
@@ -37,7 +37,7 @@ export function mountTerrainContractExample(container: HTMLElement): () => void 
     new PolygonLayer({
       id: 'terrain-contract',
       data: terrain.polygons,
-      coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+      coordinateSystem: 'cartesian',
       getPolygon: item => item.polygon,
       getFillColor: [65, 155, 105],
       stroked: true,

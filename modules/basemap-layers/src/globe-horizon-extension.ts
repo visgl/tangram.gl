@@ -4,6 +4,7 @@
 
 import {LayerExtension, project} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /**
  * Hides every vertex of an instance whose anchor (`geometry.worldPosition`) lies beyond the
@@ -19,7 +20,7 @@ import type {Layer} from '@deck.gl/core';
  *   point away from the viewer. The fourth row of an orthographic view-projection matrix is
  *   `(0, 0, 0, 1)`, and its third row is the direction in which depth grows.
  */
-const globeHorizonModule = {
+const globeHorizonModule = createShaderInjectionPlugin({
   name: 'globeHorizon',
   dependencies: [project],
   inject: {
@@ -42,7 +43,7 @@ const globeHorizonModule = {
 `
     }
   }
-} as const;
+});
 
 /**
  * Hides labels and icons whose anchor is on the far side of the globe in a `GlobeView`, in the
@@ -59,6 +60,6 @@ export class GlobeHorizonExtension extends LayerExtension {
     if (this.context.device.type === 'webgpu') {
       return {};
     }
-    return {modules: [globeHorizonModule]};
+    return {plugins: [globeHorizonModule]};
   }
 }

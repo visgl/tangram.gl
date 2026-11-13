@@ -13,7 +13,7 @@
  */
 
 import {Deck, OrthographicView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {GlyphStore} from '../src/glyph-store';
 import {MVTLabelLayer} from '../src/mvt-label-layer';

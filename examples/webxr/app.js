@@ -4,9 +4,9 @@
 
 import {luma} from '@luma.gl/core';
 import {AnimationLoop, Timeline} from '@luma.gl/engine';
-import {WebXRAnimationFrameProvider, WebXRManager} from '@luma.gl/experimental';
-import {webgl2Adapter} from '@luma.gl/webgl';
-import {webgpuAdapter} from '@luma.gl/webgpu';
+import {WebXRAnimationFrameProvider, WebXRManager} from '@luma.gl/engine/experimental/webxr';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
+import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {Renderer as ClassicWebGLRenderer} from '@tangram.gl/tangram-renderer/core';
 import {createStereoControls} from './stereo-controls.js';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';

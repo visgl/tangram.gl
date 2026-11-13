@@ -4,7 +4,7 @@
 
 import {expect, test} from 'vitest';
 import {build} from 'esbuild';
-import {GLSLShaderAssembler, WGSLShaderAssembler} from '@luma.gl/shadertools';
+import {GLSLShaderAssembler, WGSLShaderAssembler} from '@luma.gl/shaders';
 import {triplanar, planar, sphereMap, heightDecode, globeHorizon} from '../src/shader-modules/index';
 
 test.each([triplanar, planar, sphereMap, heightDecode, globeHorizon])('$name assembles in both languages without bindings', shaderModule => {

@@ -7,10 +7,10 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {parse} from '@loaders.gl/core';
-import {MVTLoader} from '@loaders.gl/mvt';
+import {MVTLoader} from '@loaders.gl/tiles/mvt';
 import {BasemapLayer, getBasemapLayers} from '../src/index';
 import {encodeBoxTile} from './fixtures/mvt-test-tile';
 

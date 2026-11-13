@@ -4,8 +4,8 @@
 
 import {expect} from 'vitest';
 import {luma, type Device} from '@luma.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
-import {webgpuAdapter} from '@luma.gl/webgpu';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
+import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {HostFrame, Renderer as ClassicWebGLRenderer} from '@tangram.gl/tangram-renderer/core';
 import type {HostTileLODOptions, HostTileResourceOptions} from '@tangram.gl/tangram-renderer/core';
 import type {TerrainDrapingOptions} from '@tangram.gl/tangram-renderer/core';

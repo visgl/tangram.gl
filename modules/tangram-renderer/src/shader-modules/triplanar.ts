@@ -3,7 +3,7 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-import type {ShaderModule} from '@luma.gl/shadertools';
+import type {ShaderModule} from '@luma.gl/shaders';
 
 /** Binding-free helpers extracted from lights/material.glsl; axis scales are UV frequencies. */
 const glsl = `

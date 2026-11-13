@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test} from 'vitest';
-import {Deck, OrbitView, COORDINATE_SYSTEM} from '@deck.gl/core';
+import {Deck, OrbitView} from '@deck.gl/core';
 import {PolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {pickTerrainSurface} from '../../modules/basemap-layers/src/terrain-query';
@@ -35,7 +35,7 @@ test(`${DEVICE_TYPE}: rendered OrbitView and terrain queries agree across relief
           new PolygonLayer({
             id: 'terrain-camera-mesh',
             data: terrain.polygons,
-            coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+            coordinateSystem: 'cartesian',
             getPolygon: item => item.polygon,
             getFillColor: [65, 155, 105],
             stroked: false,

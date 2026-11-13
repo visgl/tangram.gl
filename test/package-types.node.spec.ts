@@ -11,7 +11,7 @@ test.each([ts.ModuleKind.Node16, ts.ModuleKind.NodeNext])('public layer declarat
   const source = `
     import {TangramLayer} from '@tangram.gl/tangram-layers';
     import {hillshade, triplanar, planar, sphereMap, heightDecode, globeHorizon} from '@tangram.gl/tangram-renderer/experimental/shader-modules';
-    import type {ShaderModule} from '@luma.gl/shadertools';
+    import type {ShaderModule} from '@luma.gl/shaders';
     const shaderModule: ShaderModule = hillshade;
     const materialModules: ShaderModule[] = [triplanar, planar, sphereMap, heightDecode, globeHorizon];
     import {ProjectionBatchExecutor, Renderer, TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance} from '@tangram.gl/tangram-renderer/core';

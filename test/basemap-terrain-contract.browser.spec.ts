@@ -10,7 +10,7 @@ import {mountTerrainContractExample} from '../examples/layers/terrain-contract/a
 const mocks = vi.hoisted(() => ({props: {} as DeckProps, setProps: vi.fn(), finalize: vi.fn()}));
 vi.mock('@deck.gl/core', () => ({
   OrbitView: class {},
-  COORDINATE_SYSTEM: {CARTESIAN: 0},
+
   Deck: class {
     constructor(props: DeckProps) {
       mocks.props = props;

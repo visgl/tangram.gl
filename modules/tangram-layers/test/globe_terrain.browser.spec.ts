@@ -20,7 +20,7 @@ function prepare(layer: GlobeTerrainLayer, zoom = 1, changed = true): UpdatePara
     Object.defineProperty(layer, 'context', {configurable: true, value: {viewport: new GlobeViewport({x: 10, y: 20, width: 512, height: 320, longitude: 0, latitude: 0, zoom})}});
     layer.state ??= {layers: [], surfaces: [], exaggeration: NaN};
     vi.spyOn(layer, 'setState').mockImplementation(update => {Object.assign(layer.state, update);});
-    return {props: layer.props, oldProps: layer.props, context: layer.context, changeFlags: {dataChanged: false, propsChanged: false, updateTriggersChanged: false, extensionsChanged: false, viewportChanged: true, stateChanged: false, propsOrDataChanged: changed, somethingChanged: true}};
+    return {props: layer.props, oldProps: layer.props, context: layer.context, changeFlags: {dataChanged: false, propsChanged: false, updateTriggersChanged: false, extensionsChanged: false, viewportChanged: true, projectionChanged: false, stateChanged: false, propsOrDataChanged: changed, somethingChanged: true}};
 }
 
 test('default 100× relief fades with actual GlobeView scale; normal Mercator is rejected', () => {

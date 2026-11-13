@@ -26,8 +26,8 @@ export default getVitestConfig({
     define: {__TEST_DEVICE__: JSON.stringify(device)},
     // Exercise published bundles (including the inlined scene worker).
     optimizeDeps: {
-      include: ['@deck.gl/core', '@luma.gl/core', '@luma.gl/engine', '@luma.gl/webgl', '@luma.gl/webgpu',
-        '@luma.gl/experimental', '@math.gl/core', '@math.gl/geometry/culling', '@loaders.gl/tiles/mvt',
+      include: ['@deck.gl/core', '@luma.gl/core', '@luma.gl/engine', '@luma.gl/core/webgl', '@luma.gl/core/webgpu',
+        '@luma.gl/engine/experimental/webxr', '@math.gl/core', '@math.gl/geometry/culling', '@loaders.gl/tiles/mvt',
         '@deck.gl/geo-layers', '@deck.gl/mesh-layers', '@loaders.gl/raster/terrain', '@loaders.gl/images', 'mjolnir.js',
         // The optional CPU query index is imported after other test pages load.
         // Prebundle its CommonJS helper before that import can invalidate URLs.

@@ -3,13 +3,13 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, expectTypeOf, test} from 'vitest';
-import {lighting} from '@luma.gl/shadertools';
-import type {Light as LumaLight} from '@luma.gl/shadertools';
+import {lighting} from '@luma.gl/shaders';
+import type {Light as LumaLight} from '@luma.gl/shaders';
 import {convertLumaLight, mapTangramLight, normalizeSceneLights} from '../src/lights/light-definitions';
 import type {ResolvedTangramLight, TangramLight, TangramPointLight, TangramSpotLight} from '../src/lights/light-definitions';
 import {TangramStyleSheetSchema} from '../src/styles/style-schema';
 
-const nativeLights: LumaLight[] = [
+const nativeLights: Extract<LumaLight, {type: TangramLight['type']}>[] = [
     {type: 'ambient', color: [51, 102, 153], intensity: 2},
     {type: 'directional', color: [255, 127.5, 0], direction: [1, 0, -1]},
     {type: 'point', color: [64, 128, 255], position: [1, 2, 3], attenuation: [1, 2, 3]},

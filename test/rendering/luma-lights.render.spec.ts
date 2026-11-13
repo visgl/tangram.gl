@@ -4,7 +4,7 @@
 
 import {afterEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
-import type {Light} from '@luma.gl/shadertools';
+import type {Light} from '@luma.gl/shaders';
 import type {TangramLight} from '@tangram.gl/tangram-renderer';
 import {RenderingHarness} from './harness';
 

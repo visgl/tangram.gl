@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {CompositeLayer, COORDINATE_SYSTEM, type LayerProps, type UpdateParameters, type Viewport} from '@deck.gl/core';
+import {CompositeLayer, type LayerProps, type UpdateParameters, type Viewport} from '@deck.gl/core';
 import {SimpleMeshLayer} from '@deck.gl/mesh-layers';
 import {Matrix4} from '@math.gl/core';
 import {unprojectScreenRay} from '@math.gl/geometry/culling';
@@ -178,7 +178,7 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
             surfaces: prepared.map(tile => tile.surface),
             layers: prepared.map(tile => new SimpleMeshLayer(this.getSubLayerProps({id: `mesh-${tile.grid.bounds.join(',')}`}), {
                 data: terrainInstances, mesh: tile.mesh,
-                coordinateSystem: COORDINATE_SYSTEM.LNGLAT, _instanced: false, getPosition: [0, 0, 0], getColor: [255, 255, 255],
+                coordinateSystem: 'lnglat', _instanced: false, getPosition: [0, 0, 0], getColor: [255, 255, 255],
                 // Colors already contain spherical relief lighting; do not transform them as planar ENU normals.
                 material: false, wireframe: this.props.wireframe, pickable: false, parameters: {...this.props.parameters, cullMode: 'back'}
             })), updateMs: performance.now() - started});

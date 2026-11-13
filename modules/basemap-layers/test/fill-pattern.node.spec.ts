@@ -310,7 +310,7 @@ describe('fill extensions on WebGPU', () => {
     expect(pattern.getSubLayerProps.call(layer('webgl'), pattern).getFillColor).toBeUndefined();
     const translate = new FillTranslateExtension();
     expect(translate.getShaders.call(layer('webgpu'))).toEqual({});
-    expect(translate.getShaders.call(layer('webgl')).modules).toHaveLength(1);
+    expect(translate.getShaders.call(layer('webgl')).plugins).toHaveLength(1);
   });
 });
 

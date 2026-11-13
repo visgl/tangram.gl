@@ -30,6 +30,7 @@ import {
   _TextBackgroundLayer as TextBackgroundLayer
 } from '@deck.gl/layers';
 import {testLayer} from '@deck.gl/test-utils/vitest';
+import type {ShaderInjection, ShaderPlugin} from '@luma.gl/shaders';
 import {describe, expect, test} from 'vitest';
 import {CircleBlurExtension} from '../src/circle-layer';
 import {FillExtrusionLightingExtension} from '../src/fill-extrusion-lighting-extension';
@@ -99,12 +100,19 @@ function getInjections(extension: LayerExtension, layer: unknown): Injection[] {
     shaders.inject || {},
     ...(shaders.modules || []).map((module: any) => module.inject || {})
   ];
-  return injects.flatMap(inject =>
+  const pluginInjections = (shaders.plugins ?? []).flatMap((plugin: ShaderPlugin) =>
+    Array.isArray(plugin.injections)
+      ? plugin.injections.flatMap(({stage, target, glsl}: ShaderInjection) =>
+          glsl ? [{key: `${stage === 'vertex' ? 'vs' : 'fs'}:${target}`, code: glsl}] : []
+        )
+      : []
+  );
+  return [...pluginInjections, ...injects.flatMap(inject =>
     Object.entries(inject).map(([key, value]: [string, any]) => ({
       key,
       code: typeof value === 'string' ? value : value.injection
     }))
-  );
+  )];
 }
 
 /** The first line of injected code, which marks where it landed in the assembled source. */

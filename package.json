@@ -64,7 +64,7 @@
     "build:examples": "node scripts/build-examples.mjs"
   },
   "devDependencies": {
-    "@deck.gl/core": "^9.4.0",
+    "@deck.gl/core": "10.0.0-alpha.1",
     "@loaders.gl/core": "5.0.0-beta.8",
     "@loaders.gl/tiles": "5.0.0-beta.8",
     "@maplibre/maplibre-gl-style-spec": "26.4.4",

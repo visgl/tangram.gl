@@ -43,25 +43,24 @@
   "scripts": {
     "build": "yarn build:types && yarn build:bundle && yarn build:worker",
     "build:types": "yarn workspace @tangram.gl/map-utils build:types && node ../../scripts/build-package-types.mjs modules/basemap-layers index.ts map-style.ts",
-    "build:bundle": "ocular-bundle src/index.ts --env=dev --format=esm --output=dist/index.js --externals=@math.gl/tasks,@loaders.gl/loader-utils,@loaders.gl/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=esm --output=dist/map-style.js --externals=@math.gl/tasks,@loaders.gl/loader-utils,@loaders.gl/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/index.ts --env=dev --format=cjs --output=dist/index.cjs --externals=@math.gl/tasks,@loaders.gl/loader-utils,@loaders.gl/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=cjs --output=dist/map-style.cjs --externals=@math.gl/tasks,@loaders.gl/loader-utils,@loaders.gl/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false",
+    "build:bundle": "ocular-bundle src/index.ts --env=dev --format=esm --output=dist/index.js --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=esm --output=dist/map-style.js --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/index.ts --env=dev --format=cjs --output=dist/index.cjs --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=cjs --output=dist/map-style.cjs --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,zod --sourcemap=true --sourcesContent=false",
     "build:worker": "ocular-bundle src/geojson-worker.ts --env=dev --format=iife --output=dist/geojson-worker.js --sourcemap=true --sourcesContent=false && ocular-bundle src/geojson-task-worker.ts --env=dev --format=iife --output=dist/geojson-task-worker.js --sourcemap=true --sourcesContent=false",
     "prepack": "yarn build"
   },
   "devDependencies": {
     "@deck.gl-community/geo-layers": "~9.4.2",
-    "@deck.gl/test-utils": "~9.4.0",
+    "@deck.gl/test-utils": "10.0.0-alpha.1",
     "@fontsource/montserrat": "5.3.0",
     "@fontsource/noto-sans": "5.3.0",
     "@fontsource/open-sans": "5.3.0",
-    "@loaders.gl/core": "^4.5.1",
+    "@loaders.gl/core": "5.0.0-beta.8",
     "@tangram.gl/map-utils": "workspace:*",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "maplibre-gl": "6.13.0",
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@loaders.gl/loader-utils": "^4.5.1",
-    "@loaders.gl/mvt": "^4.5.1",
+    "@loaders.gl/tiles": "5.0.0-beta.8",
     "@mapbox/tiny-sdf": "^2.0.5",
     "@maplibre/geojson-vt": "^6.1.2",
     "@maplibre/maplibre-gl-style-spec": "^24.8.1",
@@ -74,12 +73,12 @@
   },
   "peerDependencies": {
     "@deck.gl-community/geo-layers": "~9.4.2",
-    "@deck.gl/core": "~9.4.0",
-    "@deck.gl/extensions": "~9.4.0",
-    "@deck.gl/geo-layers": "~9.4.0",
-    "@deck.gl/layers": "~9.4.0",
-    "@loaders.gl/core": "^4.5.1",
-    "@luma.gl/core": "~9.4.0",
-    "@luma.gl/engine": "~9.4.0"
+    "@deck.gl/core": "10.0.0-alpha.1",
+    "@deck.gl/extensions": "10.0.0-alpha.1",
+    "@deck.gl/geo-layers": "10.0.0-alpha.1",
+    "@deck.gl/layers": "10.0.0-alpha.1",
+    "@loaders.gl/core": "5.0.0-beta.8",
+    "@luma.gl/core": "10.0.0-alpha.14",
+    "@luma.gl/engine": "10.0.0-alpha.14"
   }
 }

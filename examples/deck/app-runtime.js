@@ -4,7 +4,7 @@
 
 import {Deck, FirstPersonView, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {PathLayer, ScatterplotLayer} from '@deck.gl/layers';
-import {webgpuAdapter} from '@luma.gl/webgpu';
+import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {TangramLayer} from '@tangram.gl/tangram-layers';
 import {resolveDeckExampleViewMode} from './app-loader.js';
 import {createCollapsibleInfoCard} from './info-card.js';

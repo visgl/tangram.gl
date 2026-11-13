@@ -9,7 +9,7 @@
 import '@fontsource/noto-sans/latin-400-italic.css';
 import {Deck, OrthographicView} from '@deck.gl/core';
 import {TextLayer} from '@deck.gl/layers';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, beforeAll, describe, expect, test} from 'vitest';
 import {getLabelFontRenderer} from '../src/label-font-renderer';
 import {LabelTextLayer} from '../src/label-text-layer';

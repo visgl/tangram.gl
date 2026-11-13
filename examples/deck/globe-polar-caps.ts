@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {COORDINATE_SYSTEM} from '@deck.gl/core';
 import {SimpleMeshLayer} from '@deck.gl/mesh-layers';
 
 const MERCATOR_LATITUDE_LIMIT = 85.0511287798066;
@@ -52,7 +51,7 @@ const UNLIT_MATERIAL = {unlit: true, ambient: 1, diffuse: 0};
 /** Render only the missing globe surface through deck's geographic globe projection. */
 export function createGlobePolarCaps(color: [number, number, number], visible: boolean) {
   return new SimpleMeshLayer({id: 'globe-polar-caps', data: [0], mesh: POLAR_CAP_MESH,
-    coordinateSystem: COORDINATE_SYSTEM.LNGLAT, _instanced: false,
+    coordinateSystem: 'lnglat', _instanced: false,
     getPosition: [0, 0, 0], getColor: color, material: UNLIT_MATERIAL, pickable: false, visible,
     parameters: {cullMode: 'back'}});
 }

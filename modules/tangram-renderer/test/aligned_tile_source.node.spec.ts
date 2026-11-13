@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import type {TileSource} from '@loaders.gl/loader-utils';
+import type {TileSource} from '@loaders.gl/core/loader-utils';
 import AlignedTangramTileSource from '../src/sources/aligned_tile_source';
 import type {AlignedLegacySource, AlignedTileParameters} from '../src/sources/aligned_tile_source';
 import type {TileSourceContext} from '../src/sources/tile_source_adapter';

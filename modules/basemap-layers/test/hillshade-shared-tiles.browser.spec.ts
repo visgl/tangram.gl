@@ -12,7 +12,7 @@ import {
   _GlobeView as GlobeView,
   _GlobeViewport as GlobeViewport
 } from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {HillshadeTileLayer} from '../src/hillshade-layer';

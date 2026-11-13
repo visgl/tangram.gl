@@ -4,7 +4,7 @@
 
 import {Deck, MapView, FirstPersonView, WebMercatorViewport, LightingEffect, AmbientLight, DirectionalLight, type MapViewState} from '@deck.gl/core';
 import {TerrainLayer} from '@deck.gl/geo-layers';
-import {webgpuAdapter} from '@luma.gl/webgpu';
+import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';
 import {TerrainScreenQuery, type TerrainScreenHit} from './picking';
 import {terrainMarkup} from './view';

@@ -9,6 +9,7 @@
 import {LayerExtension, project} from '@deck.gl/core';
 import type {CompositeLayer, Layer} from '@deck.gl/core';
 import {FillStyleExtension} from '@deck.gl/extensions';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /** Whether a layer's device runs the GLSL injections of these extensions. */
 function isGLSLDevice(layer: Layer): boolean {
@@ -20,7 +21,7 @@ function isGLSLDevice(layer: Layer): boolean {
  * JS applies it in tile units: x east and y south on a map, along the local east and south on a
  * globe. The vertex moves before later injections run, so a pattern moves with the fill.
  */
-const fillTranslateModule = {
+const fillTranslateModule = createShaderInjectionPlugin({
   name: 'fillTranslate',
   dependencies: [project],
   vs: /* glsl */ `\
@@ -54,7 +55,7 @@ layout(std140) uniform fillTranslateUniforms {
 `
     }
   }
-} as const;
+});
 
 /** The anchor of `fill-translate`. */
 export type FillTranslateAnchor = 'map' | 'viewport';
@@ -103,7 +104,7 @@ export class FillTranslateExtension extends LayerExtension {
     if (!isGLSLDevice(this)) {
       return {};
     }
-    return {modules: [fillTranslateModule]};
+    return {plugins: [fillTranslateModule]};
   }
 
   draw(this: Layer<FillTranslateExtensionProps>) {
@@ -126,7 +127,7 @@ export class FillTranslateExtension extends LayerExtension {
  * size and shape across the globe, and stays continuous across tiles, as on a map. Runs after
  * `FillStyleExtension`'s injection (`order: 1`), with the pattern size in common units.
  */
-const globePatternModule = {
+const globePatternModule = createShaderInjectionPlugin({
   name: 'globeFillPattern',
   dependencies: [project],
   inject: {
@@ -142,7 +143,7 @@ const globePatternModule = {
 `
     }
   }
-} as const;
+});
 
 /**
  * `FillStyleExtension` with image patterns, run only where its GLSL shader runs. On WebGPU it adds
@@ -161,7 +162,7 @@ export class FillPatternExtension extends FillStyleExtension {
     return (
       shaders && {
         ...shaders,
-        modules: [...shaders.modules, globePatternModule]
+        plugins: [...(shaders.plugins ?? []), globePatternModule]
       }
     );
   }

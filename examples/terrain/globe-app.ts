@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, _GlobeView as GlobeView, type GlobeViewState} from '@deck.gl/core';
-import {webgpuAdapter} from '@luma.gl/webgpu';
+import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {GlobeTerrainLayer, GlobeTerrainDisplayPreparation, getGlobeScreenRatio, type GlobeTerrainDisplaySnapshot} from '@tangram.gl/tangram-layers/experimental/terrain';
 import {GlobeTerrainPreparation, getGlobeTerrainExaggeration, type TerrainHeightGrid, TerrainResourceBudget, measureTerrainError, selectTerrainMeshResolution, boundProjectedDisplacement} from '@tangram.gl/tangram-renderer/map-logic';
 import {createCollapsibleInfoCard} from '../deck/info-card.js';

@@ -4,7 +4,7 @@
 
 /* eslint-disable import/no-extraneous-dependencies */
 import {parse} from '@loaders.gl/core';
-import {MVTLoader} from '@loaders.gl/mvt';
+import {MVTLoader} from '@loaders.gl/tiles/mvt';
 import {describe, expect, test} from 'vitest';
 import {getSourceLoadOptions} from '../src/globe-layers';
 

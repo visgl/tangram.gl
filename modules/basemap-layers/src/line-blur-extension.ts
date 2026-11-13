@@ -8,7 +8,7 @@
 
 import {LayerExtension} from '@deck.gl/core';
 import type {Layer, UpdateParameters} from '@deck.gl/core';
-import type {ShaderModule} from '@luma.gl/shadertools';
+import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 export type LineBlurExtensionOptions = {
   /**
@@ -104,7 +104,7 @@ export class LineBlurExtension extends LayerExtension<LineBlurExtensionOptions> 
     // `vPathPosition.x` rather than its absolute value, whose gradient falls to 0 across the
     // middle of the stroke, where a blur wider than the line keeps it translucent in MapLibre.
     // Gradients are taken before any fragment of the quad is discarded.
-    const lineBlur: ShaderModule<LineBlurProps> = {
+    const lineBlur = createShaderInjectionPlugin({
       name: 'lineBlur',
       inject: {
         'vs:#decl': `${UNIFORMS}
@@ -213,9 +213,9 @@ in float lineBlur_padPixels;
 `
       },
       uniformTypes: {blur: 'f32', gapOffset: 'f32', gapSide: 'f32'}
-    };
+    });
     return {
-      modules: [lineBlur],
+      plugins: [lineBlur],
       defines: extension.opts.perFeature ? {LINE_BLUR_PER_FEATURE: true} : {}
     };
   }

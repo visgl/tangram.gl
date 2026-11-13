@@ -8,8 +8,8 @@
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
 import {parse} from '@loaders.gl/core';
-import {MVTLoader} from '@loaders.gl/mvt';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {MVTLoader} from '@loaders.gl/tiles/mvt';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {MVTLabelLayer} from '../src/mvt-label-layer';

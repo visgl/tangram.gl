@@ -6,7 +6,6 @@ import type {GlyphStore} from './glyph-store';
 import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {isGlobeViewport} from './is-globe-viewport';
 import {
-  COORDINATE_SYSTEM,
   type Layer,
   type LayersList,
   type UpdateParameters,
@@ -802,7 +801,7 @@ function createRasterLayer({
         ...props,
         // A texture keeps the filter it was created with, so a filter change needs a new layer.
         id: isNearest ? `${props.id}-nearest` : props.id,
-        _imageCoordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+        _imageCoordinateSystem: 'cartesian',
         data: null,
         image: props.data,
         bounds: [west, south, east, north],
@@ -1203,8 +1202,8 @@ class StyledMVTLayer extends SharedMVTLayer {
     const {sourceLayer} = params;
     if (sourceLayer && !sourceLayer.props.tile) {
       const coordinateSystem = isGlobeViewport(this.context.viewport)
-        ? COORDINATE_SYSTEM.LNGLAT
-        : COORDINATE_SYSTEM.CARTESIAN;
+        ? 'lnglat'
+        : 'cartesian';
       const info = super.getPickingInfo({
         ...params,
         sourceLayer: {props: {tile: params.info.tile, coordinateSystem}}

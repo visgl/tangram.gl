@@ -7,7 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, MapView, _GlobeView as GlobeView} from '@deck.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {getPatternAtlas} from '../src/fill-pattern';
 import {getBasemapLayers} from '../src/index';

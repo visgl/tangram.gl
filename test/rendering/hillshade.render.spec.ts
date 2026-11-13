@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, expect, test} from 'vitest';
-import {GLSLShaderAssembler, WGSLShaderAssembler, type PlatformInfo} from '@luma.gl/shadertools';
+import {GLSLShaderAssembler, WGSLShaderAssembler, type PlatformInfo} from '@luma.gl/shaders';
 import {hillshade} from '../../modules/tangram-renderer/dist/shader-modules.js';
 import {RenderingHarness, DEVICE_TYPE, readCanvasPixels} from './harness';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';

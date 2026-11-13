@@ -3,7 +3,7 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-import type {ShaderModule} from '@luma.gl/shadertools';
+import type {ShaderModule} from '@luma.gl/shaders';
 
 /** Tangram uses one frequency for both world XY coordinates, not anisotropic XY scaling. */
 const glsl = `

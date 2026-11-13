@@ -20,7 +20,7 @@
 
 import {Deck, MapView, type Layer, type LayerProps} from '@deck.gl/core';
 import {luma, type Device} from '@luma.gl/core';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {expression, latest} from '@maplibre/maplibre-gl-style-spec';
 import * as maplibregl from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';

@@ -4,7 +4,7 @@
 
 import {expect, test} from 'vitest';
 import {Texture} from '@luma.gl/core';
-import {GLSLShaderAssembler, WGSLShaderAssembler, type PlatformInfo} from '@luma.gl/shadertools';
+import {GLSLShaderAssembler, WGSLShaderAssembler, type PlatformInfo} from '@luma.gl/shaders';
 import {triplanar, planar, sphereMap} from '../../modules/tangram-renderer/dist/shader-modules.js';
 import materialGLSL from '../../modules/tangram-renderer/src/lights/material.glsl?raw';
 import {RenderingHarness, DEVICE_TYPE} from './harness';

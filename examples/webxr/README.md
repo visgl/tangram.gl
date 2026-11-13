@@ -14,7 +14,7 @@ published on npm. Webcam models and WASM are downloaded only when gestures start
 Builds include Thor's MIT notice in `examples/dist/thor.LICENSE.txt`.
 
 This experimental renderer example uses `WebXRManager` and
-`WebXRAnimationFrameProvider` from `@luma.gl/experimental`. A single Tangram
+`WebXRAnimationFrameProvider` from `@luma.gl/engine/experimental/webxr`. A single Tangram
 scene and tile cache are rendered once per XR view using luma.gl's per-eye
 framebuffer, viewport, view matrix and projection matrix. The same renderer can
 be explored as a `GlobeView`, physical tabletop `MapView`, or street-level

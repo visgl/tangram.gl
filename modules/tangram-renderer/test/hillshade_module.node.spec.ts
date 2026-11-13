@@ -4,7 +4,7 @@
 
 import {expect, test} from 'vitest';
 import {build} from 'esbuild';
-import {GLSLShaderAssembler, WGSLShaderAssembler} from '@luma.gl/shadertools';
+import {GLSLShaderAssembler, WGSLShaderAssembler} from '@luma.gl/shaders';
 import {hillshade} from '../src/shader-modules/index';
 
 test('hillshade is a binding-free module usable with both luma assemblers', () => {

@@ -9,9 +9,9 @@
 import {Deck, MapView} from '@deck.gl/core';
 import {TextLayer} from '@deck.gl/layers';
 import {Model} from '@luma.gl/engine';
-import {webgl2Adapter} from '@luma.gl/webgl';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {expression as styleExpression, latest} from '@maplibre/maplibre-gl-style-spec';
-import mvtWorkerUrl from '@loaders.gl/mvt/mvt-worker.js?url';
+import mvtWorkerUrl from '@loaders.gl/tiles/mvt/mvt-worker.js?url';
 import * as maplibregl from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
 import {BasemapLayer} from '../../src/index';
