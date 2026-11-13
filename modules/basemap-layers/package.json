@@ -48,7 +48,7 @@
     "prepack": "yarn build"
   },
   "devDependencies": {
-    "@deck.gl-community/geo-layers": "~9.4.2",
+    "@deck.gl-community/geo-layers": "10.0.0-alpha.1",
     "@deck.gl/test-utils": "10.0.0-alpha.1",
     "@fontsource/montserrat": "5.3.0",
     "@fontsource/noto-sans": "5.3.0",
@@ -72,7 +72,7 @@
     "zod": "^4.0.0"
   },
   "peerDependencies": {
-    "@deck.gl-community/geo-layers": "~9.4.2",
+    "@deck.gl-community/geo-layers": "10.0.0-alpha.1",
     "@deck.gl/core": "10.0.0-alpha.1",
     "@deck.gl/extensions": "10.0.0-alpha.1",
     "@deck.gl/geo-layers": "10.0.0-alpha.1",
