@@ -105,7 +105,9 @@ function getInjections(extension: LayerExtension, layer: unknown): Injection[] {
       ? plugin.injections.flatMap(({stage, target, glsl}: ShaderInjection) =>
           glsl ? [{key: `${stage === 'vertex' ? 'vs' : 'fs'}:${target}`, code: glsl}] : []
         )
-      : []
+      : Object.entries(plugin.injections ?? {}).flatMap(([key, code]) =>
+          key.startsWith('wgsl:') ? [] : [{key: key.replace(/^glsl:/, ''), code}]
+        )
   );
   return [...pluginInjections, ...injects.flatMap(inject =>
     Object.entries(inject).map(([key, value]: [string, any]) => ({

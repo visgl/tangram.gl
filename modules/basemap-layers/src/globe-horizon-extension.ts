@@ -24,11 +24,20 @@ const globeHorizonModule = createShaderInjectionPlugin({
   name: 'globeHorizon',
   dependencies: [project],
   inject: {
+    'vs:#decl': /* glsl */ `
+bool tangramBillboardOccluded(vec3 commonPosition) {
+  vec3 wRow = vec3(project.viewProjectionMatrix[0][3],
+    project.viewProjectionMatrix[1][3], project.viewProjectionMatrix[2][3]);
+  return dot(wRow, wRow) > 0.0 && project_globe_is_occluded(commonPosition);
+}
+// The native test is perspective-only; the hook below tests parallel rays instead.
+#define project_globe_is_occluded tangramBillboardOccluded
+`,
     'vs:DECKGL_FILTER_GL_POSITION': {
       order: 1,
       injection: /* glsl */ `
   if (project.projectionMode == PROJECTION_MODE_GLOBE) {
-    vec3 globeHorizon_normal = normalize(project_position(geometry.worldPosition));
+    vec3 globeHorizon_normal = normalize(geometry.position.xyz);
     mat4 globeHorizon_m = project.viewProjectionMatrix;
     vec3 globeHorizon_wRow = vec3(globeHorizon_m[0][3], globeHorizon_m[1][3], globeHorizon_m[2][3]);
     bool globeHorizon_hidden = dot(globeHorizon_wRow, globeHorizon_wRow) == 0.0

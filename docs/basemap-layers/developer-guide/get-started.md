@@ -18,7 +18,7 @@ To use `BasemapLayer` in a deck application:
 
 ```ts
 import {Deck} from '@deck.gl/core';
-import {BasemapLayer} from '@deck.gl-community/basemap-layers';
+import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import styleJson from '../../../website/static/mapstyle/deck-light.json';
 
 new Deck({
@@ -57,7 +57,7 @@ new BasemapLayer({
 - `getGlobeTopLayers`
 - `resolveBasemapStyle`
 
-The separate map-style helpers are exported from `@deck.gl-community/basemap-layers/map-style`.
+The separate map-style helpers are exported from `@tangram.gl/basemap-layers/map-style`.
 
 ## Local Development
 

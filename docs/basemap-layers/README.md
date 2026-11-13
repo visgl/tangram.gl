@@ -39,9 +39,9 @@ when you tilt down. Differences in rendering show the module's current style sup
 
 The package is split into two surfaces:
 
-- `@deck.gl-community/basemap-layers`
+- `@tangram.gl/basemap-layers`
   Runtime helpers and the `BasemapLayer` `CompositeLayer`
-- `@deck.gl-community/basemap-layers/map-style`
+- `@tangram.gl/basemap-layers/map-style`
   Map-style parsing, validation, loading, and style-expression helpers
 
 Exported runtime helpers:

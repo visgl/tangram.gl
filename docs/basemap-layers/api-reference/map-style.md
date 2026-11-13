@@ -19,12 +19,12 @@ import {
   parseProperties,
   resolveBasemapStyle,
   ResolvedBasemapStyleSchema
-} from '@deck.gl-community/basemap-layers/map-style';
+} from '@tangram.gl/basemap-layers/map-style';
 ```
 
-This entrypoint is intentionally separate from the runtime `@deck.gl-community/basemap-layers` export.
+This entrypoint is intentionally separate from the runtime `@tangram.gl/basemap-layers` export.
 
-Use `@deck.gl-community/basemap-layers/map-style` when you want map-style validation, resolution, loaders.gl integration, or pure style-expression helpers without constructing `BasemapLayer`.
+Use `@tangram.gl/basemap-layers/map-style` when you want map-style validation, resolution, loaders.gl integration, or pure style-expression helpers without constructing `BasemapLayer`.
 
 ## Exports
 

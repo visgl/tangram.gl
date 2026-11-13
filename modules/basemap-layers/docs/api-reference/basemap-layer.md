@@ -11,7 +11,7 @@ Copyright (c) vis.gl contributors
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 </p>
 
-`@deck.gl-community/basemap-layers` exports a runtime API for loading a MapLibre or Mapbox style document and generating deck.gl sublayers from it.
+`@tangram.gl/basemap-layers` exports a runtime API for loading a MapLibre or Mapbox style document and generating deck.gl sublayers from it.
 
 Recommended example:
 
@@ -31,7 +31,7 @@ yarn add @tangram.gl/basemap-layers @deck.gl-community/geo-layers@10.0.0-alpha.1
 </p>
 
 ```ts
-import {BasemapLayer} from '@deck.gl-community/basemap-layers';
+import {BasemapLayer} from '@tangram.gl/basemap-layers';
 ```
 
 `BasemapLayer` is a `CompositeLayer` that:
@@ -146,11 +146,11 @@ Loads and normalizes a style document. This resolves:
 
 ```ts
 import {Deck, _GlobeView} from '@deck.gl/core';
-import {BasemapLayer} from '@deck.gl-community/basemap-layers';
+import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import styleJson from '../../../../website/static/mapstyle/deck-light.json';
 
 new Deck({
-  views: new _GlobeView(),
+  views: new _GlobeView({resolution: 36}),
   controller: true,
   layers: [
     new BasemapLayer({
