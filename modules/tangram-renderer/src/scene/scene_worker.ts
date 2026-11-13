@@ -7,6 +7,7 @@
 /*jshint worker: true*/
 
 import Utils from '../utils/utils';
+import Thread from '../utils/thread';
 import {initializeTaskWorker} from '@math.gl/tasks';
 import {sceneWorkerTask, type SceneWorkerTask, type SceneWorkerTaskResult} from './scene-worker-thread';
 import {compileFunctionStrings, functionStringCache, clearFunctionStringCache} from '../utils/functions';
@@ -529,7 +530,7 @@ WorkerBroker.addTarget('self', SceneWorker);
 
 // Keep the broker installed for mesh delivery and worker-to-main callbacks.
 // The caller requests copied results because queried feature data remains worker-owned.
-void initializeTaskWorker({...sceneWorkerTask, async process(input: SceneWorkerTask): Promise<SceneWorkerTaskResult> {
+const sceneTaskProcessor = {...sceneWorkerTask, async process(input: SceneWorkerTask): Promise<SceneWorkerTaskResult> {
         const value = input.operation === 'tile-source-statistics'
             ? SceneWorker.getTileSourceStatistics()
             : input.operation === 'source-metadata'
@@ -562,6 +563,10 @@ void initializeTaskWorker({...sceneWorkerTask, async process(input: SceneWorkerT
                                                                 ? SceneWorker.profileEnd(input.name)
                 : (() => {throw new Error('Unknown scene worker task');})();
         return {value};
-}});
+}};
+
+if (Thread.is_worker) {
+    void initializeTaskWorker(sceneTaskProcessor);
+}
 
 export default SceneWorker;
