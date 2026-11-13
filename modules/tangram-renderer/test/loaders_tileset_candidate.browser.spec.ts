@@ -211,11 +211,13 @@ test.each([undefined, NaN, -1])('unknown/invalid allocation %s stays unknown rat
     } finally { candidate.finalize(); }
 });
 
-test('published finalize needs an explicit decoded-release adapter; teardown rejects reuse and is idempotent', async () => {
-    const unload = vi.fn(), reference = new Tileset2D({adapter, getTileData: () => ({byteLength: 100}), onTileUnload: unload});
+test('published finalize releases decoded tiles; candidate teardown rejects reuse and is idempotent', async () => {
+    const referenceUnload = vi.fn();
+    const reference = new Tileset2D({adapter, getTileData: () => ({byteLength: 100}), onTileUnload: referenceUnload});
     reference.getTileIndices({viewState: {eyes: []}, zRange: null});
     await reference.getTile({x: 0, y: 0, z: 0}, true).data;
-    reference.finalize(); expect(unload).not.toHaveBeenCalled();
+    reference.finalize(); expect(referenceUnload).toHaveBeenCalledOnce();
+    const unload = vi.fn();
     const candidate = new LoadersTilesetCandidate({source, adapter, load: loadContent, onContentUnload: unload});
     const state = createState({x: 0, y: 0, z: 0});
     await candidate.updateConsumer(Symbol('host'), state, 6)[0].content.data;

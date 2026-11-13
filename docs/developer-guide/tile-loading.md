@@ -205,7 +205,7 @@ without explicitly reconciling those semantics.
 
 ## Comparative validation
 
-Tests use published `@loaders.gl/tiles@5.0.0-alpha.11`, not copied source or a local
+Tests use published `@loaders.gl/tiles@5.0.0-beta.8`, not copied source or a local
 checkout. Both engines receive the same compact fixtures. Frozen expected
 footprints additionally guard against two adapters agreeing on the same mistake.
 Real browser source tests compare postprocessed MVT, GeoJSON and raster payloads.
@@ -288,7 +288,7 @@ The comparison makes these rollout gates concrete:
 | Missing `content.byteLength` contributes zero to cache bytes | Candidate diagnostics use an explicit allocation estimator and retain unknown sizes. A common byte-budget contract is still needed before enforcing decoded memory limits. |
 | Nearest cached ancestor can be unloaded | A fixture contrasts this with Tangram's nearest loaded styled ancestor. Host-authored drawable fallbacks stay protected; switching refinement requires a style/generation-aware policy, not a header pointer. |
 | Aborting a non-cooperative header may accept its late content | Candidate source publication checks the signal and source lifetime after acquisition; pending eviction also explicitly aborts the header. |
-| `Tileset2D.finalize()` clears headers without unload callbacks | Candidate explicitly releases live decoded content once before finalization. This is not GPU mesh disposal. |
+| `Tileset2D.finalize()` emits unload callbacks | The candidate releases each decoded tile through the upstream callback. This is not GPU mesh disposal. |
 
 `yarn bundle-size:tilesets` reports reproducible browser/minified/gzip probes and
 guards against retained 3D/spatial code in the decoded entry. The current probes

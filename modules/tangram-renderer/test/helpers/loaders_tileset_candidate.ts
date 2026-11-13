@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Tileset2D} from '@loaders.gl/tiles';
-import type {SharedTile2DHeader, Tileset2DAdapter} from '@loaders.gl/tiles';
+import type {Tile2DHeader, Tileset2DAdapter} from '@loaders.gl/tiles';
 import {TileID} from '../../src/tile/tile_id';
 import type {TileCoordinates, TileSource} from '../../src/tile/tile_id';
 import type {TangramTraversalState} from '../../src/tile/tile_traversal_adapter';
@@ -16,7 +16,7 @@ export interface CandidateMeshTile<DataT> {
     /** Display zoom must not be taken from the decoded data header. */
     readonly styleZoom: number;
     /** Published shared data header; no mesh or selection-buffer ownership. */
-    readonly content: SharedTile2DHeader<DataT>;
+    readonly content: Tile2DHeader<DataT>;
 }
 
 /** Development-only candidate options; decoded cache budgets are not mesh budgets. */
@@ -103,7 +103,7 @@ export default class LoadersTilesetCandidate<DataT> {
     }
 
     /** Retry a cached failure explicitly rather than introducing automatic request loops. */
-    retryTile(index: TileCoordinates): SharedTile2DHeader<DataT> {
+    retryTile(index: TileCoordinates): Tile2DHeader<DataT> {
         if (this.finalized) throw new Error('Tileset candidate is finalized');
         const normalized = TileID.normalizedCoord(index, this.options.source);
         const cached = this.decodedTileset.getTile(normalized);
@@ -125,16 +125,12 @@ export default class LoadersTilesetCandidate<DataT> {
         return {decodedTiles: tiles.length, decodedBytes, meshConsumers: this.consumers.size};
     }
 
-    /** Finalize requires explicit release: published finalize does not emit onTileUnload. */
+    /** Release decoded content through the tileset's unload callback, once per tile. */
     finalize(): void {
         if (this.finalized) return;
         this.finalized = true;
-        this.decodedTileset.prepareTiles();
-        try {
-            for (const tile of this.decodedTileset.tiles) {
-                if (tile.content !== null) this.options.onContentUnload?.(tile.content);
-            }
-        } finally { this.decodedTileset.finalize(); this.consumers.clear(); }
+        try { this.decodedTileset.finalize(); }
+        finally { this.consumers.clear(); }
     }
 
     /** Normalize sparse data levels while preserving source/style keys and unwrapped worlds. */

@@ -78,7 +78,8 @@ type Fake = {
 };
 
 /**
- * Loads `geojson-source.ts` afresh with a fake worker resource; 'fail' simulates a load failure.
+ * Loads `geojson-source.ts` afresh with a fake worker resource; 'fail' simulates a load failure
+ * followed by a teardown rejection.
  */
 async function loadWithFakeWorker(mode: 'run' | 'fail') {
   vi.resetModules();
@@ -115,15 +116,22 @@ async function loadWithFakeWorker(mode: 'run' | 'fail') {
   }
   vi.stubGlobal('Worker', FakeWorker);
   // Exercise our source adapter in Node; real math.gl transport is covered in Chromium.
-  vi.doMock('@math.gl/core/tasks', () => ({
-    createWorkerResource: async (task: {loadWorker: () => FakeWorker}) => {
-      const worker = task.loadWorker();
-      const run = (input: GeoJsonWorkerRequest) => new Promise((resolve, reject) => {
-        worker.onmessage = ({data}: any) => resolve(data.payload.result.value);
-        worker.onerror = () => reject(new Error('worker failed'));
-        worker.postMessage({type: 'process', payload: {input: {operation: 'run', input}}});
-      });
-      return {run, destroy: async () => worker.terminate()};
+  vi.doMock('@math.gl/tasks', () => ({
+    TaskRunner: class {
+      private worker?: FakeWorker;
+      async initializeTask(task: {worker: {create: () => FakeWorker}}) {
+        const worker = this.worker = task.worker.create();
+        const run = (input: GeoJsonWorkerRequest) => new Promise((resolve, reject) => {
+          worker.onmessage = ({data}: any) => resolve(data.payload.result.value);
+          worker.onerror = () => reject(new Error('worker failed'));
+          worker.postMessage({type: 'process', payload: {input: {operation: 'run', input}}});
+        });
+        return {runTask: run};
+      }
+      async terminate() {
+        this.worker?.terminate();
+        if (mode === 'fail') throw new Error('Worker teardown failed');
+      }
     }
   }));
   const module = await import('../src/geojson-source');
@@ -140,7 +148,7 @@ async function getMainThreadTiles(data: unknown) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  vi.doUnmock('@math.gl/core/tasks');
+  vi.doUnmock('@math.gl/tasks');
 });
 
 describe('GeoJSON worker', () => {
@@ -166,11 +174,20 @@ describe('GeoJSON worker', () => {
   });
 
   test('every geometry type and the source options cross to the worker', async () => {
+    const collection = {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {name: 'nested'},
+        geometry: {type: 'GeometryCollection', geometries: MIXED.features.map(feature => feature.geometry)}
+      }]
+    };
     const sources = [
       {type: 'geojson', data: MIXED, buffer: 0},
       {type: 'geojson', data: MIXED, promoteId: 'name'},
       {type: 'geojson', data: MIXED.features[0], generateId: true},
-      {type: 'geojson', data: makePolygons(50), cluster: false, tolerance: 3}
+      {type: 'geojson', data: makePolygons(50), cluster: false, tolerance: 3},
+      {type: 'geojson', data: collection}
     ];
     vi.resetModules();
     const mainThread = await import('../src/geojson-source');
@@ -212,7 +229,7 @@ describe('GeoJSON worker', () => {
     await expect(module.getGeoJsonTileFeatures(source, TILES[1])).rejects.toThrow();
   });
 
-  test('a worker that fails to load is replaced by the main thread', async () => {
+  test('a worker that fails to load falls back even when teardown rejects', async () => {
     const expected = await getMainThreadTiles(DATA);
     const {module, fakes} = await loadWithFakeWorker('fail');
     const source = {type: 'geojson', data: DATA};

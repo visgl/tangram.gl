@@ -37,7 +37,7 @@ const config = getVitestConfig({
     optimizeDeps: {include: [
       'sinon', '@luma.gl/experimental', '@deck.gl/mesh-layers',
       // Surface queries must not reload a browser test during lazy dependency discovery.
-      '@math.gl/geometry/culling', '@math.gl/core/tasks', 'quickselect',
+      '@math.gl/geometry/culling', '@math.gl/core-legacy-tasks/tasks', '@math.gl/tasks', 'quickselect',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
       '@loaders.gl/tiles/pmtiles', '@loaders.gl/tiles/mvt-geojson-loader',
       '@loaders.gl/tiles',
