@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {WorkerThread} from '@math.gl/core-legacy-tasks/tasks';
+import {TaskRunner, type InitializedTask, type Task} from '@math.gl/tasks';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
 import type {BrokerWorker} from '../utils/worker-types';
 import type {SelectionReply} from '../selection/selection-types';
@@ -18,55 +18,81 @@ export function getSceneWorkerThread(worker: BrokerWorker): SceneWorkerThread | 
 
 /** Operations that can execute on the scene worker through the task protocol. */
 export type SceneWorkerTask =
-    | {id: number; operation: 'tile-source-statistics'}
-    | {id: number; operation: 'source-metadata'; names: readonly string[]; generation: number}
-    | {id: number; operation: 'update-config' | 'update-terrain-view'; configuration: unknown; debug: unknown}
-    | {id: number; operation: 'build-tile'; tile: unknown}
-    | {id: number; operation: 'remove-tile'; key: string}
-    | {id: number; operation: 'feature-selection'; request: {id: number; key?: number}}
-    | {id: number; operation: 'reset-feature-selection'; sources: string[] | null}
-    | {id: number; operation: 'feature-selection-map-size'}
-    | {id: number; operation: 'query-features'; query: unknown}
-    | {id: number; operation: 'initialize'; parameters: unknown[]}
-    | {id: number; operation: 'update-device-pixel-ratio'; pixelRatio: number | undefined}
-    | {id: number; operation: 'clear-function-cache'}
-    | {id: number; operation: 'profile' | 'profile-end'; name: string};
+    | {operation: 'tile-source-statistics'}
+    | {operation: 'source-metadata'; names: readonly string[]; generation: number}
+    | {operation: 'update-config' | 'update-terrain-view'; configuration: unknown; debug: unknown}
+    | {operation: 'build-tile'; tile: unknown}
+    | {operation: 'remove-tile'; key: string}
+    | {operation: 'feature-selection'; request: {id: number; key?: number}}
+    | {operation: 'reset-feature-selection'; sources: string[] | null}
+    | {operation: 'feature-selection-map-size'}
+    | {operation: 'query-features'; query: unknown}
+    | {operation: 'initialize'; parameters: unknown[]}
+    | {operation: 'update-device-pixel-ratio'; pixelRatio: number | undefined}
+    | {operation: 'clear-function-cache'}
+    | {operation: 'profile' | 'profile-end'; name: string};
 
-type SceneWorkerTaskInput = SceneWorkerTask extends infer Task ? Task extends SceneWorkerTask ? Omit<Task, 'id'> : never : never;
+/** A record envelope for results that may themselves be arrays or primitives. */
+export type SceneWorkerTaskResult = {value: unknown};
+
+const SCENE_TASK_CONCURRENCY = 32;
+
+/** Shared task protocol, independent of the scene implementation and the broker. */
+export const sceneWorkerTask = {
+    id: 'tangram-scene',
+    concurrency: {
+        maxConcurrency: SCENE_TASK_CONCURRENCY,
+        getSchedulingMode: (_input: SceneWorkerTask) => 'parallel' as const
+    }
+};
+
+type SceneTask = Task<{input: SceneWorkerTask; output: SceneWorkerTaskResult}>;
 
 /** Owns a scene worker through math.gl while its bidirectional broker remains in use. */
 export class SceneWorkerThread {
-    private readonly thread: WorkerThread;
-    private readonly pending = new Map<number, {resolve: (value: unknown) => void; reject: (error: Error) => void}>();
-    private nextTaskId = 0;
+    private readonly runner?: TaskRunner;
+    private readonly task?: Promise<InitializedTask<SceneTask>>;
+    private readonly shimURL?: string;
+    private readonly lifetime = new AbortController();
     private terminalError: Error | undefined;
 
     /** The browser worker used by Tangram's concurrent broker protocol. */
     readonly worker: Worker;
 
     /** Start a classic worker at the existing scene worker URL. */
-    constructor(url: string, id: number, readonly supportsTasks = false) {
-        this.thread = new WorkerThread({name: `Tangram scene ${id}`, url, workerType: 'classic'});
-        this.worker = this.thread.worker as Worker;
+    constructor(url: string, id: number, readonly supportsTasks = true) {
+        const scriptURL = new URL(url, location.href);
+        // Classic workers still support importScripts for projection and source sidecars.
+        if (/^https?:$/.test(scriptURL.protocol) && scriptURL.origin !== location.origin) {
+            this.shimURL = URL.createObjectURL(new Blob(
+                [`importScripts(${JSON.stringify(scriptURL.href)});`],
+                {type: 'text/javascript'}
+            ));
+        }
+        try {
+            this.worker = new Worker(this.shimURL ?? url, {name: `Tangram scene ${id}`, type: 'classic'});
+        } catch (error) {
+            if (this.shimURL) URL.revokeObjectURL(this.shimURL);
+            throw error;
+        }
         sceneWorkerThreads.set(this.worker, this);
-        this.thread.onMessage = message => {
-            if (message?.source !== 'loaders.gl') return;
-            if (message.type === 'error') {
-                this.rejectPending(new Error(message.payload?.error || 'Scene worker task failed'));
-                return;
-            }
-            if (message.type !== 'done') return;
-            const result = message.payload?.result;
-            const pending = this.pending.get(result?.id);
-            if (!pending) return;
-            this.pending.delete(result.id);
-            if (typeof result.error === 'string') pending.reject(new Error(result.error));
-            else pending.resolve(result.value);
-        };
-        this.thread.onError = error => {
-            this.terminalError = error;
-            this.rejectPending(error);
-        };
+        this.worker.addEventListener('error', event => {
+            this.terminalError ??= new Error(`Failed to load or execute scene worker: ${event.message}`);
+            this.lifetime.abort(this.terminalError);
+        });
+        if (supportsTasks) {
+            this.runner = new TaskRunner();
+            const definition: SceneTask = {
+                ...sceneWorkerTask,
+                worker: {create: () => this.worker, capabilities: {atomic: true, streaming: false}}
+            };
+            this.task = this.runner.initializeTask(definition, {}, {
+                execution: 'worker', operationConcurrency: SCENE_TASK_CONCURRENCY, signal: this.lifetime.signal
+            });
+            void this.task.catch(error => {
+                this.terminalError ??= error instanceof Error ? error : new Error(String(error));
+            });
+        }
     }
 
     /** Request a source statistics snapshot using the math.gl task protocol. */
@@ -134,31 +160,24 @@ export class SceneWorkerThread {
         return this.runTask({operation: end ? 'profile-end' : 'profile', name});
     }
 
-    private runTask(task: SceneWorkerTaskInput): Promise<unknown> {
-        if (this.terminalError) return Promise.reject(this.terminalError);
-        const id = this.nextTaskId++;
-        return new Promise((resolve, reject) => {
-            this.pending.set(id, {resolve, reject});
-            try {
-                this.thread.postMessage({source: 'loaders.gl', type: 'process', payload: {input: {...task, id}, options: {}}}, []);
-            } catch (error) {
-                this.pending.delete(id);
-                reject(error);
-            }
-        });
-    }
-
-    private rejectPending(error: Error): void {
-        for (const request of this.pending.values()) request.reject(error);
-        this.pending.clear();
+    private async runTask(task: SceneWorkerTask): Promise<unknown> {
+        if (this.terminalError) throw this.terminalError;
+        if (!this.task) throw new Error('Scene worker does not support tasks');
+        try {
+            const handle = await this.task;
+            return (await handle.runTask(task, {signal: this.lifetime.signal, inputOwnership: 'copy', outputOwnership: 'copy'})).value;
+        } catch (error) {
+            throw this.terminalError ?? error;
+        }
     }
 
     /** Terminate the owned worker and release math.gl's thread resources. */
     destroy(): void {
         sceneWorkerThreads.delete(this.worker);
-        if (this.terminalError && this.thread.terminated) return;
-        this.terminalError ||= new Error('Scene worker was destroyed');
-        this.rejectPending(this.terminalError);
-        void this.thread.destroy().catch(() => {});
+        this.terminalError ??= new Error('Scene worker was destroyed');
+        this.lifetime.abort(this.terminalError);
+        if (this.runner) void this.runner.terminate(this.terminalError).catch(() => {});
+        else this.worker.terminate();
+        if (this.shimURL) URL.revokeObjectURL(this.shimURL);
     }
 }

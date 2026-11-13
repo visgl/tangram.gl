@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {TaskDescriptor} from '@math.gl/core-legacy-tasks/tasks';
+import type {Task} from '@math.gl/tasks';
 import {decodeTerrainGrid} from './decode-height-grid';
 import {validateTerrainImage, type TerrainNoDataPolicy, type TerrainPayload} from './terrain-payload';
 
@@ -31,13 +31,20 @@ export async function processTerrainTask(input: TerrainTaskInput): Promise<Terra
   return (await import('./decode-terrain')).decodeTerrainTile(input.bytes, input.bounds, input.meshMaxError, input.noData);
 }
 
+/** The decoded grid or mesh and time spent decoding it on the execution thread. */
+export type TerrainTaskResult = {data: TerrainPayload; decodeMs: number};
+
 /** math.gl task descriptor; the worker URL is supplied by the hosting example. */
-export const TerrainDecodeTask: TaskDescriptor<TerrainTaskInput, TerrainPayload> = {
+export const TerrainDecodeTask = {
   id: 'tangram-terrain-decode',
-  name: 'Tangram terrain decode',
-  module: 'tangram-terrain-example',
-  version: '0.0.1',
-  worker: true,
-  options: {},
-  process: processTerrainTask
-};
+  async process(input: TerrainTaskInput): Promise<TerrainTaskResult> {
+    const started = performance.now();
+    const data = await processTerrainTask(input);
+    return {data, decodeMs: performance.now() - started};
+  }
+} satisfies Task<{input: TerrainTaskInput; output: TerrainTaskResult}>;
+
+/** Bind the decoder to a caller-supplied same-origin module worker. */
+export function getTerrainWorkerTask(create: () => Worker) {
+  return {...TerrainDecodeTask, worker: {create, capabilities: {atomic: true, streaming: false}}};
+}

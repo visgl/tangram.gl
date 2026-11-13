@@ -2,16 +2,21 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {runTask, WorkerPool, type WorkerJobMetrics} from '@math.gl/core-legacy-tasks/tasks';
-import {TerrainDecodeTask, type TerrainTaskInput} from './terrain-task';
+import {TaskRunner, type InitializedTask} from '@math.gl/tasks';
+import {getTerrainWorkerTask, type TerrainTaskInput} from './terrain-task';
 import {isTerrainGridData, isTerrainTileData, validateTerrainImage, type TerrainGridData, type TerrainTileData, type TerrainNoDataPolicy} from './terrain-payload';
 import type {TerrainDecoderStatistics} from './decoder-pool';
 
+type TerrainSlot = {
+    runner?: TaskRunner;
+    task?: Promise<InitializedTask<ReturnType<typeof getTerrainWorkerTask>>>;
+    busy: boolean;
+};
+
 /** Bounded terrain task transport with explicit ownership and cancellation. */
 export class TerrainTaskPool {
-    private readonly slots: {pool?: WorkerPool; busy: boolean}[] = [];
+    private readonly slots: TerrainSlot[] = [];
     private readonly workerUrl: string;
-    private retiredWorkers = 0;
     private readonly controllers = new Set<AbortController>();
     private readonly statistics: TerrainDecoderStatistics = {created: 0, active: 0, idle: 0, completed: 0, failed: 0, cancelled: 0};
     private disposed = false;
@@ -36,9 +41,8 @@ export class TerrainTaskPool {
 
     /** Return a detached diagnostics snapshot. */
     getStatistics(): TerrainDecoderStatistics {
-        const created = this.retiredWorkers + this.slots.reduce((sum, slot) => sum + (slot.pool?.stats.workersCreated ?? 0), 0);
-        const idle = this.slots.filter(slot => !slot.busy && slot.pool && slot.pool.stats.workersCreated > slot.pool.stats.workerRestarts).length;
-        return {...this.statistics, created, active: this.controllers.size, idle: this.disposed ? 0 : idle};
+        const idle = this.slots.filter(slot => !slot.busy && slot.task).length;
+        return {...this.statistics, active: this.controllers.size, idle: this.disposed ? 0 : idle};
     }
 
     /** Cancel outstanding work and terminate owned workers. */
@@ -50,11 +54,10 @@ export class TerrainTaskPool {
     }
 
     /** Drop one slot without interrupting unrelated terrain requests. */
-    private retire(slot: {pool?: WorkerPool; busy: boolean}): void {
-        if (!slot.pool) return;
-        this.retiredWorkers += slot.pool.stats.workersCreated;
-        void slot.pool.destroy().catch(() => {});
-        slot.pool = undefined;
+    private retire(slot: TerrainSlot): void {
+        void slot.runner?.terminate().catch(() => {});
+        slot.runner = undefined;
+        slot.task = undefined;
     }
 
     /** Run one job, retaining caller-owned image bytes and validating the returned payload. */
@@ -67,10 +70,6 @@ export class TerrainTaskPool {
         let slot = this.slots.find(candidate => !candidate.busy);
         if (!slot) {slot = {busy: false}; this.slots.push(slot);}
         slot.busy = true;
-        if (!slot.pool) slot.pool = new WorkerPool({name: 'Tangram terrain decode', url: this.workerUrl, workerType: 'module', maxConcurrency: 1,
-            maxMobileConcurrency: 1, reuseWorkers: true, onMetrics: (metrics: WorkerJobMetrics) => {
-                if (metrics.outcome === 'completed') this.statistics.lastDecodeMs = metrics.executionMs;
-            }});
         const controller = new AbortController();
         const abort = () => controller.abort(new DOMException('Terrain decode cancelled', 'AbortError'));
         const timeout = setTimeout(() => controller.abort(new Error('Terrain worker timed out')), 30000);
@@ -79,11 +78,23 @@ export class TerrainTaskPool {
         signal.addEventListener('abort', abort, {once: true});
         if (signal.aborted) abort();
         try {
+            if (!slot.task) {
+                slot.runner = new TaskRunner();
+                const task = getTerrainWorkerTask(() => {
+                    const worker = new Worker(this.workerUrl, {type: 'module', name: 'Tangram terrain decode'});
+                    this.statistics.created++;
+                    return worker;
+                });
+                slot.task = slot.runner.initializeTask(task, {}, {execution: 'worker', signal: controller.signal});
+            }
+            const handle = await slot.task;
             const input: TerrainTaskInput = {mode, bytes, bounds: [...bounds], meshMaxError, noData};
-            const result = await runTask(TerrainDecodeTask, input, {execution: 'worker', workerPool: slot.pool,
-                signal: controller.signal, inputOwnership: 'copy', cancellationMode: 'terminate'});
+            const {data: result, decodeMs} = await handle.runTask(input, {
+                signal: controller.signal, inputOwnership: 'copy', outputOwnership: 'transfer'
+            });
             if (!validate(result) || (mode === 'grid' && 'mesh' in result)) throw new Error('Invalid terrain worker output');
             this.statistics.completed++;
+            this.statistics.lastDecodeMs = decodeMs;
             this.statistics.lastRoundTripMs = performance.now() - started;
             return result;
         } catch (error) {

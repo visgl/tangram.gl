@@ -7,8 +7,8 @@
 /*jshint worker: true*/
 
 import Utils from '../utils/utils';
-import {createWorker} from '@math.gl/core-legacy-tasks/tasks';
-import type {SceneWorkerTask} from './scene-worker-thread';
+import {initializeTaskWorker} from '@math.gl/tasks';
+import {sceneWorkerTask, type SceneWorkerTask, type SceneWorkerTaskResult} from './scene-worker-thread';
 import {compileFunctionStrings, functionStringCache, clearFunctionStringCache} from '../utils/functions';
 import debugSettings, {mergeDebugSettings} from '../utils/debug_settings';
 import log from '../utils/log';
@@ -527,12 +527,9 @@ const SceneWorker = Object.assign(self, new WorkerSceneState(), {
 
 WorkerBroker.addTarget('self', SceneWorker);
 
-// Keep the broker installed for mesh delivery and worker-to-main callbacks. Query results
-// are copied before math.gl transfers them because feature data remains worker-owned;
-// math.gl's proposed outputOwnership option can replace this copy when available.
-// https://github.com/visgl/math.gl/pull/409
-void createWorker(async (input: SceneWorkerTask) => {
-    try {
+// Keep the broker installed for mesh delivery and worker-to-main callbacks.
+// The caller requests copied results because queried feature data remains worker-owned.
+void initializeTaskWorker({...sceneWorkerTask, async process(input: SceneWorkerTask): Promise<SceneWorkerTaskResult> {
         const value = input.operation === 'tile-source-statistics'
             ? SceneWorker.getTileSourceStatistics()
             : input.operation === 'source-metadata'
@@ -546,13 +543,13 @@ void createWorker(async (input: SceneWorkerTask) => {
                             : input.operation === 'remove-tile'
                                 ? SceneWorker.removeTile(input.key)
                                 : input.operation === 'feature-selection'
-                                    ? structuredClone(SceneWorker.getFeatureSelection(input.request))
+                                    ? SceneWorker.getFeatureSelection(input.request)
                                     : input.operation === 'reset-feature-selection'
                                         ? SceneWorker.resetFeatureSelection(input.sources)
                                         : input.operation === 'feature-selection-map-size'
                                             ? SceneWorker.getFeatureSelectionMapSize()
                                             : input.operation === 'query-features'
-                                                ? structuredClone(SceneWorker.queryFeatures(input.query as Parameters<typeof SceneWorker.queryFeatures>[0]))
+                                                ? SceneWorker.queryFeatures(input.query as Parameters<typeof SceneWorker.queryFeatures>[0])
                                             : input.operation === 'initialize'
                                                 ? SceneWorker.init(...input.parameters as Parameters<typeof SceneWorker.init>)
                                                 : input.operation === 'update-device-pixel-ratio'
@@ -564,10 +561,7 @@ void createWorker(async (input: SceneWorkerTask) => {
                                                             : input.operation === 'profile-end'
                                                                 ? SceneWorker.profileEnd(input.name)
                 : (() => {throw new Error('Unknown scene worker task');})();
-        return {id: input.id, value};
-    } catch (error) {
-        return {id: input.id, error: error instanceof Error ? error.message : String(error)};
-    }
-});
+        return {value};
+}});
 
 export default SceneWorker;
