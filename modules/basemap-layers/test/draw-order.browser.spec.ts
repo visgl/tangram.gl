@@ -35,7 +35,7 @@ function render(layers: unknown[], viewState: Record<string, unknown>) {
       height: SIZE,
       useDevicePixels: false,
       deviceProps: {adapters: [webgl2Adapter]},
-      views: new GlobeView({id: 'globe'}) as any,
+      views: new GlobeView({resolution: 36, id: 'globe'}) as any,
       initialViewState: viewState as any,
       layers: layers as any,
       onAfterRender: () => {

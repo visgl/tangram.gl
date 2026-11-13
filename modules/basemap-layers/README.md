@@ -20,7 +20,7 @@ helpers are exported from `@deck.gl-community/basemap-layers/map-style`.
 Install the matching `@deck.gl-community/geo-layers` peer alongside this package:
 
 ```sh
-npm install @deck.gl-community/basemap-layers @deck.gl-community/geo-layers@~9.4.2
+npm install @tangram.gl/basemap-layers @deck.gl-community/geo-layers@10.0.0-alpha.1
 ```
 
 This peer is required explicitly in strict dependency resolvers such as Yarn Plug'n'Play.

@@ -9,7 +9,7 @@ Copyright (c) vis.gl contributors
 ## Installing
 
 ```sh
-yarn add @deck.gl/core @deck.gl-community/basemap-layers @deck.gl-community/geo-layers@~9.4.2
+yarn add @deck.gl/core@10.0.0-alpha.1 @tangram.gl/basemap-layers @deck.gl-community/geo-layers@10.0.0-alpha.1
 ```
 
 ## Using in deck.gl

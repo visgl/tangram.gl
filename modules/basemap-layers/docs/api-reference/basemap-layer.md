@@ -20,7 +20,7 @@ Recommended example:
 ## Installation
 
 ```sh
-yarn add @deck.gl-community/basemap-layers @deck.gl-community/geo-layers@~9.4.2
+yarn add @tangram.gl/basemap-layers @deck.gl-community/geo-layers@10.0.0-alpha.1
 ```
 
 ## Main Export

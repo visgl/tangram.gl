@@ -106,7 +106,7 @@ async function renderGlobe(viewState: {longitude: number; latitude: number; zoom
       height: SIZE,
       useDevicePixels: false,
       deviceProps: {adapters: [webgl2Adapter]},
-      views: new GlobeView({id: 'globe'}),
+      views: new GlobeView({resolution: 36, id: 'globe'}),
       initialViewState: viewState,
       layers,
       onAfterRender: () => {

@@ -166,7 +166,7 @@ async function renderBasemapLayer(bearing: number): Promise<number> {
     height: SIZE,
     useDevicePixels: false,
     deviceProps: {adapters: [webgl2Adapter]},
-    views: new GlobeView({id: 'view'}),
+    views: new GlobeView({resolution: 36, id: 'view'}),
     viewState,
     layers: [
       new BasemapLayer({

@@ -206,7 +206,7 @@ async function turn(scene: Scene): Promise<string[]> {
     height: size,
     useDevicePixels: false,
     deviceProps: {adapters: [webgl2Adapter]},
-    views: scene.mode === 'globe' ? new GlobeView({id: 'view'}) : new MapView({id: 'view'}),
+    views: scene.mode === 'globe' ? new GlobeView({resolution: 36, id: 'view'}) : new MapView({id: 'view'}),
     viewState: {...viewState, bearing: 30},
     layers: [
       new BasemapLayer({

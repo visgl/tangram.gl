@@ -167,7 +167,7 @@ describe('hillshade layers of one raster-dem source', () => {
 
     // (b) The same basemap, switched to a globe.
     deck.setProps({
-      views: new GlobeView({id: 'view'}),
+      views: new GlobeView({resolution: 36, id: 'view'}),
       layers: [new BasemapLayer({id: 'basemap', mode: 'globe', style, loadOptions})]
     });
     await waitForTiles(true);

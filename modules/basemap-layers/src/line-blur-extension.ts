@@ -140,13 +140,13 @@ float lineBlur_widthRatio = 1.0;
 #if defined(DASH_ENABLED) && !defined(PATH_STYLE_OFFSET)
   // PathStyleExtension measured the dashes in the drawn stroke's widths, MapLibre in the line's.
   // Offset lines are not widened, and keep the dash phase that the offset shader corrects.
-  vDashArray *= lineBlur_widthRatio;
+  pathStyle_dashArray *= lineBlur_widthRatio;
 #ifdef HIGH_PRECISION_DASH
-  float lineBlur_dashUnit = vDashArray.x + vDashArray.y;
+  float lineBlur_dashUnit = pathStyle_dashArray.x + pathStyle_dashArray.y;
   float lineBlur_dashPeriod = pathStyle.dashAlignMode == 0.0
     ? lineBlur_dashUnit
-    : vDashPathLength / max(round(vDashPathLength / max(lineBlur_dashUnit, 0.0001)), 1.0);
-  vDashOffset = lineBlur_dashPeriod > 0.0 ? mod(dashOffsetAndLength.x, lineBlur_dashPeriod) : 0.0;
+    : pathStyle_dashPathLength / max(round(pathStyle_dashPathLength / max(lineBlur_dashUnit, 0.0001)), 1.0);
+  pathStyle_dashOffset = lineBlur_dashPeriod > 0.0 ? mod(dashOffsetAndLength.x, lineBlur_dashPeriod) : 0.0;
 #endif
 #endif
 #ifdef LINE_BLUR_PER_FEATURE
