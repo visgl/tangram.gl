@@ -180,6 +180,12 @@ as in `.github/workflows/test.yml`. `yarn coverage:scope` audits a generated
 merged report against the authored source inventory. Never lower a threshold
 or exclude untested source to pass a check.
 
+### Merge queue
+
+The `Test` workflow runs on merge-group commits as well as pull requests and
+pushes to `master`. Repository administrators manage the `master` merge queue
+and its required checks in GitHub **Settings → Rules → Rulesets**.
+
 ## Rendering and interaction regressions
 
 `test/rendering/*.render.spec.ts` uses packaged entries, real Chromium software
