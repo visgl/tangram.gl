@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {TaskDescriptor} from '@math.gl/core/tasks';
+import type {TaskDescriptor} from '@math.gl/core-legacy-tasks/tasks';
 import {decodeTerrainGrid} from './decode-height-grid';
 import {validateTerrainImage, type TerrainNoDataPolicy, type TerrainPayload} from './terrain-payload';
 

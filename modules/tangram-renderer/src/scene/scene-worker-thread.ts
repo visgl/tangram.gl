@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {WorkerThread} from '@math.gl/core/tasks';
+import {WorkerThread} from '@math.gl/core-legacy-tasks/tasks';
 import type {TangramTileSourceMetadata} from '../sources/tile_source_metadata';
 import type {BrokerWorker} from '../utils/worker-types';
 import type {SelectionReply} from '../selection/selection-types';

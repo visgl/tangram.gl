@@ -11,7 +11,6 @@ import type {TerrainSurface} from '../modules/basemap-layers/src/terrain-query';
 import type {TerrainSurface as LoadersTerrainSurface} from '@loaders.gl/raster/terrain';
 import type {TerrainQuerySource} from '../modules/tangram-renderer/src/map-logic/terrain-query';
 import type {TerrainSurface as RendererTerrainSurface} from '../modules/tangram-renderer/src/selection/terrain_surface';
-import {unprojectScreenSegment} from '../modules/tangram-layers/src/screen-ray';
 import {createFixtureTerrain} from '../examples/layers/terrain-contract/terrain-fixture';
 
 const viewport = {x: 100, y: 50, width: 200, height: 100, viewProjectionMatrix: new Matrix4()};
@@ -25,13 +24,18 @@ test('terrain query contracts remain structurally compatible across packages', (
 });
 
 test.each([[100, 50], [200, 100], [299, 149]] as const)(
-  'basemap and Tangram-layer unprojection agree at %i,%i', (horizontal, vertical) => {
+  'basemap routes the transformed near and far endpoints at %i,%i', (horizontal, vertical) => {
     const surface: TerrainSurface = {projection: 'globe', intersectRay: vi.fn(() => null)};
     const matrix = new Matrix4().translate([3, 5, 7]).scale([2, 3, 4]);
-    const expected = unprojectScreenSegment(matrix.clone().invert(), viewport, [horizontal, vertical]);
-    expect(expected).not.toBeNull();
     pickTerrainSurface({...viewport, viewProjectionMatrix: matrix}, [horizontal, vertical], surface, identity);
-    expect(surface.intersectRay).toHaveBeenCalledWith(expected, Math.hypot(...expected!.direction));
+    expect(surface.intersectRay).toHaveBeenCalledWith({
+      origin: [
+        expect.closeTo(((horizontal - 100) / 100 - 4) / 2),
+        expect.closeTo((-4 - (vertical - 50) / 50) / 3),
+        -2
+      ],
+      direction: [0, 0, 0.5]
+    }, 0.5);
   }
 );
 
@@ -101,6 +105,12 @@ test('rejects implicit or projective coordinate conversion', () => {
   ).toThrow(/invertible/);
 });
 
+test.each([{x: NaN}, {y: Infinity}])('rejects an invalid eye origin %j', origin => {
+  const surface: TerrainSurface = {projection: 'globe', intersectRay: vi.fn(() => null)};
+  expect(pickTerrainSurface({...viewport, ...origin}, [200, 100], surface, identity)).toBeNull();
+  expect(surface.intersectRay).not.toHaveBeenCalled();
+});
+
 test('singular and nonfinite view matrices cannot silently produce a different query ray', () => {
   const source: TerrainSurface = {projection: 'globe', intersectRay: vi.fn(() => null)};
   expect(
@@ -116,6 +126,14 @@ test('singular and nonfinite view matrices cannot silently produce a different q
   expect(
     pickTerrainSurface({...viewport, viewProjectionMatrix: matrix}, [200, 100], source, identity)
   ).toBeNull();
+  expect(source.intersectRay).not.toHaveBeenCalled();
+});
+
+test('does not send a terrain ray whose clip segment crosses homogeneous infinity', () => {
+  const source: TerrainSurface = {projection: 'globe', intersectRay: vi.fn(() => null)};
+  // Swap clip z and w so the endpoints have opposite homogeneous signs.
+  const viewProjectionMatrix = new Matrix4([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0]);
+  expect(pickTerrainSurface({...viewport, viewProjectionMatrix}, [200, 100], source, identity)).toBeNull();
   expect(source.intersectRay).not.toHaveBeenCalled();
 });
 

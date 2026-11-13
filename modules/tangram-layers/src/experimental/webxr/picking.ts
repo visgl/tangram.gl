@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
-import {unprojectScreenSegment} from '../../screen-ray';
+import {unprojectScreenRay} from '@math.gl/geometry/culling';
+import {containsScreenPixel} from '@tangram.gl/map-utils/screen-ray';
 import WebMercatorViewAdapter from '../../web_mercator_view_adapter';
 import {createXRPlacementMatrix, intersectContentSurface, transformXRRayToContent, isContentPointWithinMapBounds} from './projection';
 import type {XRPresentationFrame, XRPresentationRenderView, XRSpatialRay, XRSurfaceHit,
@@ -46,14 +47,14 @@ export function pickXRSurface(options: XRSurfacePickingOptions): XRSurfaceHit | 
         ? {view: viewport.viewMatrix, projection: new Matrix4().copy(viewport.projectionMatrix).multiplyRight(viewport.viewMatrix)}
         : WebMercatorViewAdapter.getCameraFrame(viewport);
     } else {
-      const eye = frame.renderViews.find(view => view.viewport && containsPixel(getScreenViewport(view, frame), pointer.x, pointer.y) &&
+      const eye = frame.renderViews.find(view => view.viewport && containsScreenPixel(getScreenViewport(view, frame), [pointer.x, pointer.y]) &&
         (!pointer.eye || view.id === `${pointer.eye}-eye` || view.xrView?.eye === pointer.eye));
       if (!eye?.camera) return null;
       camera = eye.camera;
       viewport = getScreenViewport(eye, frame);
       renderViewId = eye.id;
     }
-    if (!viewport || !containsPixel(viewport, pointer.x, pointer.y) ||
+    if (!viewport || !containsScreenPixel(viewport, [pointer.x, pointer.y]) ||
         !isInvertibleMatrix(camera.projection) || !isInvertibleMatrix(camera.view)) return null;
     // Globe HostCamera.projection already contains view × placement. Applying
     // camera.view a second time would turn screen picks away from the globe.
@@ -61,7 +62,7 @@ export function pickXRSurface(options: XRSurfacePickingOptions): XRSurfaceHit | 
     if (placement.type !== 'globe') clipMatrix.multiplyRight(camera.view);
     if (!isInvertibleMatrix(clipMatrix)) return null;
     const inverse = clipMatrix.invert();
-    const segment = unprojectScreenSegment(inverse, viewport, [pointer.x, pointer.y]);
+    const segment = unprojectScreenRay(inverse, viewport, [pointer.x, pointer.y]);
     if (!segment) return null;
     ray = segment;
     farPoint = [segment.origin[0] + segment.direction[0], segment.origin[1] + segment.direction[1],
@@ -88,14 +89,6 @@ function getScreenViewport(view: XRPresentationRenderView, frame: XRPresentation
   const viewport = view.viewport!;
   return view.xrView ? {...viewport,
     y: frame.hostFrame.viewport.height - (viewport.y ?? 0) - viewport.height} : viewport;
-}
-
-/** Test a CSS-pixel position against a half-open render rectangle. */
-function containsPixel(viewport: {x?: number; y?: number; width: number; height: number}, x: number, y: number): boolean {
-  const left = viewport.x ?? 0;
-  const top = viewport.y ?? 0;
-  return Number.isFinite(viewport.width) && Number.isFinite(viewport.height) &&
-    x >= left && y >= top && x < left + viewport.width && y < top + viewport.height;
 }
 
 /** Reject singular and non-finite transforms before math.gl inversion. */

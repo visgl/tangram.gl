@@ -161,6 +161,14 @@ glyph renderer. Keep those entries independent so the renderer's canvas path doe
 not load the explicit bidi engine. Measurement, line wrapping, glyph storage, atlas
 packing, and placement decisions remain with the frontends.
 
+The `/screen-ray` entry shares viewport hit testing. Basemap Layers and
+Tangram terrain/XR use math.gl's `unprojectScreenRay` for finite near-to-far
+unprojection; callers still select the eye and supply the clip-to-content transform.
+
+Basemap's GeoJSON tiler uses `@math.gl/tasks`. The scene and terrain workers
+still use the older transport through `@math.gl/core-legacy-tasks/tasks`
+until they migrate their worker lifecycle and message handling.
+
 The source of truth is `scripts/coverage-modules.mjs`. Coverage includes all
 authored source, including experimental entries and unexecuted files; generated,
 vendored, declaration and test files are outside the denominator.

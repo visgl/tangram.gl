@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {processTerrainTask} from './terrain-task';
-import {createWorker} from '@math.gl/core/tasks';
+import {createWorker} from '@math.gl/core-legacy-tasks/tasks';
 import type {TerrainNoDataPolicy, TerrainPayload} from './terrain-payload';
 
 /** One dedicated worker processes one job; terminating it cancels image/mesh work. */

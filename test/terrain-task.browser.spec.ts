@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import {runTask} from '@math.gl/core/tasks';
+import {runTask} from '@math.gl/core-legacy-tasks/tasks';
 import {TerrainDecodeTask, type TerrainTaskInput} from '../examples/terrain/terrain-task';
 import {TerrainTaskPool} from '../examples/terrain/terrain-task-pool';
 import {createTerrainFixture} from './terrain-fixture';

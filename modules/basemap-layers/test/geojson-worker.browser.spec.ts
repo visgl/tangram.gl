@@ -6,16 +6,13 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-/**
- * A large GeoJSON source is indexed in a worker, so the main thread stays free while it is: no
- * long task (50 ms or more, as the browser reports them) runs between the first tile requests and
- * their answers. The control then tiles the same data on the main thread and must see one, so that
- * the measurement can fail. The worker case runs first, before the control's main-thread index
- * leaves garbage whose collection could pause the main thread.
- */
-
-import {afterEach, describe, expect, test} from 'vitest';
+import {expect, test, vi} from 'vitest';
 import {getGeoJsonTileFeatures, setGeoJsonWorkerEnabled} from '../src/geojson-source';
+import type {GeoJsonWorkerRequest} from '../src/geojson-worker';
+
+const VERTICES_PER_POLYGON = 48;
+const POSITIONS_PER_POLYGON = VERTICES_PER_POLYGON + 1;
+const POSITIONS_PER_BATCH = 100_000;
 
 /** Polygons of `vertices` points each, scattered over Europe from a fixed seed. */
 function makePolygons(count: number, vertices: number) {
@@ -45,9 +42,6 @@ function makePolygons(count: number, vertices: number) {
   return {type: 'FeatureCollection', features};
 }
 
-/** 24,000 polygons of 48 points: about 50 MB as GeoJSON text. */
-const DATA = makePolygons(24_000, 48);
-
 /** Tiles over Europe, at zoom 3, and at zoom 5 and 9, which the index cuts down to. */
 const TILES = [
   {x: 4, y: 2, z: 3},
@@ -55,61 +49,41 @@ const TILES = [
   {x: 266, y: 175, z: 9}
 ];
 
-/** The long tasks, in ms, that run while `run` resolves. */
-async function measureLongTasks(run: () => Promise<unknown>): Promise<number[]> {
-  const durations: number[] = [];
-  const observer = new PerformanceObserver(list => {
-    for (const entry of list.getEntries()) {
-      durations.push(entry.duration);
+test('batches a large GeoJSON source before indexing it once in the worker', async () => {
+  // Cross two batch boundaries without relying on elapsed time or CPU contention.
+  const data = makePolygons(4_500, VERTICES_PER_POLYGON);
+  const requestTiles = () => {
+    const source = {type: 'geojson', data};
+    return Promise.all(TILES.map(index => getGeoJsonTileFeatures(source, index)));
+  };
+  const postMessage = vi.spyOn(Worker.prototype, 'postMessage');
+  try {
+    const workerTiles = await requestTiles();
+    const requests = postMessage.mock.calls.flatMap(([message]) => {
+      const request = message?.payload?.input;
+      const input: GeoJsonWorkerRequest | undefined =
+        request?.operation === 'process' ? request.input : undefined;
+      return input && input.type !== 'remove' ? [input] : [];
+    });
+    expect(requests.map(request => request.type)).toEqual([
+      'features', 'features', 'features', 'index', 'tile', 'tile', 'tile'
+    ]);
+    expect(new Set(requests.map(request => request.source)).size).toBe(1);
+    const batches = requests.filter(request => request.type === 'features');
+    expect(batches.flatMap(batch => batch.features)).toEqual(data.features);
+    for (const batch of batches) {
+      const positions = batch.features.length * POSITIONS_PER_POLYGON;
+      expect(positions).toBeGreaterThan(0);
+      expect(positions).toBeLessThan(POSITIONS_PER_BATCH + POSITIONS_PER_POLYGON);
     }
-  });
-  observer.observe({type: 'longtask', buffered: false});
-  await run();
-  // Entries arrive after their task; give the observer a turn before reading them.
-  await new Promise(resolve => setTimeout(resolve, 100));
-  for (const entry of observer.takeRecords()) {
-    durations.push(entry.duration);
-  }
-  observer.disconnect();
-  return durations.map(Math.round);
-}
+    const index = requests.find(request => request.type === 'index');
+    expect(index?.data).toBeUndefined();
 
-/** Requests the tiles of a new source over `DATA`, as the tile layer does, all at once. */
-async function requestTiles() {
-  const source = {type: 'geojson', data: DATA};
-  const tiles = await Promise.all(TILES.map(index => getGeoJsonTileFeatures(source, index)));
-  return tiles.map(features => features.length);
-}
-
-describe('GeoJSON sources are tiled in a worker', () => {
-  afterEach(() => setGeoJsonWorkerEnabled(true));
-
-  test('indexing it in a worker blocks the main thread only briefly', async () => {
-    let counts: number[] = [];
-    const longTasks = await measureLongTasks(async () => {
-      counts = await requestTiles();
-    });
-    expect(counts.every(count => count > 0)).toBe(true);
-    // None on an M-series Mac; CI runners show tasks of 50 to 100 ms posting the batches. Tiling on
-    // the main thread blocks for 400 ms or more, and sending the data unbatched for about 300 ms.
-    expect(Math.max(0, ...longTasks)).toBeLessThan(150);
-  });
-
-  test('control: tiling it on the main thread runs a long task', async () => {
+    expect(workerTiles.every(tile => tile.length > 0)).toBe(true);
     setGeoJsonWorkerEnabled(false);
-    let counts: number[] = [];
-    const longTasks = await measureLongTasks(async () => {
-      counts = await requestTiles();
-    });
-    expect(counts.every(count => count > 0)).toBe(true);
-    // About 570 ms on an M-series Mac; slower machines block longer.
-    expect(Math.max(0, ...longTasks)).toBeGreaterThan(200);
-  });
-
-  // Last, so that the garbage of the 50 MB string cannot be collected during a measurement.
-  test('the data is about 50 MB as GeoJSON', () => {
-    const megabytes = JSON.stringify(DATA).length / 1e6;
-    expect(megabytes).toBeGreaterThan(45);
-    expect(megabytes).toBeLessThan(60);
-  });
+    expect(await requestTiles()).toEqual(workerTiles);
+  } finally {
+    setGeoJsonWorkerEnabled(true);
+    postMessage.mockRestore();
+  }
 });

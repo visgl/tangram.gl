@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {runTask, WorkerPool, type WorkerJobMetrics} from '@math.gl/core/tasks';
+import {runTask, WorkerPool, type WorkerJobMetrics} from '@math.gl/core-legacy-tasks/tasks';
 import {TerrainDecodeTask, type TerrainTaskInput} from './terrain-task';
 import {isTerrainGridData, isTerrainTileData, validateTerrainImage, type TerrainGridData, type TerrainTileData, type TerrainNoDataPolicy} from './terrain-payload';
 import type {TerrainDecoderStatistics} from './decoder-pool';

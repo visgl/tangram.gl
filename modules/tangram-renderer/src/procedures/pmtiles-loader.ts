@@ -5,7 +5,7 @@
 import {PMTilesSourceLoader} from '@loaders.gl/tiles/pmtiles';
 import type {MvtProviderMetadata, MvtTileProviderFactory, MvtTileProviderSource} from './mvt-tile-provider';
 
-type PMTilesTileSource = ReturnType<typeof PMTilesSourceLoader.createDataSource>;
+type PMTilesTileSource = ReturnType<typeof PMTilesSourceLoader.createDataSourceSync>;
 
 /** PMTiles transport factory; every Tangram source owns exactly one archive handle. */
 export const pmtilesTileProvider: MvtTileProviderFactory = {createSource: createPMTilesSource};
@@ -13,7 +13,7 @@ export const pmtilesTileProvider: MvtTileProviderFactory = {createSource: create
 /** Acquire archive metadata and raw tile bytes without a global URL cache or a decoder switch. */
 export function createPMTilesSource(url: string, options: {headers?: Record<string, string>} = {}): MvtTileProviderSource {
     const lifetime = new AbortController();
-    let source: PMTilesTileSource | undefined = PMTilesSourceLoader.createDataSource(url, {
+    let source: PMTilesTileSource | undefined = PMTilesSourceLoader.createDataSourceSync(url, {
         core: {fetch: async (requestUrl: string, requestOptions: RequestInit = {}) => {
             const controller = new AbortController();
             const abort = (): void => controller.abort();
@@ -50,8 +50,8 @@ export function createPMTilesSource(url: string, options: {headers?: Record<stri
         async getMetadata() {
             if (!source) throw createAbortError();
             if (!capabilities) {
-                // alpha.8 drops credits in both normalized metadata surfaces.
-                // Keep the raw archive JSON as well, without changing its parser.
+                // Preserve credits stored in the raw archive JSON even when they
+                // are absent from the normalized metadata.
                 capabilities = Promise.all([metadata, source.pmtiles.getMetadata()]).then(([value, raw]) => {
                     const rawAttribution = raw && typeof raw === 'object' && 'attribution' in raw ? raw.attribution : undefined;
                     const nestedAttribution = value.tilejson?.htmlAttribution;
