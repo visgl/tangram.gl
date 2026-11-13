@@ -40,6 +40,7 @@ import {LabelCharactersLayer} from '../src/label-text-layer';
 import {LineBlurExtension} from '../src/line-blur-extension';
 import {RasterColorExtension} from '../src/raster-color-extension';
 import {TextHaloBlurExtension} from '../src/text-halo-blur-extension';
+import {ZoomPaintExtension} from '../src/zoom-paint-extension';
 
 type Stage = 'vs' | 'fs';
 type StageSources = Record<Stage, string>;
@@ -468,6 +469,18 @@ describe('shader injection targets in the installed deck.gl', () => {
       });
     });
   }
+
+  test('applies zoom-dependent line width before adding the antialiasing padding', () => {
+    const [shaders] = getModelShaders(PathLayer, {
+      antialiasing: true,
+      getPath: (datum: typeof POINT) => datum.path,
+      extensions: [new ZoomPaintExtension(), new LineBlurExtension()]
+    });
+    const width = shaders.vs.indexOf('size *= zoomPaint_get(');
+    const padding = shaders.vs.indexOf('size.xy += lineBlur_pad;');
+    expect(width).toBeGreaterThanOrEqual(0);
+    expect(padding).toBeGreaterThan(width);
+  });
 
   test('FillPatternExtension: DECKGL_FILTER_GL_POSITION of SolidPolygonLayer', () => {
     const extension = new FillPatternExtension();

@@ -174,16 +174,26 @@ const BACKGROUND_DATA = [
   ]
 ];
 
-const BACKGROUND_NORTH_POLE_DATA = [
-  [
-    [-180, 90],
-    [0, 90],
-    [180, 90],
-    [180, 85],
-    [0, 85],
-    [-180, 85]
-  ]
-];
+// deck.gl 10 triangulates globe polygons in geocentric space. A single polygon spanning
+// the whole sphere has no valid triangulation plane, even with viewport subdivision enabled.
+function getGlobeBackgroundPatches(south: number, north: number): number[][][] {
+  const polygons: number[][][] = [];
+  for (let latitude = south; latitude < north; latitude += 10) {
+    const top = Math.min(latitude + 10, north);
+    for (let longitude = -180; longitude < 180; longitude += 10) {
+      polygons.push([
+        [longitude, top],
+        [longitude + 10, top],
+        [longitude + 10, latitude],
+        [longitude, latitude]
+      ]);
+    }
+  }
+  return polygons;
+}
+
+const GLOBE_BACKGROUND_DATA = getGlobeBackgroundPatches(-90, 90);
+const BACKGROUND_NORTH_POLE_DATA = getGlobeBackgroundPatches(85, 90);
 
 const SUPPORTED_TYPES = new Set([
   'background',
@@ -672,7 +682,7 @@ function createBackgroundLayer({
 
   return new SolidPolygonLayer({
     id: `${idPrefix}-${layer.id}`,
-    data: BACKGROUND_DATA,
+    data: mode === 'globe' ? GLOBE_BACKGROUND_DATA : BACKGROUND_DATA,
     getPolygon: d => d,
     stroked: false,
     filled: true,
@@ -3436,7 +3446,7 @@ function getGlobePreLayers({
     layers.push(
       new SolidPolygonLayer({
         id: `${idPrefix}-background-fallback`,
-        data: BACKGROUND_DATA,
+        data: GLOBE_BACKGROUND_DATA,
         getPolygon: d => d,
         stroked: false,
         filled: true,
