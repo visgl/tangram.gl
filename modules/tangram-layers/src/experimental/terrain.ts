@@ -5,6 +5,7 @@
 import {CompositeLayer, COORDINATE_SYSTEM, type LayerProps, type UpdateParameters, type Viewport} from '@deck.gl/core';
 import {SimpleMeshLayer} from '@deck.gl/mesh-layers';
 import {Matrix4} from '@math.gl/core';
+import {unprojectScreenRay} from '@math.gl/geometry/culling';
 import {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, PROJECTION_CONSTANTS, type TerrainSurfaceHit, type TerrainCollectionHit} from '@tangram.gl/tangram-renderer/core';
 import {prepareGlobeTerrainMesh, getPreparedGlobeTerrainTemplate, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import {getTerrainRenderMesh, resolveGlobeTerrainDisplay, type GlobeTerrainDisplaySnapshot} from './terrain-display';
@@ -230,10 +231,9 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
         getGlobeScreenRatio(viewport);
         if (pixel.length !== 2 || !pixel.every(Number.isFinite)) throw new Error('Globe terrain pixels must be finite');
         const inverse = new Matrix4(viewport.viewProjectionMatrix).invert();
-        const points = [-1, 1].map(z => inverse.transform([2 * (pixel[0] - viewport.x) / viewport.width - 1, 1 - 2 * (pixel[1] - viewport.y) / viewport.height, z, 1]));
-        const origin: [number, number, number] = [points[0][0] / points[0][3], points[0][1] / points[0][3], points[0][2] / points[0][3]];
-        const direction: [number, number, number] = [points[1][0] / points[1][3] - origin[0], points[1][1] / points[1][3] - origin[1], points[1][2] / points[1][3] - origin[2]];
-        const nearest = this.getQueryGeometry().collection.intersectRay({origin, direction}, Math.hypot(...direction));
+        const ray = unprojectScreenRay(inverse, viewport, pixel);
+        if (!ray) return null;
+        const nearest = this.getQueryGeometry().collection.intersectRay(ray, Math.hypot(...ray.direction));
         if (this.state) this.state.queryMs = performance.now() - started;
         return nearest;
     }

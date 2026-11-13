@@ -21,6 +21,8 @@ const requiredArtifacts = [
   'dist/core.js.map',
   'dist/style-schema.js',
   'dist/loaders-gl-worker.js',
+  'dist/scene-worker.js',
+  'dist/scene-worker.js.map',
   'dist/projected-basemaps-worker.js',
   'dist/projected-basemaps-worker.js.map',
   'dist/loaders-gl-worker.js.map',
@@ -41,6 +43,14 @@ for (const artifactPath of requiredArtifacts) {
   if (statSync(absolutePath).size === 0) {
     throw new Error(`Renderer artifact is empty: ${artifactPath}`);
   }
+}
+
+// Canvas labels must not pull the explicit Unicode engine into classic builds.
+const rendererSources = JSON.parse(
+  readFileSync(resolve(rendererDirectory, 'dist/tangram.debug.mjs.map'), 'utf8')
+).sources;
+if (rendererSources.some(source => /bidi-js|map-utils\/src\/text\/(?:arabic-shaping|bidi|explicit)\.ts/.test(source))) {
+  throw new Error('The classic renderer unexpectedly bundles the explicit bidi engine.');
 }
 
 const expectedExports = {

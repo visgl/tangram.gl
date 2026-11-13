@@ -1,0 +1,253 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
+// deck.gl-community
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
+/**
+ * The GeoJSON source adapter, exercised in Node using a fake resource transport. Chromium tests
+ * separately exercise the actual math.gl transport and packaged worker.
+ */
+
+import {afterEach, describe, expect, test, vi} from 'vitest';
+import {createGeoJsonResourceState, runGeoJsonResource} from '../src/geojson-resource';
+import type {GeoJsonWorkerRequest} from '../src/geojson-worker';
+
+/** Polygons with a hole, enough of them to go to the worker in several batches. */
+function makePolygons(count: number) {
+  const features = [];
+  for (let i = 0; i < count; i++) {
+    const lng = -60 + (i % 100) * 1.2;
+    const lat = -40 + Math.floor(i / 100) * 1.2;
+    const ring = (r: number, clockwise: boolean) => {
+      const points = Array.from({length: 48}, (_, v) => {
+        const angle = ((clockwise ? -v : v) / 48) * 2 * Math.PI;
+        return [lng + r * Math.cos(angle), lat + r * Math.sin(angle)];
+      });
+      return [...points, points[0]];
+    };
+    features.push({
+      type: 'Feature',
+      id: i,
+      properties: {i},
+      geometry: {type: 'Polygon', coordinates: [ring(0.5, false), ring(0.2, true)]}
+    });
+  }
+  return {type: 'FeatureCollection', features};
+}
+
+/** 3,000 polygons of 98 points: about 290,000 positions, three batches. */
+const DATA = makePolygons(3000);
+
+const MIXED = {
+  type: 'FeatureCollection',
+  features: [
+    {type: 'Feature', properties: {name: 'A'}, geometry: {type: 'Point', coordinates: [1, 2]}},
+    {
+      type: 'Feature',
+      properties: {},
+      geometry: {
+        type: 'MultiLineString',
+        coordinates: [
+          [
+            [-90, 0],
+            [90, 0]
+          ],
+          [
+            [0, -60],
+            [0, 60]
+          ]
+        ]
+      }
+    }
+  ]
+};
+
+const TILES = [
+  {x: 0, y: 0, z: 0},
+  {x: 1, y: 1, z: 1},
+  {x: 7, y: 9, z: 4}
+];
+
+type Fake = {
+  url: string;
+  options: unknown;
+  messages: {type: string}[];
+};
+
+/**
+ * Loads `geojson-source.ts` afresh with a fake worker resource; 'fail' simulates a load failure
+ * followed by a teardown rejection.
+ */
+async function loadWithFakeWorker(mode: 'run' | 'fail') {
+  vi.resetModules();
+  const fakes: Fake[] = [];
+  class FakeWorker {
+    onmessage: ((event: {data: unknown}) => void) | null = null;
+    onerror: ((event: Event) => void) | null = null;
+    onmessageerror: (() => void) | null = null;
+    fake: Fake;
+    state = createGeoJsonResourceState();
+    constructor(url: URL, options: unknown) {
+      this.fake = {url: String(url), options, messages: []};
+      fakes.push(this.fake);
+      if (mode === 'fail') {
+        setTimeout(() => this.onerror?.(new Event('error')));
+      }
+    }
+    postMessage(message: {type: string; payload: {input: {operation: string; input?: GeoJsonWorkerRequest}}}) {
+      const request = structuredClone(message.payload.input);
+      if (request.operation === 'run' && request.input) this.fake.messages.push(request.input);
+      setTimeout(() => {
+        let value;
+        try {
+          value = request.operation === 'run' && request.input
+            ? {tile: runGeoJsonResource(this.state, request.input)}
+            : undefined;
+        } catch (error) {
+          value = {error: error instanceof Error ? error.message : String(error)};
+        }
+        this.onmessage?.({data: {source: 'loaders.gl', type: 'done', payload: {result: {value}}}});
+      });
+    }
+    terminate() {}
+  }
+  vi.stubGlobal('Worker', FakeWorker);
+  // Exercise our source adapter in Node; real math.gl transport is covered in Chromium.
+  vi.doMock('@math.gl/tasks', () => ({
+    TaskRunner: class {
+      private worker?: FakeWorker;
+      async initializeTask(task: {worker: {create: () => FakeWorker}}) {
+        const worker = this.worker = task.worker.create();
+        const run = (input: GeoJsonWorkerRequest) => new Promise((resolve, reject) => {
+          worker.onmessage = ({data}: any) => resolve(data.payload.result.value);
+          worker.onerror = () => reject(new Error('worker failed'));
+          worker.postMessage({type: 'process', payload: {input: {operation: 'run', input}}});
+        });
+        return {runTask: run};
+      }
+      async terminate() {
+        this.worker?.terminate();
+        if (mode === 'fail') throw new Error('Worker teardown failed');
+      }
+    }
+  }));
+  const module = await import('../src/geojson-source');
+  return {module, fakes};
+}
+
+/** The tiles of a new source over `data`, cut on the main thread. */
+async function getMainThreadTiles(data: unknown) {
+  vi.resetModules();
+  const {getGeoJsonTileFeatures} = await import('../src/geojson-source');
+  const source = {type: 'geojson', data};
+  return Promise.all(TILES.map(index => getGeoJsonTileFeatures(source, index)));
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.doUnmock('@math.gl/tasks');
+});
+
+describe('GeoJSON worker', () => {
+  test('tiles cut in the worker equal tiles cut on the main thread', async () => {
+    const expected = await getMainThreadTiles(DATA);
+    const {module, fakes} = await loadWithFakeWorker('run');
+    const source = {type: 'geojson', data: DATA};
+    const tiles = await Promise.all(
+      TILES.map(index => module.getGeoJsonTileFeatures(source, index))
+    );
+    expect(tiles.map(features => features.length)).toEqual(expected.map(f => f.length));
+    expect(tiles[2].length).toBeGreaterThan(0);
+    expect(tiles).toEqual(expected);
+
+    // One worker, started as a module next to the source's module, got the data in batches.
+    expect(fakes).toHaveLength(1);
+    expect(fakes[0].url).toMatch(/\/geojson-task-worker\.js$/);
+    expect(fakes[0].options).toEqual({type: 'module'});
+    const types = fakes[0].messages.map(message => message.type);
+    expect(types.filter(type => type === 'features').length).toBe(3);
+    expect(types.indexOf('index')).toBe(3);
+    expect(types.slice(4)).toEqual(['tile', 'tile', 'tile']);
+  });
+
+  test('every geometry type and the source options cross to the worker', async () => {
+    const collection = {
+      type: 'FeatureCollection',
+      features: [{
+        type: 'Feature',
+        properties: {name: 'nested'},
+        geometry: {type: 'GeometryCollection', geometries: MIXED.features.map(feature => feature.geometry)}
+      }]
+    };
+    const sources = [
+      {type: 'geojson', data: MIXED, buffer: 0},
+      {type: 'geojson', data: MIXED, promoteId: 'name'},
+      {type: 'geojson', data: MIXED.features[0], generateId: true},
+      {type: 'geojson', data: makePolygons(50), cluster: false, tolerance: 3},
+      {type: 'geojson', data: collection}
+    ];
+    vi.resetModules();
+    const mainThread = await import('../src/geojson-source');
+    const expected = await Promise.all(
+      sources.map(source => mainThread.getGeoJsonTileFeatures({...source}, TILES[1]))
+    );
+    const {module} = await loadWithFakeWorker('run');
+    const tiles = await Promise.all(
+      sources.map(source => module.getGeoJsonTileFeatures({...source}, TILES[1]))
+    );
+    expect(tiles).toEqual(expected);
+    expect(tiles[1].some((f: any) => f.id === 'A')).toBe(true);
+    expect(tiles[0].some((f: any) => f.geometry.type === 'MultiLineString')).toBe(true);
+  });
+
+  test('a clustered source clusters in the worker', async () => {
+    const points = Array.from({length: 10}, (_, i) => ({
+      type: 'Feature',
+      properties: {i},
+      geometry: {type: 'Point', coordinates: [i * 0.001, 0]}
+    }));
+    const {module} = await loadWithFakeWorker('run');
+    const features = (await module.getGeoJsonTileFeatures(
+      {type: 'geojson', data: {type: 'FeatureCollection', features: points}, cluster: true},
+      {x: 0, y: 0, z: 0}
+    )) as any[];
+    expect(features).toHaveLength(1);
+    expect(features[0].properties).toMatchObject({cluster: true, point_count: 10});
+  });
+
+  test('invalid data rejects each tile request, as on the main thread', async () => {
+    // geojson-vt accepts most malformed GeoJSON, but not a feature that is `null`.
+    const source = {type: 'geojson', data: {type: 'FeatureCollection', features: [null]}};
+    vi.resetModules();
+    const mainThread = await import('../src/geojson-source');
+    await expect(mainThread.getGeoJsonTileFeatures(source, TILES[0])).rejects.toThrow();
+    const {module} = await loadWithFakeWorker('run');
+    await expect(module.getGeoJsonTileFeatures(source, TILES[0])).rejects.toThrow();
+    await expect(module.getGeoJsonTileFeatures(source, TILES[1])).rejects.toThrow();
+  });
+
+  test('a worker that fails to load falls back even when teardown rejects', async () => {
+    const expected = await getMainThreadTiles(DATA);
+    const {module, fakes} = await loadWithFakeWorker('fail');
+    const source = {type: 'geojson', data: DATA};
+    const tiles = await Promise.all(
+      TILES.map(index => module.getGeoJsonTileFeatures(source, index))
+    );
+    expect(tiles).toEqual(expected);
+    // Later sources do not try the failed worker again.
+    const later = await module.getGeoJsonTileFeatures({type: 'geojson', data: DATA}, TILES[0]);
+    expect(later).toEqual(expected[0]);
+    expect(fakes).toHaveLength(1);
+  });
+
+  test('without a Worker global, tiles are cut on the main thread', async () => {
+    vi.resetModules();
+    expect(typeof (globalThis as any).Worker).toBe('undefined');
+    const {getGeoJsonTileFeatures} = await import('../src/geojson-source');
+    const features = await getGeoJsonTileFeatures({type: 'geojson', data: MIXED}, TILES[0]);
+    expect(features.length).toBeGreaterThan(0);
+  });
+});

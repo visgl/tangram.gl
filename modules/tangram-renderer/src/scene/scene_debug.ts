@@ -5,22 +5,34 @@
 
 import log from '../utils/log';
 import WorkerBroker from '../utils/worker_broker';
+import {getSceneWorkerThread} from './scene-worker-thread';
+import type {BrokerWorker} from '../utils/worker-types';
 import debugSettings from '../utils/debug_settings';
 import { debugSumLayerStats } from '../tile/tile';
 import Texture from '../gl/texture';
 
 // Debug config and functions
 export default function setupSceneDebug (scene: any): void {
+    const profileWorkers = (name: string, end: boolean): void => {
+        const workers: BrokerWorker[] = scene.workers || [];
+        const threads = workers.map(getSceneWorkerThread);
+        const pending = threads.every(thread => !thread)
+            ? WorkerBroker.postMessage(workers, end ? 'self.profileEnd' : 'self.profile', name)
+            : Promise.all(workers.map((worker, index) => threads[index]
+                ? threads[index]!.profile(name, end)
+                : WorkerBroker.postMessage(worker, end ? 'self.profileEnd' : 'self.profile', name)));
+        void pending.catch(error => log('warn', 'Worker profiling failed:', error));
+    };
     scene.debug = {
         // Profile helpers, issues a profile on main thread & all workers
         profile(name: string): void {
             console.profile(`main thread: ${name}`); // eslint-disable-line no-console
-            WorkerBroker.postMessage(scene.workers, 'self.profile', name);
+            profileWorkers(name, false);
         },
 
         profileEnd(name: string): void {
             console.profileEnd(`main thread: ${name}`); // eslint-disable-line no-console
-            WorkerBroker.postMessage(scene.workers, 'self.profileEnd', name);
+            profileWorkers(name, true);
         },
 
         // Rebuild geometry a given # of times and print average, min, max timings

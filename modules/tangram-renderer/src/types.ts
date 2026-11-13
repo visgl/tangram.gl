@@ -215,6 +215,8 @@ export type RendererOptions = {
   device?: Device;
   /** Optional worker script URL; otherwise the package uses its embedded worker. */
   workerURL?: string;
+  /** Protocol for an explicitly hosted worker; defaults to legacy for unknown URLs. */
+  workerProtocol?: 'tasks' | 'legacy';
   /** Renderer-owned policy for viewport bounds and tile visibility/LOD. */
   visibilityAdapter?: VisibilityLODAdapter;
   /** Renderer-owned policy for selecting tiles for globe projection bounds. */

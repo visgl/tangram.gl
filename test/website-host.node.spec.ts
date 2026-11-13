@@ -26,8 +26,10 @@ describe('canonical documentation host', () => {
     expect(component).toContain('@vis.gl/tangram-terrain-example/app');
     expect(component).toContain('@vis.gl/tangram-terrain-example/globe-app');
     expect(component).toContain('@vis.gl/tangram-projected-example/app');
-    expect(component).toContain('/examples/terrain/terrain-worker.js');
+    expect(component).toContain('/examples/terrain/terrain-task-worker.js');
     expect(readSource('website/scripts/copy-assets.mjs')).toContain('dist/terrain-worker.js');
+    expect(readSource('website/scripts/copy-assets.mjs')).toContain('dist/scene-worker.js');
+    expect(readSource('website/scripts/copy-assets.mjs')).toContain('dist/terrain-task-worker.js');
     expect(component).toContain('instance?.destroy()');
     expect(component).not.toContain('importmap');
     expect(component).not.toContain('appendScript');

@@ -14,7 +14,7 @@ const GENERATED_OR_EXTERNAL_COVERAGE_PATHS = [
   '**/*.d.ts'
 ];
 
-export default getVitestConfig({
+const config = getVitestConfig({
   overrides: {
     resolve: {
       // Unit tests exercise authored source; artifact smoke tests separately verify dist.
@@ -24,13 +24,20 @@ export default getVitestConfig({
         {find: /^@tangram\.gl\/tangram-layers\/experimental\/webxr$/,
           replacement: fileURLToPath(new URL('./modules/tangram-layers/src/experimental/webxr/index.ts', import.meta.url))},
         {find: /^@tangram\.gl\/tangram-layers$/,
-          replacement: fileURLToPath(new URL('./modules/tangram-layers/src/index.ts', import.meta.url))}
+          replacement: fileURLToPath(new URL('./modules/tangram-layers/src/index.ts', import.meta.url))},
+        // basemap-layers tests compare symbol placement with MapLibre's own source modules.
+        {find: '@maplibre-test/projection',
+          replacement: fileURLToPath(new URL('./node_modules/maplibre-gl/src/symbol/projection.ts', import.meta.url))},
+        {find: '@maplibre-test/path-interpolator',
+          replacement: fileURLToPath(new URL('./node_modules/maplibre-gl/src/symbol/path_interpolator.ts', import.meta.url))},
+        {find: '@maplibre-test/merge-lines',
+          replacement: fileURLToPath(new URL('./node_modules/maplibre-gl/src/symbol/merge_lines.ts', import.meta.url))}
       ]
     },
     optimizeDeps: {include: [
       'sinon', '@luma.gl/experimental', '@deck.gl/mesh-layers',
       // Surface queries must not reload a browser test during lazy dependency discovery.
-      '@math.gl/geometry/culling', '@math.gl/geometry/culling', 'quickselect',
+      '@math.gl/geometry/culling', '@math.gl/core-legacy-tasks/tasks', '@math.gl/tasks', 'quickselect',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
       '@loaders.gl/tiles/pmtiles', '@loaders.gl/tiles/mvt-geojson-loader',
       '@loaders.gl/tiles',
@@ -64,7 +71,7 @@ export default getVitestConfig({
   coverage: {
     provider: 'v8',
     reporter: ['text', 'lcov', 'json-summary'],
-    // Both authored modules belong in the report, including experimental WebXR.
+    // All authored modules belong in the report, including experimental WebXR.
     // Generated packages, declarations, and vendored code are not independent source.
     include: COVERAGE_MODULES.map(module => module.sourceGlob),
     exclude: GENERATED_OR_EXTERNAL_COVERAGE_PATHS,
@@ -99,3 +106,25 @@ export default getVitestConfig({
     }
   }
 });
+
+// basemap-layers is a deck.gl 9.4 package and keeps loaders.gl 4.x; the other modules use 5.x. A
+// browser project pre-bundles one copy of each dependency, so basemap-layers runs in its own.
+const BASEMAP_LAYERS_BROWSER_TESTS = 'modules/basemap-layers/test/**/*.browser.spec.{js,ts}';
+const headless = config.test.projects.find(project => project.test?.name === 'headless');
+config.test.projects.push({
+  ...headless,
+  cacheDir: 'node_modules/.vite/headless-basemap-layers',
+  test: {
+    ...headless.test,
+    name: 'headless-basemap-layers',
+    include: [BASEMAP_LAYERS_BROWSER_TESTS],
+    // Vitest names each browser instance in place: the copy needs instances of its own.
+    browser: {...headless.test.browser, instances: headless.test.browser.instances.map(instance => ({...instance}))}
+  }
+});
+headless.test.exclude = [...(headless.test.exclude || []), BASEMAP_LAYERS_BROWSER_TESTS];
+// deck.gl 9.4 imports loaders.gl 4.x core beside the 5.x one, and a pre-bundled copy would serve
+// one of them to both: each importer loads its own.
+headless.optimizeDeps = {exclude: ['@loaders.gl/core']};
+
+export default config;

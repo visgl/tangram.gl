@@ -16,15 +16,15 @@ built `dist` files.
 
 | Upstream | License | Files in this package |
 | --- | --- | --- |
-| [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) v6.13.0, which contains code from mapbox-gl-js v1.13 and earlier | BSD-3-Clause | `src/bidi.ts`, `src/arabic-shaping.ts`, `src/hillshade-layer.ts`, `src/raster-color-extension.ts` |
-| [Unicode Character Database](https://www.unicode.org/ucd/) 17.0.0 | Unicode-3.0 | `src/arabic-shaping.ts` |
+| [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) v6.13.0, which contains code from mapbox-gl-js v1.13 and earlier | BSD-3-Clause | Bundled from `map-utils/src/text/bidi.ts` and `map-utils/src/text/arabic-shaping.ts`; also `src/hillshade-layer.ts`, `src/raster-color-extension.ts` |
+| [Unicode Character Database](https://www.unicode.org/ucd/) 17.0.0 | Unicode-3.0 | Bundled from `map-utils/src/text/arabic-shaping.ts` |
 
 ## MapLibre GL JS
 
 Source: <https://github.com/maplibre/maplibre-gl-js/blob/v6.13.0/LICENSE.txt>
 
-- `src/bidi.ts` adapts `src/symbol/bidi.ts`.
-- `src/arabic-shaping.ts` adapts `src/symbol/arabic_shaping.ts` and the tables that
+- `map-utils/src/text/bidi.ts` adapts `src/symbol/bidi.ts`.
+- `map-utils/src/text/arabic-shaping.ts` adapts `src/symbol/arabic_shaping.ts` and the tables that
   `build/generate-unicode-data.ts` writes to `src/util/unicode_properties.g.ts`.
 - `src/hillshade-layer.ts` ports `src/shaders/glsl/hillshade.fragment.glsl` and the arithmetic of
   `src/shaders/glsl/hillshade_prepare.fragment.glsl`. The standard hillshade algorithm in that
@@ -158,7 +158,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Source: <https://www.unicode.org/license.txt>
 
-The Arabic joining types, presentation forms and ligatures in `src/arabic-shaping.ts` are derived
+The Arabic joining types, presentation forms and ligatures in `map-utils/src/text/arabic-shaping.ts` are derived
 from the Unicode Character Database 17.0.0 (`extracted/DerivedJoiningType.txt` and
 `UnicodeData.txt`).
 

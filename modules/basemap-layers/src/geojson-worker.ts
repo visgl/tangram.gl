@@ -14,6 +14,7 @@
 
 import type {GeoJSONVT, GeoJSONVTOptions} from '@maplibre/geojson-vt';
 import {createTileIndex, cutTile} from './geojson-tiler';
+import {installGeoJsonTaskHandler} from './geojson-task-handler';
 
 /** A message from the main thread. Messages of one source arrive in the order they are sent. */
 export type GeoJsonWorkerRequest =
@@ -37,11 +38,28 @@ const pendingFeatures = new Map<number, unknown[]>();
 const indexes = new Map<number, GeoJSONVT | Error>();
 
 const scope = globalThis as unknown as {
-  onmessage: ((event: MessageEvent<GeoJsonWorkerRequest>) => void) | null;
+  addEventListener: (type: 'message', listener: (event: MessageEvent<unknown>) => void) => void;
   postMessage: (message: GeoJsonWorkerResponse, transfer: Transferable[]) => void;
 };
 
-scope.onmessage = ({data: message}) => {
+let taskInstalled = false;
+let taskReady: Promise<void> | undefined;
+const pendingTaskMessages: unknown[] = [];
+
+scope.addEventListener('message', event => {
+  const {data} = event;
+  if (data && typeof data === 'object' && 'source' in data && data.source === 'loaders.gl') {
+    if (!taskInstalled) {
+      event.stopImmediatePropagation();
+      pendingTaskMessages.push(data);
+      taskReady ??= installGeoJsonTaskHandler().then(() => {
+        taskInstalled = true;
+        for (const data of pendingTaskMessages.splice(0)) globalThis.dispatchEvent(new MessageEvent('message', {data}));
+      });
+    }
+    return;
+  }
+  const message = data as GeoJsonWorkerRequest;
   switch (message.type) {
     case 'features': {
       const features = pendingFeatures.get(message.source);
@@ -95,4 +113,4 @@ scope.onmessage = ({data: message}) => {
       break;
     default:
   }
-};
+});

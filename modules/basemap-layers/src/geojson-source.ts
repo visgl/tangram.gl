@@ -3,8 +3,11 @@
 // Copyright (c) vis.gl contributors
 
 import type {GeoJSONVT, GeoJSONVTOptions} from '@maplibre/geojson-vt';
+import {TaskRunner, type InitializedTask} from '@math.gl/tasks';
 import {createTileIndex, cutTile, decodeTile, GEOJSON_TILE_EXTENT} from './geojson-tiler';
-import type {GeoJsonWorkerRequest, GeoJsonWorkerResponse} from './geojson-worker';
+import type {GeoJsonWorkerRequest} from './geojson-worker';
+import {GeoJsonTask} from './geojson-task';
+import type {GeoJsonTaskResult} from './geojson-task';
 import type {BasemapSource} from './style-resolver';
 
 /** The size of a GeoJSON source's tiles in pixels, fixed in MapLibre GL JS. */
@@ -93,14 +96,6 @@ export function setGeoJsonWorkerEnabled(enabled: boolean): void {
   workerEnabled = enabled;
 }
 
-/** A tile request sent to the worker, and how to cut the tile here if the worker fails. */
-type PendingTile = {
-  source: BasemapSource;
-  index: {x: number; y: number; z: number};
-  resolve: (features: Record<string, unknown>[]) => void;
-  reject: (error: unknown) => void;
-};
-
 /**
  * The worker that indexes GeoJSON sources and cuts their tiles, shared by all of them. If it
  * cannot start (a bundle that does not emit it, a content security policy without `worker-src`)
@@ -108,33 +103,17 @@ type PendingTile = {
  */
 class GeoJsonWorker {
   failed = false;
-  private worker: Worker;
+  private readonly runner = new TaskRunner();
+  private readonly resource: Promise<InitializedTask<typeof GeoJsonTask>>;
+  private queue: Promise<void> = Promise.resolve();
   private nextId = 0;
   private sources = new WeakMap<BasemapSource, {id: number; sent: Promise<void>}>();
-  private requests = new Map<number, PendingTile>();
   private registry = new FinalizationRegistry<number>(id =>
-    this.post({type: 'remove', source: id})
+    void this.post({type: 'remove', source: id})
   );
 
-  constructor(worker: Worker) {
-    this.worker = worker;
-    worker.onmessage = ({data}: MessageEvent<GeoJsonWorkerResponse>) => {
-      const request = this.requests.get(data.request);
-      this.requests.delete(data.request);
-      if (!request) {
-        return;
-      }
-      if ('error' in data) {
-        request.reject(new Error(data.error));
-      } else {
-        request.resolve(decodeTile(data.tile));
-      }
-    };
-    worker.onerror = event => {
-      event.preventDefault?.();
-      this.fail();
-    };
-    worker.onmessageerror = () => this.fail();
+  constructor() {
+    this.resource = this.runner.initializeTask(GeoJsonTask, {}, {execution: 'worker'});
   }
 
   /** Cuts a tile of `source` in the worker, sending the source's data first if it is new. */
@@ -154,10 +133,11 @@ class GeoJsonWorker {
       return getMainThreadTileFeatures(source, index);
     }
     const request = this.nextId++;
-    return new Promise((resolve, reject) => {
-      this.requests.set(request, {source, index, resolve, reject});
-      this.post({type: 'tile', source: entry.id, request, ...index});
-    });
+    const result = await this.post({type: 'tile', source: entry.id, request, ...index});
+    if (this.failed || !result) return getMainThreadTileFeatures(source, index);
+    if ('error' in result) throw new Error(result.error);
+    if (!result.tile) throw new Error('GeoJSON worker returned no tile');
+    return decodeTile(result.tile);
   }
 
   /**
@@ -168,7 +148,7 @@ class GeoJsonWorker {
     const options = getGeoJsonVtOptions(source);
     const data = source.data as {type?: string; features?: unknown};
     if (data.type !== 'FeatureCollection' || !Array.isArray(data.features)) {
-      this.post({type: 'index', source: id, data, options});
+      await this.post({type: 'index', source: id, data, options});
       return;
     }
     let batch: unknown[] = [];
@@ -177,7 +157,7 @@ class GeoJsonWorker {
       batch.push(feature);
       positions += countPositions((feature as {geometry?: unknown})?.geometry);
       if (positions >= POSITIONS_PER_BATCH) {
-        this.post({type: 'features', source: id, features: batch});
+        await this.post({type: 'features', source: id, features: batch});
         batch = [];
         positions = 0;
         await yieldToMainThread();
@@ -186,38 +166,26 @@ class GeoJsonWorker {
         }
       }
     }
-    this.post({type: 'features', source: id, features: batch});
-    this.post({type: 'index', source: id, options});
+    await this.post({type: 'features', source: id, features: batch});
+    await this.post({type: 'index', source: id, options});
   }
 
-  private post(message: GeoJsonWorkerRequest): void {
-    if (this.failed) {
-      return;
-    }
-    try {
-      this.worker.postMessage(message);
-    } catch {
-      // Data that cannot be cloned (a function in a property, say) is tiled on the main thread.
-      this.fail();
-    }
-  }
-
-  /** Stops using the worker, and cuts the tiles it still owes on the main thread. */
-  private fail(): void {
-    if (this.failed) {
-      return;
-    }
-    this.failed = true;
-    this.worker.terminate();
-    const requests = [...this.requests.values()];
-    this.requests.clear();
-    for (const {source, index, resolve, reject} of requests) {
+  /** Serialize operations to avoid overflowing the resource's bounded job queue. */
+  private post(message: GeoJsonWorkerRequest): Promise<GeoJsonTaskResult | undefined> {
+    const operation = this.queue.then(async () => {
+      if (this.failed) return undefined;
       try {
-        resolve(getMainThreadTileFeatures(source, index));
-      } catch (error) {
-        reject(error);
+        const resource = await this.resource;
+        // The tile can reference properties owned by the retained index.
+        return await resource.runTask(message, {inputOwnership: 'copy', outputOwnership: 'copy'});
+      } catch {
+        this.failed = true;
+        void this.runner.terminate().catch(() => {});
+        return undefined;
       }
-    }
+    });
+    this.queue = operation.then(() => {});
+    return operation;
   }
 }
 
@@ -276,9 +244,7 @@ function getGeoJsonWorker(): GeoJsonWorker | null {
       // Bundlers (Vite, webpack 5, esbuild with a plugin, Parcel) emit the worker and its imports
       // from this expression, which must stay literal. The CommonJS build has no `import.meta.url`
       // and throws here.
-      geoJsonWorker = new GeoJsonWorker(
-        new Worker(new URL('./geojson-worker.js', import.meta.url), {type: 'module'})
-      );
+      geoJsonWorker = new GeoJsonWorker();
     } catch {
       geoJsonWorker = null;
     }

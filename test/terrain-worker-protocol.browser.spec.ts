@@ -3,8 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, expect, test, vi} from 'vitest';
-import {decodeTerrainInWorker} from '../examples/terrain/worker-client';
-import {TerrainDecoderPool} from '../examples/terrain/decoder-pool';
+import {TerrainDecoderPool} from './legacy-terrain-decoder-pool';
 import {createTerrainStreamFixture} from './terrain-stream-fixture';
 
 /** Deterministic worker transport; parser conformance uses a real worker separately. */
@@ -23,6 +22,12 @@ class TestWorker extends EventTarget {
 const pools: TerrainDecoderPool[] = [];
 afterEach(() => {pools.splice(0).forEach(pool => pool.destroy()); TestWorker.instances = []; vi.unstubAllGlobals(); vi.useRealTimers();});
 
+/** Exercise the retained legacy decoder protocol independently of the task-backed client. */
+function decodeLegacy(bytes: ArrayBuffer, signal: AbortSignal) {
+  const pool = new TerrainDecoderPool('/terrain-worker.js', 1);
+  return pool.decodeMesh(bytes, [0, 0, 1, 1], 20, signal).finally(() => pool.destroy());
+}
+
 /** Echo the active correlation key; callers may deliberately supply stale keys. */
 function reply(worker: TestWorker, data: unknown = {grid: createTerrainStreamFixture().grid}, requestId = worker.postMessage.mock.lastCall![0].requestId): void {
   worker.dispatchEvent(new MessageEvent('message', {data: {requestId, type: 'result', data, decodeMs: 5}}));
@@ -31,7 +36,7 @@ function reply(worker: TestWorker, data: unknown = {grid: createTerrainStreamFix
 test.each([{type: 'result', data: {}}, {}, {type: 'error', message: 'decode failed'}])('malformed/error replies reject and terminate the owned worker: %j', response => {
   vi.stubGlobal('Worker', TestWorker);
   const bytes = new ArrayBuffer(8), signal = new AbortController();
-  const pending = decodeTerrainInWorker('/terrain-worker.js', bytes, [0, 0, 1, 1], 20, signal.signal);
+  const pending = decodeLegacy(bytes, signal.signal);
   const worker = TestWorker.current;
   const sent = worker.postMessage.mock.calls[0];
   expect(sent[0].bytes).not.toBe(bytes); expect(sent[1]).toEqual([sent[0].bytes]);
@@ -43,7 +48,7 @@ test.each([{type: 'result', data: {}}, {}, {type: 'error', message: 'decode fail
 
 test('decode timeout settles and releases the worker instead of leaving readiness pending', async () => {
   vi.useFakeTimers(); vi.stubGlobal('Worker', TestWorker);
-  const pending = decodeTerrainInWorker('/terrain-worker.js', new ArrayBuffer(8), [0, 0, 1, 1], 20, new AbortController().signal);
+  const pending = decodeLegacy(new ArrayBuffer(8), new AbortController().signal);
   const result = expect(pending).rejects.toThrow('timed out');
   vi.advanceTimersByTime(30000); await result;
   expect(TestWorker.current.terminate).toHaveBeenCalledOnce();

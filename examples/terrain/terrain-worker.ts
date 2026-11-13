@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {decodeTerrainGrid} from './decode-height-grid';
+import {processTerrainTask} from './terrain-task';
+import {createWorker} from '@math.gl/core-legacy-tasks/tasks';
 import type {TerrainNoDataPolicy, TerrainPayload} from './terrain-payload';
 
 /** One dedicated worker processes one job; terminating it cancels image/mesh work. */
@@ -30,13 +31,30 @@ function isRequest(value: unknown): value is TerrainDecodeRequest {
         (!('mode' in value) || value.mode === 'grid' || value.mode === 'mesh'));
 }
 
+let taskReady: Promise<void> | undefined;
+let taskInstalled = false;
+const pendingTaskMessages: unknown[] = [];
+
 addEventListener('message', async (event: MessageEvent<unknown>) => {
+    if (event.data && typeof event.data === 'object' && 'source' in event.data && event.data.source === 'loaders.gl') {
+        if (!taskInstalled) {
+            event.stopImmediatePropagation();
+            pendingTaskMessages.push(event.data);
+            taskReady ??= createWorker(processTerrainTask).then(() => {
+                taskInstalled = true;
+                for (const data of pendingTaskMessages.splice(0)) dispatchEvent(new MessageEvent('message', {data}));
+            });
+        }
+        return;
+    }
     const requestId = event.data && typeof event.data === 'object' && 'requestId' in event.data ? event.data.requestId : undefined;
     try {
         if (!isRequest(event.data)) throw new Error('Malformed terrain decode request');
         const started = performance.now();
-        const data: TerrainPayload = event.data.mode === 'grid' ? await decodeTerrainGrid(event.data.bytes, event.data.bounds, event.data.noData) :
-            await (await import('./decode-terrain')).decodeTerrainTile(event.data.bytes, event.data.bounds, event.data.meshMaxError, event.data.noData);
+        const data: TerrainPayload = await processTerrainTask({
+            mode: event.data.mode ?? 'mesh', bytes: event.data.bytes, bounds: event.data.bounds,
+            meshMaxError: event.data.meshMaxError, noData: event.data.noData
+        });
         const decodeMs = performance.now() - started;
         const buffers = new Set<ArrayBuffer>();
         for (const attribute of Object.values(data.mesh?.attributes ?? {})) if (attribute.value.buffer instanceof ArrayBuffer) buffers.add(attribute.value.buffer);
