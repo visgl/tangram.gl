@@ -142,6 +142,6 @@ test('optional map-logic entry bundles only CPU helpers and lightweight math.gl 
         bundle: true, format: 'esm', platform: 'neutral', write: false, metafile: true});
     expect(Object.keys(result.metafile.inputs).filter(path => path.includes('/src/map-logic/'))).toHaveLength(18);
     const emittedInputs = Object.values(result.metafile.outputs).flatMap(output => Object.entries(output.inputs).filter(([, details]) => details.bytesInOutput > 0).map(([path]) => path));
-    expect(emittedInputs.every(path => path.includes('/src/map-logic/') || /@math.gl\/(core|geospatial|geometry)\//.test(path))).toBe(true);
+    expect(emittedInputs.every(path => path.includes('/src/map-logic/') || /@math.gl\/(core|geospatial|geometry|web-mercator)\//.test(path))).toBe(true);
     expect(Object.values(result.metafile.outputs).flatMap(output => output.imports)).toEqual([]);
 });
