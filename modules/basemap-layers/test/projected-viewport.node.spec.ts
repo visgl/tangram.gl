@@ -10,13 +10,14 @@ import {
 } from '@deck.gl/core';
 import {projectionEngine} from '@math.gl/geospatial/projection';
 import {getBackgroundSquare} from '../src/projected-background-layer';
-import {createMercatorTileMesh} from '../src/projected-bitmap-layer';
+import {createMercatorTileMesh, getNormalizedBounds} from '../src/projected-bitmap-layer';
 import {getTileFeaturesInLngLat, MAX_ADDED_VERTICES} from '../src/projected-tile-data';
 import {
   getMercatorZoom,
   getProjectedPlaneAngle,
   getStyleZoom,
   isGeographicViewport,
+  isPositionDrawn,
   isProjectedViewport,
   lngLatToMercatorWorld,
   mercatorWorldToLngLat
@@ -370,6 +371,43 @@ describe('createMercatorTileMesh', () => {
       );
     }
     expect(worst).toBeLessThan(texel);
+  });
+
+  test('a tile across the edge of the area of use is drawn inside the area only', () => {
+    // math.gl moves positions outside the area of use of UTM zone 32N (6 to 12 degrees east) to
+    // its edge. A mesh refined across that edge chases the kink, with no gain on the screen.
+    const viewport = createViewport(utm, [9, 47], 6);
+    const project = (lngLat: number[]) => viewport.projectPosition(lngLat);
+    const bounds = [5.625, 45.089036, 11.25, 48.922499];
+    const normalize = (utm as unknown as {converter: {WGS84: {normalize: (p: number[]) => number[]}}})
+      .converter.WGS84.normalize;
+    const drawn = (tile: number[]) => getNormalizedBounds(tile, normalize);
+    expect(drawn(bounds)).toEqual([6, 45.089036, 11.25, 48.922499]);
+    const whole = createMercatorTileMesh(bounds, project);
+    const clipped = createMercatorTileMesh(bounds, project, undefined, drawn(bounds));
+    expect(clipped.indices.length).toBeLessThan(whole.indices.length / 4);
+    const vertexCount = clipped.positions.length / 3;
+    let west = Infinity;
+    for (let vertex = 0; vertex < vertexCount; vertex++) {
+      const lngLat = [clipped.positions[vertex * 3], clipped.positions[vertex * 3 + 1]];
+      west = Math.min(west, lngLat[0]);
+      expect(isPositionDrawn(viewport, lngLat)).toBe(true);
+      // The image stays at its place: each vertex samples the image where its position lies.
+      const [u, v] = getImagePosition(bounds, lngLat);
+      expect(clipped.texCoords[vertex * 2]).toBeCloseTo(u, 5);
+      expect(clipped.texCoords[vertex * 2 + 1]).toBeCloseTo(v, 5);
+    }
+    expect(west).toBeCloseTo(6, 9);
+    // A tile outside the area of use has no mesh, and a tile inside it the same mesh as before.
+    const outside = [0, 45.089036, 5.625, 48.922499];
+    expect(createMercatorTileMesh(outside, project, undefined, drawn(outside)).indices).toHaveLength(0);
+    const inside = [8.4375, 47.040182, 9.84375, 48.004625];
+    expect(drawn(inside)).toEqual(inside);
+    expect(createMercatorTileMesh(inside, project, undefined, drawn(inside))).toEqual(createMercatorTileMesh(inside, project));
+    // A normalization that is not a clamp of longitude and latitude does not clip: here it moves
+    // the north-east corner only.
+    const cutCorner = ([x, y]: number[]) => (x > 10 && y > 48 ? [x, 48, 0] : [x, y, 0]);
+    expect(getNormalizedBounds(bounds, cutCorner)).toBeNull();
   });
 
   test('a large tile takes more triangles than a small one', () => {
