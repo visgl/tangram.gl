@@ -147,7 +147,9 @@ function createHarness(
           errors.push(message);
         }
       }
-      const isCompiled = pipelines.every(pipeline => !pipeline.isPending);
+      // WebGL links a pipeline when it is first drawn, and does not report it as pending.
+      const isCompiled =
+        DEVICE_TYPE === 'webgl' || pipelines.every(pipeline => !pipeline.isPending);
       const isSettled = isViewDrawn && isCompiled && layer?.isLoaded && hasSubLayers;
       if (isSettled && deck.needsRedraw()) {
         loadedChecks = 0;
