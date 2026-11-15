@@ -282,6 +282,26 @@ export function combineTileRows(tiles: LabelTile[], tileRows: LabelRow[][]): Lab
 }
 
 /**
+ * The rows whose anchor lies on a tile of `tiles`. A tile of a low zoom holds labels of places far
+ * outside it, and a projected view draws only the tiles in the projection's area of use: an anchor
+ * on no drawn tile is off the drawn map. One on another drawn tile is kept, as a tile of a mixed
+ * selection may not hold the labels of its own area, which the buffer of a deeper tile does.
+ * Rows are in longitude/latitude.
+ */
+export function filterRowsOnDrawnTiles(tiles: LabelTile[], rows: LabelRow[]): LabelRow[] {
+  const keys = new Set(tiles.map(({index: {x, y, z}}) => getTileKey(x, y, z)));
+  const zooms = [...new Set(tiles.map(tile => tile.index.z))];
+  return rows.filter(row => {
+    const [wx, wy] = lngLatToWorld(row.position);
+    return zooms.some(z => {
+      const scale = 2 ** z;
+      const x = Math.floor(wx * scale);
+      return keys.has(getTileKey(((x % scale) + scale) % scale, Math.floor(wy * scale), z));
+    });
+  });
+}
+
+/**
  * Draw parameters of the text, icon and anchor mark sublayers. Labels draw over the map without a depth test.
  * Their screen-space quads wind clockwise, so `GlobeView`'s default `cullMode: 'back'` would cull
  * every one of them; they are drawn with culling off, in every view.
@@ -2946,7 +2966,10 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     }
     this.retainGlyphs(waiting, refusedAny);
     if (changed) {
-      const combined = combineTileRows(tiles, tileRows);
+      let combined = combineTileRows(tiles, tileRows);
+      if (geographic && isProjectedViewport(this.context?.viewport)) {
+        combined = filterRowsOnDrawnTiles(tiles, combined);
+      }
       // A tile shown or hidden without rows of this layer leaves the rows as they are: the same
       // array keeps the sublayers' data, which deck.gl would otherwise update for every row.
       const previousRows = this.state.labelData;

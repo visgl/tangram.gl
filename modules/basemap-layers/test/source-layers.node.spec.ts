@@ -7,6 +7,7 @@ import {SharedMVTLayer} from '@deck.gl-community/geo-layers';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {getBasemapLayers, getRunSourceLayers, getStyleLayerRuns} from '../src/globe-layers';
+import {basemapTilesetAdapter, getBasemapTilesetAdapter} from '../src/projected-tileset';
 
 const SOURCES = {
   tiles: {
@@ -117,8 +118,19 @@ describe('basemap source tilesets', () => {
   const style: any = {version: 8, sources: SOURCES, layers: LAYERS};
 
   /** The tileset of the vector source after the layer updates them with `globe`. */
-  function updateTilesets(state: any, globe?: unknown, loadOptions?: unknown): any {
-    const layer: any = new BasemapLayer({id: 'basemap', style, globe, loadOptions} as any);
+  function updateTilesets(
+    state: any,
+    globe?: unknown,
+    loadOptions?: unknown,
+    projectedMaxStretch?: number
+  ): any {
+    const layer: any = new BasemapLayer({
+      id: 'basemap',
+      style,
+      globe,
+      loadOptions,
+      ...(projectedMaxStretch !== undefined && {projectedMaxStretch})
+    } as any);
     layer.state = state;
     layer.context = {};
     layer.updateSourceTilesets(style);
@@ -145,6 +157,16 @@ describe('basemap source tilesets', () => {
     layer.context = {};
     layer.updateSourceTilesets(other);
     expect([...state.tilesetSourceLayers.keys()]).toEqual([other.sources.tiles]);
+  });
+
+  test('select tiles with projectedMaxStretch, and reload when it changes', () => {
+    const state = {tilesets: new Map(), tilesetSourceLayers: new Map()};
+    const tileset = updateTilesets(state);
+    expect(tileset.adapter).toBe(basemapTilesetAdapter);
+    const stretched = updateTilesets(state, undefined, undefined, 16);
+    expect(stretched).not.toBe(tileset);
+    expect(stretched.adapter).toBe(getBasemapTilesetAdapter(16));
+    expect(updateTilesets(state, undefined, undefined, 16)).toBe(stretched);
   });
 
   test('keep the tiles when the basemap is turned off and on', () => {

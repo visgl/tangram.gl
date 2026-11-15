@@ -12,11 +12,17 @@ import {Tileset2D} from '@deck.gl/geo-layers';
 import {projectionEngine} from '@math.gl/geospatial/projection';
 import {
   DEFAULT_MAX_PROJECTED_TILES,
+  DEFAULT_MAX_STRETCH,
   getProjectedTileIndices,
   getProjectedTileZoom,
   type ProjectedTileIndex
 } from '../src/projected-tile-selection';
-import {basemapTilesetAdapter, ProjectedTileset2D} from '../src/projected-tileset';
+import {
+  basemapTilesetAdapter,
+  getBasemapTilesetAdapter,
+  ProjectedTileLayer,
+  ProjectedTileset2D
+} from '../src/projected-tileset';
 import {
   getMercatorZoom,
   lngLatToMercatorWorld,
@@ -234,6 +240,28 @@ function isNearScreen(viewport: ProjectedViewportLike, {x, y, z}: ProjectedTileI
 }
 
 describe('getProjectedTileIndices', () => {
+  test('a south polar view draws out to latitude 60N with a stretch limit of 16', () => {
+    const viewport = new CustomProjectionViewport({
+      crs: southPolar,
+      center: [0, -90, 0],
+      zoom: 0,
+      width: 1600,
+      height: 1600
+    });
+    const getTop = (options: {maxStretch?: number}) =>
+      Math.max(
+        ...getProjectedTileIndices(viewport, {z: 0, ...options}).map(
+          ({y, z}) => mercatorWorldToLngLat([0, 512 * (1 - y / 2 ** z)])[1]
+        )
+      );
+    // math.gl clamps the projection's positions at latitude 60N.
+    expect(getTop({maxStretch: 16})).toBeGreaterThan(59);
+    // The default limit, 4, stops where the projection draws the map 4 times larger.
+    expect(DEFAULT_MAX_STRETCH).toBe(4);
+    expect(getTop({})).toBeLessThan(23);
+    expect(getTop({})).toBe(getTop({maxStretch: 4}));
+  });
+
   const cases = [
     {name: 'UTM 32N, city zoom', crs: () => utm, center: [10.5, 48], zoom: 13, z: 12},
     {name: 'UTM 32N, at the zone edge', crs: () => utm, center: [11.95, 60], zoom: 11, z: 10},
@@ -542,6 +570,25 @@ describe('basemapTilesetAdapter', () => {
     expect(basemapTilesetAdapter.getTileIndices({...context, minZoom: 13, viewState: viewport})).toEqual([]);
   });
 
+  test('selects with the stretch limit it is made for', () => {
+    const viewport = new CustomProjectionViewport({
+      crs: southPolar,
+      center: [0, -65, 0],
+      zoom: 2,
+      width: 1600,
+      height: 1600
+    });
+    const z = getProjectedTileZoom(viewport, context)!;
+    const getKeys = (adapter: typeof basemapTilesetAdapter) =>
+      adapter.getTileIndices({...context, viewState: viewport}).map(getKey).sort();
+    expect(getBasemapTilesetAdapter()).toBe(basemapTilesetAdapter);
+    expect(getBasemapTilesetAdapter(16)).toBe(getBasemapTilesetAdapter(16));
+    expect(getKeys(getBasemapTilesetAdapter(16))).toEqual(
+      getProjectedTileIndices(viewport, {z, maxZoom: 14, maxStretch: 16}).map(getKey).sort()
+    );
+    expect(getKeys(getBasemapTilesetAdapter(16))).not.toEqual(getKeys(basemapTilesetAdapter));
+  });
+
   test('selects as deck.gl does in a Web Mercator view', () => {
     const viewport = new WebMercatorViewport({longitude: 10.5, latitude: 48, zoom: 12.4, width: WIDTH, height: HEIGHT});
     expect(basemapTilesetAdapter.getTileIndices({...context, viewState: viewport})).toEqual(
@@ -592,6 +639,29 @@ describe('ProjectedTileset2D', () => {
     // `Tileset2D` hides them all: the box of the screen corners has no numbers.
     const isVisible = Tileset2D.prototype.isTileVisible;
     expect(tileset.selectedTiles!.some(tile => isVisible.call(tileset, tile, cullRect))).toBe(false);
+    tileset.finalize();
+  });
+
+  test('selects with the stretch limit of its options, which ProjectedTileLayer passes', async () => {
+    const viewport = new CustomProjectionViewport({
+      crs: southPolar,
+      center: [0, -65, 0],
+      zoom: 2,
+      width: 1600,
+      height: 1600
+    });
+    const layer = new ProjectedTileLayer({id: 'raster', data: [], maxStretch: 16});
+    const options = (layer as any)._getTilesetOptions();
+    expect(options.maxStretch).toBe(16);
+    expect(new ProjectedTileLayer({id: 'raster', data: []}).props.maxStretch).toBe(DEFAULT_MAX_STRETCH);
+    const tileset = new ProjectedTileset2D({...options, getTileData: () => null, maxZoom: 14});
+    await loadSelectedTiles(tileset, viewport);
+    const z = getProjectedTileZoom(viewport, {tileSize: 512})!;
+    const selected = tileset.selectedTiles!.map(tile => getKey(tile.index)).sort();
+    expect(selected).toEqual(
+      getProjectedTileIndices(viewport, {z, maxZoom: 14, maxStretch: 16}).map(getKey).sort()
+    );
+    expect(selected).not.toEqual(getProjectedTileIndices(viewport, {z, maxZoom: 14}).map(getKey).sort());
     tileset.finalize();
   });
 

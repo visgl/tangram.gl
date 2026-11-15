@@ -32,6 +32,11 @@ type ProjectionOption = {
   areaOfUse: [number, number, number, number];
   /** The lowest view zoom. The controller of `_CustomProjectionView` has no lower limit. */
   minZoom: number;
+  /**
+   * `BasemapLayer`'s `projectedMaxStretch`, when the default does not draw out to the edge of the
+   * area of use.
+   */
+  maxStretch?: number;
 };
 
 type ExampleSettings = {
@@ -75,7 +80,10 @@ const PROJECTION_OPTIONS: ProjectionOption[] = [
     center: [0, -82],
     zoom: 2.4,
     areaOfUse: [-180, -90, 180, -60],
-    minZoom: 0
+    minZoom: 0,
+    // The scale grows steeply away from the pole: 16 draws the tiles out to latitude 60N, where
+    // math.gl clamps the projection's positions.
+    maxStretch: 16
   }
 ];
 
@@ -115,7 +123,7 @@ export function mountBasemapCustomProjectionExample(container: HTMLElement): () 
     parent: rootElement,
     ...getViewProps(getProjection(settings)),
     onViewStateChange: ({viewState}) => clampViewState(viewState, getProjection(settings)),
-    layers: [new BasemapLayer({id: 'basemap', style: STYLE_URL})],
+    layers: getLayers(getProjection(settings)),
     widgets: [infoWidget]
   });
   rootElement.append(createAttribution(rootElement.ownerDocument));
@@ -155,7 +163,7 @@ export function mountBasemapCustomProjectionExample(container: HTMLElement): () 
               );
               if (nextProjection && nextProjection.id !== settings.view.projection) {
                 settings.view.projection = nextProjection.id;
-                deck.setProps(getViewProps(nextProjection));
+                deck.setProps({...getViewProps(nextProjection), layers: getLayers(nextProjection)});
                 syncInfoWidget();
               }
             }
@@ -164,7 +172,19 @@ export function mountBasemapCustomProjectionExample(container: HTMLElement): () 
       })
     });
   }
+
+  function getLayers(projection: ProjectionOption) {
+    const {maxStretch} = projection;
+    return [
+      new BasemapLayer({
+        id: 'basemap',
+        style: STYLE_URL,
+        ...(maxStretch !== undefined && {projectedMaxStretch: maxStretch})
+      })
+    ];
+  }
 }
+
 
 function getProjection(settings: ExampleSettings): ProjectionOption {
   return (

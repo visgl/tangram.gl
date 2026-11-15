@@ -27,7 +27,19 @@ export type ProjectedTileSelectionOptions = {
   maxTiles?: number;
   /** The highest tile zoom of the source. Tiles are not divided past it. */
   maxZoom?: number;
+  /**
+   * How many times longer than at true scale the projection may draw a part of a tile's outline
+   * (see `isTileStretched`). Default `DEFAULT_MAX_STRETCH`. A projection that stretches the map
+   * smoothly toward the edge of its area of use, as a polar stereographic one, can take more: 16
+   * draws EPSG:3031 out to latitude 60N, where math.gl clamps its positions. A larger limit also
+   * stops seeing the places a projection cannot draw, as in a transverse Mercator projection of
+   * the whole world, whose tiles are then drawn across the map.
+   */
+  maxStretch?: number;
 };
+
+/** The default of `ProjectedTileSelectionOptions.maxStretch`. */
+export const DEFAULT_MAX_STRETCH = 4;
 
 /** The default of `ProjectedTileSelectionOptions.maxTiles`. */
 export const DEFAULT_MAX_PROJECTED_TILES = 512;
@@ -36,12 +48,6 @@ export const DEFAULT_MAX_PROJECTED_TILES = 512;
 const SCREEN_GRID_CELLS = 16;
 /** A tile's edge is sampled at this many points along each side. */
 const TILE_GRID_CELLS = 8;
-/**
- * How many times longer than at true scale the projection may draw a part of a tile's outline.
- * Past it, the tile is divided: a projection stretches without bound toward the places it cannot
- * draw, and across a seam.
- */
-const MAX_STRETCH = 4;
 /**
  * The scale of the map plane at true scale: common units per degree of arc. deck.gl's common
  * space is `MERCATOR_WORLD_SIZE` units around the equator, in a projected view too.
@@ -260,11 +266,11 @@ function getCenterPlaneScale(viewport: ProjectedViewportLike): number | null {
  * depend on the camera in a view of the area of use: a limit that moves with the view center
  * moves the edge of the drawn area, and the tiles at the edge come and go as the view pans.
  */
-function getStretchLimit(viewport: ProjectedViewportLike): number | null {
+function getStretchLimit(viewport: ProjectedViewportLike, maxStretch: number): number | null {
   const centerScale = getCenterPlaneScale(viewport);
   return centerScale === null
     ? null
-    : MAX_STRETCH * Math.max(TRUE_PLANE_SCALE, centerScale / MAX_CENTER_STRETCH);
+    : maxStretch * Math.max(TRUE_PLANE_SCALE, centerScale / MAX_CENTER_STRETCH);
 }
 
 /**
@@ -317,9 +323,13 @@ function divideStretchedTiles(
   viewport: ProjectedViewportLike,
   tiles: TileNode[],
   getShownChildren: (node: TileNode) => TileNode[],
-  {maxTiles, maxZoom = Infinity}: {maxTiles: number; maxZoom?: number}
+  {
+    maxTiles,
+    maxZoom = Infinity,
+    maxStretch
+  }: {maxTiles: number; maxZoom?: number; maxStretch: number}
 ): TileNode[] {
-  const limit = getStretchLimit(viewport);
+  const limit = getStretchLimit(viewport, maxStretch);
   if (limit === null) {
     return tiles;
   }
@@ -374,7 +384,13 @@ function divideStretchedTiles(
  */
 export function getProjectedTileIndices(
   viewport: ProjectedViewportLike,
-  {z, extent = null, maxTiles = DEFAULT_MAX_PROJECTED_TILES, maxZoom}: ProjectedTileSelectionOptions
+  {
+    z,
+    extent = null,
+    maxTiles = DEFAULT_MAX_PROJECTED_TILES,
+    maxZoom,
+    maxStretch = DEFAULT_MAX_STRETCH
+  }: ProjectedTileSelectionOptions
 ): ProjectedTileIndex[] {
   if (!(viewport.width > 0) || !(viewport.height > 0) || !Number.isFinite(z)) {
     return [];
@@ -413,7 +429,11 @@ export function getProjectedTileIndices(
     }
     level = next;
   }
-  level = divideStretchedTiles(viewport, level, getShownChildren, {maxTiles, maxZoom});
+  level = divideStretchedTiles(viewport, level, getShownChildren, {
+    maxTiles,
+    maxZoom,
+    maxStretch
+  });
   const centerLngLat = unprojectOrNull(viewport, [viewport.width / 2, viewport.height / 2]);
   const center = centerLngLat ? toPyramid(centerLngLat) : null;
   const indices = level.map(({x, y, z: tileZoom}) => ({x, y, z: tileZoom}));

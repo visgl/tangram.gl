@@ -6,7 +6,7 @@ import type {GlyphStore} from './glyph-store';
 import {SharedMVTLayer, SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {isGeographicViewport, isProjectedViewport} from './projected-viewport';
 import {getTileFeaturesInLngLat} from './projected-tile-data';
-import {basemapTilesetAdapter, ProjectedTileset2D} from './projected-tileset';
+import {getBasemapTilesetAdapter, ProjectedTileLayer} from './projected-tileset';
 import {
   type Color,
   type Layer,
@@ -15,7 +15,6 @@ import {
   log
 } from '@deck.gl/core';
 import {PathStyleExtension} from '@deck.gl/extensions';
-import {TileLayer} from '@deck.gl/geo-layers';
 import {GeoJsonLayer, SolidPolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {ProjectedBackgroundLayer} from './projected-background-layer';
@@ -119,6 +118,11 @@ type BasemapLayerGroup = {
    * `background` layer fills the screen around the view (see `ProjectedBackgroundLayer`).
    */
   projected?: boolean;
+  /**
+   * The stretch limit of the tile selection in a projected view (see
+   * `ProjectedTileSelectionOptions.maxStretch`). It applies to the tilesets these layers create.
+   */
+  projectedMaxStretch?: number;
 };
 
 /**
@@ -773,9 +777,13 @@ export function getTilePyramidProps(source: BasemapSource): {
  */
 export function createDemTileset(
   source: BasemapSource,
-  loadOptions?: BasemapLoadOptions
+  loadOptions?: BasemapLoadOptions,
+  projectedMaxStretch?: number
 ): SharedTileset2D<DemTile | null> {
-  return createSharedDemTileset(source, loadOptions, getTilePyramidProps(source));
+  return createSharedDemTileset(source, loadOptions, {
+    ...getTilePyramidProps(source),
+    adapter: getBasemapTilesetAdapter(projectedMaxStretch)
+  });
 }
 
 function createRasterLayer({
@@ -784,7 +792,8 @@ function createRasterLayer({
   source,
   zoom,
   mode,
-  depthTested
+  depthTested,
+  projectedMaxStretch
 }: {
   idPrefix: string;
   layer: BasemapStyleLayer;
@@ -793,6 +802,7 @@ function createRasterLayer({
   mode: BasemapMode;
   /** Drawn after an extrusion, see `getTileParameters`. */
   depthTested?: boolean;
+  projectedMaxStretch?: number;
 }) {
   const paint = getPaint(layer, zoom);
   const rasterColorAdjustments = getRasterColorAdjustments(paint);
@@ -804,11 +814,11 @@ function createRasterLayer({
     getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
     getRasterPaintValue(paint, 'resampling') === 'nearest';
 
-  return new TileLayer({
+  // Also selects tiles in a projected view.
+  return new ProjectedTileLayer({
     id: `${idPrefix}-${layer.id}`,
     data: source.tiles,
-    // Also selects tiles in a projected view.
-    TilesetClass: ProjectedTileset2D,
+    ...(projectedMaxStretch === undefined ? {} : {maxStretch: projectedMaxStretch}),
     ...getTilePyramidProps(source),
     tileSize: source.tileSize || 512,
     // deck.gl draws with `opacity ** (1 / 2.2)`. Undo that, so the alpha is `raster-opacity`, as
@@ -1317,7 +1327,7 @@ class StyledMVTLayer extends SharedMVTLayer {
 
   /** Tile traversal that also selects tiles in a projected view (see `basemapTilesetAdapter`). */
   _getTilesetOptions(): ReturnType<SharedMVTLayer['_getTilesetOptions']> {
-    return {...super._getTilesetOptions(), adapter: basemapTilesetAdapter};
+    return {...super._getTilesetOptions(), adapter: getBasemapTilesetAdapter()};
   }
 
   _onTileLoad(tile: any): void {
@@ -1954,7 +1964,8 @@ export function getBasemapLayers({
   glyphs,
   labelPlacement,
   tilesets,
-  projected
+  projected,
+  projectedMaxStretch
 }: BasemapLayerGroup) {
   const config = getConfig(globe);
   const styleLayers = (styleDefinition.layers || []).filter(layer =>
@@ -1984,7 +1995,8 @@ export function getBasemapLayers({
         glyphs,
         labelPlacement,
         tilesets,
-        projected
+        projected,
+        projectedMaxStretch
       })
     );
   }
@@ -3364,9 +3376,11 @@ function getStyleLayers({
   glyphs,
   labelPlacement,
   tilesets,
-  projected
+  projected,
+  projectedMaxStretch
 }: {
   projected?: boolean;
+  projectedMaxStretch?: number;
   idPrefix: string;
   styleLayers: BasemapStyleLayer[];
   styleDefinition: ResolvedBasemapStyle;
@@ -3414,7 +3428,8 @@ function getStyleLayers({
         source: run.source!,
         zoom,
         mode,
-        depthTested: depthTested.has(layer)
+        depthTested: depthTested.has(layer),
+        projectedMaxStretch
       });
     }
     if (run.type === 'hillshade') {
@@ -3425,7 +3440,7 @@ function getStyleLayers({
         owner = ownedDemTilesets.get(run.source!);
         if (!owner) {
           owner = {
-            tileset: createDemTileset(run.source!, loadOptions),
+            tileset: createDemTileset(run.source!, loadOptions, projectedMaxStretch),
             consumers: new Set()
           };
           ownedDemTilesets.set(run.source!, owner);
@@ -3456,7 +3471,7 @@ function getStyleLayers({
         });
         const ownedTileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
-          adapter: basemapTilesetAdapter,
+          adapter: getBasemapTilesetAdapter(projectedMaxStretch),
           ...getTilePyramidProps(run.source!),
           tileSize: run.source!.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
