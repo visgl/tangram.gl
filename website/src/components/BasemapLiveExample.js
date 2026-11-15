@@ -4,22 +4,26 @@
 
 import {useEffect, useRef, useState} from 'react';
 
+const EXAMPLES = {
+  map: () => import('../../../examples/layers/basemap-layer-map-view/app')
+    .then(module => module.mountBasemapLayerMapViewExample),
+  split: () => import('../../../examples/basemap-layers/split-view/app')
+    .then(module => module.mountBasemapSplitViewExample),
+  'custom-projection': () => import('../../../examples/layers/basemap-layer-custom-projection/app')
+    .then(module => module.mountBasemapCustomProjectionExample)
+};
+
 /** Mount the copied basemap examples directly in the documentation page. */
-export default function BasemapLiveExample({split = false}) {
+export default function BasemapLiveExample({split = false, example = split ? 'split' : 'map'}) {
   const host = useRef(null);
   const [error, setError] = useState(null);
   useEffect(() => {
     let cancelled = false;
     let dispose;
     setError(null);
-    const example = split
-      ? import('../../../examples/basemap-layers/split-view/app')
-      : import('../../../examples/layers/basemap-layer-map-view/app');
-    example.then((module) => {
+    EXAMPLES[example]().then((mount) => {
       if (!cancelled && host.current) {
-        dispose = split
-          ? module.mountBasemapSplitViewExample(host.current)
-          : module.mountBasemapLayerMapViewExample(host.current);
+        dispose = mount(host.current);
       }
     }).catch((exception) => {
       if (!cancelled) setError(exception.message);
@@ -28,7 +32,7 @@ export default function BasemapLiveExample({split = false}) {
       cancelled = true;
       dispose?.();
     };
-  }, [split]);
+  }, [example]);
   return (
     <div style={{position: 'relative', height: '100%', minHeight: 480}}>
       <div ref={host} style={{position: 'absolute', inset: 0}} />
