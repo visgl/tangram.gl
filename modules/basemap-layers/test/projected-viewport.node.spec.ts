@@ -31,10 +31,14 @@ type CRS = ConstructorParameters<typeof CustomProjectionViewport>[0]['crs'];
 
 let utm: CRS;
 let albers: CRS;
+let polar: CRS;
 
 beforeAll(async () => {
   utm = await projectionEngine.getCRS('EPSG:32632');
   albers = await projectionEngine.getCRS(CONUS_ALBERS_PROJ);
+  polar = await projectionEngine.getCRS(
+    '+proj=stere +lat_0=-90 +lat_ts=-71 +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'
+  );
 });
 
 const createViewport = (crs: CRS, center: number[], zoom: number) =>
@@ -80,6 +84,25 @@ describe('projected viewport helpers', () => {
     const stepY = Math.hypot(...world([x, y + 16]).map((value, axis) => value - world([x, y])[axis]));
     expect(stepY / stepX).toBeGreaterThan(1.4);
     expect(Math.abs(getMercatorZoom(north) - (8 + Math.log2(Math.cos((70 * Math.PI) / 180))))).toBeLessThan(0.02);
+  });
+
+  test('the Web Mercator zoom follows the view zoom where the screen reaches past the pole', () => {
+    // A south polar stereographic view centred at latitude -82. Zoomed out, 16 pixels from the
+    // center lie past latitude -85.05, the edge of the tile pyramid, and then past the pole.
+    const offsets = [];
+    for (let zoom = 4; zoom >= -1; zoom -= 0.25) {
+      offsets.push(getMercatorZoom(createViewport(polar, [0, -82], zoom)) - zoom);
+    }
+    // The scale at the view center does not depend on the camera: the offset is the same.
+    for (const offset of offsets) {
+      expect(Math.abs(offset - offsets[0])).toBeLessThan(0.01);
+    }
+    // Web Mercator stretches latitude -82 7.2 times, and the projection draws it at scale 0.977.
+    expect(offsets[0]).toBeCloseTo(Math.log2(Math.cos((82 * Math.PI) / 180) * 0.977), 1);
+    // A center past the edge of the tile pyramid is measured at that edge, where the top row of
+    // tiles lies, and not at the zoom of the view.
+    const pole = getMercatorZoom(createViewport(polar, [0, -89], 3)) - 3;
+    expect(pole).toBeCloseTo(Math.log2(Math.cos((85.05 * Math.PI) / 180) * 0.975), 1);
   });
 
   test('the style zoom is the Web Mercator zoom in a projected view only', () => {
