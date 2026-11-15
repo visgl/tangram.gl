@@ -123,9 +123,11 @@ export type BasemapLayerProps = {
   /**
    * Milliseconds that vector tile loads wait after the last zoom change of a view (default 0: no
    * wait). In a zoom gesture the view passes through several tile zooms; each tile loaded at one
-   * of them is decoded and triangulated, and is drawn for a fraction of a second. With a wait,
-   * the tiles already loaded are drawn, scaled, until the zoom comes to rest, and a tile that no
-   * view selects then is not loaded. A pan does not change the zoom, and its loads do not wait.
+   * of them is decoded and triangulated, and is drawn for a fraction of a second. With a wait, a
+   * tile that a loaded ancestor tile draws, enlarged, waits until the zoom comes to rest, and is
+   * not loaded if no view selects it then. A tile without a loaded ancestor, such as the new
+   * tiles at the edges of a zoom out, loads at once. A pan does not change the zoom, and its
+   * loads do not wait.
    */
   zoomLoadDelay?: number;
 };
@@ -480,17 +482,21 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
           getTileData: async tile => {
-            if (gate.delay > 0) {
-              await gate.wait(tile.signal);
+            // Only a tile that a loaded ancestor draws, enlarged, meanwhile is held: in a zoom out the
+            // new tiles cover more than the old, and are loaded at once.
+            if (
+              gate.delay > 0 &&
+              (await gate.wait(tile.signal, () => hasLoadedAncestor(tileset, tile.index)))
+            ) {
               // The view has come to rest: a tile that no view shows or selects now is not loaded.
               // Cancelled, it loads again if a view selects it later.
               const header = tileset.getTile(tile.index);
               if (header && !tile.signal?.aborted && !tileset.visibleTiles.includes(header)) {
                 header.abort();
               }
-              if (tile.signal?.aborted) {
-                return null;
-              }
+            }
+            if (tile.signal?.aborted) {
+              return null;
             }
             return loadTile(tile);
           }
@@ -546,6 +552,21 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tilesets: this.state.tilesets
     });
   }
+}
+
+/** Whether a tileset has loaded content for an ancestor of a tile, which draws in its place. */
+function hasLoadedAncestor(
+  tileset: SharedTileset2D,
+  index: {x: number; y: number; z: number}
+): boolean {
+  for (let parent = index; parent.z > 0; ) {
+    parent = tileset.getParentIndex(parent);
+    const ancestor = tileset.getTile(parent);
+    if (ancestor?.isLoaded && ancestor.content) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
