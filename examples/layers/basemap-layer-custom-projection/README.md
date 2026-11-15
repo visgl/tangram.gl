@@ -16,7 +16,10 @@ The example draws the OpenFreeMap Liberty style with `BasemapLayer` in a deck.gl
 - South polar stereographic (EPSG:3031, as a PROJ string), over Antarctica.
 
 The tiles are Web Mercator tiles. They stop at 85.05 degrees south, so the area
-around the pole shows the style background. Zoom out in UTM zone 32N to see that
-math.gl draws only the area of use of the zone.
+around the pole shows the style background.
+
+The camera stays in the area of use of each coordinate reference system (the
+`maxBounds` of the controller). math.gl draws only the area of use of an EPSG
+code, such as the 6 degrees of UTM zone 32N: outside it, the view is blank.
 
 No API key is required. Tiles and styles come from OpenFreeMap and need network access.

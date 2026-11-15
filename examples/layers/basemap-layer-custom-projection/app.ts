@@ -24,6 +24,13 @@ type ProjectionOption = {
   crs: string;
   center: [number, number];
   zoom: number;
+  /**
+   * The area of use of the CRS, `[west, south, east, north]`. The camera stays in it: math.gl
+   * draws no map outside the area of use of an EPSG code, and the controller of
+   * `_CustomProjectionView` moves the view center out of the projection when it zooms out
+   * around a point outside it.
+   */
+  areaOfUse: [number, number, number, number];
 };
 
 type ExampleSettings = {
@@ -47,21 +54,24 @@ const PROJECTION_OPTIONS: ProjectionOption[] = [
     label: 'UTM zone 32N (EPSG:32632)',
     crs: 'EPSG:32632',
     center: [11.576, 48.137],
-    zoom: 11
+    zoom: 11,
+    areaOfUse: [6, 0, 12, 84]
   },
   {
     id: 'conus-albers',
     label: 'Conus Albers (EPSG:5070)',
     crs: '+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs',
     center: [-77.036, 38.907],
-    zoom: 10.5
+    zoom: 10.5,
+    areaOfUse: [-124.79, 24.41, -66.91, 49.38]
   },
   {
     id: 'south-polar-stereographic',
     label: 'South polar stereographic (EPSG:3031)',
     crs: '+proj=stere +lat_0=-90 +lat_ts=-71 +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs',
     center: [0, -82],
-    zoom: 2.4
+    zoom: 2.4,
+    areaOfUse: [-180, -90, 180, -60]
   }
 ];
 
@@ -100,7 +110,6 @@ export function mountBasemapCustomProjectionExample(container: HTMLElement): () 
   const deck = new Deck({
     parent: rootElement,
     ...getViewProps(getProjection(settings)),
-    controller: true,
     layers: [new BasemapLayer({id: 'basemap', style: STYLE_URL})],
     widgets: [infoWidget]
   });
@@ -160,8 +169,16 @@ function getProjection(settings: ExampleSettings): ProjectionOption {
 }
 
 function getViewProps(projection: ProjectionOption) {
+  const [west, south, east, north] = projection.areaOfUse;
   return {
     views: new CustomProjectionView({id: projection.id, crs: projection.crs}),
+    // Deck's `controller` replaces the controller of the first view.
+    controller: {
+      maxBounds: [
+        [west, south],
+        [east, north]
+      ] as [[number, number], [number, number]]
+    },
     initialViewState: {
       center: [projection.center[0], projection.center[1], 0] as [number, number, number],
       zoom: projection.zoom
