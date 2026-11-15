@@ -1,0 +1,56 @@
+The files carto-positron.json, carto-positron-v2.json, carto-positron-nolabels-v2.json,
+carto-dark-matter-v2.json and carto-dark-matter-nolabels-v2.json in this directory are CARTO
+basemap styles, as served from https://basemaps.cartocdn.com/gl/<style>/style.json. Their source
+is https://github.com/CartoDB/basemap-styles. The `-v2` files are the styles as served on
+2026-11-14 (tiles version 20261026-01, Protomaps basemap schema).
+
+Only the styles are in this repository. The tiles, glyphs and sprites that the `-v2` styles point
+at are not: the CARTO Basemaps terms (https://carto.com/legal/basemap-terms/) do not allow the
+redistribution of map tiles or other map content. A local run downloads them into a directory
+that git ignores (see `CARTO_V2_SCENES` in ../../scenes.ts).
+
+Maps that use these styles must credit CARTO, OpenStreetMap and the tile schema, for example:
+(c) CARTO (https://carto.com), (c) OpenStreetMap contributors
+(https://www.openstreetmap.org/copyright).
+
+The license of the styles follows, from
+https://github.com/CartoDB/basemap-styles/blob/master/LICENSE.md.
+
+--------------------------------------------------------------------------------
+
+Copyright (c) 2018, CartoDB Inc.
+All rights reserved.
+
+Code license: BSD 3-Clause License
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+* Neither the name of the copyright holder nor the names of its
+  contributors may be used to endorse or promote products derived from
+  this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Design license: CC-BY 4.0
+
+The visual design features of the style (also known as the "look and feel" of
+the map) are licensed under the Creative Commons Attribution 4.0 license.
+
+To view a copy of the license, visit http://creativecommons.org/licenses/by/4.0/.

@@ -1,2 +1,5 @@
 __output__/
 __screenshots__/
+# CARTO Basemaps tiles, glyphs and sprites recorded for the `carto-v2` scenes. The CARTO Basemaps
+# terms do not allow their redistribution, so they stay local.
+fixtures/tiles.basemaps.cartocdn.com/v/

@@ -53,7 +53,8 @@ export type Render = {
   unsortedFontAtlases?: string[];
 };
 
-const RENDER_TIMEOUT = 60_000;
+/** Milliseconds a render may take. `VITE_REFERENCE_RENDER_TIMEOUT` raises it on a busy machine. */
+const RENDER_TIMEOUT = Number((import.meta as any).env?.VITE_REFERENCE_RENDER_TIMEOUT) || 60_000;
 
 function createContainer(): HTMLDivElement {
   const container = document.createElement('div');
