@@ -554,12 +554,19 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
   }
 }
 
-/** Whether a tileset has loaded content for an ancestor of a tile, which draws in its place. */
+/**
+ * The most tile zooms between a held tile and the loaded ancestor that draws in its place. A much
+ * coarser tile, such as one loaded for the first view of the map, has too little detail to draw
+ * in place of a tile 8 times as fine.
+ */
+const MAX_PLACEHOLDER_ZOOMS = 3;
+
+/** Whether a tileset has loaded content for a near ancestor of a tile, which draws in its place. */
 function hasLoadedAncestor(
   tileset: SharedTileset2D,
   index: {x: number; y: number; z: number}
 ): boolean {
-  for (let parent = index; parent.z > 0; ) {
+  for (let parent = index; parent.z > Math.max(0, index.z - MAX_PLACEHOLDER_ZOOMS); ) {
     parent = tileset.getParentIndex(parent);
     const ancestor = tileset.getTile(parent);
     if (ancestor?.isLoaded && ancestor.content) {

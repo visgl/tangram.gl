@@ -87,13 +87,16 @@ function createBasemap(zoomLoadDelay: number) {
   return {basemap, fetch, tileset: layer.props.data};
 }
 
-/** A tileset whose `getTile` returns `header` at its index, and a loaded parent with `parent`. */
-function stubTiles(tileset: any, header: {index: {x: number; y: number; z: number}}, parent: boolean) {
+/**
+ * A tileset whose `getTile` returns `header` at its index, and a loaded ancestor `zooms` tile zooms
+ * up, or none with 0.
+ */
+function stubTiles(tileset: any, header: {index: {x: number; y: number; z: number}}, zooms: number) {
   vi.spyOn(tileset, 'getTile').mockImplementation((index: any) => {
     if (index.z === header.index.z) {
       return header;
     }
-    return parent && index.z === header.index.z - 1 ? {isLoaded: true, content: []} : undefined;
+    return zooms && index.z === header.index.z - zooms ? {isLoaded: true, content: []} : undefined;
   });
 }
 
@@ -113,7 +116,7 @@ describe('BasemapLayer zoomLoadDelay', () => {
     const {basemap, fetch, tileset} = createBasemap(50);
     zoom(tileset);
     const header = {index: {x: 1, y: 1, z: 2}, abort: vi.fn()};
-    stubTiles(tileset, header, true);
+    stubTiles(tileset, header, 1);
     tileset.updateConsumer(Symbol('view'), [header], [header]);
     const loaded = tileset.opts.getTileData({index: header.index, id: '0-0-2', signal: new AbortController().signal});
     await new Promise(resolve => setTimeout(resolve, 20));
@@ -129,7 +132,7 @@ describe('BasemapLayer zoomLoadDelay', () => {
     zoom(tileset);
     const controller = new AbortController();
     const header = {index: {x: 0, y: 0, z: 2}, abort: vi.fn(() => controller.abort())};
-    stubTiles(tileset, header, true);
+    stubTiles(tileset, header, 1);
     const content = await tileset.opts.getTileData({index: header.index, id: '0-0-2', signal: controller.signal});
     expect(content).toBeNull();
     expect(header.abort).toHaveBeenCalled();
@@ -141,10 +144,28 @@ describe('BasemapLayer zoomLoadDelay', () => {
     const {basemap, fetch, tileset} = createBasemap(10_000);
     zoom(tileset);
     const header = {index: {x: 0, y: 0, z: 2}, abort: vi.fn()};
-    stubTiles(tileset, header, false);
+    stubTiles(tileset, header, 0);
     await tileset.opts.getTileData({index: header.index, id: '0-0-2', signal: new AbortController().signal});
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(header.abort).not.toHaveBeenCalled();
+    basemap.finalizeState();
+  });
+
+  test('an ancestor 3 tile zooms up holds a load; one 4 tile zooms up does not', async () => {
+    const {basemap, fetch, tileset} = createBasemap(10_000);
+    zoom(tileset);
+    const header = {index: {x: 0, y: 0, z: 6}, abort: vi.fn()};
+    stubTiles(tileset, header, 4);
+    await tileset.opts.getTileData({index: header.index, id: '0-0-6', signal: new AbortController().signal});
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    const controller = new AbortController();
+    stubTiles(tileset, header, 3);
+    const held = tileset.opts.getTileData({index: header.index, id: '0-0-6', signal: controller.signal});
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    controller.abort();
+    expect(await held).toBeNull();
     basemap.finalizeState();
   });
 
