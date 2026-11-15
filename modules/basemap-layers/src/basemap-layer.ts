@@ -2,9 +2,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {
+  SharedMVTLayer,
+  SharedTileset2D,
+  sharedTile2DDeckAdapter,
+  type SharedTileset2DAdapter
+} from '@deck.gl-community/geo-layers';
 import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from './terrain-query';
 import {isGlobeViewport} from './is-globe-viewport';
+import {ZoomLoadGate} from './zoom-load-gate';
 import type {BasemapSource} from './style-resolver';
 import {
   CompositeLayer,
@@ -114,6 +120,14 @@ export type BasemapLayerProps = {
    * are placed first. With `true`, this layer's labels collide only with each other.
    */
   separateLabelPlacement?: boolean;
+  /**
+   * Milliseconds that vector tile loads wait after the last zoom change of a view (default 0: no
+   * wait). In a zoom gesture the view passes through several tile zooms; each tile loaded at one
+   * of them is decoded and triangulated, and is drawn for a fraction of a second. With a wait,
+   * the tiles already loaded are drawn, scaled, until the zoom comes to rest, and a tile that no
+   * view selects then is not loaded. A pan does not change the zoom, and its loads do not wait.
+   */
+  zoomLoadDelay?: number;
 };
 
 const fractionalZoomLimitsCache = new WeakMap<ResolvedBasemapStyle, number[]>();
@@ -167,6 +181,8 @@ type BasemapLayerState = {
   tileLoadOptions: unknown;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
+  /** Holds the vector tile loads while a view zooms (see `zoomLoadDelay`). */
+  zoomLoadGate: ZoomLoadGate;
 };
 
 /**
@@ -199,7 +215,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     loadOptions: null,
     fontFamily: null,
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
-    separateLabelPlacement: false
+    separateLabelPlacement: false,
+    zoomLoadDelay: 0
   };
 
   /** Current layer state. */
@@ -219,7 +236,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tileLoadOptions: null,
       tileFetch: null,
       spriteAtlases: null,
-      glyphs: null
+      glyphs: null,
+      zoomLoadGate: new ZoomLoadGate()
     };
   }
 
@@ -453,12 +471,29 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
           loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
         });
         loader.context = this.context;
-        const tileset = new SharedTileset2D({
+        const gate = this.state.zoomLoadGate;
+        const loadTile = getVectorTileLoader(source, loader);
+        const tileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
+          adapter: getZoomGatedAdapter(gate),
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
-          getTileData: getVectorTileLoader(source, loader)
+          getTileData: async tile => {
+            if (gate.delay > 0) {
+              await gate.wait(tile.signal);
+              // The view has come to rest: a tile that no view shows or selects now is not loaded.
+              // Cancelled, it loads again if a view selects it later.
+              const header = tileset.getTile(tile.index);
+              if (header && !tile.signal?.aborted && !tileset.visibleTiles.includes(header)) {
+                header.abort();
+              }
+              if (tile.signal?.aborted) {
+                return null;
+              }
+            }
+            return loadTile(tile);
+          }
         });
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
@@ -489,6 +524,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       return [];
     }
 
+    this.state.zoomLoadGate.delay = Math.max(0, Number(this.props.zoomLoadDelay) || 0);
     this.updateSourceTilesets(resolvedStyle);
     const {viewport} = this.context;
     const zoom = viewport?.zoom || 0;
@@ -510,6 +546,26 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tilesets: this.state.tilesets
     });
   }
+}
+
+/**
+ * The tile traversal of deck.gl, which also records each view's zoom in `gate` at each tile
+ * selection. A shared tileset has no view type of its own, so the view is typed at each call.
+ */
+function getZoomGatedAdapter(gate: ZoomLoadGate): SharedTileset2DAdapter<unknown> {
+  return {
+    getTileIndices(context) {
+      const viewport = context.viewState as Viewport;
+      gate.noteZoom(viewport.id, viewport.zoom);
+      return sharedTile2DDeckAdapter.getTileIndices({...context, viewState: viewport});
+    },
+    getTileBoundingBox(context, index) {
+      return sharedTile2DDeckAdapter.getTileBoundingBox(
+        {...context, viewState: context.viewState as Viewport},
+        index
+      );
+    }
+  };
 }
 
 /**

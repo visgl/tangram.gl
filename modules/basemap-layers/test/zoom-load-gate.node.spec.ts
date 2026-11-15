@@ -1,0 +1,129 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
+import {describe, expect, test, vi} from 'vitest';
+import {WebMercatorViewport} from '@deck.gl/core';
+import {BasemapLayer} from '../src/basemap-layer';
+import {ZoomLoadGate} from '../src/zoom-load-gate';
+
+describe('ZoomLoadGate', () => {
+  test('the first zoom of a view is not a change, and a pan does not change the zoom', () => {
+    const gate = new ZoomLoadGate();
+    gate.delay = 100;
+    gate.noteZoom('main', 10, 1000);
+    gate.noteZoom('main', 10, 1050);
+    expect(gate.getRemainingDelay(1060)).toBe(0);
+  });
+
+  test('a zoom change holds loads for the delay after the last change', () => {
+    const gate = new ZoomLoadGate();
+    gate.delay = 100;
+    gate.noteZoom('main', 10, 1000);
+    gate.noteZoom('main', 10.2, 1050);
+    expect(gate.getRemainingDelay(1060)).toBe(90);
+    gate.noteZoom('main', 10.4, 1120);
+    expect(gate.getRemainingDelay(1160)).toBe(60);
+    expect(gate.getRemainingDelay(1220)).toBe(0);
+  });
+
+  test('each view has its own zoom: two views at different zooms do not hold loads', () => {
+    const gate = new ZoomLoadGate();
+    gate.delay = 100;
+    for (const now of [1000, 1010, 1020]) {
+      gate.noteZoom('main', 10, now);
+      gate.noteZoom('minimap', 4, now);
+    }
+    expect(gate.getRemainingDelay(1030)).toBe(0);
+  });
+
+  test('without a delay, loads are not held', () => {
+    const gate = new ZoomLoadGate();
+    gate.noteZoom('main', 10, 1000);
+    gate.noteZoom('main', 12, 1001);
+    expect(gate.getRemainingDelay(1001)).toBe(0);
+  });
+
+  test('wait resolves when the zoom has been still for the delay, or on abort', async () => {
+    const gate = new ZoomLoadGate();
+    gate.delay = 40;
+    gate.noteZoom('main', 10);
+    gate.noteZoom('main', 11);
+    const start = performance.now();
+    await gate.wait();
+    expect(performance.now() - start).toBeGreaterThanOrEqual(35);
+
+    gate.delay = 10_000;
+    gate.noteZoom('main', 12);
+    const controller = new AbortController();
+    const waiting = gate.wait(controller.signal);
+    controller.abort();
+    await waiting;
+    expect(gate.getRemainingDelay()).toBeGreaterThan(0);
+  });
+});
+
+const style: any = {
+  version: 8,
+  sources: {tiles: {type: 'vector', maxzoom: 14, tiles: ['https://example.com/{z}/{x}/{y}.pbf']}},
+  layers: [{id: 'water', type: 'fill', source: 'tiles', 'source-layer': 'water'}]
+};
+
+function createBasemap(zoomLoadDelay: number) {
+  const fetch = vi.fn(async () => []);
+  const basemap = new BasemapLayer({id: 'test', style, fetch, zoomLoadDelay} as any);
+  basemap.initializeState();
+  basemap.state.resolvedStyle = style;
+  basemap.context = {viewport: new WebMercatorViewport({width: 64, height: 64, zoom: 2})} as any;
+  const [layer]: any[] = basemap.renderLayers();
+  return {basemap, fetch, tileset: layer.props.data};
+}
+
+/** Records two zooms of the main view, as two tile selections in a zoom gesture do. */
+function zoom(tileset: any) {
+  for (const zoomLevel of [2, 2.2]) {
+    tileset.getTileIndices({
+      viewState: new WebMercatorViewport({width: 64, height: 64, zoom: zoomLevel}),
+      maxZoom: 14,
+      minZoom: 0
+    });
+  }
+}
+
+describe('BasemapLayer zoomLoadDelay', () => {
+  test('a tile that a view still selects when the zoom comes to rest loads after the delay', async () => {
+    const {basemap, fetch, tileset} = createBasemap(50);
+    zoom(tileset);
+    const header = {index: {x: 1, y: 1, z: 2}, abort: vi.fn()};
+    vi.spyOn(tileset, 'getTile').mockReturnValue(header);
+    tileset.updateConsumer(Symbol('view'), [header], [header]);
+    const loaded = tileset.opts.getTileData({index: header.index, id: '0-0-2', signal: new AbortController().signal});
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(fetch).not.toHaveBeenCalled();
+    await loaded;
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(header.abort).not.toHaveBeenCalled();
+    basemap.finalizeState();
+  });
+
+  test('a tile that no view selects when the zoom comes to rest is cancelled, not loaded', async () => {
+    const {basemap, fetch, tileset} = createBasemap(30);
+    zoom(tileset);
+    const controller = new AbortController();
+    const header = {index: {x: 0, y: 0, z: 2}, abort: vi.fn(() => controller.abort())};
+    vi.spyOn(tileset, 'getTile').mockReturnValue(header);
+    const content = await tileset.opts.getTileData({index: header.index, id: '0-0-2', signal: controller.signal});
+    expect(content).toBeNull();
+    expect(header.abort).toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    basemap.finalizeState();
+  });
+
+  test('without zoomLoadDelay a tile loads at once, selected or not', async () => {
+    const {basemap, fetch, tileset} = createBasemap(0);
+    zoom(tileset);
+    await tileset.opts.getTileData({index: {x: 0, y: 0, z: 2}, id: '0-0-2', signal: new AbortController().signal});
+    expect(fetch).toHaveBeenCalledTimes(1);
+    basemap.finalizeState();
+  });
+});

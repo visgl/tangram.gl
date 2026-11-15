@@ -7,6 +7,7 @@ import {SharedMVTLayer} from '@deck.gl-community/geo-layers';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {getBasemapLayers, getRunSourceLayers, getStyleLayerRuns} from '../src/globe-layers';
+import {ZoomLoadGate} from '../src/zoom-load-gate';
 
 const SOURCES = {
   tiles: {
@@ -49,6 +50,11 @@ function getTileLayers(layers: unknown[], zoom: number, config?: Record<string, 
       styleDefinition: {version: 8, sources: SOURCES, layers} as any
     }) as any[]
   ).filter(layer => layer.constructor.layerName === 'StyledMVTLayer');
+}
+
+/** The tileset state of a new `BasemapLayer`. */
+function getEmptyState() {
+  return {tilesets: new Map(), tilesetSourceLayers: new Map(), zoomLoadGate: new ZoomLoadGate()};
 }
 
 /** The MVT options that a shared tileset loads a tile with. */
@@ -126,7 +132,7 @@ describe('basemap source tilesets', () => {
   }
 
   test('decode the drawn source layers, and reload when they change', () => {
-    const state = {tilesets: new Map(), tilesetSourceLayers: new Map()};
+    const state = getEmptyState();
     const tileset = updateTilesets(state);
     expect(getTileLoadOptions(tileset).layers).toEqual(['place', 'road', 'water']);
     // The same source layers keep the tileset and its tiles.
@@ -148,14 +154,14 @@ describe('basemap source tilesets', () => {
   });
 
   test('keep the tiles when the basemap is turned off and on', () => {
-    const state = {tilesets: new Map(), tilesetSourceLayers: new Map()};
+    const state = getEmptyState();
     const tileset = updateTilesets(state);
     expect(updateTilesets(state, {config: {basemap: false}})).toBe(tileset);
     expect(updateTilesets(state)).toBe(tileset);
   });
 
   test('keep the tiles of an application-set mvt.layers when labels are toggled', () => {
-    const state = {tilesets: new Map(), tilesetSourceLayers: new Map()};
+    const state = getEmptyState();
     const loadOptions = {mvt: {layers: ['road']}};
     const tileset = updateTilesets(state, undefined, loadOptions);
     expect(getTileLoadOptions(tileset).layers).toEqual(['road']);
