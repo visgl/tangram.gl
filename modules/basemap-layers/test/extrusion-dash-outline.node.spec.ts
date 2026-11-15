@@ -437,12 +437,48 @@ describe('fill-outline-color', () => {
     expect(sublayer.props.getLineColor(features[1])).toEqual([0, 0, 255, 255]);
   });
 
-  test('draws no outline when fill-outline-color is unset', () => {
+  test('draws the outline in fill-color when fill-outline-color is unset', () => {
     const sublayer = renderStyleLayer(
-      {id: 'land', type: 'fill', paint: {'fill-color': '#ff0000'}},
+      {id: 'land', type: 'fill', paint: {'fill-color': '#ff0000', 'fill-opacity': 0.5}},
+      [polygon()]
+    );
+    // MapLibre's antialiasing outline: it closes cracks between polygons and draws a polygon
+    // narrower than a pixel.
+    expect(sublayer.props.stroked).toBe(true);
+    expect(sublayer.props.getLineColor).toEqual([255, 0, 0, 128]);
+    expect(sublayer.props.getLineWidth).toBe(1);
+    expect(sublayer.props.lineWidthUnits).toBe('pixels');
+  });
+
+  test('evaluates the fill-color outline per feature', () => {
+    const features = [polygon({c: 'a'}), polygon({c: 'b'})];
+    const sublayer = renderStyleLayer(
+      {
+        id: 'land',
+        type: 'fill',
+        paint: {'fill-color': ['match', ['get', 'c'], 'a', '#00ff00', '#0000ff']}
+      },
+      features
+    );
+    expect(sublayer.props.getLineColor(features[0])).toEqual([0, 255, 0, 255]);
+    expect(sublayer.props.getLineColor(features[1])).toEqual([0, 0, 255, 255]);
+  });
+
+  test('draws no fill-color outline when fill-antialias is false', () => {
+    const sublayer = renderStyleLayer(
+      {id: 'land', type: 'fill', paint: {'fill-color': '#ff0000', 'fill-antialias': false}},
       [polygon()]
     );
     expect(sublayer.props.stroked).toBe(false);
+  });
+
+  test('draws no outline for a transparent fill', () => {
+    const sublayer = renderStyleLayer(
+      {id: 'land', type: 'fill', paint: {'fill-color': 'transparent'}},
+      [polygon()]
+    );
+    // Neither a fill nor an outline: the style layer adds no sublayer.
+    expect(sublayer).toBeUndefined();
   });
 
   test('draws no outline when fill-antialias is false', () => {

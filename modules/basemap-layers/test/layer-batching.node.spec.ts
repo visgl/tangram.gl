@@ -191,6 +191,44 @@ describe('consecutive style layers share a sublayer', () => {
     ]);
   });
 
+  test('fills with their antialiasing outline share a sublayer that draws the outlines first', () => {
+    const [batch, ...rest] = renderTile(
+      [fill('a', '#ff0000'), fill('b', '#0000ff')],
+      [feature('Polygon')]
+    );
+    expect(rest).toEqual([]);
+    expect(idsOf([batch])).toEqual([['a', 'b']]);
+    expect(batch.props.stroked).toBe(true);
+    // Each style layer's outline is in its own fill color.
+    expect(valuesOf(batch, 'getLineColor')).toEqual([
+      [255, 0, 0, 255],
+      [0, 0, 255, 255]
+    ]);
+    // Below the fills, so that the fill of 'b' covers the outline of 'a', as in MapLibre.
+    expect(batch.props.outlineBelowFill).toBe(true);
+  });
+
+  test('a fill without antialiasing does not share a sublayer with a fill that has it', () => {
+    const layers = renderTile(
+      [fill('a', '#ff0000'), {...fill('b', '#0000ff'), paint: {'fill-color': '#0000ff', 'fill-antialias': false}}],
+      [feature('Polygon')]
+    );
+    expect(idsOf(layers)).toEqual(['a', 'b']);
+    expect(layers[1].props.outlineBelowFill).toBe(false);
+  });
+
+  test('a fill with fill-outline-color draws alone, its outline above its fill', () => {
+    const layers = renderTile(
+      [
+        fill('a', '#ff0000'),
+        {...fill('b', '#0000ff'), paint: {'fill-color': '#0000ff', 'fill-outline-color': '#000000'}}
+      ],
+      [feature('Polygon')]
+    );
+    expect(idsOf(layers)).toEqual(['a', 'b']);
+    expect(layers[1].props.outlineBelowFill).toBe(false);
+  });
+
   test('a fill or line without features in the tile does not separate its neighbours', () => {
     const layers = renderTile(
       [fill('a', '#ff0000'), {...line('road', {}), 'source-layer': 'other'}, fill('b', '#0000ff')],

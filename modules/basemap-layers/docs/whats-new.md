@@ -6,6 +6,10 @@ Copyright (c) vis.gl contributors
 
 # What's New
 
+## November 2026
+
+- A fill draws its antialiasing outline, as in MapLibre GL JS, also without `fill-outline-color`: one pixel wide, in `fill-color`. The outline closes the cracks between polygons that almost meet, such as the pieces of an ocean, and it draws a polygon narrower than a pixel, such as a river at a low zoom. `fill-antialias: false` turns it off. A globe and a patterned fill draw no such outline.
+
 ## October 2026
 
 - Labels are drawn with the style's `glyphs`, as in MapLibre GL JS: the signed distance fields of each `text-font` stack, loaded per range as tiles need them, with MapLibre's advances and glyph placement. A tile's labels are placed once their glyphs have loaded. Styles without `glyphs`, and the `fontFamily` prop, still draw with the browser's fonts.

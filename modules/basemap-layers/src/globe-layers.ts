@@ -1326,9 +1326,27 @@ class StyledMVTLayer extends SharedMVTLayer {
  * `drawsLineStrings: false` leaves out line strings, which a fill without an outline would draw
  * zero pixels wide. Every sublayer left out would otherwise be updated and drawn at every frame.
  */
-class StyledGeoJsonLayer extends GeoJsonLayer<any, {drawsLineStrings?: boolean}> {
+class StyledGeoJsonLayer extends GeoJsonLayer<
+  any,
+  {drawsLineStrings?: boolean; outlineBelowFill?: boolean}
+> {
   static layerName = 'StyledGeoJsonLayer';
-  static defaultProps = {...GeoJsonLayer.defaultProps, drawsLineStrings: true};
+  static defaultProps = {
+    ...GeoJsonLayer.defaultProps,
+    drawsLineStrings: true,
+    outlineBelowFill: false
+  };
+
+  /** With `outlineBelowFill`, the polygon outlines and line strings draw before the fills. */
+  renderLayers() {
+    const layers = super.renderLayers();
+    if (!this.props.outlineBelowFill) {
+      return layers;
+    }
+    const subLayers = ([layers] as any[]).flat(Infinity).filter(Boolean);
+    const isFill = (layer: any) => String(layer.id).endsWith('-polygons-fill');
+    return [...subLayers.filter(layer => !isFill(layer)), ...subLayers.filter(isFill)];
+  }
 
   /**
    * `TileLayer` clones each tile sublayer to add the tile's own props. A sublayer kept from the
@@ -2361,6 +2379,11 @@ type GeometryPaint = {
   hasOutline: boolean;
 };
 
+/** Whether a fill sets `fill-outline-color`: its outline then has a color of its own. */
+function hasOutlineColor(styleLayer: BasemapStyleLayer): boolean {
+  return styleLayer.type === 'fill' && styleLayer.paint?.['fill-outline-color'] !== undefined;
+}
+
 function getGeometryPaint(
   styleLayer: BasemapStyleLayer,
   mode: BasemapMode,
@@ -2386,22 +2409,30 @@ function getGeometryPaint(
           mode
         )
       );
-  // MapLibre draws a fill's outline only with `fill-antialias`; without `fill-outline-color` the
-  // outline is in `fill-color` and only antialiases the edge, which deck.gl's fill does not need.
+  // MapLibre draws a fill's outline only with `fill-antialias`, in `fill-outline-color` or, without
+  // it, in `fill-color`. That outline is more than antialiasing: it closes the cracks between
+  // polygons that meet at an edge, and it draws a polygon narrower than a pixel, such as a river at
+  // a low zoom, as a line. A patterned fill's own outline draws the pattern, and a globe's fills
+  // are opaque: both are left without it.
+  const hasOwnOutlineColor = hasOutlineColor(styleLayer);
   const hasOutline =
     isFill &&
-    styleLayer.paint?.['fill-outline-color'] !== undefined &&
+    (hasOwnOutlineColor || (!hasFillPattern && mode !== 'globe')) &&
     getPaint(styleLayer, zoom)['fill-antialias'] !== false;
   const lineColor = isLine
     ? getStyleAccessor(styleLayer, ['line-color', 'line-opacity'], zoom, ([color, opacity]) =>
         withOpacity(color ?? DEFAULT_COLOR, opacity ?? 1)
       )
-    : getStyleAccessor(
-        styleLayer,
-        ['fill-outline-color', 'fill-opacity'],
-        zoom,
-        ([color, opacity]) => withOpacity(color, opacity ?? 1)
-      );
+    : hasOwnOutlineColor
+      ? getStyleAccessor(
+          styleLayer,
+          ['fill-outline-color', 'fill-opacity'],
+          zoom,
+          ([color, opacity]) => withOpacity(color, opacity ?? 1)
+        )
+      : getStyleAccessor(styleLayer, ['fill-color', 'fill-opacity'], zoom, ([color, opacity]) =>
+          withOpacity(color ?? getStylePropertyDefault('fill-color'), opacity ?? 1)
+        );
   // A fill's outline is MapLibre's 1 pixel antialiasing line.
   const lineWidth: StyleAccessor<number> = isLine
     ? getStyleAccessor(styleLayer, ['line-width'], zoom, ([width]) =>
@@ -2544,13 +2575,18 @@ function getGeometryStyle({
 /**
  * The key under which consecutive style layers can draw as one sublayer, or null when this one
  * draws alone. Style layers share a sublayer when everything deck.gl applies to a whole layer is
- * the same: a fill without an outline, or a line's cap, join and miter limit. Solid and dashed
+ * the same: a fill without `fill-outline-color`, or a line's cap, join and miter limit. Fills with
+ * their antialiasing outline share a sublayer, which draws the outlines below the fills (see
+ * `StyledGeoJsonLayer`), apart from fills without it. Solid and dashed
  * lines share a sublayer: the solid ones draw with a dash array without gaps. Lines with an
  * offset, a gap or a blur, and fills with a pattern or a translation, draw alone.
  */
 function getBatchKey(style: GeometryStyle): string | null {
   if (style.isFill) {
-    return style.drawsLines || style.hasFillStyle ? null : 'fill';
+    if (style.hasFillStyle || hasOutlineColor(style.styleLayer)) {
+      return null;
+    }
+    return style.drawsLines ? 'fill-antialias' : 'fill';
   }
   if (style.lineOffset || style.lineBlur || !style.lineShape) {
     return null;
@@ -2826,6 +2862,9 @@ function createGeometrySubLayer({
     filled: drawsFill,
     // A fill's line strings draw only as its 1 pixel outline.
     drawsLineStrings: drawsLines,
+    // An outline in `fill-color` draws below the fills. Alone, it blends to the same pixels as
+    // above its fill. In a batch, the fills of later style layers then cover it, as in MapLibre.
+    outlineBelowFill: isFill && drawsLines && !hasOutlineColor(first.styleLayer),
     getFillColor: isFill ? (fillColor.value as any) : [0, 0, 0, 0],
     getLineColor: lineColor.value as any,
     getLineWidth: lineWidth.value as any,
