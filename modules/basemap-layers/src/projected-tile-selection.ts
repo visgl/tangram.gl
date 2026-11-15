@@ -37,13 +37,30 @@ const SCREEN_GRID_CELLS = 16;
 /** A tile's edge is sampled at this many points along each side. */
 const TILE_GRID_CELLS = 8;
 /**
- * How many times longer than at the view center the projection may draw a part of a tile's
- * outline. Past it, the tile is divided: a projection stretches without bound toward the places
- * it cannot draw, and across a seam.
+ * How many times longer than at true scale the projection may draw a part of a tile's outline.
+ * Past it, the tile is divided: a projection stretches without bound toward the places it cannot
+ * draw, and across a seam.
  */
 const MAX_STRETCH = 4;
-/** How many zooms past the selected one a stretched tile is divided before it is left out. */
-const MAX_DIVISIONS = 4;
+/**
+ * The scale of the map plane at true scale: common units per degree of arc. deck.gl's common
+ * space is `MERCATOR_WORLD_SIZE` units around the equator, in a projected view too.
+ */
+const TRUE_PLANE_SCALE = MERCATOR_WORLD_SIZE / 360;
+/**
+ * A view center that the projection draws up to this many times its true scale does not change
+ * the stretch limit. A view of a place drawn larger than that, far outside the area of use,
+ * measures the stretch against half the scale at its center, so that it still draws the tiles
+ * at its center.
+ */
+const MAX_CENTER_STRETCH = 2;
+/**
+ * The zoom at which the edge of the drawn area is decided. A stretched tile of a lower zoom is
+ * divided down to this zoom, and the parts still stretched there are left out. A tile of a higher
+ * zoom is drawn only where its ancestor at this zoom is not stretched. So the edge is the same at
+ * every zoom of the view.
+ */
+const EDGE_ZOOM = 5;
 /** The step, in degrees, that measures the scale of the projection at the view center. */
 const SCALE_STEP_DEGREES = 1e-3;
 /** Pixels by which a sample may miss its own pixel when it is projected back. */
@@ -238,15 +255,28 @@ function getCenterPlaneScale(viewport: ProjectedViewportLike): number | null {
 }
 
 /**
- * Whether the projection stretches a part of a tile's outline more than `MAX_STRETCH` times the
- * scale at the view center, or has no position for it. Such a tile holds a place the projection
+ * The longest step, in common units per degree of arc, that the projection may draw along a
+ * tile's outline (see `isTileStretched`), or null where the view has no map plane. It does not
+ * depend on the camera in a view of the area of use: a limit that moves with the view center
+ * moves the edge of the drawn area, and the tiles at the edge come and go as the view pans.
+ */
+function getStretchLimit(viewport: ProjectedViewportLike): number | null {
+  const centerScale = getCenterPlaneScale(viewport);
+  return centerScale === null
+    ? null
+    : MAX_STRETCH * Math.max(TRUE_PLANE_SCALE, centerScale / MAX_CENTER_STRETCH);
+}
+
+/**
+ * Whether the projection draws a step along a tile's outline longer than `limit` (see
+ * `getStretchLimit`), or has no position for it. Such a tile holds a place the projection
  * cannot draw, or a seam: its geometry is drawn across the map. A projection that moves positions
  * outside its area of use to the edge of that area shrinks them, and is not stretched.
  */
 function isTileStretched(
   viewport: ProjectedViewportLike,
   {x, y, z}: ProjectedTileIndex,
-  centerScale: number
+  limit: number
 ): boolean {
   const scale = 2 ** z;
   let previous = fromPyramid(x / scale, y / scale);
@@ -260,7 +290,7 @@ function isTileStretched(
         [0, 1 - t]
       ][side];
       const lngLat = fromPyramid((x + i) / scale, (y + j) / scale);
-      if (!(getPlaneScale(viewport, previous, lngLat) <= MAX_STRETCH * centerScale)) {
+      if (!(getPlaneScale(viewport, previous, lngLat) <= limit)) {
         return true;
       }
       previous = lngLat;
@@ -277,9 +307,11 @@ function isTileInExtent({x, y, z}: ProjectedTileIndex, extent: ArrayLike<number>
 }
 
 /**
- * Divides the tiles that the projection stretches into the tiles of the next zooms, and leaves
- * out the parts that are still stretched after `MAX_DIVISIONS` divisions, or at `maxZoom`. Where
- * the division makes more than `maxTiles` tiles, the stretched tiles are left out whole.
+ * Divides the tiles that the projection stretches into the tiles of the next zooms, down to
+ * `EDGE_ZOOM` (or `maxZoom`), and leaves out the parts that are still stretched there. A tile of a
+ * higher zoom is left out where its ancestor at that zoom is stretched. The area drawn is then the
+ * same for each tile zoom: the edge tiles do not come and go as the view zooms. Where the division
+ * makes more than `maxTiles` tiles, the stretched tiles are left out whole.
  */
 function divideStretchedTiles(
   viewport: ProjectedViewportLike,
@@ -287,26 +319,40 @@ function divideStretchedTiles(
   getShownChildren: (node: TileNode) => TileNode[],
   {maxTiles, maxZoom = Infinity}: {maxTiles: number; maxZoom?: number}
 ): TileNode[] {
-  const centerScale = getCenterPlaneScale(viewport);
-  if (centerScale === null) {
+  const limit = getStretchLimit(viewport);
+  if (limit === null) {
     return tiles;
   }
+  const edgeZoom = Math.min(EDGE_ZOOM, maxZoom);
+  const edgeTiles = new Map<string, boolean>();
+  const isStretched = ({x, y, z}: ProjectedTileIndex): boolean => {
+    if (z <= edgeZoom) {
+      return isTileStretched(viewport, {x, y, z}, limit);
+    }
+    const shift = 2 ** (z - edgeZoom);
+    const edge = {x: Math.floor(x / shift), y: Math.floor(y / shift), z: edgeZoom};
+    const key = `${edge.x}/${edge.y}`;
+    let stretched = edgeTiles.get(key);
+    if (stretched === undefined) {
+      stretched = isTileStretched(viewport, edge, limit);
+      edgeTiles.set(key, stretched);
+    }
+    return stretched;
+  };
   const divided: TileNode[] = [];
-  const divide = (node: TileNode, divisions: number): void => {
-    if (!isTileStretched(viewport, node, centerScale)) {
+  const divide = (node: TileNode): void => {
+    if (!isStretched(node)) {
       divided[divided.length] = node;
-    } else if (divisions > 0 && node.z < maxZoom && divided.length <= maxTiles) {
+    } else if (node.z < edgeZoom && divided.length <= maxTiles) {
       for (const child of getShownChildren(node)) {
-        divide(child, divisions - 1);
+        divide(child);
       }
     }
   };
   for (const tile of tiles) {
-    divide(tile, MAX_DIVISIONS);
+    divide(tile);
   }
-  return divided.length <= maxTiles
-    ? divided
-    : tiles.filter(tile => !isTileStretched(viewport, tile, centerScale));
+  return divided.length <= maxTiles ? divided : tiles.filter(tile => !isStretched(tile));
 }
 
 /**
@@ -322,7 +368,7 @@ function divideStretchedTiles(
  * view's `project` and `unproject`, so the selection holds for any projection, bearing and pitch.
  *
  * A selected tile that the projection stretches (see `isTileStretched`) is divided into the tiles
- * of the next zooms, up to `MAX_DIVISIONS` times, and the parts still stretched are left out: a
+ * of the next zooms, down to `EDGE_ZOOM`, and the parts still stretched are left out: a
  * view zoomed out past the area the projection can draw shows the tiles around that area, and
  * not geometry drawn across the map. Tiles come nearest the screen center first.
  */

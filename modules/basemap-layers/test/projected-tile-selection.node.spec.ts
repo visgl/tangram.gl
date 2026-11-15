@@ -36,12 +36,18 @@ const HEIGHT = 600;
 let utm: CRS;
 let albers: CRS;
 let transverseMercator: CRS;
+let southPolar: CRS;
+
+/** EPSG:3031, Antarctic polar stereographic. */
+const SOUTH_POLAR_PROJ =
+  '+proj=stere +lat_0=-90 +lat_ts=-71 +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs';
 
 beforeAll(async () => {
   utm = await projectionEngine.getCRS('EPSG:32632');
   albers = await projectionEngine.getCRS(CONUS_ALBERS_PROJ);
   // A transverse Mercator projection of the whole world, as an application can supply one.
   transverseMercator = createWorldTransverseMercatorCRS(-99) as unknown as CRS;
+  southPolar = await projectionEngine.getCRS(SOUTH_POLAR_PROJ);
 });
 
 function createViewport(
@@ -286,7 +292,7 @@ describe('getProjectedTileIndices', () => {
     const indices = getProjectedTileIndices(viewport, {z: 1});
     expect(indices.length).toBeGreaterThan(8);
     expect(indices.length).toBeLessThanOrEqual(DEFAULT_MAX_PROJECTED_TILES);
-    // The tiles around the central meridian are drawn, from the zoom selected to 4 zooms past it.
+    // The tiles around the central meridian are drawn, from the zoom selected down to zoom 5.
     expect(indices.every(index => index.z >= 1 && index.z <= 5)).toBe(true);
     expect(Math.max(...indices.map(index => index.z))).toBeGreaterThan(1);
     expect(getUncoveredPixels(viewport, indices, 1)).toEqual([]);
@@ -319,6 +325,38 @@ describe('getProjectedTileIndices', () => {
     expect(spans.some(([, east]) => east > 60 && east <= 84)).toBe(true);
     expect(spans.some(([west]) => west >= 84 && west < 110)).toBe(true);
     expect(getUncoveredPixels(viewport, indices, 1)).toEqual([]);
+  });
+
+  test('the edge of a polar stereographic view stays in place as the view pans', () => {
+    // The tile zoom is held: only the view center moves, from the pole to the edge of the area of
+    // use. The projection draws the center a little larger there, and the edge must not follow it.
+    const edges = new Set<string>();
+    for (let latitude = -90; latitude <= -60; latitude += 1.5) {
+      const viewport = new CustomProjectionViewport({
+        crs: southPolar,
+        center: [30, latitude, 0],
+        zoom: 0.5,
+        width: 1600,
+        height: 1600
+      });
+      edges.add(getCoveredKeys(getProjectedTileIndices(viewport, {z: 1})).join(' '));
+    }
+    expect(edges.size).toBe(1);
+  });
+
+  test('the edge of a polar stereographic view stays in place as the tile zoom changes', () => {
+    const viewport = new CustomProjectionViewport({
+      crs: southPolar,
+      center: [0, -90, 0],
+      zoom: 0.5,
+      width: 1600,
+      height: 1600
+    });
+    const edges = [0, 1, 2, 3].map(z => getCoveredKeys(getProjectedTileIndices(viewport, {z})));
+    expect(edges[0].length).toBeGreaterThan(0);
+    for (const edge of edges) {
+      expect(edge).toEqual(edges[0]);
+    }
   });
 
   test('stretched tiles are left out whole at the highest zoom of the source, or past maxTiles', () => {
@@ -445,6 +483,24 @@ describe('getProjectedTileIndices', () => {
     expect(getProjectedTileIndices(viewport, {z: Number.NaN})).toEqual([]);
   });
 });
+
+/**
+ * The points of a grid north of the equator, 1 degree apart, that a selected tile holds: the
+ * ground near the edge of a south polar view, which the projection stretches.
+ */
+function getCoveredKeys(indices: ProjectedTileIndex[]): string[] {
+  const keys = new Set(indices.map(getKey));
+  const zooms = [...new Set(indices.map(index => index.z))];
+  const covered: string[] = [];
+  for (let longitude = -179.5; longitude < 180; longitude += 1) {
+    for (let latitude = 0.5; latitude < 60; latitude += 1) {
+      if (zooms.some(z => keys.has(getKey(getTileAt([longitude, latitude], z))))) {
+        covered.push(`${longitude},${latitude}`);
+      }
+    }
+  }
+  return covered;
+}
 
 function viewportLike(viewport: CustomProjectionViewport): ProjectedViewportLike {
   return {
