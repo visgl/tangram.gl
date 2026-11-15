@@ -475,9 +475,14 @@ for (const projection of PROJECTIONS) {
     const label = findPixels(image, isWhite);
     expect(label.count).toBeGreaterThan(300);
     expect(Math.abs(getPixelAxisAngle(image, isWhite) - expectedAngle)).toBeLessThan(0.75);
-    // On the line: at its middle.
-    expect(Math.abs(label.center[0] - (from[0] + to[0]) / 2)).toBeLessThan(3);
-    expect(Math.abs(label.center[1] - (from[1] + to[1]) / 2)).toBeLessThan(3);
+    // On the line, at its middle. Across the line the text is centered to its glyph boxes. Along
+    // the line its place also depends on the advances of the font of the platform.
+    const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+    const along = [(to[0] - from[0]) / length, (to[1] - from[1]) / length];
+    const dx = label.center[0] - (from[0] + to[0]) / 2;
+    const dy = label.center[1] - (from[1] + to[1]) / 2;
+    expect(Math.abs(dx * along[1] - dy * along[0])).toBeLessThan(2.5);
+    expect(Math.abs(dx * along[0] + dy * along[1])).toBeLessThan(8);
   });
 
   test(`${DEVICE_TYPE}: ${projection.name} keeps drawing from street zoom out past the bounds of the projection`, {timeout: 180000}, async () => {
