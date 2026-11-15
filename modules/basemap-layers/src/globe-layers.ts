@@ -1326,27 +1326,9 @@ class StyledMVTLayer extends SharedMVTLayer {
  * `drawsLineStrings: false` leaves out line strings, which a fill without an outline would draw
  * zero pixels wide. Every sublayer left out would otherwise be updated and drawn at every frame.
  */
-class StyledGeoJsonLayer extends GeoJsonLayer<
-  any,
-  {drawsLineStrings?: boolean; outlineBelowFill?: boolean}
-> {
+class StyledGeoJsonLayer extends GeoJsonLayer<any, {drawsLineStrings?: boolean}> {
   static layerName = 'StyledGeoJsonLayer';
-  static defaultProps = {
-    ...GeoJsonLayer.defaultProps,
-    drawsLineStrings: true,
-    outlineBelowFill: false
-  };
-
-  /** With `outlineBelowFill`, the polygon outlines and line strings draw before the fills. */
-  renderLayers() {
-    const layers = super.renderLayers();
-    if (!this.props.outlineBelowFill) {
-      return layers;
-    }
-    const subLayers = ([layers] as any[]).flat(Infinity).filter(Boolean);
-    const isFill = (layer: any) => String(layer.id).endsWith('-polygons-fill');
-    return [...subLayers.filter(layer => !isFill(layer)), ...subLayers.filter(isFill)];
-  }
+  static defaultProps = {...GeoJsonLayer.defaultProps, drawsLineStrings: true};
 
   /**
    * `TileLayer` clones each tile sublayer to add the tile's own props. A sublayer kept from the
@@ -2575,18 +2557,16 @@ function getGeometryStyle({
 /**
  * The key under which consecutive style layers can draw as one sublayer, or null when this one
  * draws alone. Style layers share a sublayer when everything deck.gl applies to a whole layer is
- * the same: a fill without `fill-outline-color`, or a line's cap, join and miter limit. Fills with
- * their antialiasing outline share a sublayer, which draws the outlines below the fills (see
- * `StyledGeoJsonLayer`), apart from fills without it. Solid and dashed
+ * the same: a fill without an outline, or a line's cap, join and miter limit. A fill with an
+ * outline draws alone, its fill and then its outline: a batch would draw all of its fills before
+ * or after all of its outlines, and then hide a later layer's outline below an earlier layer's fill,
+ * or draw an earlier layer's outline over a later layer's fill. Solid and dashed
  * lines share a sublayer: the solid ones draw with a dash array without gaps. Lines with an
  * offset, a gap or a blur, and fills with a pattern or a translation, draw alone.
  */
 function getBatchKey(style: GeometryStyle): string | null {
   if (style.isFill) {
-    if (style.hasFillStyle || hasOutlineColor(style.styleLayer)) {
-      return null;
-    }
-    return style.drawsLines ? 'fill-antialias' : 'fill';
+    return style.drawsLines || style.hasFillStyle ? null : 'fill';
   }
   if (style.lineOffset || style.lineBlur || !style.lineShape) {
     return null;
@@ -2862,9 +2842,6 @@ function createGeometrySubLayer({
     filled: drawsFill,
     // A fill's line strings draw only as its 1 pixel outline.
     drawsLineStrings: drawsLines,
-    // An outline in `fill-color` draws below the fills. Alone, it blends to the same pixels as
-    // above its fill. In a batch, the fills of later style layers then cover it, as in MapLibre.
-    outlineBelowFill: isFill && drawsLines && !hasOutlineColor(first.styleLayer),
     getFillColor: isFill ? (fillColor.value as any) : [0, 0, 0, 0],
     getLineColor: lineColor.value as any,
     getLineWidth: lineWidth.value as any,

@@ -9,13 +9,16 @@
  * pixel, as a river is at a low zoom. `BasemapLayer` used to draw neither: the styles that have
  * such data showed dashed cracks in the sea and lost their thin rivers.
  *
+ * MapLibre draws each style layer's fill and then its outline, so a later layer's outline draws
+ * over an earlier layer's fill: a river narrower than a pixel stays visible over the land.
+ *
  * The scene has no network data: one GeoJSON source, drawn by two consecutive fill layers on
  * black. With `VITE_FILL_ANTIALIAS_OUTPUT=1`, a comparison image is written to `__output__/`.
  */
 
 import {expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
-import {renderBasemapLayer, renderMapLibre} from './renderers';
+import {renderBasemapLayer, renderMapLibre, type Render} from './renderers';
 import {VIEWPORT, type ReferenceScene} from './scenes';
 
 const env = (import.meta as any).env || {};
@@ -58,6 +61,8 @@ function rectangle(kind: string, left: number, top: number, right: number, botto
 const CRACK = {left: 0.2, right: 0.8, top: -100, bottom: -20};
 /** The sliver of water: 0.15 pixels wide, below the land. */
 const SLIVER = {left: -150, right: 150, top: 40, bottom: 100, width: 0.15};
+/** A river of water over the left piece of land: 0.15 pixels wide. */
+const RIVER = {left: -100, right: -20, top: -90, bottom: -40, width: 0.15};
 /** The water over the lower left corner of the land, which covers two of its edges. */
 const COVER = {left: -190, top: -60, right: -110, bottom: 10};
 
@@ -71,6 +76,12 @@ const DATA = {
       [SLIVER.right, SLIVER.bottom],
       [SLIVER.right, SLIVER.bottom + SLIVER.width],
       [SLIVER.left, SLIVER.top + SLIVER.width]
+    ]),
+    polygon('water', [
+      [RIVER.left, RIVER.top],
+      [RIVER.right, RIVER.bottom],
+      [RIVER.right, RIVER.bottom + RIVER.width],
+      [RIVER.left, RIVER.top + RIVER.width]
     ]),
     rectangle('water', COVER.left, COVER.top, COVER.right, COVER.bottom)
   ]
@@ -141,6 +152,20 @@ function countSliverPixels(pixels: Uint8ClampedArray): number {
   return count;
 }
 
+/** The pixels of the river: blue ones, over the land. */
+function countRiverPixels(pixels: Uint8ClampedArray): number {
+  let count = 0;
+  for (let y = RIVER.top - 5; y < RIVER.bottom + 5; y++) {
+    for (let x = RIVER.left - 5; x < RIVER.right + 5; x++) {
+      const [red, , blue] = pixelAt(pixels, x, y);
+      if (blue - red > 60) {
+        count++;
+      }
+    }
+  }
+  return count;
+}
+
 /** The reddish pixels inside the water that covers the land's corner, away from its own edges. */
 function countLandOverCover(pixels: Uint8ClampedArray): number {
   let count = 0;
@@ -169,12 +194,23 @@ async function writeComparison(reference: Uint8ClampedArray, candidate: Uint8Cla
   );
 }
 
+let renders: Promise<[Render, Render]> | undefined;
+
+/** The MapLibre and the `BasemapLayer` renders of the scene, rendered once for all tests. */
+function getRenders() {
+  renders ||= (async (): Promise<[Render, Render]> => {
+    const reference = await renderMapLibre(structuredClone(STYLE), SCENE);
+    const candidate = await renderBasemapLayer(structuredClone(STYLE), SCENE);
+    if (OUTPUT) {
+      await writeComparison(reference.pixels, candidate.pixels);
+    }
+    return [reference, candidate];
+  })();
+  return renders;
+}
+
 test("a fill's antialiasing outline closes cracks and draws slivers, as in MapLibre", async () => {
-  const reference = await renderMapLibre(structuredClone(STYLE), SCENE);
-  const candidate = await renderBasemapLayer(structuredClone(STYLE), SCENE);
-  if (OUTPUT) {
-    await writeComparison(reference.pixels, candidate.pixels);
-  }
+  const [reference, candidate] = await getRenders();
   expect(reference.problems).toEqual([]);
   expect(candidate.problems).toEqual([]);
 
@@ -191,7 +227,17 @@ test("a fill's antialiasing outline closes cracks and draws slivers, as in MapLi
   expect(candidateSliver / referenceSliver, 'share of the sliver drawn').toBeGreaterThan(0.8);
   expect(candidateSliver / referenceSliver, 'share of the sliver drawn').toBeLessThan(1.25);
 
-  // The two fills share a sublayer. The land's outline stays below the water that covers it.
+  // The land's outline stays below the water that covers it.
   expect(countLandOverCover(reference.pixels), 'land over water in MapLibre').toBe(0);
   expect(countLandOverCover(candidate.pixels), 'land over water').toBe(0);
+});
+
+test("a later fill's antialiasing outline draws over an earlier fill, as in MapLibre", async () => {
+  const [reference, candidate] = await getRenders();
+  // MapLibre draws the river over the land as a line about 90 pixels long.
+  const referenceRiver = countRiverPixels(reference.pixels);
+  const candidateRiver = countRiverPixels(candidate.pixels);
+  expect(referenceRiver, "MapLibre's river").toBeGreaterThan(60);
+  expect(candidateRiver / referenceRiver, 'share of the river drawn').toBeGreaterThan(0.8);
+  expect(candidateRiver / referenceRiver, 'share of the river drawn').toBeLessThan(1.25);
 });
