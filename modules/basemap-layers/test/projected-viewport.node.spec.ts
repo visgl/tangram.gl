@@ -404,6 +404,9 @@ describe('createMercatorTileMesh', () => {
     const inside = [8.4375, 47.040182, 9.84375, 48.004625];
     expect(drawn(inside)).toEqual(inside);
     expect(createMercatorTileMesh(inside, project, undefined, drawn(inside))).toEqual(createMercatorTileMesh(inside, project));
+    // A tile south of the zone has no part in it. The tile of zoom 0 has: its edges are one meridian.
+    expect(drawn([0, -66.51326, 90, 0])).toEqual([6, 0, 12, 0]);
+    expect(drawn([-180, -85.051129, 180, 85.051129])).toBeNull();
     // A normalization that is not a clamp of longitude and latitude does not clip: here it moves
     // the north-east corner only.
     const cutCorner = ([x, y]: number[]) => (x > 10 && y > 48 ? [x, 48, 0] : [x, y, 0]);

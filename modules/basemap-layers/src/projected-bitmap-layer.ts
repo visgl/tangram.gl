@@ -202,6 +202,10 @@ export function getNormalizedBounds(
   bounds: ArrayLike<number>,
   normalize: (position: number[]) => ArrayLike<number>
 ): [number, number, number, number] | null {
+  // The normalization wraps longitudes: both edges of a tile around the world are one meridian.
+  if (!(bounds[2] - bounds[0] < 360)) {
+    return null;
+  }
   let corners: ArrayLike<number>[];
   try {
     corners = [
