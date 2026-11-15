@@ -32,6 +32,7 @@ function createBasemapTilesetAdapter(maxStretch: number) {
         : getProjectedTileIndices(viewport, {
             z,
             extent: context.extent,
+            minZoom: context.minZoom,
             maxZoom: context.maxZoom,
             maxStretch
           });
@@ -95,7 +96,13 @@ export class ProjectedTileset2D<DataT = any, ViewStateT = Viewport> extends Tile
     });
     return z === null
       ? []
-      : getProjectedTileIndices(viewport, {z, extent, maxZoom: options.maxZoom, maxStretch});
+      : getProjectedTileIndices(viewport, {
+          z,
+          extent,
+          minZoom: options.minZoom,
+          maxZoom: options.maxZoom,
+          maxStretch
+        });
   }
 
   /**

@@ -27,6 +27,8 @@ export type ProjectedTileSelectionOptions = {
   maxTiles?: number;
   /** The highest tile zoom of the source. Tiles are not divided past it. */
   maxZoom?: number;
+  /** The lowest tile zoom of the source. No tiles of a lower zoom stand in for too many tiles. */
+  minZoom?: number;
   /**
    * How many times longer than at true scale the projection may draw a part of a tile's outline
    * (see `isTileStretched`). Default `DEFAULT_MAX_STRETCH`. A projection that stretches the map
@@ -389,6 +391,7 @@ export function getProjectedTileIndices(
     extent = null,
     maxTiles = DEFAULT_MAX_PROJECTED_TILES,
     maxZoom,
+    minZoom = 0,
     maxStretch = DEFAULT_MAX_STRETCH
   }: ProjectedTileSelectionOptions
 ): ProjectedTileIndex[] {
@@ -400,13 +403,13 @@ export function getProjectedTileIndices(
   if (!samples.length && !isTileOnScreen(viewport, root)) {
     return [];
   }
-  /** The tiles of the next zoom in a tile that the view shows. */
-  const getShownChildren = (node: TileNode): TileNode[] => {
+  /** The tiles of the next zoom in a tile that the view shows, in `extent` unless it is null. */
+  const getShownChildren = (node: TileNode, tileExtent = extent): TileNode[] => {
     const children: TileNode[] = [];
     const scale = 2 ** (node.z + 1);
     for (let child = 0; child < 4; child++) {
       const index = {x: node.x * 2 + (child & 1), y: node.y * 2 + (child >> 1), z: node.z + 1};
-      if (extent && !isTileInExtent(index, extent)) {
+      if (tileExtent && !isTileInExtent(index, tileExtent)) {
         continue;
       }
       const childSamples = node.samples.filter(
@@ -422,9 +425,17 @@ export function getProjectedTileIndices(
   };
   let level: TileNode[] = [root];
   for (let zoom = 0; zoom < z; zoom++) {
-    const next = level.flatMap(getShownChildren);
-    // A level the view shows no tile of, or too many: the tiles of the level before stand in.
+    const next = level.flatMap(node => getShownChildren(node));
+    // The view shows tiles of this zoom, but none in the extent: the source has none to draw.
+    if (!next.length && extent && level.some(node => getShownChildren(node, null).length)) {
+      return [];
+    }
+    // A level the view shows no tile of, or too many: the tiles of the level before stand in, if
+    // the source serves its zoom.
     if (!next.length || next.length > maxTiles) {
+      if (zoom < minZoom) {
+        return [];
+      }
       break;
     }
     level = next;

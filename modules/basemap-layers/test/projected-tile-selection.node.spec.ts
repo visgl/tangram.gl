@@ -505,6 +505,33 @@ describe('getProjectedTileIndices', () => {
     expect(west.every(index => index.x <= getTileAt([-80.0001, 40], 13).x)).toBe(true);
   });
 
+  test('a view outside the extent of a regional source selects no tiles, not an ancestor', () => {
+    // A regional source from zoom 4, in the north-east quadrant; the view is of North America.
+    // A view without a map plane does not divide stretched tiles, so no division hides an ancestor.
+    const extent = [0, 0, 90, 66];
+    const viewport = viewportLike(createViewport(albers, [-96, 38], 4));
+    const z = getProjectedTileZoom(viewport, {tileSize: 512, minZoom: 4, extent})!;
+    expect(z).toBe(4);
+    expect(getProjectedTileIndices(viewport, {z, extent, minZoom: 4})).toEqual([]);
+    expect(getProjectedTileIndices(viewport, {z, extent})).toEqual([]);
+    // A view of the extent's quadrant selects its tiles.
+    const inside = viewportLike(createViewport(utm, [10.5, 48], 6));
+    const insideTiles = getProjectedTileIndices(inside, {z: 6, extent, minZoom: 4});
+    expect(insideTiles.length).toBeGreaterThan(0);
+    expect(insideTiles.every(index => index.z === 6)).toBe(true);
+  });
+
+  test('more tiles than maxTiles below minZoom: no tiles of a zoom the source does not serve', () => {
+    const viewport = createViewport(albers, [-96, 38], 4);
+    const all = getProjectedTileIndices(viewport, {z: 7, minZoom: 7});
+    expect(all.length).toBeGreaterThan(0);
+    expect(all.every(index => index.z === 7)).toBe(true);
+    expect(getProjectedTileIndices(viewport, {z: 7, minZoom: 7, maxTiles: all.length - 1})).toEqual([]);
+    const capped = getProjectedTileIndices(viewport, {z: 7, minZoom: 6, maxTiles: all.length - 1});
+    expect(capped.length).toBeGreaterThan(0);
+    expect(capped.every(index => index.z === 6)).toBe(true);
+  });
+
   test('a viewport without a size selects no tiles', () => {
     const viewport = createViewport(utm, [10.5, 48], 13);
     expect(getProjectedTileIndices({...viewportLike(viewport), width: 0}, {z: 12})).toEqual([]);
