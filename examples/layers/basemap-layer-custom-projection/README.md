@@ -18,8 +18,8 @@ The example draws the OpenFreeMap Liberty style with `BasemapLayer` in a deck.gl
 The tiles are Web Mercator tiles. They stop at 85.05 degrees south, so the area
 around the pole shows the style background.
 
-The camera stays in the area of use of each coordinate reference system (the
-`maxBounds` of the controller). math.gl draws only the area of use of an EPSG
-code, such as the 6 degrees of UTM zone 32N: outside it, the view is blank.
+The view center stays in the area of use of each coordinate reference system,
+and each projection has a lowest zoom. math.gl draws only the area of use of an
+EPSG code, such as the 6 degrees of UTM zone 32N: outside it, the view is blank.
 
 No API key is required. Tiles and styles come from OpenFreeMap and need network access.

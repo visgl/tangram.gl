@@ -25,12 +25,13 @@ type ProjectionOption = {
   center: [number, number];
   zoom: number;
   /**
-   * The area of use of the CRS, `[west, south, east, north]`. The camera stays in it: math.gl
-   * draws no map outside the area of use of an EPSG code, and the controller of
-   * `_CustomProjectionView` moves the view center out of the projection when it zooms out
-   * around a point outside it.
+   * The area of use of the CRS, `[west, south, east, north]`. The view center stays in it: the
+   * controller of `_CustomProjectionView` moves the view center out of the projection when it
+   * zooms out around a point outside it.
    */
   areaOfUse: [number, number, number, number];
+  /** The lowest view zoom. The controller of `_CustomProjectionView` has no lower limit. */
+  minZoom: number;
 };
 
 type ExampleSettings = {
@@ -55,7 +56,8 @@ const PROJECTION_OPTIONS: ProjectionOption[] = [
     crs: 'EPSG:32632',
     center: [11.576, 48.137],
     zoom: 11,
-    areaOfUse: [6, 0, 12, 84]
+    areaOfUse: [6, 0, 12, 84],
+    minZoom: 2
   },
   {
     id: 'conus-albers',
@@ -63,7 +65,8 @@ const PROJECTION_OPTIONS: ProjectionOption[] = [
     crs: '+proj=aea +lat_0=23 +lon_0=-96 +lat_1=29.5 +lat_2=45.5 +x_0=0 +y_0=0 +datum=NAD83 +units=m +no_defs',
     center: [-77.036, 38.907],
     zoom: 10.5,
-    areaOfUse: [-124.79, 24.41, -66.91, 49.38]
+    areaOfUse: [-124.79, 24.41, -66.91, 49.38],
+    minZoom: 2
   },
   {
     id: 'south-polar-stereographic',
@@ -71,7 +74,8 @@ const PROJECTION_OPTIONS: ProjectionOption[] = [
     crs: '+proj=stere +lat_0=-90 +lat_ts=-71 +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs',
     center: [0, -82],
     zoom: 2.4,
-    areaOfUse: [-180, -90, 180, -60]
+    areaOfUse: [-180, -90, 180, -60],
+    minZoom: 0
   }
 ];
 
@@ -110,6 +114,7 @@ export function mountBasemapCustomProjectionExample(container: HTMLElement): () 
   const deck = new Deck({
     parent: rootElement,
     ...getViewProps(getProjection(settings)),
+    onViewStateChange: ({viewState}) => clampViewState(viewState, getProjection(settings)),
     layers: [new BasemapLayer({id: 'basemap', style: STYLE_URL})],
     widgets: [infoWidget]
   });
@@ -168,20 +173,28 @@ function getProjection(settings: ExampleSettings): ProjectionOption {
   );
 }
 
-function getViewProps(projection: ProjectionOption) {
+/** Keeps the view center in the area of use and the zoom at or above the lowest zoom. */
+function clampViewState<ViewStateT>(viewState: ViewStateT, projection: ProjectionOption): ViewStateT {
+  const {center, zoom} = viewState as {center?: number[]; zoom?: number};
   const [west, south, east, north] = projection.areaOfUse;
+  const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+  return {
+    ...viewState,
+    ...(center && {
+      center: [clamp(center[0], west, east), clamp(center[1], south, north), center[2] ?? 0]
+    }),
+    ...(zoom !== undefined && {zoom: Math.max(zoom, projection.minZoom)})
+  };
+}
+
+function getViewProps(projection: ProjectionOption) {
   return {
     views: new CustomProjectionView({id: projection.id, crs: projection.crs}),
-    // Deck's `controller` replaces the controller of the first view.
-    controller: {
-      maxBounds: [
-        [west, south],
-        [east, north]
-      ] as [[number, number], [number, number]]
-    },
+    controller: true,
     initialViewState: {
       center: [projection.center[0], projection.center[1], 0] as [number, number, number],
-      zoom: projection.zoom
+      zoom: projection.zoom,
+      minZoom: projection.minZoom
     }
   };
 }
