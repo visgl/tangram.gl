@@ -123,11 +123,13 @@ function normalizeTiles(tiles: string[] | undefined, baseUrl?: string) {
   return Array.isArray(tiles) ? tiles.map(tile => normalizeUrl(tile, baseUrl) || tile) : tiles;
 }
 
+/** The last path segment of an ArcGIS service root that lists relative tile templates. */
+const ARCGIS_SERVICE_ROOT = /\/(VectorTileServer|MapServer)$/i;
+
 /**
- * The base URL for relative tile templates in a TileJSON. A TileJSON URL whose last path segment
- * has no file extension names a service root, for example an ArcGIS `VectorTileServer` that lists
- * `tile/{z}/{y}/{x}.pbf`. Its templates are relative to that root as a directory, so a trailing
- * slash is added. A URL that names a file, such as `tiles.json`, is used as it is.
+ * The base URL for relative tile templates in a TileJSON. An ArcGIS service root, such as
+ * `.../VectorTileServer`, lists `tile/{z}/{y}/{x}.pbf` relative to the root as a directory, so a
+ * trailing slash is added. Every other TileJSON URL is used as it is, with standard URL resolution.
  */
 function getTileJsonTileBaseUrl(tileJsonUrl: string | undefined) {
   if (!tileJsonUrl) {
@@ -136,8 +138,7 @@ function getTileJsonTileBaseUrl(tileJsonUrl: string | undefined) {
 
   try {
     const url = new URL(tileJsonUrl);
-    const lastSegment = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
-    if (lastSegment && !lastSegment.includes('.')) {
+    if (ARCGIS_SERVICE_ROOT.test(url.pathname)) {
       url.pathname = `${url.pathname}/`;
     }
     return url.toString();

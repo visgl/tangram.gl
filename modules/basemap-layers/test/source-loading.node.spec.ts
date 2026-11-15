@@ -386,6 +386,20 @@ describe('relative TileJSON tile templates', () => {
     ).toEqual(['https://tiles.example.com/rest/services/Streets/VectorTileServer/tile/{z}/{y}/{x}.pbf']);
   });
 
+  test('resolve against a map service URL without a trailing slash as a directory', async () => {
+    expect(
+      await resolveTiles('https://tiles.example.com/rest/services/Imagery/MapServer', [
+        'tile/{z}/{y}/{x}'
+      ])
+    ).toEqual(['https://tiles.example.com/rest/services/Imagery/MapServer/tile/{z}/{y}/{x}']);
+  });
+
+  test('resolve against the folder of an extensionless TileJSON URL that is not a service root', async () => {
+    expect(
+      await resolveTiles('https://example.com/maps/tilejson', ['tiles/{z}/{x}/{y}.pbf'])
+    ).toEqual(['https://example.com/maps/tiles/{z}/{x}/{y}.pbf']);
+  });
+
   test('resolve against the folder of a TileJSON URL that names a file', async () => {
     expect(
       await resolveTiles('https://tiles.example.com/v3/tiles.json', ['{z}/{x}/{y}.pbf'])
