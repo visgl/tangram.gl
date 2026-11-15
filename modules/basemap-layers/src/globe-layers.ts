@@ -3,9 +3,12 @@
 // Copyright (c) vis.gl contributors
 
 import type {GlyphStore} from './glyph-store';
-import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
-import {isGlobeViewport} from './is-globe-viewport';
+import {SharedMVTLayer, SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {isGeographicViewport, isProjectedViewport} from './projected-viewport';
+import {getTileFeaturesInLngLat} from './projected-tile-data';
+import {basemapTilesetAdapter, ProjectedTileset2D} from './projected-tileset';
 import {
+  type Color,
   type Layer,
   type LayersList,
   type UpdateParameters,
@@ -13,7 +16,10 @@ import {
 } from '@deck.gl/core';
 import {PathStyleExtension} from '@deck.gl/extensions';
 import {TileLayer} from '@deck.gl/geo-layers';
-import {BitmapLayer, GeoJsonLayer, SolidPolygonLayer} from '@deck.gl/layers';
+import {GeoJsonLayer, SolidPolygonLayer} from '@deck.gl/layers';
+import {Matrix4} from '@math.gl/core';
+import {ProjectedBackgroundLayer} from './projected-background-layer';
+import {ProjectedBitmapLayer} from './projected-bitmap-layer';
 import {getGlobeAtmosphereLayer, getGlobeAtmosphereSkyLayer} from './atmosphere-layer';
 import {createCircleSubLayer} from './circle-layer';
 import {sortFeaturesByKey} from './sort-key';
@@ -108,6 +114,11 @@ type BasemapLayerGroup = {
   labelPlacement?: LabelPlacement | null;
   /** Externally owned source caches; BasemapLayer supplies and finalizes these. */
   tilesets?: Map<BasemapSource, SharedTileset2D>;
+  /**
+   * Whether the layers are drawn in a projected view (deck.gl's `_CustomProjectionView`), where a
+   * `background` layer fills the screen around the view (see `ProjectedBackgroundLayer`).
+   */
+  projected?: boolean;
 };
 
 /**
@@ -671,31 +682,40 @@ function createBackgroundLayer({
   idPrefix,
   layer,
   zoom,
-  mode
+  mode,
+  projected
 }: {
   idPrefix: string;
   layer: BasemapStyleLayer;
   zoom: number;
   mode: BasemapMode;
+  projected?: boolean;
 }) {
   const paint = getPaint(layer, zoom);
+  // A `background-pattern` disables `background-color`. Patterns are not drawn, so a patterned
+  // background draws nothing rather than its color or the default black.
+  const getFillColor =
+    paint['background-pattern'] !== undefined
+      ? TRANSPARENT_COLOR
+      : withOpacity(
+          (paint['background-color'] ?? getStylePropertyDefault('background-color')) as number[],
+          paint['background-opacity'] ?? 1
+        );
+  const id = `${idPrefix}-${layer.id}`;
+  const parameters = getBackgroundParameters(mode);
 
+  // A projected view has no outline of the world in longitude/latitude.
+  if (projected) {
+    return new ProjectedBackgroundLayer({id, getFillColor: getFillColor as Color, parameters});
+  }
   return new SolidPolygonLayer({
-    id: `${idPrefix}-${layer.id}`,
+    id,
     data: mode === 'globe' ? GLOBE_BACKGROUND_DATA : BACKGROUND_DATA,
     getPolygon: d => d,
     stroked: false,
     filled: true,
-    // A `background-pattern` disables `background-color`. Patterns are not drawn, so a patterned
-    // background draws nothing rather than its color or the default black.
-    getFillColor:
-      paint['background-pattern'] !== undefined
-        ? TRANSPARENT_COLOR
-        : withOpacity(
-            (paint['background-color'] ?? getStylePropertyDefault('background-color')) as number[],
-            paint['background-opacity'] ?? 1
-          ),
-    parameters: getBackgroundParameters(mode)
+    getFillColor,
+    parameters
   });
 }
 
@@ -787,6 +807,8 @@ function createRasterLayer({
   return new TileLayer({
     id: `${idPrefix}-${layer.id}`,
     data: source.tiles,
+    // Also selects tiles in a projected view.
+    TilesetClass: ProjectedTileset2D,
     ...getTilePyramidProps(source),
     tileSize: source.tileSize || 512,
     // deck.gl draws with `opacity ** (1 / 2.2)`. Undo that, so the alpha is `raster-opacity`, as
@@ -807,7 +829,8 @@ function createRasterLayer({
       const blendParameters = (props as {rasterColorBlendParameters?: object | null})
         .rasterColorBlendParameters;
 
-      return new BitmapLayer({
+      // In a projected view, the image is drawn with a mesh that follows the projection.
+      return new ProjectedBitmapLayer({
         ...props,
         // A texture keeps the filter it was created with, so a filter change needs a new layer.
         id: isNearest ? `${props.id}-nearest` : props.id,
@@ -970,10 +993,15 @@ class StyledMVTLayer extends SharedMVTLayer {
       owner?.consumers.add(this.state);
       this.state.sourceTilesetOwner = owner;
     }
-    const {geographic, tileset} = this.state;
+    const {geographic, projectionMode, tileset} = this.state;
     super.updateState(params);
-    // A new tileset, or a switch between a map and a globe, makes every kept sublayer obsolete.
-    if (this.state.geographic !== geographic || this.state.tileset !== tileset) {
+    // A new tileset, or a switch between a map, a globe and a projected view, makes every kept
+    // sublayer obsolete.
+    if (
+      this.state.geographic !== geographic ||
+      this.state.projectionMode !== projectionMode ||
+      this.state.tileset !== tileset
+    ) {
       this.state.keptTileLayers?.clear();
       this.state.staleTiles?.clear();
       this.state.tileLabelFeatures?.clear();
@@ -1198,6 +1226,13 @@ class StyledMVTLayer extends SharedMVTLayer {
   filterSubLayer(context: any): boolean {
     const {layer} = context;
     if (layer.props.tile) {
+      if (isProjectedViewport(context.viewport)) {
+        // `SharedTile2DLayer` culls tiles outside the longitude/latitude box of the screen
+        // corners. In a projected view a corner can lie outside the projection, and the tile
+        // selection has tested each tile against the screen already.
+        const view = this.state.tilesetViews?.get(context.viewport?.id || 'default');
+        return Boolean(view?.isTileVisible(layer.props.tile));
+      }
       return super.filterSubLayer(context);
     }
     const viewKey = labelLayerViews.get(layer);
@@ -1211,7 +1246,7 @@ class StyledMVTLayer extends SharedMVTLayer {
   getPickingInfo(params: any): any {
     const {sourceLayer} = params;
     if (sourceLayer && !sourceLayer.props.tile) {
-      const coordinateSystem = isGlobeViewport(this.context.viewport)
+      const coordinateSystem = isGeographicViewport(this.context.viewport)
         ? 'lnglat'
         : 'cartesian';
       const info = super.getPickingInfo({
@@ -1243,15 +1278,46 @@ class StyledMVTLayer extends SharedMVTLayer {
     this.state.tileLabelFeatures.set(props.tile.id, labelFeatures);
     (props as any)[TILE_LABEL_FEATURES] = labelFeatures;
     const previous = this.state.keptTileLayers?.get(props.tile.id);
-    // `SharedMVTLayer` turns `autoHighlight` off for the tile sublayers, which it highlights itself.
-    return super.renderSubLayers({
+    const styledProps = {
       ...props,
       [ZOOM_PAINT_CONTEXT]: this.context.device?.type === 'webgpu' ? null : zoomPaintContext,
       [PREVIOUS_TILE_LAYERS]: previous
         ? new Map(previous.map((layer: Layer) => [layer.id, layer]))
         : undefined,
       [AUTO_HIGHLIGHT]: Boolean(this.props.autoHighlight)
-    } as typeof props);
+    } as typeof props;
+    if (isProjectedViewport(this.context.viewport)) {
+      return this.renderProjectedSubLayers(styledProps);
+    }
+    // `SharedMVTLayer` turns `autoHighlight` off for the tile sublayers, which it highlights itself.
+    return super.renderSubLayers(styledProps);
+  }
+
+  /**
+   * A tile's sublayers in a projected view. `SharedMVTLayer` draws tile-local geometry, scaled to
+   * the tile's square in Web Mercator space, except on a globe. In a view of another projection
+   * a tile is not a square, so the geometry is drawn from longitude/latitude positions, as on a
+   * globe: deck.gl converts each vertex to the view's coordinate reference system.
+   */
+  private renderProjectedSubLayers(props: Parameters<SharedMVTLayer['renderSubLayers']>[0]) {
+    if (!props.data) {
+      return [];
+    }
+    return (
+      SharedTile2DLayer.prototype.renderSubLayers.call(this, {
+        ...props,
+        autoHighlight: false,
+        data: getTileFeaturesInLngLat(props.data, props.tile.index),
+        modelMatrix: new Matrix4(),
+        coordinateOrigin: [0, 0, 0],
+        coordinateSystem: 'lnglat'
+      } as typeof props) ?? []
+    );
+  }
+
+  /** Tile traversal that also selects tiles in a projected view (see `basemapTilesetAdapter`). */
+  _getTilesetOptions(): ReturnType<SharedMVTLayer['_getTilesetOptions']> {
+    return {...super._getTilesetOptions(), adapter: basemapTilesetAdapter};
   }
 
   _onTileLoad(tile: any): void {
@@ -1887,7 +1953,8 @@ export function getBasemapLayers({
   fontFamily,
   glyphs,
   labelPlacement,
-  tilesets
+  tilesets,
+  projected
 }: BasemapLayerGroup) {
   const config = getConfig(globe);
   const styleLayers = (styleDefinition.layers || []).filter(layer =>
@@ -1916,7 +1983,8 @@ export function getBasemapLayers({
         fontFamily,
         glyphs,
         labelPlacement,
-        tilesets
+        tilesets,
+        projected
       })
     );
   }
@@ -3295,8 +3363,10 @@ function getStyleLayers({
   fontFamily,
   glyphs,
   labelPlacement,
-  tilesets
+  tilesets,
+  projected
 }: {
+  projected?: boolean;
   idPrefix: string;
   styleLayers: BasemapStyleLayer[];
   styleDefinition: ResolvedBasemapStyle;
@@ -3335,7 +3405,7 @@ function getStyleLayers({
   return runs.map(run => {
     const [layer] = run.styleLayers;
     if (run.type === 'background') {
-      return createBackgroundLayer({idPrefix, layer, zoom, mode});
+      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected});
     }
     if (run.type === 'raster') {
       return createRasterLayer({
@@ -3384,14 +3454,15 @@ function getStyleLayers({
           data: run.source!.tiles!,
           loadOptions: getSourceLoadOptions(loadOptions, sourceLayers.get(run.source!))
         });
-        tileset = new SharedTileset2D({
+        const ownedTileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
+          adapter: basemapTilesetAdapter,
           ...getTilePyramidProps(run.source!),
           tileSize: run.source!.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
           getTileData: getVectorTileLoader(run.source!, loader)
         });
-        owner = {tileset, consumers: new Set()};
+        owner = {tileset: ownedTileset, consumers: new Set()};
         ownedTilesets.set(run.source!, owner);
       }
       tileset = owner.tileset;

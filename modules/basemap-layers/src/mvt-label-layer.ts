@@ -4,6 +4,11 @@
 
 import {CompositeLayer} from '@deck.gl/core';
 import {isGlobeViewport} from './is-globe-viewport';
+import {
+  getProjectedPlaneAngle,
+  isGeographicViewport,
+  isProjectedViewport
+} from './projected-viewport';
 import type {DefaultProps, Layer, LayerContext, UpdateParameters, Viewport} from '@deck.gl/core';
 import {
   acquireSharedLabelPlacement,
@@ -1969,7 +1974,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
    */
   getLabelAnchors(
     feature: FeatureLike,
-    geographic: boolean = isGlobeViewport(this.context?.viewport),
+    geographic: boolean = isGeographicViewport(this.context?.viewport),
     placement: string = this.getSymbolPlacement(),
     budget: PoleSearchBudget = {segmentTests: TILE_POLE_SEARCH_SEGMENT_TESTS}
   ): number[][] {
@@ -2372,10 +2377,16 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     const keepUpright =
       (this.getStyleProperty('text-keep-upright')?.evaluate(getZoomBucket(this.props.zoom || 0)) ??
         getStylePropertyDefault('text-keep-upright')) !== false;
-    const geographic = isGlobeViewport(this.context?.viewport);
+    const viewport = this.context?.viewport;
+    const geographic = isGlobeViewport(viewport);
+    // A line's angle is measured in Web Mercator space. A projected view draws the map plane in
+    // another projection, where the line has another direction.
+    const getLineAngle = isProjectedViewport(viewport)
+      ? (row: LabelRow) => getProjectedPlaneAngle(viewport, row.position, row.angle ?? 0)
+      : (row: LabelRow) => row.angle ?? 0;
     return {
       billboard: geographic ? this.props.billboard : false,
-      getAngle: (row: LabelRow) => getUprightAngle(row.angle ?? 0, bearingStep, keepUpright)
+      getAngle: (row: LabelRow) => getUprightAngle(getLineAngle(row), bearingStep, keepUpright)
     };
   }
 
@@ -2386,7 +2397,9 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
    * globe, labels are billboards turned on screen, and stay straight.
    */
   curvesLineText(viewport: any = this.context?.viewport): boolean {
-    if (!viewport || isGlobeViewport(viewport) || this.context?.device?.type === 'webgpu') {
+    // In a projected view, glyph offsets along a line, measured in Web Mercator space, have
+    // another direction and length: labels stay straight there.
+    if (!viewport || isGeographicViewport(viewport) || this.context?.device?.type === 'webgpu') {
       return false;
     }
     if (this.props.labelSizeUnits !== 'pixels' || !this.getStyleProperty('text-field')) {
@@ -2660,8 +2673,12 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     const keepUpright =
       (this.getStyleProperty('icon-keep-upright')?.evaluate(zoom) ??
         getStylePropertyDefault('icon-keep-upright')) === true;
+    const viewport = this.context?.viewport;
+    const getRowAngle = isProjectedViewport(viewport)
+      ? (row: LabelRow) => getProjectedPlaneAngle(viewport, row.position, row.angle ?? 0)
+      : (row: LabelRow) => row.angle ?? 0;
     const getLineAngle = (row: LabelRow) =>
-      turnsWithLine ? getUprightAngle(row.angle ?? 0, bearingStep, keepUpright) : 0;
+      turnsWithLine ? getUprightAngle(getRowAngle(row), bearingStep, keepUpright) : 0;
     const getRotate = (row: LabelRow) =>
       iconRotate
         ? Number(
@@ -2703,7 +2720,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     if (!data && !tiles) {
       return;
     }
-    const geographic = isGlobeViewport(this.context?.viewport);
+    const geographic = isGeographicViewport(this.context?.viewport);
     const textTrigger = this.getLabelUpdateTriggers().getText;
     if (textTrigger !== this.state.labelText?.key[0]) {
       // Labels along lines are placed by their text's length, so they must not read text cached
@@ -3520,7 +3537,11 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
    * viewport: a globe's or a map's, which do not change with the view. Kept per row.
    */
   getPlacementCommons(viewport: any, geometry: PlacementGeometry): Float64Array {
-    const kind = isGlobeViewport(viewport) ? 'globe' : 'map';
+    const kind = isGlobeViewport(viewport)
+      ? 'globe'
+      : isProjectedViewport(viewport)
+        ? `projected:${viewport.crs?.signature}`
+        : 'map';
     if (geometry.commons?.kind === kind) {
       return geometry.commons.positions;
     }

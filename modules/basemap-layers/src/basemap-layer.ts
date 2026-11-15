@@ -5,6 +5,8 @@
 import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from './terrain-query';
 import {isGlobeViewport} from './is-globe-viewport';
+import {getStyleZoom, isProjectedViewport} from './projected-viewport';
+import {basemapTilesetAdapter} from './projected-tileset';
 import type {BasemapSource} from './style-resolver';
 import {
   CompositeLayer,
@@ -241,8 +243,10 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
   /** Returns the key of what the sublayers depend on in `viewport`, for a resolved style. */
   getZoomKey(resolvedStyle: ResolvedBasemapStyle, viewport: Viewport | undefined): string {
-    const zoomKey = getStyleZoomKey(viewport?.zoom || 0, getFractionalZoomLimits(resolvedStyle));
-    return `${this.getDrawMode(viewport)}:${zoomKey}`;
+    const zoomKey = getStyleZoomKey(getStyleZoom(viewport), getFractionalZoomLimits(resolvedStyle));
+    // A projected view draws as a map, with other sublayers: longitude/latitude geometry.
+    const drawMode = isProjectedViewport(viewport) ? 'projected' : this.getDrawMode(viewport);
+    return `${drawMode}:${zoomKey}`;
   }
 
   /**
@@ -455,6 +459,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
         loader.context = this.context;
         const tileset = new SharedTileset2D({
           ...loader._getTilesetOptions(),
+          adapter: basemapTilesetAdapter,
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
@@ -491,7 +496,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
     this.updateSourceTilesets(resolvedStyle);
     const {viewport} = this.context;
-    const zoom = viewport?.zoom || 0;
+    // In a projected view, the zoom of the Web Mercator map of the same scale.
+    const zoom = getStyleZoom(viewport);
     // Recorded without setState: this only tracks what the current sublayers were built from.
     this.state.zoomKey = this.getZoomKey(resolvedStyle, viewport);
 
@@ -507,7 +513,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       // A label font of the caller's is drawn with the browser's fonts.
       glyphs: this.props.fontFamily ? null : this.state.glyphs,
       labelPlacement: this.getLabelPlacement(),
-      tilesets: this.state.tilesets
+      tilesets: this.state.tilesets,
+      projected: isProjectedViewport(viewport)
     });
   }
 }

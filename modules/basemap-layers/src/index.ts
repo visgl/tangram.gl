@@ -18,3 +18,12 @@ export {getLabelFont} from './text-font';
 export type {LabelFont, LabelFontFamily} from './text-font';
 export {GlyphStore} from './glyph-store';
 export type {GlyphStoreOptions} from './glyph-store';
+export {ProjectedBitmapLayer} from './projected-bitmap-layer';
+export {getProjectedTileIndices} from './projected-tile-selection';
+export type {
+  ProjectedTileIndex,
+  ProjectedTileSelectionOptions
+} from './projected-tile-selection';
+export {ProjectedTileset2D} from './projected-tileset';
+export {getMercatorZoom} from './projected-viewport';
+export type {ProjectedViewportLike} from './projected-viewport';
