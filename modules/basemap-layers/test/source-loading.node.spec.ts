@@ -358,3 +358,71 @@ describe('source loading', () => {
     expect(style.sources.streets.tiles).toBeUndefined();
   });
 });
+
+describe('relative TileJSON tile templates', () => {
+  /** Resolves one vector source whose TileJSON at `tileJsonUrl` lists `tiles`. */
+  async function resolveTiles(tileJsonUrl: string, tiles: string[]) {
+    const {fetch} = fakeFetch({[tileJsonUrl]: {tiles}});
+    const style = await resolveBasemapStyle(
+      {version: 8, sources: {streets: {type: 'vector', url: tileJsonUrl}}, layers: []} as any,
+      {fetch}
+    );
+    return style.sources.streets.tiles;
+  }
+
+  test('resolve against a service URL without a trailing slash as a directory', async () => {
+    expect(
+      await resolveTiles('https://tiles.example.com/rest/services/Streets/VectorTileServer', [
+        'tile/{z}/{y}/{x}.pbf'
+      ])
+    ).toEqual(['https://tiles.example.com/rest/services/Streets/VectorTileServer/tile/{z}/{y}/{x}.pbf']);
+  });
+
+  test('resolve against a service URL with a trailing slash', async () => {
+    expect(
+      await resolveTiles('https://tiles.example.com/rest/services/Streets/VectorTileServer/', [
+        'tile/{z}/{y}/{x}.pbf'
+      ])
+    ).toEqual(['https://tiles.example.com/rest/services/Streets/VectorTileServer/tile/{z}/{y}/{x}.pbf']);
+  });
+
+  test('resolve against the folder of a TileJSON URL that names a file', async () => {
+    expect(
+      await resolveTiles('https://tiles.example.com/v3/tiles.json', ['{z}/{x}/{y}.pbf'])
+    ).toEqual(['https://tiles.example.com/v3/{z}/{x}/{y}.pbf']);
+    expect(
+      await resolveTiles('https://tiles.example.com/v3/tiles.json?key=abc', ['{z}/{x}/{y}.pbf'])
+    ).toEqual(['https://tiles.example.com/v3/{z}/{x}/{y}.pbf']);
+  });
+
+  test('keep absolute and root-relative templates', async () => {
+    const serviceUrl = 'https://tiles.example.com/rest/services/Streets/VectorTileServer';
+    expect(
+      await resolveTiles(serviceUrl, ['https://cdn.example.com/tiles/{z}/{x}/{y}.pbf'])
+    ).toEqual(['https://cdn.example.com/tiles/{z}/{x}/{y}.pbf']);
+    expect(await resolveTiles(serviceUrl, ['/tiles/{z}/{x}/{y}.pbf'])).toEqual([
+      'https://tiles.example.com/tiles/{z}/{x}/{y}.pbf'
+    ]);
+  });
+
+  test('keep the query of the template, not the query of the TileJSON URL', async () => {
+    expect(
+      await resolveTiles('https://tiles.example.com/rest/services/Streets/VectorTileServer?f=json', [
+        'tile/{z}/{y}/{x}.pbf?token=abc'
+      ])
+    ).toEqual([
+      'https://tiles.example.com/rest/services/Streets/VectorTileServer/tile/{z}/{y}/{x}.pbf?token=abc'
+    ]);
+  });
+
+  test('resolve a service URL from a style URL the same way', async () => {
+    const styleUrl = 'https://tiles.example.com/rest/services/Streets/VectorTileServer/resources/styles/root.json';
+    const serviceUrl = 'https://tiles.example.com/rest/services/Streets/VectorTileServer';
+    const {fetch} = fakeFetch({
+      [styleUrl]: {version: 8, sources: {esri: {type: 'vector', url: serviceUrl}}, layers: []},
+      [serviceUrl]: {tiles: ['tile/{z}/{y}/{x}.pbf']}
+    });
+    const style = await resolveBasemapStyle(styleUrl, {fetch});
+    expect(style.sources.esri.tiles).toEqual([`${serviceUrl}/tile/{z}/{y}/{x}.pbf`]);
+  });
+});

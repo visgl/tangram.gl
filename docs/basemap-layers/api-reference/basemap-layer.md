@@ -174,7 +174,10 @@ Loads and normalizes a style document. This resolves:
 - remote style JSON URLs
 - TileJSON-backed source definitions
 - GeoJSON source `data` URLs, fetched into the source's `data`
-- relative tile template URLs
+- relative tile template URLs. Inline `tiles` resolve against the style URL, and TileJSON `tiles`
+  against the TileJSON URL. A TileJSON URL whose last path segment has no file extension, such as
+  an ArcGIS `VectorTileServer` URL, is a directory: `tile/{z}/{y}/{x}.pbf` resolves to
+  `.../VectorTileServer/tile/{z}/{y}/{x}.pbf`
 - legacy Mapbox `ref` layer inheritance
 
 ## Example
