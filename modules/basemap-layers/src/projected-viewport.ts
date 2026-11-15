@@ -177,3 +177,31 @@ export function getProjectedPlaneAngle(
   }
   return (Math.atan2(dy, dx) * 180) / Math.PI;
 }
+
+/** The most degrees a position may lie from itself after it is projected and projected back. */
+const ROUND_TRIP_DEGREES = 1e-5;
+
+/**
+ * Whether a projected view draws a longitude/latitude at its own place: the position, projected
+ * to the map plane and back, is the same position. A projection moves a position outside its area
+ * of use to the edge of that area, or has no position for it. A label there is not drawn: it
+ * shows on the edge, far from its place. The check does not depend on the camera.
+ */
+export function isPositionDrawn(
+  viewport: {
+    projectPosition: (position: number[]) => number[];
+    unprojectPosition: (position: number[]) => number[];
+  },
+  lngLat: ArrayLike<number>
+): boolean {
+  try {
+    const back = viewport.unprojectPosition(viewport.projectPosition([lngLat[0], lngLat[1], 0]));
+    const turn = Math.abs(back[0] - lngLat[0]) % 360;
+    return (
+      Math.min(turn, 360 - turn) <= ROUND_TRIP_DEGREES &&
+      Math.abs(back[1] - lngLat[1]) <= ROUND_TRIP_DEGREES
+    );
+  } catch {
+    return false;
+  }
+}

@@ -7,6 +7,7 @@ import {isGlobeViewport} from './is-globe-viewport';
 import {
   getProjectedPlaneAngle,
   isGeographicViewport,
+  isPositionDrawn,
   isProjectedViewport
 } from './projected-viewport';
 import type {DefaultProps, Layer, LayerContext, UpdateParameters, Viewport} from '@deck.gl/core';
@@ -2239,7 +2240,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     const lineBudget = {steps: TILE_LINE_ANCHOR_STEPS};
     const lineContext = isLinePlacement(placement) ? this.getLinePlacementContext() : undefined;
     const merged = placement === 'line' ? this.getMergedLines(features) : null;
-    return features.flatMap((feature, index) =>
+    const rows = features.flatMap((feature, index) =>
       isLinePlacement(placement) && isLineGeometry(feature)
         ? merged?.[index] === null
           ? []
@@ -2266,6 +2267,13 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
             );
           })
     );
+    // A projected view moves a position outside the area of use of its projection to the edge of
+    // that area: a label there would show on the edge, far from its place. Checked once for each
+    // row, when the rows of a tile are made.
+    const viewport = this.context?.viewport;
+    return isProjectedViewport(viewport)
+      ? rows.filter(row => isPositionDrawn(viewport, row.position))
+      : rows;
   }
 
   /**
@@ -2280,6 +2288,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       placement,
       geographic,
       geographic ? Math.floor(this.props.zoom || 0) : null,
+      // The rows a projected view keeps depend on its projection (see `getLabelData`).
+      isProjectedViewport(this.context?.viewport) ? this.context.viewport.crs?.signature : null,
       this.getTileBounds(geographic),
       // The number of rows of a point label (see `getLabelData`).
       isLinePlacement(placement)
