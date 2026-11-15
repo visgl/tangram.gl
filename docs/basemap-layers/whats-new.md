@@ -6,6 +6,10 @@ Copyright (c) vis.gl contributors
 
 # What's New
 
+## November 2026
+
+- `BasemapLayer`'s new `zoomLoadDelay` prop holds vector tile loads while a view zooms, so a zoom gesture does not decode and triangulate the tiles of each tile zoom it passes through. Tiles that a loaded ancestor covers wait until the zoom comes to rest; tiles that no view selects then are not loaded. The default, `0`, keeps the previous behavior.
+
 ## October 2026
 
 - Labels are drawn with the style's `glyphs`, as in MapLibre GL JS: the signed distance fields of each `text-font` stack, loaded per range as tiles need them, with MapLibre's advances and glyph placement. A tile's labels are placed once their glyphs have loaded. Styles without `glyphs`, and the `fontFamily` prop, still draw with the browser's fonts.

@@ -112,6 +112,21 @@ to a CSS font (see [Label fonts](/docs/modules/basemap-layers#label-fonts)). Def
 `getBasemapLayers` and `getGlobeBaseLayers` accept the same `fontFamily` option, and a `glyphs`
 option, a `GlyphStore` of the style's `glyphs` URL, to draw labels with the style's glyphs.
 
+### `zoomLoadDelay`
+
+Type: `number`
+
+Milliseconds that vector tile loads wait after the last zoom change of a view. Defaults to `0`:
+tiles load at once, as before.
+
+In a zoom gesture, the tile selection passes through several tile zooms. Each tile that loads at
+one of them is decoded and triangulated on the main thread, and is drawn for only a fraction of a
+second. With a delay, a tile that a loaded ancestor (at most 3 tile zooms up) draws, enlarged, in
+its place waits until no view has changed its zoom for that time. When the zoom comes to rest, a
+waiting tile that no view selects is cancelled, not loaded. A tile without such an ancestor, such
+as a new tile at the edge of a zoom out, loads at once. A pan does not change the zoom, so its
+loads do not wait. Raster and `raster-dem` tiles do not wait.
+
 ### `globe`
 
 Type: `{config?: BasemapGlobeConfig}`
