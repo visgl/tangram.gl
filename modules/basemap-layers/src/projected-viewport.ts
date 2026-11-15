@@ -32,6 +32,12 @@ export type ProjectedViewportLike = {
    * selection finds the tiles that the projection stretches (see `getProjectedTileIndices`).
    */
   projectPosition?: (lngLat: number[]) => number[];
+  /**
+   * The projection of the view: deck.gl's descriptor of its coordinate reference system. Views of
+   * one projection have the same object, so what the tile selection measures of the projection,
+   * and not of the camera, is kept by it.
+   */
+  crs?: object;
 };
 
 /**

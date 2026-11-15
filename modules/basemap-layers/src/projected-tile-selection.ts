@@ -150,37 +150,10 @@ const isOnScreen = ([x, y]: number[], width: number, height: number) =>
   x >= 0 && x <= width && y >= 0 && y <= height;
 
 /**
- * Whether the view draws a part of a tile on the screen. The tile's edge is sampled, and the
- * outline of its samples, as the view draws them, is tested against the screen: a sample on the
- * screen, or an outline segment across a screen edge. A sample counts only if the view draws it at a pixel that shows it again: positions outside the
- * projection's area of use, or behind the camera of a pitched view, do not, and the outline has
- * no segment to or from them.
+ * Whether an outline, as the view draws it, has a part on the screen: a point on the screen, or
+ * a segment between two points across a screen edge. A point without a pixel has no segment.
  */
-function isTileOnScreen(viewport: ProjectedViewportLike, {x, y, z}: ProjectedTileIndex): boolean {
-  const {width, height} = viewport;
-  const scale = 2 ** z;
-  const tolerance = (360 / scale) * ROUND_TRIP_TILE_SHARE;
-  const ring: (number[] | null)[] = [];
-  // Around the tile: the top edge, the right, the bottom and the left.
-  for (let side = 0; side < 4; side++) {
-    for (let step = 0; step < TILE_GRID_CELLS; step++) {
-      const t = step / TILE_GRID_CELLS;
-      const [i, j] = [
-        [t, 0],
-        [1, t],
-        [1 - t, 1],
-        [0, 1 - t]
-      ][side];
-      const lngLat = fromPyramid((x + i) / scale, (y + j) / scale);
-      const pixel = projectOrNull(viewport, lngLat);
-      const back = pixel && isInFrontOfCamera(pixel) ? unprojectOrNull(viewport, pixel) : null;
-      const isDrawn =
-        back !== null &&
-        Math.abs(wrapLongitude(back[0] - lngLat[0])) <= tolerance &&
-        Math.abs(back[1] - lngLat[1]) <= tolerance;
-      ring[ring.length] = pixel && isDrawn ? [pixel[0], pixel[1]] : null;
-    }
-  }
+function isOutlineOnScreen(ring: (number[] | null)[], width: number, height: number): boolean {
   const corners = [
     [0, 0],
     [width, 0],
@@ -205,24 +178,84 @@ function isTileOnScreen(viewport: ProjectedViewportLike, {x, y, z}: ProjectedTil
 }
 
 /**
+ * Whether the view draws a part of a tile on the screen. The tile's edge is sampled, and the
+ * outline of its samples, as the view draws them, is tested against the screen (see
+ * `isOutlineOnScreen`). A sample counts only if the view draws it at a pixel that shows it again:
+ * positions outside the projection's area of use, or behind the camera of a pitched view, do not,
+ * and the outline has no segment to or from them.
+ *
+ * Most tiles that the selection tests are off the screen: the tiles around the ones the screen
+ * shows, at each zoom of the walk. So the outline is tested first as the view projects it, and
+ * the samples are projected back only for an outline that can be on the screen: to leave samples
+ * out can only take parts off the outline.
+ */
+function isTileOnScreen(viewport: ProjectedViewportLike, {x, y, z}: ProjectedTileIndex): boolean {
+  const {width, height} = viewport;
+  const scale = 2 ** z;
+  const tolerance = (360 / scale) * ROUND_TRIP_TILE_SHARE;
+  const lngLats: [number, number][] = [];
+  const projected: (number[] | null)[] = [];
+  // Around the tile: the top edge, the right, the bottom and the left.
+  for (let side = 0; side < 4; side++) {
+    for (let step = 0; step < TILE_GRID_CELLS; step++) {
+      const t = step / TILE_GRID_CELLS;
+      const [i, j] = [
+        [t, 0],
+        [1, t],
+        [1 - t, 1],
+        [0, 1 - t]
+      ][side];
+      const lngLat = fromPyramid((x + i) / scale, (y + j) / scale);
+      const pixel = projectOrNull(viewport, lngLat);
+      lngLats[lngLats.length] = lngLat;
+      projected[projected.length] = pixel && isInFrontOfCamera(pixel) ? pixel : null;
+    }
+  }
+  if (!isOutlineOnScreen(projected, width, height)) {
+    return false;
+  }
+  const ring = projected.map((pixel, index) => {
+    const back = pixel && unprojectOrNull(viewport, pixel);
+    const lngLat = lngLats[index];
+    const isDrawn =
+      back &&
+      Math.abs(wrapLongitude(back[0] - lngLat[0])) <= tolerance &&
+      Math.abs(back[1] - lngLat[1]) <= tolerance;
+    return pixel && isDrawn ? [pixel[0], pixel[1]] : null;
+  });
+  return isOutlineOnScreen(ring, width, height);
+}
+
+/** The position of a longitude/latitude in the view's map plane, or null where it has none. */
+function projectPositionOrNull(
+  viewport: ProjectedViewportLike,
+  lngLat: ArrayLike<number>
+): number[] | null {
+  try {
+    return viewport.projectPosition!([lngLat[0], lngLat[1], 0]);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The length the view's map plane gives a step between two positions, per degree of arc on the
- * ground: common units per degree. Infinite where the projection has no position for an end.
+ * ground: common units per degree. `from` and `to` are the two positions in the map plane (see
+ * `projectPositionOrNull`). Infinite where the projection has no position for an end.
  */
 function getPlaneScale(
-  viewport: ProjectedViewportLike,
   a: ArrayLike<number>,
-  b: ArrayLike<number>
+  b: ArrayLike<number>,
+  from: number[] | null,
+  to: number[] | null
 ): number {
-  const cosLatitude = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180);
-  const arc = Math.hypot(wrapLongitude(b[0] - a[0]) * cosLatitude, b[1] - a[1]);
-  try {
-    const from = viewport.projectPosition!([a[0], a[1], 0]);
-    const to = viewport.projectPosition!([b[0], b[1], 0]);
-    const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
-    return Number.isFinite(length) ? length / arc : Infinity;
-  } catch {
+  if (!from || !to) {
     return Infinity;
   }
+  const cosLatitude = Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180);
+  const arc = Math.hypot(wrapLongitude(b[0] - a[0]) * cosLatitude, b[1] - a[1]);
+  const length = Math.hypot(to[0] - from[0], to[1] - from[1]);
+  return Number.isFinite(length) ? length / arc : Infinity;
 }
 
 /** The scale of the view's map plane at the view center (see `getPlaneScale`), or null. */
@@ -231,25 +264,67 @@ function getCenterPlaneScale(viewport: ProjectedViewportLike): number | null {
   if (!center || !viewport.projectPosition) {
     return null;
   }
-  const east = getPlaneScale(viewport, center, [center[0] + SCALE_STEP_DEGREES, center[1]]);
-  const north = getPlaneScale(viewport, center, [center[0], center[1] + SCALE_STEP_DEGREES]);
+  const eastward = [center[0] + SCALE_STEP_DEGREES, center[1]];
+  const northward = [center[0], center[1] + SCALE_STEP_DEGREES];
+  const centerPlane = projectPositionOrNull(viewport, center);
+  const east = getPlaneScale(center, eastward, centerPlane, projectPositionOrNull(viewport, eastward));
+  const north = getPlaneScale(
+    center,
+    northward,
+    centerPlane,
+    projectPositionOrNull(viewport, northward)
+  );
   const scale = Math.sqrt(east * north);
   return Number.isFinite(scale) && scale > 0 ? scale : null;
 }
 
 /**
- * Whether the projection stretches a part of a tile's outline more than `MAX_STRETCH` times the
- * scale at the view center, or has no position for it. Such a tile holds a place the projection
- * cannot draw, or a seam: its geometry is drawn across the map. A projection that moves positions
- * outside its area of use to the edge of that area shrinks them, and is not stretched.
+ * The most tiles whose outline scale is kept for one projection. Past it the oldest is dropped:
+ * a view shows tens of tiles, and a zoom over the whole pyramid a few hundred.
  */
-function isTileStretched(
+export const MAX_KEPT_OUTLINE_SCALES = 4096;
+
+/** The outline scale of the tiles of a projection (see `getTileOutlineScale`), by tile. */
+const outlineScales = new WeakMap<object, Map<string, number>>();
+
+/**
+ * The largest scale the projection gives a part of a tile's outline (see `getPlaneScale`), or
+ * infinity where it has no position for a part. The scale is a property of the projection and
+ * the tile, and not of the camera: `projectPosition` converts a longitude/latitude to the map
+ * plane before the camera. So it is measured one time for each tile of a projection, which a
+ * viewport names by its `crs`, and kept: a view change tests the same tiles again. The outline is
+ * walked as a chain, so each of its points is projected one time.
+ */
+function getTileOutlineScale(viewport: ProjectedViewportLike, {x, y, z}: ProjectedTileIndex): number {
+  const {crs} = viewport;
+  let scales = crs && outlineScales.get(crs);
+  if (crs && !scales) {
+    scales = new Map();
+    outlineScales.set(crs, scales);
+  }
+  const key = `${z}/${x}/${y}`;
+  const kept = scales?.get(key);
+  if (kept !== undefined) {
+    return kept;
+  }
+  const outlineScale = measureTileOutlineScale(viewport, {x, y, z});
+  if (scales) {
+    if (scales.size >= MAX_KEPT_OUTLINE_SCALES) {
+      scales.delete(scales.keys().next().value as string);
+    }
+    scales.set(key, outlineScale);
+  }
+  return outlineScale;
+}
+
+function measureTileOutlineScale(
   viewport: ProjectedViewportLike,
-  {x, y, z}: ProjectedTileIndex,
-  centerScale: number
-): boolean {
+  {x, y, z}: ProjectedTileIndex
+): number {
   const scale = 2 ** z;
   let previous = fromPyramid(x / scale, y / scale);
+  let previousPlane = projectPositionOrNull(viewport, previous);
+  let outlineScale = 0;
   for (let side = 0; side < 4; side++) {
     for (let step = 1; step <= TILE_GRID_CELLS; step++) {
       const t = step / TILE_GRID_CELLS;
@@ -260,13 +335,32 @@ function isTileStretched(
         [0, 1 - t]
       ][side];
       const lngLat = fromPyramid((x + i) / scale, (y + j) / scale);
-      if (!(getPlaneScale(viewport, previous, lngLat) <= MAX_STRETCH * centerScale)) {
-        return true;
+      const plane = projectPositionOrNull(viewport, lngLat);
+      const stepScale = getPlaneScale(previous, lngLat, previousPlane, plane);
+      // A step without a scale, or without a number for it, is stretched without bound.
+      if (!Number.isFinite(stepScale)) {
+        return Infinity;
       }
+      outlineScale = Math.max(outlineScale, stepScale);
       previous = lngLat;
+      previousPlane = plane;
     }
   }
-  return false;
+  return outlineScale;
+}
+
+/**
+ * Whether the projection stretches a part of a tile's outline more than `MAX_STRETCH` times the
+ * scale at the view center, or has no position for it. Such a tile holds a place the projection
+ * cannot draw, or a seam: its geometry is drawn across the map. A projection that moves positions
+ * outside its area of use to the edge of that area shrinks them, and is not stretched.
+ */
+function isTileStretched(
+  viewport: ProjectedViewportLike,
+  index: ProjectedTileIndex,
+  centerScale: number
+): boolean {
+  return !(getTileOutlineScale(viewport, index) <= MAX_STRETCH * centerScale);
 }
 
 function isTileInExtent({x, y, z}: ProjectedTileIndex, extent: ArrayLike<number>): boolean {
