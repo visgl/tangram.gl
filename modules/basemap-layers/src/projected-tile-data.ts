@@ -13,19 +13,51 @@ type TileIndex = {x: number; y: number; z: number};
  * that the view projects the curve and not its chord.
  */
 const MAX_STEP = 1 / 16;
+/**
+ * The range of tile-local coordinates that a step is measured in: the tile and a buffer of its
+ * own size on each side. Tiles come from servers the application does not control, and a corrupt
+ * coordinate far outside the tile must not ask for millions of vertices.
+ */
+const MIN_COORDINATE = -1;
+const MAX_COORDINATE = 2;
+/** The most parts one step is divided into, whatever its length. */
+const MAX_STEP_PARTS = 64;
+/** The most vertices added to the features of one tile. Past it, steps are left whole. */
+export const MAX_ADDED_VERTICES = 65536;
+
+/** The count of vertices that the features of one tile can still get. */
+type VertexBudget = {remaining: number};
+
+const clampCoordinate = (value: number) =>
+  Math.max(MIN_COORDINATE, Math.min(MAX_COORDINATE, value));
+
+/** The count of parts a step between two tile-local positions is divided into: 1 or more. */
+function getStepParts(from: number[], to: number[]): number {
+  const length = Math.max(
+    Math.abs(clampCoordinate(to[0]) - clampCoordinate(from[0])),
+    Math.abs(clampCoordinate(to[1]) - clampCoordinate(from[1]))
+  );
+  const parts = Math.min(MAX_STEP_PARTS, Math.ceil(length / MAX_STEP));
+  // A coordinate that is not a number has no length.
+  return parts >= 1 ? parts : 1;
+}
 
 /** A line or ring of tile-local positions, with vertices added along its long steps. */
-function addVertices(line: number[][]): number[][] {
+function addVertices(line: number[][], budget: VertexBudget): number[][] {
   const result: number[][] = [];
   line.forEach((position, index) => {
     const previous = line[index - 1];
     if (previous) {
-      const steps = Math.ceil(
-        Math.max(Math.abs(position[0] - previous[0]), Math.abs(position[1] - previous[1])) / MAX_STEP
-      );
-      for (let step = 1; step < steps; step++) {
-        const t = step / steps;
-        result[result.length] = previous.map((value, axis) => value + (position[axis] - value) * t);
+      const parts = getStepParts(previous, position);
+      // A step that the budget does not cover is left whole.
+      if (parts - 1 <= budget.remaining) {
+        budget.remaining -= parts - 1;
+        for (let part = 1; part < parts; part++) {
+          const t = part / parts;
+          result[result.length] = previous.map(
+            (value, axis) => value + (position[axis] - value) * t
+          );
+        }
       }
     }
     result[result.length] = position;
@@ -34,15 +66,17 @@ function addVertices(line: number[][]): number[][] {
 }
 
 /** The coordinates of a geometry, with vertices added along the long steps of lines and rings. */
-function addGeometryVertices(type: string, coordinates: any): any {
+function addGeometryVertices(type: string, coordinates: any, budget: VertexBudget): any {
   switch (type) {
     case 'LineString':
-      return addVertices(coordinates);
+      return addVertices(coordinates, budget);
     case 'MultiLineString':
     case 'Polygon':
-      return coordinates.map(addVertices);
+      return coordinates.map((line: number[][]) => addVertices(line, budget));
     case 'MultiPolygon':
-      return coordinates.map((polygon: number[][][]) => polygon.map(addVertices));
+      return coordinates.map((polygon: number[][][]) =>
+        polygon.map(ring => addVertices(ring, budget))
+      );
     default:
       return coordinates;
   }
@@ -67,6 +101,7 @@ export function getTileFeaturesInLngLat(features: any[], index: TileIndex): any[
   let converted = cache.get(key);
   if (!converted) {
     const scale = 2 ** index.z;
+    const budget: VertexBudget = {remaining: MAX_ADDED_VERTICES};
     const convertCoordinates = (coordinates: any): any => {
       if (typeof coordinates[0] === 'number') {
         const [x, y, ...rest] = coordinates;
@@ -86,7 +121,9 @@ export function getTileFeaturesInLngLat(features: any[], index: TileIndex): any[
         ? {...geometry, geometries: geometry.geometries.map(convertGeometry)}
         : {
             ...geometry,
-            coordinates: convertCoordinates(addGeometryVertices(geometry.type, geometry.coordinates))
+            coordinates: convertCoordinates(
+              addGeometryVertices(geometry.type, geometry.coordinates, budget)
+            )
           });
     converted = features.map(feature => ({...feature, geometry: convertGeometry(feature.geometry)}));
     cache.set(key, converted);

@@ -11,7 +11,7 @@ import {
 import {projectionEngine} from '@math.gl/geospatial/projection';
 import {getBackgroundSquare} from '../src/projected-background-layer';
 import {createMercatorTileMesh} from '../src/projected-bitmap-layer';
-import {getTileFeaturesInLngLat} from '../src/projected-tile-data';
+import {getTileFeaturesInLngLat, MAX_ADDED_VERTICES} from '../src/projected-tile-data';
 import {
   getMercatorZoom,
   getProjectedPlaneAngle,
@@ -231,6 +231,48 @@ describe('getTileFeaturesInLngLat', () => {
     expect(converted[3].geometry.coordinates[0][0]).toHaveLength(4 + 4 + 4 + 1);
     expect(converted[4].geometry.coordinates[0]).toHaveLength(9);
     expect(shapes[0].geometry.coordinates[0]).toHaveLength(5);
+  });
+
+  test('a corrupt coordinate far outside the tile adds a bounded count of vertices', () => {
+    const line = (coordinates: number[][]) => [
+      {type: 'Feature', properties: {}, geometry: {type: 'LineString', coordinates}}
+    ];
+    const count = (coordinates: number[][]) =>
+      getTileFeaturesInLngLat(line(coordinates), {x: 0, y: 0, z: 0})[0].geometry.coordinates.length;
+    // Measured inside the tile and its buffer, -1 to 2: 32 parts from 0 to 2, 48 across it.
+    expect(count([[0, 0], [1e9, 0]])).toBe(33);
+    expect(count([[0, 0], [0, -1e9]])).toBe(17);
+    expect(count([[-1e9, 0.5], [1e9, 0.5]])).toBe(49);
+    expect(count([[0, 0], [Infinity, 0]])).toBe(33);
+    // A coordinate that is not a number adds nothing.
+    expect(count([[0, 0], [Number.NaN, 0], [1, 0]])).toBe(3);
+    // Both ends are kept as they are.
+    const far = getTileFeaturesInLngLat(line([[0, 0], [1e9, 0]]), {x: 0, y: 0, z: 0})[0];
+    expect(far.geometry.coordinates).toHaveLength(33);
+    expect(far.geometry.coordinates[0][0]).toBeCloseTo(-180, 9);
+  });
+
+  test('the vertices added to one tile have a budget, shared by its features', () => {
+    // 6000 steps across the tile: 15 vertices each without a budget, 90000 in all.
+    const zigzag = Array.from({length: 6001}, (_, index) => [index % 2, index / 6000]);
+    const features = [0, 1].map(() => ({
+      type: 'Feature',
+      properties: {},
+      geometry: {type: 'LineString', coordinates: zigzag.slice(0, 3001)}
+    }));
+    const converted = getTileFeaturesInLngLat(features, {x: 0, y: 0, z: 0});
+    const total = converted.reduce((sum, feature) => sum + feature.geometry.coordinates.length, 0);
+    expect(total).toBeLessThanOrEqual(2 * 3001 + MAX_ADDED_VERTICES);
+    expect(total).toBeGreaterThan(2 * 3001 + MAX_ADDED_VERTICES - 15);
+    // Past the budget, steps are left whole: the last vertices are the ones of the source.
+    const last = converted[1].geometry.coordinates;
+    expect(last[last.length - 2][1]).toBeCloseTo(
+      getTileFeaturesInLngLat(
+        [{type: 'Feature', properties: {}, geometry: {type: 'Point', coordinates: zigzag[2999]}}],
+        {x: 0, y: 0, z: 0}
+      )[0].geometry.coordinates[1],
+      9
+    );
   });
 
   test('keeps one result per tile', () => {
