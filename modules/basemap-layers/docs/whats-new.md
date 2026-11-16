@@ -6,6 +6,10 @@ Copyright (c) vis.gl contributors
 
 # What's New
 
+## November 2026
+
+- Raster tiles load with the `fetch` prop and the `loadOptions` of `BasemapLayer`, as vector tiles do. The new `rejectRasterTile` prop marks raster tiles that have no data, such as the placeholder image that some tile services return with status 200. Such a tile is drawn from its nearest ancestor tile that has data, enlarged. `createRasterTileFingerprintFilter` and `getRasterTileFingerprint` make that function for a service whose placeholder is always the same bytes.
+
 ## October 2026
 
 - Labels are drawn with the style's `glyphs`, as in MapLibre GL JS: the signed distance fields of each `text-font` stack, loaded per range as tiles need them, with MapLibre's advances and glyph placement. A tile's labels are placed once their glyphs have loaded. Styles without `glyphs`, and the `fontFamily` prop, still draw with the browser's fonts.

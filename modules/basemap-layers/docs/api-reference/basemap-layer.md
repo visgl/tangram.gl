@@ -69,6 +69,34 @@ Optional loader configuration used by `resolveBasemapStyle`. This can include:
 - `fetch` for a custom fetch implementation
 - `fetchOptions` to customize network requests
 
+The tiles of raster sources load with `loadOptions` and with the `fetch` prop of the layer, as vector tiles do.
+
+### `rejectRasterTile`
+
+Type: `((tile: RasterTileResponse) => boolean | Promise<boolean>) | null`
+
+Some tile services return a placeholder image with status 200 where they have no data, in place of a 404 response. Return `true` for such a tile. The layer then draws that tile from its nearest ancestor tile that has data, enlarged, as MapLibre GL JS draws a tile that failed to load. The placeholder is not drawn.
+
+The function receives the tile before it is decoded:
+
+- `url`: the URL the tile was requested from
+- `sourceId`: the id of the style source
+- `index`: the `{x, y, z}` position of the tile
+- `arrayBuffer`: the bytes of the response body
+
+A tile with an empty response body also has no data. The search for an ancestor stops at the `minzoom` of the source. If no ancestor has data, the layer draws nothing for the tile.
+
+With this prop, raster tiles are requested with the `fetch` and `fetchOptions` of `loadOptions`. The `fetch` prop of the layer returns decoded data, so the layer does not use it for these tiles. Pass a stable function: raster tiles reload when the function changes.
+
+```ts
+import {BasemapLayer, createRasterTileFingerprintFilter} from '@tangram.gl/basemap-layers';
+
+// `placeholderFingerprint` is the SHA-256 digest of the placeholder image, in hexadecimal.
+const rejectRasterTile = createRasterTileFingerprintFilter([placeholderFingerprint]);
+
+new BasemapLayer({style, rejectRasterTile});
+```
+
 ### `globe`
 
 Type: `{config?: BasemapGlobeConfig}`
@@ -99,6 +127,31 @@ The shared placement takes the `labelPlacementInterval` of the last `BasemapLaye
 Generates the deck.gl sublayers for an already-resolved style definition. Use this when you want the sublayers without creating a `BasemapLayer` instance.
 
 `BasemapLayer` keeps each source's tiles in a shared tileset across renders. A direct caller that calls `getBasemapLayers` on every render keeps them by passing its own `tilesets` map, keyed by source, and finalizes those tilesets when done.
+
+### `createRasterTileFingerprintFilter(fingerprints)`
+
+Creates a `rejectRasterTile` function. It matches each raster tile whose bytes have one of `fingerprints`. Use it for a tile service that returns the same placeholder image, byte for byte, for every tile without data.
+
+`fingerprints` is an iterable of strings, or a promise of one. Use a promise to measure the fingerprint at run time from a tile that is known to have no data:
+
+```ts
+import {
+  createRasterTileFingerprintFilter,
+  getRasterTileFingerprint
+} from '@tangram.gl/basemap-layers';
+
+const rejectRasterTile = createRasterTileFingerprintFilter(
+  fetch(urlOfTileWithoutData)
+    .then(response => response.arrayBuffer())
+    .then(async arrayBuffer => [await getRasterTileFingerprint(arrayBuffer)])
+);
+```
+
+While the promise is pending, tiles wait for it. If the promise rejects, the function matches no tile.
+
+### `getRasterTileFingerprint(arrayBuffer)`
+
+Returns a promise of the SHA-256 digest of the bytes of a raster tile, as a hexadecimal string. It uses `crypto.subtle`, which browsers supply on secure origins only.
 
 ### `createDemTileset(source, loadOptions?)`
 

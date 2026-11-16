@@ -40,6 +40,7 @@ import {GlyphStore} from './glyph-store';
 import {loadSpriteAtlases} from './sprite';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
+import type {RejectRasterTile} from './raster-tile-loader';
 
 /**
  * Logs a non-error basemap-layer runtime event to deck.gl logging.
@@ -114,6 +115,15 @@ export type BasemapLayerProps = {
    * are placed first. With `true`, this layer's labels collide only with each other.
    */
   separateLabelPlacement?: boolean;
+  /**
+   * Returns `true` for a raster tile that has no map data, such as the placeholder image that some
+   * tile services return with status 200 where they have no coverage. The tile is then drawn from
+   * its nearest ancestor tile that has data, enlarged, and the placeholder is not drawn. The
+   * function receives the bytes of the response (see `RasterTileResponse`). With this prop, raster
+   * tiles are requested with the `fetch` and `fetchOptions` of `loadOptions`. Pass a stable
+   * function: raster tiles reload when it changes. See `createRasterTileFingerprintFilter`.
+   */
+  rejectRasterTile?: RejectRasterTile | null;
 };
 
 const fractionalZoomLimitsCache = new WeakMap<ResolvedBasemapStyle, number[]>();
@@ -198,6 +208,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     style: null,
     loadOptions: null,
     fontFamily: null,
+    rejectRasterTile: null,
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
     separateLabelPlacement: false
   };
@@ -502,6 +513,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       styleDefinition: resolvedStyle,
       zoom,
       loadOptions: this.props.loadOptions,
+      fetch: this.props.fetch,
+      rejectRasterTile: this.props.rejectRasterTile,
       spriteAtlases: this.state.spriteAtlases,
       fontFamily: this.props.fontFamily,
       // A label font of the caller's is drawn with the browser's fonts.

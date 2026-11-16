@@ -16,5 +16,10 @@ export {getSpriteIconMapping, getSpriteSources, loadSpriteAtlases} from './sprit
 export type {SpriteAtlas, SpriteIconMappingEntry, SpriteSource} from './sprite';
 export {getLabelFont} from './text-font';
 export type {LabelFont, LabelFontFamily} from './text-font';
+export {
+  createRasterTileFingerprintFilter,
+  getRasterTileFingerprint
+} from './raster-tile-fingerprint';
+export type {RasterTileIndex, RasterTileResponse, RejectRasterTile} from './raster-tile-loader';
 export {GlyphStore} from './glyph-store';
 export type {GlyphStoreOptions} from './glyph-store';

@@ -7,6 +7,7 @@ import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {isGlobeViewport} from './is-globe-viewport';
 import {
   type Layer,
+  type LayerProps,
   type LayersList,
   type UpdateParameters,
   log
@@ -70,6 +71,7 @@ import {
   getZoomPaintOffset
 } from './zoom-paint-extension';
 import type {BasemapGlobeConfig, BasemapLayerProps} from './basemap-layer';
+import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {
@@ -94,6 +96,10 @@ type BasemapLayerGroup = {
   styleDefinition: ResolvedBasemapStyle;
   zoom?: number;
   loadOptions?: BasemapLoadOptions;
+  /** Loads the tiles of raster sources (see deck.gl's `fetch` layer prop). */
+  fetch?: LayerProps['fetch'];
+  /** Matches the raster tiles that have no data (see `BasemapLayerProps.rejectRasterTile`). */
+  rejectRasterTile?: RejectRasterTile | null;
   /**
    * Sprites loaded for the style; symbol layers draw `icon-image` from them. `null` means the
    * sprites are still loading: no icons are drawn, and labels are placed as if each symbol had its
@@ -764,6 +770,9 @@ function createRasterLayer({
   source,
   zoom,
   mode,
+  loadOptions,
+  fetch,
+  rejectRasterTile,
   depthTested
 }: {
   idPrefix: string;
@@ -771,6 +780,9 @@ function createRasterLayer({
   source: BasemapSource;
   zoom: number;
   mode: BasemapMode;
+  loadOptions?: BasemapLoadOptions;
+  fetch?: LayerProps['fetch'];
+  rejectRasterTile?: RejectRasterTile | null;
   /** Drawn after an extrusion, see `getTileParameters`. */
   depthTested?: boolean;
 }) {
@@ -783,11 +795,27 @@ function createRasterLayer({
   const isNearest =
     getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
     getRasterPaintValue(paint, 'resampling') === 'nearest';
+  const tilePyramidProps = getTilePyramidProps(source);
 
   return new TileLayer({
     id: `${idPrefix}-${layer.id}`,
     data: source.tiles,
-    ...getTilePyramidProps(source),
+    ...tilePyramidProps,
+    // Tiles load with the `fetch` and `loadOptions` of the basemap, as vector tiles do.
+    ...(fetch ? {fetch} : {}),
+    ...(loadOptions ? {loadOptions} : {}),
+    // A tile without data is drawn from its nearest ancestor that has data.
+    ...(rejectRasterTile
+      ? {
+          getTileData: getRasterTileLoader(source, {
+            sourceId: layer.source || '',
+            minZoom: tilePyramidProps.minZoom,
+            rejectTile: rejectRasterTile,
+            loadOptions
+          }).getTileData
+        }
+      : {}),
+    updateTriggers: {getTileData: rejectRasterTile || null},
     tileSize: source.tileSize || 512,
     // deck.gl draws with `opacity ** (1 / 2.2)`. Undo that, so the alpha is `raster-opacity`, as
     // in MapLibre.
@@ -1883,6 +1911,8 @@ export function getBasemapLayers({
   styleDefinition,
   zoom = 0,
   loadOptions,
+  fetch,
+  rejectRasterTile,
   spriteAtlases,
   fontFamily,
   glyphs,
@@ -1911,6 +1941,8 @@ export function getBasemapLayers({
         zoom,
         config,
         loadOptions,
+        fetch,
+        rejectRasterTile,
         mode,
         spriteAtlases,
         fontFamily,
@@ -3290,6 +3322,8 @@ function getStyleLayers({
   zoom,
   config,
   loadOptions,
+  fetch,
+  rejectRasterTile,
   mode,
   spriteAtlases,
   fontFamily,
@@ -3303,6 +3337,8 @@ function getStyleLayers({
   zoom: number;
   config: BasemapLayerConfig;
   loadOptions?: BasemapLoadOptions;
+  fetch?: LayerProps['fetch'];
+  rejectRasterTile?: RejectRasterTile | null;
   mode: BasemapMode;
   spriteAtlases?: SpriteAtlas[] | null;
   fontFamily?: LabelFontFamily | null;
@@ -3344,6 +3380,9 @@ function getStyleLayers({
         source: run.source!,
         zoom,
         mode,
+        loadOptions,
+        fetch,
+        rejectRasterTile,
         depthTested: depthTested.has(layer)
       });
     }
