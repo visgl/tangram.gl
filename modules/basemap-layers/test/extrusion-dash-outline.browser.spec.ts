@@ -215,7 +215,7 @@ describe('fill-outline-color in the browser', () => {
     expect(hasBlueEdge(image)).toBe(true);
   });
 
-  test('draws no outline without fill-outline-color', async () => {
+  test('draws the outline in fill-color without fill-outline-color', async () => {
     const image = await renderFlat([
       styleSublayer({id: 'land', type: 'fill', paint: {'fill-color': '#ff0000'}}, [SQUARE])
     ]);

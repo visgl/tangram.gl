@@ -18,6 +18,12 @@
  *   the scores measured (for a deliberate change of scenes, fixtures or metrics); `record`
  *   downloads the fixtures the scenes need and then reports like `check`, without failing.
  * - `VITE_REFERENCE_RENDER_SCENES`: `default`, `extended`, `all` or a comma-separated list of ids.
+ * - `VITE_REFERENCE_RENDER_LAYER_TYPES`: a comma-separated list of style layer types (`fill`,
+ *   `line`, `symbol`, ...). Both renderers then draw only the background and the layers of those
+ *   types, which gives scores per layer type (report only, never checked).
+ * - `VITE_REFERENCE_RENDER_PIXEL_RATIO`: the device pixel ratio of both renders (default 1). At
+ *   another ratio the scores are report only: the baseline is of ratio 1.
+ * - `VITE_REFERENCE_RENDER_TIMEOUT`: milliseconds a `BasemapLayer` render may take (default 60000).
  * - `VITE_REFERENCE_RENDER_SABOTAGE`: breaks the `BasemapLayer` render on purpose, to show that the
  *   metrics catch it (report only, never checked): `no-labels`, `reverse-order` (style layers drawn
  *   in reverse) or `offset` (camera moved 3 pixels east).
@@ -68,6 +74,14 @@ const OUTPUT = `${DIRECTORY}/__output__`;
 const env = (import.meta as any).env || {};
 const MODE: 'check' | 'update' | 'reset' | 'record' = env.VITE_REFERENCE_RENDER_MODE || 'check';
 const SCENES = selectScenes(env.VITE_REFERENCE_RENDER_SCENES);
+const LAYER_TYPES: string[] | undefined = env.VITE_REFERENCE_RENDER_LAYER_TYPES
+  ? String(env.VITE_REFERENCE_RENDER_LAYER_TYPES)
+      .split(',')
+      .map(type => type.trim())
+  : undefined;
+const PIXEL_RATIO = Number(env.VITE_REFERENCE_RENDER_PIXEL_RATIO) || 1;
+/** Whether the run draws the scenes as the baseline's runs do: only such a run is checked. */
+const IS_BASELINE_RUN = !LAYER_TYPES && PIXEL_RATIO === 1;
 const SABOTAGE: 'no-labels' | 'reverse-order' | 'offset' | undefined =
   env.VITE_REFERENCE_RENDER_SABOTAGE || undefined;
 
@@ -90,6 +104,8 @@ function getCandidateInputs(style: any, scene: ReferenceScene) {
   return {candidateStyle, candidateScene, layerProps};
 }
 const baseline = committedBaseline as Baseline;
+/** Two renders of the candidate, the reference, and in record mode up to four attempts. */
+const TEST_TIMEOUT = Math.max(180_000, 12 * (Number(env.VITE_REFERENCE_RENDER_TIMEOUT) || 0));
 
 /** The fonts the styles' `text-font` stacks map to, loaded so labels draw the same on every OS. */
 const FONTS = [
@@ -129,9 +145,16 @@ async function renderScene(scene: ReferenceScene) {
   // Record mode renders until no fixture is missing: a render with more data can request more.
   for (let attempt = 0; ; attempt++) {
     const style = await loadReferenceStyle(scene.style, {record});
-    const reference = await renderMapLibre(structuredClone(style), scene);
+    if (LAYER_TYPES) {
+      style.layers = style.layers.filter(
+        layer => layer.type === 'background' || LAYER_TYPES.includes(layer.type)
+      );
+    }
+    const reference = await renderMapLibre(structuredClone(style), scene, {pixelRatio: PIXEL_RATIO});
     const {candidateStyle, candidateScene, layerProps} = getCandidateInputs(style, scene);
-    const candidate = await renderBasemapLayer(candidateStyle, candidateScene, layerProps);
+    const candidate = await renderBasemapLayer(candidateStyle, candidateScene, layerProps, {
+      pixelRatio: PIXEL_RATIO
+    });
     const missing = [
       ...(await getMissingFixtures(reference)),
       ...(await getMissingFixtures(candidate))
@@ -150,7 +173,8 @@ describe('reference render: MapLibre GL JS vs BasemapLayer', () => {
 
   test.each(SCENES)('$id', async scene => {
     const {reference, candidate, missing} = await renderScene(scene);
-    const {width, height} = VIEWPORT;
+    const width = VIEWPORT.width * PIXEL_RATIO;
+    const height = VIEWPORT.height * PIXEL_RATIO;
     const result = computeSceneMetrics({
       width,
       height,
@@ -202,20 +226,20 @@ describe('reference render: MapLibre GL JS vs BasemapLayer', () => {
     if (sceneBaseline) {
       regressions[scene.id] = getRegressions(result.metrics, sceneBaseline);
     }
-    if (MODE === 'check' && !SABOTAGE) {
+    if (MODE === 'check' && !SABOTAGE && IS_BASELINE_RUN) {
       if (DEFAULT_SCENES.includes(scene)) {
         expect(sceneBaseline, `no baseline for ${scene.id}: run with MODE=update`).toBeDefined();
       }
       expect(regressions[scene.id] || []).toEqual([]);
     }
-  }, 180_000);
+  }, TEST_TIMEOUT);
 
   afterAll(async () => {
     const table = formatDeltaTable(baseline, measured, regressions);
     console.log(`\nReference render vs baseline:\n${table}\n`);
     await commands.writeFile(`${OUTPUT}/report.md`, `${table}\n`);
     await commands.writeFile(`${OUTPUT}/metrics.json`, `${JSON.stringify(details, null, 2)}\n`);
-    if ((MODE === 'update' || MODE === 'reset') && !SABOTAGE) {
+    if ((MODE === 'update' || MODE === 'reset') && !SABOTAGE && IS_BASELINE_RUN) {
       // A render that missed fixtures or left the page's origin is reported, never recorded.
       const recorded = Object.fromEntries(Object.entries(measured).filter(([id]) => valid.has(id)));
       const next =

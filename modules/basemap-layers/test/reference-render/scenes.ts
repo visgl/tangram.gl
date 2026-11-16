@@ -11,7 +11,15 @@ export const REFERENCE_STYLES = {
   'ofm-liberty': 'https://tiles.openfreemap.org/styles/liberty',
   'ofm-positron': 'https://tiles.openfreemap.org/styles/positron',
   'ofm-dark': 'https://tiles.openfreemap.org/styles/dark',
-  'carto-positron': 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json'
+  'carto-positron': 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+  // The CARTO GL styles as served since 2026-10 (Protomaps basemap schema, `carto.streets/v2`).
+  // `carto-positron` above is the earlier snapshot of the same URL (OpenMapTiles schema, `v1`).
+  'carto-positron-v2': 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+  'carto-positron-nolabels-v2':
+    'https://basemaps.cartocdn.com/gl/positron-nolabels-gl-style/style.json',
+  'carto-dark-matter-v2': 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  'carto-dark-matter-nolabels-v2':
+    'https://basemaps.cartocdn.com/gl/dark-matter-nolabels-gl-style/style.json'
 } as const;
 
 export type ReferenceStyleId = keyof typeof REFERENCE_STYLES;
@@ -94,6 +102,13 @@ export const DEFAULT_SCENES: ReferenceScene[] = [
   }
 ];
 
+const CARTO_V2_STYLES: ReferenceStyleId[] = [
+  'carto-positron-v2',
+  'carto-positron-nolabels-v2',
+  'carto-dark-matter-v2',
+  'carto-dark-matter-nolabels-v2'
+];
+
 const PLACES: Array<{id: string; center: [number, number]}> = [
   {id: 'paris', center: [2.3417, 48.8575]},
   {id: 'new-york', center: [-73.985, 40.748]},
@@ -108,7 +123,9 @@ const EXTENDED_ZOOMS = [4.3, 8.3, 11.3, 13.3, 15.3];
  */
 export const EXTENDED_SCENES: ReferenceScene[] = (
   Object.keys(REFERENCE_STYLES) as ReferenceStyleId[]
-).flatMap(style => [
+)
+  .filter(style => !CARTO_V2_STYLES.includes(style))
+  .flatMap(style => [
   {
     id: `world-${style}-z0.6`,
     style,
@@ -125,7 +142,35 @@ export const EXTENDED_SCENES: ReferenceScene[] = (
   )
 ]);
 
-/** Scenes selected by a comma-separated list of ids, or `default` / `extended` / `all`. */
+/** A coastal city and an inland city. */
+const CARTO_V2_PLACES: Array<{id: string; center: [number, number]}> = [
+  {id: 'boston', center: [-71.0589, 42.3601]},
+  {id: 'madrid', center: [-3.7038, 40.4168]}
+];
+
+const CARTO_V2_ZOOMS = [3, 8, 12.5, 15];
+
+/**
+ * The CARTO GL styles at a coastal city and an inland city, for local runs
+ * (`VITE_REFERENCE_RENDER_SCENES=carto-v2`). The style snapshots are committed. The tiles, glyphs
+ * and sprites are not: the CARTO Basemaps terms do not allow their redistribution. Record mode
+ * downloads them into a git-ignored directory.
+ */
+export const CARTO_V2_SCENES: ReferenceScene[] = CARTO_V2_STYLES.flatMap(style =>
+  CARTO_V2_PLACES.flatMap(place =>
+    CARTO_V2_ZOOMS.map(zoom => ({
+      id: `${place.id}-${style}-z${zoom}`,
+      style,
+      center: place.center,
+      zoom
+    }))
+  )
+);
+
+/**
+ * Scenes selected by a comma-separated list of ids, or `default` / `extended` / `carto-v2` /
+ * `all`.
+ */
 export function selectScenes(selection: string | undefined): ReferenceScene[] {
   const value = (selection || 'default').trim();
   if (value === 'default') {
@@ -134,7 +179,10 @@ export function selectScenes(selection: string | undefined): ReferenceScene[] {
   if (value === 'extended') {
     return EXTENDED_SCENES;
   }
-  const all = [...DEFAULT_SCENES, ...EXTENDED_SCENES];
+  if (value === 'carto-v2') {
+    return CARTO_V2_SCENES;
+  }
+  const all = [...DEFAULT_SCENES, ...EXTENDED_SCENES, ...CARTO_V2_SCENES];
   if (value === 'all') {
     return all;
   }

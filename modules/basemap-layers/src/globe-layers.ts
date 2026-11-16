@@ -2473,6 +2473,11 @@ type GeometryPaint = {
   hasOutline: boolean;
 };
 
+/** Whether a fill sets `fill-outline-color`: its outline then has a color of its own. */
+function hasOutlineColor(styleLayer: BasemapStyleLayer): boolean {
+  return styleLayer.type === 'fill' && styleLayer.paint?.['fill-outline-color'] !== undefined;
+}
+
 function getGeometryPaint(
   styleLayer: BasemapStyleLayer,
   mode: BasemapMode,
@@ -2498,22 +2503,30 @@ function getGeometryPaint(
           mode
         )
       );
-  // MapLibre draws a fill's outline only with `fill-antialias`; without `fill-outline-color` the
-  // outline is in `fill-color` and only antialiases the edge, which deck.gl's fill does not need.
+  // MapLibre draws a fill's outline only with `fill-antialias`, in `fill-outline-color` or, without
+  // it, in `fill-color`. That outline is more than antialiasing: it closes the cracks between
+  // polygons that meet at an edge, and it draws a polygon narrower than a pixel, such as a river at
+  // a low zoom, as a line. A patterned fill's own outline draws the pattern, and a globe's fills
+  // are opaque: both are left without it.
+  const hasOwnOutlineColor = hasOutlineColor(styleLayer);
   const hasOutline =
     isFill &&
-    styleLayer.paint?.['fill-outline-color'] !== undefined &&
+    (hasOwnOutlineColor || (!hasFillPattern && mode !== 'globe')) &&
     getPaint(styleLayer, zoom)['fill-antialias'] !== false;
   const lineColor = isLine
     ? getStyleAccessor(styleLayer, ['line-color', 'line-opacity'], zoom, ([color, opacity]) =>
         withOpacity(color ?? DEFAULT_COLOR, opacity ?? 1)
       )
-    : getStyleAccessor(
-        styleLayer,
-        ['fill-outline-color', 'fill-opacity'],
-        zoom,
-        ([color, opacity]) => withOpacity(color, opacity ?? 1)
-      );
+    : hasOwnOutlineColor
+      ? getStyleAccessor(
+          styleLayer,
+          ['fill-outline-color', 'fill-opacity'],
+          zoom,
+          ([color, opacity]) => withOpacity(color, opacity ?? 1)
+        )
+      : getStyleAccessor(styleLayer, ['fill-color', 'fill-opacity'], zoom, ([color, opacity]) =>
+          withOpacity(color ?? getStylePropertyDefault('fill-color'), opacity ?? 1)
+        );
   // A fill's outline is MapLibre's 1 pixel antialiasing line.
   const lineWidth: StyleAccessor<number> = isLine
     ? getStyleAccessor(styleLayer, ['line-width'], zoom, ([width]) =>
@@ -2656,7 +2669,10 @@ function getGeometryStyle({
 /**
  * The key under which consecutive style layers can draw as one sublayer, or null when this one
  * draws alone. Style layers share a sublayer when everything deck.gl applies to a whole layer is
- * the same: a fill without an outline, or a line's cap, join and miter limit. Solid and dashed
+ * the same: a fill without an outline, or a line's cap, join and miter limit. A fill with an
+ * outline draws alone, its fill and then its outline: a batch would draw all of its fills before
+ * or after all of its outlines, and then hide a later layer's outline below an earlier layer's fill,
+ * or draw an earlier layer's outline over a later layer's fill. Solid and dashed
  * lines share a sublayer: the solid ones draw with a dash array without gaps. Lines with an
  * offset, a gap or a blur, and fills with a pattern or a translation, draw alone.
  */

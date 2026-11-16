@@ -272,7 +272,10 @@ describe('fill-translate', () => {
 
   test('a fill without fill-translate has no extension', () => {
     const [layer] = renderFills({'fill-color': '#000000'});
-    expect(layer.props.extensions || []).toEqual([]);
+    // Only the extension of its antialiasing outline.
+    expect(
+      (layer.props.extensions || []).map((extension: any) => extension.constructor.name)
+    ).toEqual(['FillOutlineExtension']);
     expect(layer.props.fillTranslate).toBeUndefined();
   });
 
