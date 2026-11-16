@@ -5,6 +5,9 @@
 import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from './terrain-query';
 import {isGlobeViewport} from './is-globe-viewport';
+import {getStyleZoom, isProjectedViewport} from './projected-viewport';
+import {getBasemapTilesetAdapter} from './projected-tileset';
+import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
 import type {BasemapSource} from './style-resolver';
 import {
   CompositeLayer,
@@ -116,6 +119,14 @@ export type BasemapLayerProps = {
    */
   separateLabelPlacement?: boolean;
   /**
+   * The stretch limit of the tile selection in a projected view (deck.gl's
+   * `_CustomProjectionView`), see `ProjectedTileSelectionOptions.maxStretch`. The default, 4, suits
+   * most projections. A projection whose scale grows steeply toward the edge of its area of use,
+   * such as a polar stereographic projection, needs a larger limit to draw out to that edge: 16
+   * draws an EPSG:3031 view out to latitude 60N. A change reloads the tiles.
+   */
+  projectedMaxStretch?: number;
+  /**
    * Returns `true` for a raster tile that has no map data, such as the placeholder image that some
    * tile services return with status 200 where they have no coverage. The tile is then drawn from
    * its nearest ancestor tile that has data, enlarged, and the placeholder is not drawn. The
@@ -175,6 +186,8 @@ type BasemapLayerState = {
   tilesetSourceLayers: Map<BasemapSource, string>;
   /** Loading configuration used to construct the current source caches. */
   tileLoadOptions: unknown;
+  /** The `projectedMaxStretch` the current source caches select tiles with. */
+  tileMaxStretch: number | null;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
 };
@@ -210,7 +223,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     fontFamily: null,
     rejectRasterTile: null,
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
-    separateLabelPlacement: false
+    separateLabelPlacement: false,
+    projectedMaxStretch: DEFAULT_MAX_STRETCH
   };
 
   /** Current layer state. */
@@ -228,6 +242,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tilesets: new Map(),
       tilesetSourceLayers: new Map(),
       tileLoadOptions: null,
+      tileMaxStretch: null,
       tileFetch: null,
       spriteAtlases: null,
       glyphs: null
@@ -252,8 +267,10 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
   /** Returns the key of what the sublayers depend on in `viewport`, for a resolved style. */
   getZoomKey(resolvedStyle: ResolvedBasemapStyle, viewport: Viewport | undefined): string {
-    const zoomKey = getStyleZoomKey(viewport?.zoom || 0, getFractionalZoomLimits(resolvedStyle));
-    return `${this.getDrawMode(viewport)}:${zoomKey}`;
+    const zoomKey = getStyleZoomKey(getStyleZoom(viewport), getFractionalZoomLimits(resolvedStyle));
+    // A projected view draws as a map, with other sublayers: longitude/latitude geometry.
+    const drawMode = isProjectedViewport(viewport) ? 'projected' : this.getDrawMode(viewport);
+    return `${drawMode}:${zoomKey}`;
   }
 
   /**
@@ -429,7 +446,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     );
     const optionsChanged =
       this.state.tileLoadOptions !== this.props.loadOptions ||
-      this.state.tileFetch !== this.props.fetch;
+      this.state.tileFetch !== this.props.fetch ||
+      this.state.tileMaxStretch !== this.props.projectedMaxStretch;
     // Tiles decode only the source layers the style draws: a style edit or a labels toggle that
     // changes the layers the loader decodes reloads the source's tiles.
     const sourceLayers = getStyleSourceLayers(style, this.props.globe);
@@ -455,6 +473,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     }
     this.state.tileLoadOptions = this.props.loadOptions;
     this.state.tileFetch = this.props.fetch;
+    this.state.tileMaxStretch = this.props.projectedMaxStretch ?? null;
     for (const source of sources) {
       if (!this.state.tilesets.has(source)) {
         const loader = new SharedMVTLayer({
@@ -466,6 +485,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
         loader.context = this.context;
         const tileset = new SharedTileset2D({
           ...loader._getTilesetOptions(),
+          adapter: getBasemapTilesetAdapter(this.props.projectedMaxStretch),
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
@@ -477,7 +497,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     }
     for (const source of demSources) {
       if (!this.state.tilesets.has(source)) {
-        const tileset = createDemTileset(source, this.props.loadOptions);
+        const tileset = createDemTileset(source, this.props.loadOptions, this.props.projectedMaxStretch);
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
       }
@@ -502,7 +522,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
     this.updateSourceTilesets(resolvedStyle);
     const {viewport} = this.context;
-    const zoom = viewport?.zoom || 0;
+    // In a projected view, the zoom of the Web Mercator map of the same scale.
+    const zoom = getStyleZoom(viewport);
     // Recorded without setState: this only tracks what the current sublayers were built from.
     this.state.zoomKey = this.getZoomKey(resolvedStyle, viewport);
 
@@ -520,7 +541,9 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       // A label font of the caller's is drawn with the browser's fonts.
       glyphs: this.props.fontFamily ? null : this.state.glyphs,
       labelPlacement: this.getLabelPlacement(),
-      tilesets: this.state.tilesets
+      tilesets: this.state.tilesets,
+      projected: isProjectedViewport(viewport),
+      projectedMaxStretch: this.props.projectedMaxStretch
     });
   }
 }
