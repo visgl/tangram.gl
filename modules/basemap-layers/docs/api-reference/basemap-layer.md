@@ -40,7 +40,7 @@ import {BasemapLayer} from '@tangram.gl/basemap-layers';
 - resolves TileJSON-backed sources, and fetches the data of GeoJSON sources given by URL
 - cuts GeoJSON sources into vector tiles on the client, in a web worker
 - generates `background`, `fill`, `line`, `symbol`, and `raster` sublayers
-- supports both flat map rendering and globe rendering
+- supports flat map rendering, globe rendering, and rendering in a projected view (`_CustomProjectionView`)
 
 ## Props
 
@@ -69,6 +69,34 @@ Optional loader configuration used by `resolveBasemapStyle`. This can include:
 - `fetch` for a custom fetch implementation
 - `fetchOptions` to customize network requests
 
+The tiles of raster sources load with `loadOptions` and with the `fetch` prop of the layer, as vector tiles do.
+
+### `rejectRasterTile`
+
+Type: `((tile: RasterTileResponse) => boolean | Promise<boolean>) | null`
+
+Some tile services return a placeholder image with status 200 where they have no data, in place of a 404 response. Return `true` for such a tile. The layer then draws that tile from its nearest ancestor tile that has data, enlarged, as MapLibre GL JS draws a tile that failed to load. The placeholder is not drawn.
+
+The function receives the tile before it is decoded:
+
+- `url`: the URL the tile was requested from
+- `sourceId`: the id of the style source
+- `index`: the `{x, y, z}` position of the tile
+- `arrayBuffer`: the bytes of the response body
+
+A tile with an empty response body also has no data. The search for an ancestor stops at the `minzoom` of the source. If no ancestor has data, the layer draws nothing for the tile.
+
+With this prop, raster tiles are requested with the `fetch` and `fetchOptions` of `loadOptions`. The `fetch` prop of the layer returns decoded data, so the layer does not use it for these tiles. Pass a stable function: raster tiles reload when the function changes.
+
+```ts
+import {BasemapLayer, createRasterTileFingerprintFilter} from '@tangram.gl/basemap-layers';
+
+// `placeholderFingerprint` is the SHA-256 digest of the placeholder image, in hexadecimal.
+const rejectRasterTile = createRasterTileFingerprintFilter([placeholderFingerprint]);
+
+new BasemapLayer({style, rejectRasterTile});
+```
+
 ### `globe`
 
 Type: `{config?: BasemapGlobeConfig}`
@@ -87,7 +115,68 @@ By default (`false`), the labels of every `BasemapLayer` in a deck are placed to
 
 The shared placement takes the `labelPlacementInterval` of the last `BasemapLayer` rendered: give layers that share it the same interval.
 
+## Projected views
+
+`BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, and `mode` stays `'map'`.
+
+```ts
+import {Deck, _CustomProjectionView as CustomProjectionView} from '@deck.gl/core';
+import {BasemapLayer} from '@tangram.gl/basemap-layers';
+
+new Deck({
+  views: new CustomProjectionView({crs: 'EPSG:32632'}),
+  initialViewState: {center: [10.5, 48, 0], zoom: 12},
+  controller: true,
+  layers: [new BasemapLayer({id: 'basemap', style: 'https://example.com/style.json'})]
+});
+```
+
+The [CustomProjectionView example](/examples/basemap-layers/custom-projection) draws the OpenFreeMap Liberty style in UTM zone 32N, Conus Albers and a south polar stereographic projection.
+
+In a projected view:
+
+- Tiles are still the Web Mercator tiles of the style's sources. They are selected for the area that the screen shows, through the projection (see `getProjectedTileIndices`).
+- Vector geometry is drawn from longitude/latitude positions. deck.gl converts each vertex to the coordinate reference system of the view. Lines and fills are not drawn as tile images. Long edges, such as the edges of a polygon cut at the side of a tile, get more vertices, so that they follow the projection.
+- Raster and hillshade tile images are drawn on a mesh that follows the projection. The mesh is refined with math.gl `subdivideTriangleMesh` until the sampled error is less than half a texel.
+- Labels at points stay upright on the screen. Labels along lines turn to the line as the view draws it.
+- Styles are evaluated, and tiles are selected, at the zoom of the Web Mercator map that has the same scale at the view center (see `getMercatorZoom`). The zoom of the view itself counts pixels per unit of the coordinate reference system. At latitude 60, the two differ by one zoom level.
+- A `background` layer fills the screen, also outside the bounds of the projection.
+
+Limits:
+
+- math.gl moves positions outside the area of use of a projection to its edge. A view of EPSG:32632 thus draws UTM zone 32N only, and the background around it.
+- Text along lines is straight. It does not follow the line glyph by glyph, as it does in a `MapView`.
+- A view can zoom out past the area that its projection draws well. Where the projection stretches a tile to more than four times the scale at the view center, or the tile lies on a seam of the projection, the tile is divided into smaller tiles, up to four times. The parts that are still stretched are not drawn.
+- `fill-extrusion` layers and pitched views are not covered by render tests.
+
 ## Runtime Helpers
+
+### `getProjectedTileIndices(viewport, options)`
+
+```ts
+import {getProjectedTileIndices} from '@tangram.gl/basemap-layers';
+```
+
+Returns the Web Mercator tile indices `{x, y, z}` of zoom `options.z` that a projected viewport shows, nearest the view center first. It reads only `width`, `height`, `project` and `unproject` of the viewport, so it holds for any projection, bearing and pitch. `options.extent` limits the selection to longitude/latitude bounds. `options.maxTiles` (default 512) bounds the count: a view that needs more gets the tiles of a lower zoom. With `projectPosition`, tiles that the projection stretches are divided into tiles of higher zooms, up to `options.maxZoom`.
+
+### `ProjectedTileset2D`
+
+```ts
+import {TileLayer} from '@deck.gl/geo-layers';
+import {ProjectedTileset2D} from '@tangram.gl/basemap-layers';
+
+new TileLayer({data: 'https://example.com/{z}/{x}/{y}.png', TilesetClass: ProjectedTileset2D});
+```
+
+A deck.gl `Tileset2D` that selects tiles with `getProjectedTileIndices` in a projected view, and as `Tileset2D` does in other views. `BasemapLayer` uses it for raster sources.
+
+### `ProjectedBitmapLayer`
+
+A deck.gl `BitmapLayer` for one Web Mercator tile image. In a projected view it draws the image on the mesh described above. In other views it draws as `BitmapLayer` does. Pass `bounds` as `[west, south, east, north]`.
+
+### `getMercatorZoom(viewport)`
+
+Returns the zoom at which a Web Mercator map has the scale of a projected viewport at its center.
 
 ### `getBasemapLayers(options)`
 
@@ -99,6 +188,31 @@ The shared placement takes the `labelPlacementInterval` of the last `BasemapLaye
 Generates the deck.gl sublayers for an already-resolved style definition. Use this when you want the sublayers without creating a `BasemapLayer` instance.
 
 `BasemapLayer` keeps each source's tiles in a shared tileset across renders. A direct caller that calls `getBasemapLayers` on every render keeps them by passing its own `tilesets` map, keyed by source, and finalizes those tilesets when done.
+
+### `createRasterTileFingerprintFilter(fingerprints)`
+
+Creates a `rejectRasterTile` function. It matches each raster tile whose bytes have one of `fingerprints`. Use it for a tile service that returns the same placeholder image, byte for byte, for every tile without data.
+
+`fingerprints` is an iterable of strings, or a promise of one. Use a promise to measure the fingerprint at run time from a tile that is known to have no data:
+
+```ts
+import {
+  createRasterTileFingerprintFilter,
+  getRasterTileFingerprint
+} from '@tangram.gl/basemap-layers';
+
+const rejectRasterTile = createRasterTileFingerprintFilter(
+  fetch(urlOfTileWithoutData)
+    .then(response => response.arrayBuffer())
+    .then(async arrayBuffer => [await getRasterTileFingerprint(arrayBuffer)])
+);
+```
+
+While the promise is pending, tiles wait for it. If the promise rejects, the function matches no tile.
+
+### `getRasterTileFingerprint(arrayBuffer)`
+
+Returns a promise of the SHA-256 digest of the bytes of a raster tile, as a hexadecimal string. It uses `crypto.subtle`, which browsers supply on secure origins only.
 
 ### `createDemTileset(source, loadOptions?)`
 
