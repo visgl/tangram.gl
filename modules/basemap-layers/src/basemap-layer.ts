@@ -6,8 +6,10 @@ import {
   SharedMVTLayer,
   SharedTileset2D,
   sharedTile2DDeckAdapter,
+  type SharedTile2DHeader,
   type SharedTileset2DAdapter
 } from '@deck.gl-community/geo-layers';
+import type {RequestScheduler} from '@loaders.gl/core/loader-utils';
 import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from './terrain-query';
 import {isGlobeViewport} from './is-globe-viewport';
 import {ZoomLoadGate} from './zoom-load-gate';
@@ -481,26 +483,9 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
-          getTileData: async tile => {
-            // Only a tile that a loaded ancestor draws, enlarged, meanwhile is held: in a zoom out the
-            // new tiles cover more than the old, and are loaded at once.
-            if (
-              gate.delay > 0 &&
-              (await gate.wait(tile.signal, () => hasLoadedAncestor(tileset, tile.index)))
-            ) {
-              // The view has come to rest: a tile that no view shows or selects now is not loaded.
-              // Cancelled, it loads again if a view selects it later.
-              const header = tileset.getTile(tile.index);
-              if (header && !tile.signal?.aborted && !tileset.visibleTiles.includes(header)) {
-                header.abort();
-              }
-            }
-            if (tile.signal?.aborted) {
-              return null;
-            }
-            return loadTile(tile);
-          }
+          getTileData: tile => (tile.signal?.aborted ? null : loadTile(tile))
         });
+        holdBeforeRequestSlot(tileset, gate);
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
       }
@@ -574,6 +559,46 @@ function hasLoadedAncestor(
     }
   }
   return false;
+}
+
+/** A request token that does not take a slot, for a held load that a newer load replaced. */
+const NO_SLOT = {done: () => {}};
+
+/**
+ * Holds the vector tile loads of `tileset` in `gate` before they take a request slot, so that held
+ * tiles do not keep a tile with no placeholder from loading. Only a tile that a loaded ancestor
+ * draws, enlarged, meanwhile is held: in a zoom out the new tiles cover more than the old, and
+ * load at once. `SharedTileset2D` has no option for its request scheduler, so this wraps its own.
+ */
+function holdBeforeRequestSlot(tileset: SharedTileset2D, gate: ZoomLoadGate): void {
+  const internals = tileset as unknown as {_requestScheduler: RequestScheduler};
+  const scheduler = internals._requestScheduler;
+  if (!scheduler) {
+    throw new Error('SharedTileset2D has no request scheduler to hold zoom loads before.');
+  }
+  const requests = new WeakMap<SharedTile2DHeader, number>();
+  internals._requestScheduler = {
+    async scheduleRequest(tile: SharedTile2DHeader, getPriority?: () => number) {
+      const request = (requests.get(tile) ?? 0) + 1;
+      requests.set(tile, request);
+      const isCurrent = () => requests.get(tile) === request;
+      if (
+        gate.delay > 0 &&
+        (await gate.wait(null, () => isCurrent() && hasLoadedAncestor(tileset, tile.index)))
+      ) {
+        if (!isCurrent()) {
+          // A newer load of the tile replaced this one, and aborted its signal: it fetches nothing.
+          return NO_SLOT;
+        }
+        // The view has come to rest: a tile that no view shows or selects now is not loaded.
+        // Cancelled, it loads again if a view selects it later.
+        if (!tile.isLoading || !tileset.visibleTiles.includes(tile)) {
+          return null;
+        }
+      }
+      return scheduler.scheduleRequest(tile, getPriority);
+    }
+  } as RequestScheduler;
 }
 
 /**
