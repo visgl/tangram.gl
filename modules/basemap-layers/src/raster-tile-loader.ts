@@ -179,8 +179,8 @@ export class RasterTileLoader {
 const rasterTileLoaders = new WeakMap<BasemapSource, RasterTileLoader>();
 
 /**
- * The loader of a raster source's tiles. It is kept while `rejectTile` and `loadOptions` stay the
- * same, so that the ancestor tiles it decoded are shared by every render.
+ * The loader of a raster source's tiles. It is kept while the source's `tiles` and the options stay
+ * the same, so that the ancestor tiles it decoded are shared by every render.
  */
 export function getRasterTileLoader(
   source: BasemapSource,
@@ -189,10 +189,13 @@ export function getRasterTileLoader(
   let loader = rasterTileLoaders.get(source);
   if (
     !loader ||
+    loader.options.tiles !== source.tiles ||
     loader.options.rejectTile !== options.rejectTile ||
     loader.options.loadOptions !== options.loadOptions ||
     loader.options.sourceId !== options.sourceId ||
-    loader.options.minZoom !== options.minZoom
+    loader.options.minZoom !== options.minZoom ||
+    loader.options.decodeImage !== options.decodeImage ||
+    loader.options.cropImage !== options.cropImage
   ) {
     loader = new RasterTileLoader({...options, tiles: source.tiles as string[]});
     rasterTileLoaders.set(source, loader);

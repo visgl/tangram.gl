@@ -279,4 +279,25 @@ describe('raster style layers', () => {
       getRasterLayer({rejectRasterTile: () => true, loadOptions}).props.getTileData
     ).not.toBe(loader.getTileData);
   });
+
+  test('load from the new URLs when the tiles of a source are replaced', async () => {
+    const tileSource = {type: 'raster', tiles: ['https://old.test/{z}/{x}/{y}.png']} as any;
+    const fetchTile = vi.fn<typeof fetch>(async () => new Response(new Uint8Array([1])));
+    const options = {
+      sourceId: 'imagery',
+      rejectTile: () => false,
+      loadOptions: {fetch: fetchTile},
+      decodeImage: async () => ({}) as any
+    };
+    const loader = getRasterTileLoader(tileSource, options);
+    expect(getRasterTileLoader(tileSource, options)).toBe(loader);
+    tileSource.tiles = ['https://new.test/{z}/{x}/{y}.png'];
+    await getRasterTileLoader(tileSource, options).getTileData({
+      index: {x: 1, y: 2, z: 3},
+      id: '1-2-3'
+    } as any);
+    expect(fetchTile.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://new.test/3/1/2.png'
+    ]);
+  });
 });
