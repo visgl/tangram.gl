@@ -6,16 +6,16 @@ import type {GlyphStore} from './glyph-store';
 import {SharedMVTLayer, SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {isGeographicViewport, isProjectedViewport} from './projected-viewport';
 import {getTileFeaturesInLngLat} from './projected-tile-data';
-import {basemapTilesetAdapter, ProjectedTileset2D} from './projected-tileset';
+import {getBasemapTilesetAdapter, ProjectedTileLayer} from './projected-tileset';
 import {
   type Color,
   type Layer,
+  type LayerProps,
   type LayersList,
   type UpdateParameters,
   log
 } from '@deck.gl/core';
 import {PathStyleExtension} from '@deck.gl/extensions';
-import {TileLayer} from '@deck.gl/geo-layers';
 import {GeoJsonLayer, SolidPolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {ProjectedBackgroundLayer} from './projected-background-layer';
@@ -76,6 +76,7 @@ import {
   getZoomPaintOffset
 } from './zoom-paint-extension';
 import type {BasemapGlobeConfig, BasemapLayerProps} from './basemap-layer';
+import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {
@@ -100,6 +101,10 @@ type BasemapLayerGroup = {
   styleDefinition: ResolvedBasemapStyle;
   zoom?: number;
   loadOptions?: BasemapLoadOptions;
+  /** Loads the tiles of raster sources (see deck.gl's `fetch` layer prop). */
+  fetch?: LayerProps['fetch'];
+  /** Matches the raster tiles that have no data (see `BasemapLayerProps.rejectRasterTile`). */
+  rejectRasterTile?: RejectRasterTile | null;
   /**
    * Sprites loaded for the style; symbol layers draw `icon-image` from them. `null` means the
    * sprites are still loading: no icons are drawn, and labels are placed as if each symbol had its
@@ -119,6 +124,11 @@ type BasemapLayerGroup = {
    * `background` layer fills the screen around the view (see `ProjectedBackgroundLayer`).
    */
   projected?: boolean;
+  /**
+   * The stretch limit of the tile selection in a projected view (see
+   * `ProjectedTileSelectionOptions.maxStretch`). It applies to the tilesets these layers create.
+   */
+  projectedMaxStretch?: number;
 };
 
 /**
@@ -773,9 +783,13 @@ export function getTilePyramidProps(source: BasemapSource): {
  */
 export function createDemTileset(
   source: BasemapSource,
-  loadOptions?: BasemapLoadOptions
+  loadOptions?: BasemapLoadOptions,
+  projectedMaxStretch?: number
 ): SharedTileset2D<DemTile | null> {
-  return createSharedDemTileset(source, loadOptions, getTilePyramidProps(source));
+  return createSharedDemTileset(source, loadOptions, {
+    ...getTilePyramidProps(source),
+    adapter: getBasemapTilesetAdapter(projectedMaxStretch)
+  });
 }
 
 function createRasterLayer({
@@ -784,15 +798,23 @@ function createRasterLayer({
   source,
   zoom,
   mode,
-  depthTested
+  loadOptions,
+  fetch,
+  rejectRasterTile,
+  depthTested,
+  projectedMaxStretch
 }: {
   idPrefix: string;
   layer: BasemapStyleLayer;
   source: BasemapSource;
   zoom: number;
   mode: BasemapMode;
+  loadOptions?: BasemapLoadOptions;
+  fetch?: LayerProps['fetch'];
+  rejectRasterTile?: RejectRasterTile | null;
   /** Drawn after an extrusion, see `getTileParameters`. */
   depthTested?: boolean;
+  projectedMaxStretch?: number;
 }) {
   const paint = getPaint(layer, zoom);
   const rasterColorAdjustments = getRasterColorAdjustments(paint);
@@ -803,13 +825,29 @@ function createRasterLayer({
   const isNearest =
     getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
     getRasterPaintValue(paint, 'resampling') === 'nearest';
+  const tilePyramidProps = getTilePyramidProps(source);
 
-  return new TileLayer({
+  // Also selects tiles in a projected view.
+  return new ProjectedTileLayer({
     id: `${idPrefix}-${layer.id}`,
     data: source.tiles,
-    // Also selects tiles in a projected view.
-    TilesetClass: ProjectedTileset2D,
-    ...getTilePyramidProps(source),
+    ...(projectedMaxStretch === undefined ? {} : {maxStretch: projectedMaxStretch}),
+    ...tilePyramidProps,
+    // Tiles load with the `fetch` and `loadOptions` of the basemap, as vector tiles do.
+    ...(fetch ? {fetch} : {}),
+    ...(loadOptions ? {loadOptions} : {}),
+    // A tile without data is drawn from its nearest ancestor that has data.
+    ...(rejectRasterTile
+      ? {
+          getTileData: getRasterTileLoader(source, {
+            sourceId: layer.source || '',
+            minZoom: tilePyramidProps.minZoom,
+            rejectTile: rejectRasterTile,
+            loadOptions
+          }).getTileData
+        }
+      : {}),
+    updateTriggers: {getTileData: rejectRasterTile || null},
     tileSize: source.tileSize || 512,
     // deck.gl draws with `opacity ** (1 / 2.2)`. Undo that, so the alpha is `raster-opacity`, as
     // in MapLibre.
@@ -1317,7 +1355,7 @@ class StyledMVTLayer extends SharedMVTLayer {
 
   /** Tile traversal that also selects tiles in a projected view (see `basemapTilesetAdapter`). */
   _getTilesetOptions(): ReturnType<SharedMVTLayer['_getTilesetOptions']> {
-    return {...super._getTilesetOptions(), adapter: basemapTilesetAdapter};
+    return {...super._getTilesetOptions(), adapter: getBasemapTilesetAdapter()};
   }
 
   _onTileLoad(tile: any): void {
@@ -1949,12 +1987,15 @@ export function getBasemapLayers({
   styleDefinition,
   zoom = 0,
   loadOptions,
+  fetch,
+  rejectRasterTile,
   spriteAtlases,
   fontFamily,
   glyphs,
   labelPlacement,
   tilesets,
-  projected
+  projected,
+  projectedMaxStretch
 }: BasemapLayerGroup) {
   const config = getConfig(globe);
   const styleLayers = (styleDefinition.layers || []).filter(layer =>
@@ -1978,13 +2019,16 @@ export function getBasemapLayers({
         zoom,
         config,
         loadOptions,
+        fetch,
+        rejectRasterTile,
         mode,
         spriteAtlases,
         fontFamily,
         glyphs,
         labelPlacement,
         tilesets,
-        projected
+        projected,
+        projectedMaxStretch
       })
     );
   }
@@ -3358,21 +3402,27 @@ function getStyleLayers({
   zoom,
   config,
   loadOptions,
+  fetch,
+  rejectRasterTile,
   mode,
   spriteAtlases,
   fontFamily,
   glyphs,
   labelPlacement,
   tilesets,
-  projected
+  projected,
+  projectedMaxStretch
 }: {
   projected?: boolean;
+  projectedMaxStretch?: number;
   idPrefix: string;
   styleLayers: BasemapStyleLayer[];
   styleDefinition: ResolvedBasemapStyle;
   zoom: number;
   config: BasemapLayerConfig;
   loadOptions?: BasemapLoadOptions;
+  fetch?: LayerProps['fetch'];
+  rejectRasterTile?: RejectRasterTile | null;
   mode: BasemapMode;
   spriteAtlases?: SpriteAtlas[] | null;
   fontFamily?: LabelFontFamily | null;
@@ -3414,7 +3464,11 @@ function getStyleLayers({
         source: run.source!,
         zoom,
         mode,
-        depthTested: depthTested.has(layer)
+        loadOptions,
+        fetch,
+        rejectRasterTile,
+        depthTested: depthTested.has(layer),
+        projectedMaxStretch
       });
     }
     if (run.type === 'hillshade') {
@@ -3425,7 +3479,7 @@ function getStyleLayers({
         owner = ownedDemTilesets.get(run.source!);
         if (!owner) {
           owner = {
-            tileset: createDemTileset(run.source!, loadOptions),
+            tileset: createDemTileset(run.source!, loadOptions, projectedMaxStretch),
             consumers: new Set()
           };
           ownedDemTilesets.set(run.source!, owner);
@@ -3456,7 +3510,7 @@ function getStyleLayers({
         });
         const ownedTileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
-          adapter: basemapTilesetAdapter,
+          adapter: getBasemapTilesetAdapter(projectedMaxStretch),
           ...getTilePyramidProps(run.source!),
           tileSize: run.source!.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,

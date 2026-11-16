@@ -16,14 +16,19 @@ export {getSpriteIconMapping, getSpriteSources, loadSpriteAtlases} from './sprit
 export type {SpriteAtlas, SpriteIconMappingEntry, SpriteSource} from './sprite';
 export {getLabelFont} from './text-font';
 export type {LabelFont, LabelFontFamily} from './text-font';
+export {
+  createRasterTileFingerprintFilter,
+  getRasterTileFingerprint
+} from './raster-tile-fingerprint';
+export type {RasterTileIndex, RasterTileResponse, RejectRasterTile} from './raster-tile-loader';
 export {GlyphStore} from './glyph-store';
 export type {GlyphStoreOptions} from './glyph-store';
 export {ProjectedBitmapLayer} from './projected-bitmap-layer';
-export {getProjectedTileIndices} from './projected-tile-selection';
+export {DEFAULT_MAX_STRETCH, getProjectedTileIndices} from './projected-tile-selection';
 export type {
   ProjectedTileIndex,
   ProjectedTileSelectionOptions
 } from './projected-tile-selection';
-export {ProjectedTileset2D} from './projected-tileset';
+export {ProjectedTileLayer, ProjectedTileset2D} from './projected-tileset';
 export {getMercatorZoom} from './projected-viewport';
 export type {ProjectedViewportLike} from './projected-viewport';

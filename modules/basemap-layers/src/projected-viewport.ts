@@ -99,6 +99,47 @@ export function getMercatorZoom(viewport: ProjectedViewportLike): number {
 }
 
 function measureMercatorZoom(viewport: ProjectedViewportLike): number {
+  return measureMercatorZoomInPlane(viewport) ?? measureMercatorZoomOnScreen(viewport);
+}
+
+/** The degrees of the two steps that measure the scale of the map plane at the view center. */
+const PLANE_SAMPLE_DEGREES = 1e-4;
+
+/**
+ * The Web Mercator zoom from the scale of the view's map plane at the view center, with steps of
+ * `PLANE_SAMPLE_DEGREES` east and north: pixels per unit of the map plane are `2 ** zoom`. Screen
+ * steps from the center can reach past the edge of the tile pyramid or across a pole, and then
+ * measure another place. A center past the edge of the pyramid is measured at that edge. Returns
+ * null where the view has no map plane, or no scale for it at the center.
+ */
+function measureMercatorZoomInPlane(viewport: ProjectedViewportLike): number | null {
+  if (!viewport.projectPosition) {
+    return null;
+  }
+  try {
+    const center = viewport.unproject([viewport.width / 2, viewport.height / 2]);
+    const limit = MAX_MERCATOR_LATITUDE - PLANE_SAMPLE_DEGREES;
+    const lngLat = [center[0], Math.max(-limit, Math.min(limit, center[1]))];
+    const east = [lngLat[0] + PLANE_SAMPLE_DEGREES, lngLat[1]];
+    const north = [lngLat[0], lngLat[1] + PLANE_SAMPLE_DEGREES];
+    const plane = [lngLat, east, north].map(position => viewport.projectPosition!([position[0], position[1], 0]));
+    const world = [lngLat, east, north].map(lngLatToMercatorWorld);
+    const length = (points: ArrayLike<number>[], to: number) =>
+      Math.hypot(points[to][0] - points[0][0], points[to][1] - points[0][1]);
+    // Mercator units per unit of the map plane: the geometric mean of both axes, which differ in a
+    // projection that is not conformal.
+    const ratio = Math.sqrt(
+      (length(world, 1) / length(plane, 1)) * (length(world, 2) / length(plane, 2))
+    );
+    const zoom = viewport.zoom - Math.log2(ratio);
+    return ratio > 0 && Number.isFinite(zoom) ? zoom : null;
+  } catch {
+    // deck.gl throws for a position that its projection converts to no number.
+    return null;
+  }
+}
+
+function measureMercatorZoomOnScreen(viewport: ProjectedViewportLike): number {
   const {width, height} = viewport;
   const center = [width / 2, height / 2];
   const origin = getWorldAt(viewport, center);
@@ -182,4 +223,32 @@ export function getProjectedPlaneAngle(
     return degrees;
   }
   return (Math.atan2(dy, dx) * 180) / Math.PI;
+}
+
+/** The most degrees a position may lie from itself after it is projected and projected back. */
+const ROUND_TRIP_DEGREES = 1e-5;
+
+/**
+ * Whether a projected view draws a longitude/latitude at its own place: the position, projected
+ * to the map plane and back, is the same position. A projection moves a position outside its area
+ * of use to the edge of that area, or has no position for it. A label there is not drawn: it
+ * shows on the edge, far from its place. The check does not depend on the camera.
+ */
+export function isPositionDrawn(
+  viewport: {
+    projectPosition: (position: number[]) => number[];
+    unprojectPosition: (position: number[]) => number[];
+  },
+  lngLat: ArrayLike<number>
+): boolean {
+  try {
+    const back = viewport.unprojectPosition(viewport.projectPosition([lngLat[0], lngLat[1], 0]));
+    const turn = Math.abs(back[0] - lngLat[0]) % 360;
+    return (
+      Math.min(turn, 360 - turn) <= ROUND_TRIP_DEGREES &&
+      Math.abs(back[1] - lngLat[1]) <= ROUND_TRIP_DEGREES
+    );
+  } catch {
+    return false;
+  }
 }

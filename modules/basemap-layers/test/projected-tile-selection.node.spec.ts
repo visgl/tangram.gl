@@ -12,11 +12,17 @@ import {Tileset2D} from '@deck.gl/geo-layers';
 import {projectionEngine} from '@math.gl/geospatial/projection';
 import {
   DEFAULT_MAX_PROJECTED_TILES,
+  DEFAULT_MAX_STRETCH,
   getProjectedTileIndices,
   getProjectedTileZoom,
   type ProjectedTileIndex
 } from '../src/projected-tile-selection';
-import {basemapTilesetAdapter, ProjectedTileset2D} from '../src/projected-tileset';
+import {
+  basemapTilesetAdapter,
+  getBasemapTilesetAdapter,
+  ProjectedTileLayer,
+  ProjectedTileset2D
+} from '../src/projected-tileset';
 import {
   getMercatorZoom,
   lngLatToMercatorWorld,
@@ -36,19 +42,25 @@ const HEIGHT = 600;
 let utm: CRS;
 let albers: CRS;
 let transverseMercator: CRS;
+let southPolar: CRS;
+
+/** EPSG:3031, Antarctic polar stereographic. */
+const SOUTH_POLAR_PROJ =
+  '+proj=stere +lat_0=-90 +lat_ts=-71 +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs';
 
 beforeAll(async () => {
   utm = await projectionEngine.getCRS('EPSG:32632');
   albers = await projectionEngine.getCRS(CONUS_ALBERS_PROJ);
   // A transverse Mercator projection of the whole world, as an application can supply one.
   transverseMercator = createWorldTransverseMercatorCRS(-99) as unknown as CRS;
+  southPolar = await projectionEngine.getCRS(SOUTH_POLAR_PROJ);
 });
 
 function createViewport(
   crs: CRS,
   center: number[],
   zoom: number,
-  options: {pitch?: number; bearing?: number} = {}
+  options: {pitch?: number; bearing?: number; padding?: {top?: number; bottom?: number}} = {}
 ): CustomProjectionViewport {
   return new CustomProjectionViewport({
     crs,
@@ -228,6 +240,28 @@ function isNearScreen(viewport: ProjectedViewportLike, {x, y, z}: ProjectedTileI
 }
 
 describe('getProjectedTileIndices', () => {
+  test('a south polar view draws out to latitude 60N with a stretch limit of 16', () => {
+    const viewport = new CustomProjectionViewport({
+      crs: southPolar,
+      center: [0, -90, 0],
+      zoom: 0,
+      width: 1600,
+      height: 1600
+    });
+    const getTop = (options: {maxStretch?: number}) =>
+      Math.max(
+        ...getProjectedTileIndices(viewport, {z: 0, ...options}).map(
+          ({y, z}) => mercatorWorldToLngLat([0, 512 * (1 - y / 2 ** z)])[1]
+        )
+      );
+    // math.gl clamps the projection's positions at latitude 60N.
+    expect(getTop({maxStretch: 16})).toBeGreaterThan(59);
+    // The default limit, 4, stops where the projection draws the map 4 times larger.
+    expect(DEFAULT_MAX_STRETCH).toBe(4);
+    expect(getTop({})).toBeLessThan(23);
+    expect(getTop({})).toBe(getTop({maxStretch: 4}));
+  });
+
   const cases = [
     {name: 'UTM 32N, city zoom', crs: () => utm, center: [10.5, 48], zoom: 13, z: 12},
     {name: 'UTM 32N, at the zone edge', crs: () => utm, center: [11.95, 60], zoom: 11, z: 10},
@@ -286,7 +320,7 @@ describe('getProjectedTileIndices', () => {
     const indices = getProjectedTileIndices(viewport, {z: 1});
     expect(indices.length).toBeGreaterThan(8);
     expect(indices.length).toBeLessThanOrEqual(DEFAULT_MAX_PROJECTED_TILES);
-    // The tiles around the central meridian are drawn, from the zoom selected to 4 zooms past it.
+    // The tiles around the central meridian are drawn, from the zoom selected down to zoom 5.
     expect(indices.every(index => index.z >= 1 && index.z <= 5)).toBe(true);
     expect(Math.max(...indices.map(index => index.z))).toBeGreaterThan(1);
     expect(getUncoveredPixels(viewport, indices, 1)).toEqual([]);
@@ -319,6 +353,38 @@ describe('getProjectedTileIndices', () => {
     expect(spans.some(([, east]) => east > 60 && east <= 84)).toBe(true);
     expect(spans.some(([west]) => west >= 84 && west < 110)).toBe(true);
     expect(getUncoveredPixels(viewport, indices, 1)).toEqual([]);
+  });
+
+  test('the edge of a polar stereographic view stays in place as the view pans', () => {
+    // The tile zoom is held: only the view center moves, from the pole to the edge of the area of
+    // use. The projection draws the center a little larger there, and the edge must not follow it.
+    const edges = new Set<string>();
+    for (let latitude = -90; latitude <= -60; latitude += 1.5) {
+      const viewport = new CustomProjectionViewport({
+        crs: southPolar,
+        center: [30, latitude, 0],
+        zoom: 0.5,
+        width: 1600,
+        height: 1600
+      });
+      edges.add(getCoveredKeys(getProjectedTileIndices(viewport, {z: 1})).join(' '));
+    }
+    expect(edges.size).toBe(1);
+  });
+
+  test('the edge of a polar stereographic view stays in place as the tile zoom changes', () => {
+    const viewport = new CustomProjectionViewport({
+      crs: southPolar,
+      center: [0, -90, 0],
+      zoom: 0.5,
+      width: 1600,
+      height: 1600
+    });
+    const edges = [0, 1, 2, 3].map(z => getCoveredKeys(getProjectedTileIndices(viewport, {z})));
+    expect(edges[0].length).toBeGreaterThan(0);
+    for (const edge of edges) {
+      expect(edge).toEqual(edges[0]);
+    }
   });
 
   test('stretched tiles are left out whole at the highest zoom of the source, or past maxTiles', () => {
@@ -413,6 +479,18 @@ describe('getProjectedTileIndices', () => {
     expect([...getTilesUnderScreen(band, 4)].filter(key => !keys.includes(key))).toEqual([]);
   });
 
+  test('a UTM zone drawn smaller than the gaps between the screen points is selected', () => {
+    // Zoomed out to zoom -4, UTM zone 32N is drawn 1 pixel wide and 7 pixels high. The padding
+    // moves the view center, and with it the zone, off the rows of the screen points; the
+    // center of the view, east of the zone, is moved to the edge of the zone.
+    const viewport = createViewport(utm, [20, 42], -4, {padding: {top: 200}});
+    const drawn = getTilesUnderScreen(viewport, 0, 1);
+    expect([...drawn]).toEqual(['0/0/0']);
+    expect(getProjectedTileIndices(viewport, {z: 0}).map(getKey)).toEqual(['0/0/0']);
+    // Zone 32N spans longitudes 6 to 12 and latitudes 0 to 84: 1 column and 2 rows at zoom 2.
+    expect(getProjectedTileIndices(viewport, {z: 2}).map(getKey).sort()).toEqual(['2/2/0', '2/2/1']);
+  });
+
   test('tiles come nearest the view center first', () => {
     const viewport = createViewport(albers, [-80, 40], 13);
     const indices = getProjectedTileIndices(viewport, {z: 13});
@@ -439,12 +517,57 @@ describe('getProjectedTileIndices', () => {
     expect(west.every(index => index.x <= getTileAt([-80.0001, 40], 13).x)).toBe(true);
   });
 
+  test('a view outside the extent of a regional source selects no tiles, not an ancestor', () => {
+    // A regional source from zoom 4, in the north-east quadrant; the view is of North America.
+    // A view without a map plane does not divide stretched tiles, so no division hides an ancestor.
+    const extent = [0, 0, 90, 66];
+    const viewport = viewportLike(createViewport(albers, [-96, 38], 4));
+    const z = getProjectedTileZoom(viewport, {tileSize: 512, minZoom: 4, extent})!;
+    expect(z).toBe(4);
+    expect(getProjectedTileIndices(viewport, {z, extent, minZoom: 4})).toEqual([]);
+    expect(getProjectedTileIndices(viewport, {z, extent})).toEqual([]);
+    // A view of the extent's quadrant selects its tiles.
+    const inside = viewportLike(createViewport(utm, [10.5, 48], 6));
+    const insideTiles = getProjectedTileIndices(inside, {z: 6, extent, minZoom: 4});
+    expect(insideTiles.length).toBeGreaterThan(0);
+    expect(insideTiles.every(index => index.z === 6)).toBe(true);
+  });
+
+  test('more tiles than maxTiles below minZoom: no tiles of a zoom the source does not serve', () => {
+    const viewport = createViewport(albers, [-96, 38], 4);
+    const all = getProjectedTileIndices(viewport, {z: 7, minZoom: 7});
+    expect(all.length).toBeGreaterThan(0);
+    expect(all.every(index => index.z === 7)).toBe(true);
+    expect(getProjectedTileIndices(viewport, {z: 7, minZoom: 7, maxTiles: all.length - 1})).toEqual([]);
+    const capped = getProjectedTileIndices(viewport, {z: 7, minZoom: 6, maxTiles: all.length - 1});
+    expect(capped.length).toBeGreaterThan(0);
+    expect(capped.every(index => index.z === 6)).toBe(true);
+  });
+
   test('a viewport without a size selects no tiles', () => {
     const viewport = createViewport(utm, [10.5, 48], 13);
     expect(getProjectedTileIndices({...viewportLike(viewport), width: 0}, {z: 12})).toEqual([]);
     expect(getProjectedTileIndices(viewport, {z: Number.NaN})).toEqual([]);
   });
 });
+
+/**
+ * The points of a grid north of the equator, 1 degree apart, that a selected tile holds: the
+ * ground near the edge of a south polar view, which the projection stretches.
+ */
+function getCoveredKeys(indices: ProjectedTileIndex[]): string[] {
+  const keys = new Set(indices.map(getKey));
+  const zooms = [...new Set(indices.map(index => index.z))];
+  const covered: string[] = [];
+  for (let longitude = -179.5; longitude < 180; longitude += 1) {
+    for (let latitude = 0.5; latitude < 60; latitude += 1) {
+      if (zooms.some(z => keys.has(getKey(getTileAt([longitude, latitude], z))))) {
+        covered.push(`${longitude},${latitude}`);
+      }
+    }
+  }
+  return covered;
+}
 
 function viewportLike(viewport: CustomProjectionViewport): ProjectedViewportLike {
   return {
@@ -482,25 +605,43 @@ describe('getProjectedTileIndices: the outline scale of a tile', () => {
   const CENTER_SCALE_CALLS = 3;
   /** The points of a tile's outline: the first corner and 8 steps along each of the 4 sides. */
   const OUTLINE_POINTS = 33;
+  /** The zoom of the tiles whose outlines the selection measures for the tiles of higher zooms. */
+  const EDGE_ZOOM = 5;
+
+  /** The keys of the tiles whose outlines the selection measures for `tiles`. */
+  function getMeasuredKeys(tiles: ProjectedTileIndex[]): Set<string> {
+    return new Set(
+      tiles.map(({x, y, z}) => {
+        const shift = 2 ** Math.max(0, z - EDGE_ZOOM);
+        return `${Math.min(z, EDGE_ZOOM)}/${Math.floor(x / shift)}/${Math.floor(y / shift)}`;
+      })
+    );
+  }
 
   test('is measured one time for a projection, and not at each view change', () => {
     const projection = {};
     const first = createCountedView(createViewport(utm, [9, 48], 9.2), projection);
     const tiles = getProjectedTileIndices(first.view, {z: 9});
     expect(tiles.length).toBeGreaterThan(0);
-    // Each tile's outline is walked as a chain: a point is projected one time.
-    expect(first.counts.projectPosition).toBe(CENTER_SCALE_CALLS + OUTLINE_POINTS * tiles.length);
+    const measured = getMeasuredKeys(tiles);
+    // Each outline is walked as a chain: a point is projected one time.
+    expect(first.counts.projectPosition).toBe(CENTER_SCALE_CALLS + OUTLINE_POINTS * measured.size);
 
-    // The same tiles at another zoom of the view: only the scale at the center is measured.
+    // The same projection at another zoom of the view: only the outlines not yet measured, and
+    // the scale at the center, are measured.
     const zoomed = createCountedView(createViewport(utm, [9, 48], 9.4), projection);
-    expect(getProjectedTileIndices(zoomed.view, {z: 9}).map(getKey).sort()).toEqual(
-      expect.arrayContaining(tiles.slice(0, 1).map(getKey))
-    );
-    const newTiles = getProjectedTileIndices(zoomed.view, {z: 9}).filter(
-      tile => !tiles.some(other => getKey(other) === getKey(tile))
-    );
+    const zoomedTiles = getProjectedTileIndices(zoomed.view, {z: 9});
+    expect(zoomedTiles.map(getKey)).toEqual(expect.arrayContaining(tiles.slice(0, 1).map(getKey)));
+    const newOutlines = [...getMeasuredKeys(zoomedTiles)].filter(key => !measured.has(key));
     expect(zoomed.counts.projectPosition).toBe(
-      2 * CENTER_SCALE_CALLS + OUTLINE_POINTS * newTiles.length
+      CENTER_SCALE_CALLS + OUTLINE_POINTS * newOutlines.length
+    );
+
+    // Without a projection to keep them by, each selection measures its outlines again.
+    const unkept = createCountedView(createViewport(utm, [9, 48], 9.4));
+    getProjectedTileIndices(unkept.view, {z: 9});
+    expect(unkept.counts.projectPosition).toBe(
+      CENTER_SCALE_CALLS + OUTLINE_POINTS * getMeasuredKeys(zoomedTiles).size
     );
   });
 
@@ -612,6 +753,25 @@ describe('basemapTilesetAdapter', () => {
     expect(basemapTilesetAdapter.getTileIndices({...context, minZoom: 13, viewState: viewport})).toEqual([]);
   });
 
+  test('selects with the stretch limit it is made for', () => {
+    const viewport = new CustomProjectionViewport({
+      crs: southPolar,
+      center: [0, -65, 0],
+      zoom: 2,
+      width: 1600,
+      height: 1600
+    });
+    const z = getProjectedTileZoom(viewport, context)!;
+    const getKeys = (adapter: typeof basemapTilesetAdapter) =>
+      adapter.getTileIndices({...context, viewState: viewport}).map(getKey).sort();
+    expect(getBasemapTilesetAdapter()).toBe(basemapTilesetAdapter);
+    expect(getBasemapTilesetAdapter(16)).toBe(getBasemapTilesetAdapter(16));
+    expect(getKeys(getBasemapTilesetAdapter(16))).toEqual(
+      getProjectedTileIndices(viewport, {z, maxZoom: 14, maxStretch: 16}).map(getKey).sort()
+    );
+    expect(getKeys(getBasemapTilesetAdapter(16))).not.toEqual(getKeys(basemapTilesetAdapter));
+  });
+
   test('selects as deck.gl does in a Web Mercator view', () => {
     const viewport = new WebMercatorViewport({longitude: 10.5, latitude: 48, zoom: 12.4, width: WIDTH, height: HEIGHT});
     expect(basemapTilesetAdapter.getTileIndices({...context, viewState: viewport})).toEqual(
@@ -662,6 +822,29 @@ describe('ProjectedTileset2D', () => {
     // `Tileset2D` hides them all: the box of the screen corners has no numbers.
     const isVisible = Tileset2D.prototype.isTileVisible;
     expect(tileset.selectedTiles!.some(tile => isVisible.call(tileset, tile, cullRect))).toBe(false);
+    tileset.finalize();
+  });
+
+  test('selects with the stretch limit of its options, which ProjectedTileLayer passes', async () => {
+    const viewport = new CustomProjectionViewport({
+      crs: southPolar,
+      center: [0, -65, 0],
+      zoom: 2,
+      width: 1600,
+      height: 1600
+    });
+    const layer = new ProjectedTileLayer({id: 'raster', data: [], maxStretch: 16});
+    const options = (layer as any)._getTilesetOptions();
+    expect(options.maxStretch).toBe(16);
+    expect(new ProjectedTileLayer({id: 'raster', data: []}).props.maxStretch).toBe(DEFAULT_MAX_STRETCH);
+    const tileset = new ProjectedTileset2D({...options, getTileData: () => null, maxZoom: 14});
+    await loadSelectedTiles(tileset, viewport);
+    const z = getProjectedTileZoom(viewport, {tileSize: 512})!;
+    const selected = tileset.selectedTiles!.map(tile => getKey(tile.index)).sort();
+    expect(selected).toEqual(
+      getProjectedTileIndices(viewport, {z, maxZoom: 14, maxStretch: 16}).map(getKey).sort()
+    );
+    expect(selected).not.toEqual(getProjectedTileIndices(viewport, {z, maxZoom: 14}).map(getKey).sort());
     tileset.finalize();
   });
 

@@ -10,13 +10,14 @@ import {
 } from '@deck.gl/core';
 import {projectionEngine} from '@math.gl/geospatial/projection';
 import {getBackgroundSquare} from '../src/projected-background-layer';
-import {createMercatorTileMesh} from '../src/projected-bitmap-layer';
+import {createMercatorTileMesh, getNormalizedBounds} from '../src/projected-bitmap-layer';
 import {getTileFeaturesInLngLat, MAX_ADDED_VERTICES} from '../src/projected-tile-data';
 import {
   getMercatorZoom,
   getProjectedPlaneAngle,
   getStyleZoom,
   isGeographicViewport,
+  isPositionDrawn,
   isProjectedViewport,
   lngLatToMercatorWorld,
   mercatorWorldToLngLat
@@ -31,10 +32,14 @@ type CRS = ConstructorParameters<typeof CustomProjectionViewport>[0]['crs'];
 
 let utm: CRS;
 let albers: CRS;
+let polar: CRS;
 
 beforeAll(async () => {
   utm = await projectionEngine.getCRS('EPSG:32632');
   albers = await projectionEngine.getCRS(CONUS_ALBERS_PROJ);
+  polar = await projectionEngine.getCRS(
+    '+proj=stere +lat_0=-90 +lat_ts=-71 +lon_0=0 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs'
+  );
 });
 
 const createViewport = (crs: CRS, center: number[], zoom: number) =>
@@ -82,6 +87,25 @@ describe('projected viewport helpers', () => {
     expect(Math.abs(getMercatorZoom(north) - (8 + Math.log2(Math.cos((70 * Math.PI) / 180))))).toBeLessThan(0.02);
   });
 
+  test('the Web Mercator zoom follows the view zoom where the screen reaches past the pole', () => {
+    // A south polar stereographic view centred at latitude -82. Zoomed out, 16 pixels from the
+    // center lie past latitude -85.05, the edge of the tile pyramid, and then past the pole.
+    const offsets = [];
+    for (let zoom = 4; zoom >= -1; zoom -= 0.25) {
+      offsets.push(getMercatorZoom(createViewport(polar, [0, -82], zoom)) - zoom);
+    }
+    // The scale at the view center does not depend on the camera: the offset is the same.
+    for (const offset of offsets) {
+      expect(Math.abs(offset - offsets[0])).toBeLessThan(0.01);
+    }
+    // Web Mercator stretches latitude -82 7.2 times, and the projection draws it at scale 0.977.
+    expect(offsets[0]).toBeCloseTo(Math.log2(Math.cos((82 * Math.PI) / 180) * 0.977), 1);
+    // A center past the edge of the tile pyramid is measured at that edge, where the top row of
+    // tiles lies, and not at the zoom of the view.
+    const pole = getMercatorZoom(createViewport(polar, [0, -89], 3)) - 3;
+    expect(pole).toBeCloseTo(Math.log2(Math.cos((85.05 * Math.PI) / 180) * 0.975), 1);
+  });
+
   test('the style zoom is the Web Mercator zoom in a projected view only', () => {
     const projected = createViewport(utm, [9, 60], 12);
     expect(getStyleZoom(projected)).toBe(getMercatorZoom(projected));
@@ -89,6 +113,29 @@ describe('projected viewport helpers', () => {
     expect(getStyleZoom(new WebMercatorViewport({longitude: 9, latitude: 60, zoom: 12, width: 8, height: 8}))).toBe(12);
     expect(getStyleZoom(undefined)).toBe(0);
     expect(getStyleZoom({})).toBe(0);
+  });
+
+  test('the map-plane measurement calls projectPosition on its viewport', () => {
+    // A viewport whose methods read `this`, as a class that does not bind them does. Its map
+    // plane is the Web Mercator world 4 times larger: the Web Mercator zoom is 2 more than its
+    // own. Every pixel unprojects to one position, so the screen measurement keeps its own zoom.
+    class PlaneViewport {
+      width = 800;
+      height = 600;
+      zoom = 7;
+      scale = 4;
+      project() {
+        return [0, 0];
+      }
+      unproject() {
+        return [10, 20];
+      }
+      projectPosition(lngLat: number[]) {
+        const [x, y] = lngLatToMercatorWorld(lngLat);
+        return [x * this.scale, y * this.scale, 0];
+      }
+    }
+    expect(getMercatorZoom(new PlaneViewport())).toBeCloseTo(9, 6);
   });
 
   test('a view whose center has no longitude/latitude keeps its own zoom', () => {
@@ -347,6 +394,46 @@ describe('createMercatorTileMesh', () => {
       );
     }
     expect(worst).toBeLessThan(texel);
+  });
+
+  test('a tile across the edge of the area of use is drawn inside the area only', () => {
+    // math.gl moves positions outside the area of use of UTM zone 32N (6 to 12 degrees east) to
+    // its edge. A mesh refined across that edge chases the kink, with no gain on the screen.
+    const viewport = createViewport(utm, [9, 47], 6);
+    const project = (lngLat: number[]) => viewport.projectPosition(lngLat);
+    const bounds = [5.625, 45.089036, 11.25, 48.922499];
+    const normalize = (utm as unknown as {converter: {WGS84: {normalize: (p: number[]) => number[]}}})
+      .converter.WGS84.normalize;
+    const drawn = (tile: number[]) => getNormalizedBounds(tile, normalize);
+    expect(drawn(bounds)).toEqual([6, 45.089036, 11.25, 48.922499]);
+    const whole = createMercatorTileMesh(bounds, project);
+    const clipped = createMercatorTileMesh(bounds, project, undefined, drawn(bounds));
+    expect(clipped.indices.length).toBeLessThan(whole.indices.length / 4);
+    const vertexCount = clipped.positions.length / 3;
+    let west = Infinity;
+    for (let vertex = 0; vertex < vertexCount; vertex++) {
+      const lngLat = [clipped.positions[vertex * 3], clipped.positions[vertex * 3 + 1]];
+      west = Math.min(west, lngLat[0]);
+      expect(isPositionDrawn(viewport, lngLat)).toBe(true);
+      // The image stays at its place: each vertex samples the image where its position lies.
+      const [u, v] = getImagePosition(bounds, lngLat);
+      expect(clipped.texCoords[vertex * 2]).toBeCloseTo(u, 5);
+      expect(clipped.texCoords[vertex * 2 + 1]).toBeCloseTo(v, 5);
+    }
+    expect(west).toBeCloseTo(6, 9);
+    // A tile outside the area of use has no mesh, and a tile inside it the same mesh as before.
+    const outside = [0, 45.089036, 5.625, 48.922499];
+    expect(createMercatorTileMesh(outside, project, undefined, drawn(outside)).indices).toHaveLength(0);
+    const inside = [8.4375, 47.040182, 9.84375, 48.004625];
+    expect(drawn(inside)).toEqual(inside);
+    expect(createMercatorTileMesh(inside, project, undefined, drawn(inside))).toEqual(createMercatorTileMesh(inside, project));
+    // A tile south of the zone has no part in it. The tile of zoom 0 has: its edges are one meridian.
+    expect(drawn([0, -66.51326, 90, 0])).toEqual([6, 0, 12, 0]);
+    expect(drawn([-180, -85.051129, 180, 85.051129])).toBeNull();
+    // A normalization that is not a clamp of longitude and latitude does not clip: here it moves
+    // the north-east corner only.
+    const cutCorner = ([x, y]: number[]) => (x > 10 && y > 48 ? [x, 48, 0] : [x, y, 0]);
+    expect(getNormalizedBounds(bounds, cutCorner)).toBeNull();
   });
 
   test('a large tile takes more triangles than a small one', () => {
