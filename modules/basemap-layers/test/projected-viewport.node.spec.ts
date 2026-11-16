@@ -115,6 +115,29 @@ describe('projected viewport helpers', () => {
     expect(getStyleZoom({})).toBe(0);
   });
 
+  test('the map-plane measurement calls projectPosition on its viewport', () => {
+    // A viewport whose methods read `this`, as a class that does not bind them does. Its map
+    // plane is the Web Mercator world 4 times larger: the Web Mercator zoom is 2 more than its
+    // own. Every pixel unprojects to one position, so the screen measurement keeps its own zoom.
+    class PlaneViewport {
+      width = 800;
+      height = 600;
+      zoom = 7;
+      scale = 4;
+      project() {
+        return [0, 0];
+      }
+      unproject() {
+        return [10, 20];
+      }
+      projectPosition(lngLat: number[]) {
+        const [x, y] = lngLatToMercatorWorld(lngLat);
+        return [x * this.scale, y * this.scale, 0];
+      }
+    }
+    expect(getMercatorZoom(new PlaneViewport())).toBeCloseTo(9, 6);
+  });
+
   test('a view whose center has no longitude/latitude keeps its own zoom', () => {
     const viewport = {
       width: 800,

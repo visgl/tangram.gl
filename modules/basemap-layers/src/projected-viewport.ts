@@ -107,8 +107,7 @@ const PLANE_SAMPLE_DEGREES = 1e-4;
  * null where the view has no map plane, or no scale for it at the center.
  */
 function measureMercatorZoomInPlane(viewport: ProjectedViewportLike): number | null {
-  const {projectPosition} = viewport;
-  if (!projectPosition) {
+  if (!viewport.projectPosition) {
     return null;
   }
   try {
@@ -117,7 +116,7 @@ function measureMercatorZoomInPlane(viewport: ProjectedViewportLike): number | n
     const lngLat = [center[0], Math.max(-limit, Math.min(limit, center[1]))];
     const east = [lngLat[0] + PLANE_SAMPLE_DEGREES, lngLat[1]];
     const north = [lngLat[0], lngLat[1] + PLANE_SAMPLE_DEGREES];
-    const plane = [lngLat, east, north].map(position => projectPosition([position[0], position[1], 0]));
+    const plane = [lngLat, east, north].map(position => viewport.projectPosition!([position[0], position[1], 0]));
     const world = [lngLat, east, north].map(lngLatToMercatorWorld);
     const length = (points: ArrayLike<number>[], to: number) =>
       Math.hypot(points[to][0] - points[0][0], points[to][1] - points[0][1]);
