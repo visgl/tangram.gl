@@ -140,25 +140,39 @@ function isInFrontOfCamera(pixel: number[]): boolean {
  */
 function getScreenSamples(viewport: ProjectedViewportLike): ScreenSample[] {
   const samples: ScreenSample[] = [];
+  const moved: number[][] = [];
+  const addSample = (pixel: number[]): void => {
+    const lngLat = unprojectOrNull(viewport, pixel);
+    if (!lngLat || Math.abs(lngLat[1]) > MAX_MERCATOR_LATITUDE) {
+      return;
+    }
+    const back = projectOrNull(viewport, lngLat);
+    if (!back || !isInFrontOfCamera(back)) {
+      return;
+    }
+    if (
+      Math.abs(back[0] - pixel[0]) <= ROUND_TRIP_PIXELS &&
+      Math.abs(back[1] - pixel[1]) <= ROUND_TRIP_PIXELS
+    ) {
+      samples.push(toPyramid(lngLat));
+    } else if (isOnScreen(back, viewport.width, viewport.height)) {
+      moved.push(back);
+    }
+  };
   for (let i = 0; i <= SCREEN_GRID_CELLS; i++) {
     for (let j = 0; j <= SCREEN_GRID_CELLS; j++) {
-      const pixel = [
+      addSample([
         (i / SCREEN_GRID_CELLS) * viewport.width,
         (j / SCREEN_GRID_CELLS) * viewport.height
-      ];
-      const lngLat = unprojectOrNull(viewport, pixel);
-      if (!lngLat || Math.abs(lngLat[1]) > MAX_MERCATOR_LATITUDE) {
-        continue;
-      }
-      const back = projectOrNull(viewport, lngLat);
-      if (
-        back &&
-        isInFrontOfCamera(back) &&
-        Math.abs(back[0] - pixel[0]) <= ROUND_TRIP_PIXELS &&
-        Math.abs(back[1] - pixel[1]) <= ROUND_TRIP_PIXELS
-      ) {
-        samples.push(toPyramid(lngLat));
-      }
+      ]);
+    }
+  }
+  // No screen point shows the map, but the view can still draw a part of it smaller than the
+  // gaps between them, as a zoomed-out UTM zone. A projection that moves positions outside its
+  // area of use to the edge of that area draws a screen point's position there: on that part.
+  if (!samples.length) {
+    for (const pixel of moved.splice(0)) {
+      addSample(pixel);
     }
   }
   return samples;

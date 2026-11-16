@@ -60,7 +60,7 @@ function createViewport(
   crs: CRS,
   center: number[],
   zoom: number,
-  options: {pitch?: number; bearing?: number} = {}
+  options: {pitch?: number; bearing?: number; padding?: {top?: number; bottom?: number}} = {}
 ): CustomProjectionViewport {
   return new CustomProjectionViewport({
     crs,
@@ -477,6 +477,18 @@ describe('getProjectedTileIndices', () => {
     const keys = getProjectedTileIndices(band, {z: 4}).map(getKey);
     expect(keys).toContain('4/8/7');
     expect([...getTilesUnderScreen(band, 4)].filter(key => !keys.includes(key))).toEqual([]);
+  });
+
+  test('a UTM zone drawn smaller than the gaps between the screen points is selected', () => {
+    // Zoomed out to zoom -4, UTM zone 32N is drawn 1 pixel wide and 7 pixels high. The padding
+    // moves the view center, and with it the zone, off the rows of the screen points; the
+    // center of the view, east of the zone, is moved to the edge of the zone.
+    const viewport = createViewport(utm, [20, 42], -4, {padding: {top: 200}});
+    const drawn = getTilesUnderScreen(viewport, 0, 1);
+    expect([...drawn]).toEqual(['0/0/0']);
+    expect(getProjectedTileIndices(viewport, {z: 0}).map(getKey)).toEqual(['0/0/0']);
+    // Zone 32N spans longitudes 6 to 12 and latitudes 0 to 84: 1 column and 2 rows at zoom 2.
+    expect(getProjectedTileIndices(viewport, {z: 2}).map(getKey).sort()).toEqual(['2/2/0', '2/2/1']);
   });
 
   test('tiles come nearest the view center first', () => {
