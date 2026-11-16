@@ -140,6 +140,32 @@ describe('BasemapLayer zoomLoadDelay', () => {
     basemap.finalizeState();
   });
 
+  test('a tile cancelled at rest loads when a view selects it again', async () => {
+    const {basemap, fetch, tileset} = createBasemap(100);
+    zoom(tileset);
+    const view = Symbol('view');
+    tileset.attachConsumer(view);
+    const parent = tileset.getTile({x: 0, y: 0, z: 1}, true);
+    await vi.waitFor(() => expect(parent.isLoaded).toBe(true));
+    expect(parent.content).toBeTruthy();
+    const loads = fetch.mock.calls.length;
+
+    zoom(tileset);
+    const index = {x: 1, y: 1, z: 2};
+    const tile = tileset.getTile(index, true);
+    tileset.updateConsumer(view, [parent], [parent]);
+    await vi.waitFor(() => expect(tile.isLoading).toBe(false));
+    expect(tile.isLoaded).toBe(false);
+    expect(tile.needsReload).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(loads);
+
+    tileset.updateConsumer(view, [tile], [tile]);
+    expect(tileset.getTile(index, true)).toBe(tile);
+    await vi.waitFor(() => expect(tile.isLoaded).toBe(true));
+    expect(fetch).toHaveBeenCalledTimes(loads + 1);
+    basemap.finalizeState();
+  });
+
   test('a tile without a loaded ancestor, as at the edge of a zoom out, loads at once', async () => {
     const {basemap, fetch, tileset} = createBasemap(10_000);
     zoom(tileset);
