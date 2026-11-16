@@ -82,9 +82,16 @@ export function getAncestorIndex(index: RasterTileIndex, levels: number): Raster
   return {x: Math.floor(index.x / scale), y: Math.floor(index.y / scale), z: index.z - levels};
 }
 
-/** Decodes a tile as deck.gl decodes the tiles it loads: with the image loader it registers. */
-function decodeTileImage(arrayBuffer: ArrayBuffer): Promise<TileImage> {
-  return parse(arrayBuffer) as Promise<TileImage>;
+/**
+ * Decodes a tile as deck.gl decodes the tiles it loads: with the image loader it registers, and
+ * with the `loadOptions` of the layer, so that decoder options such as
+ * `imagebitmap.colorSpaceConversion` apply as they do to the tiles that deck.gl loads.
+ */
+function decodeTileImage(
+  arrayBuffer: ArrayBuffer,
+  loadOptions?: BasemapLoadOptions
+): Promise<TileImage> {
+  return parse(arrayBuffer, loadOptions || undefined) as Promise<TileImage>;
 }
 
 /** Cuts a part out of a tile, with the colors as stored, as deck.gl decodes its images. */
@@ -143,7 +150,7 @@ export class RasterTileLoader {
     if (arrayBuffer.byteLength === 0 || (await rejectTile({url, sourceId, index, arrayBuffer}))) {
       return null;
     }
-    return (decodeImage || decodeTileImage)(arrayBuffer);
+    return decodeImage ? decodeImage(arrayBuffer) : decodeTileImage(arrayBuffer, loadOptions);
   }
 
   /** The decoded ancestor tile, loaded once for all of the tiles that draw a part of it. */
