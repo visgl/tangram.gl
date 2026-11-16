@@ -12,7 +12,8 @@ import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 
 // Consecutive fill and line style layers drawn as one sublayer draw the same pixels as when each
-// draws alone. A symbol layer without features between two style layers keeps them apart.
+// draws alone. A symbol layer without features between two style layers keeps them apart. The
+// fills have no antialiasing outline: a fill with an outline always draws alone.
 
 const SIZE = 256;
 
@@ -69,14 +70,14 @@ const STYLE_LAYERS = [
     type: 'fill',
     'source-layer': 'land',
     filter: ['==', ['get', 'kind'], 'park'],
-    paint: {'fill-color': '#33aa33'}
+    paint: {'fill-color': '#33aa33', 'fill-antialias': false}
   },
   {
     id: 'water',
     type: 'fill',
     'source-layer': 'land',
     filter: ['==', ['get', 'kind'], 'water'],
-    paint: {'fill-color': '#3366ff', 'fill-opacity': 0.7}
+    paint: {'fill-color': '#3366ff', 'fill-opacity': 0.7, 'fill-antialias': false}
   },
   {
     id: 'casing',
