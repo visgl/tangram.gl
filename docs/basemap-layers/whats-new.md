@@ -9,6 +9,7 @@ Copyright (c) vis.gl contributors
 ## November 2026
 
 - `color-relief` layers over `raster-dem` sources are drawn, in style order, as MapLibre GL JS 6.13 draws them: `color-relief-color`, an `interpolate` ramp over `["elevation"]`, `color-relief-opacity` and `resampling`, with the `mapbox`, `terrarium` and `custom` encodings. They share the decoded tiles of their source with its `hillshade` layers, and draw on a map, on a globe and in a projected view. Against MapLibre GL JS for the same DEM tiles, the median pixel is identical. WebGL only.
+- `hillshade` layers draw on WebGPU, with the same shading as on WebGL: every `hillshade-method`, the illumination direction, altitude and anchor, `hillshade-exaggeration`, the shadow, highlight and accent colors, and `resampling`. Before, WebGPU drew no hillshade.
 - `BasemapLayer` draws in a deck.gl `_CustomProjectionView`, a flat view in a projected coordinate reference system such as a UTM zone or a conic projection. Web Mercator tiles are selected for the area the screen shows. Fills and lines are projected at each vertex, raster and hillshade tiles are drawn on a mesh that follows the projection, and labels stay upright. Styles are evaluated at the zoom of the Web Mercator map of the same scale. See [Projected views](./api-reference/basemap-layer.md#projected-views). `getProjectedTileIndices`, `ProjectedTileset2D`, `ProjectedBitmapLayer` and `getMercatorZoom` are exported for other tiled layers.
 
 ## October 2026
