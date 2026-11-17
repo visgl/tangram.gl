@@ -206,6 +206,48 @@ export type RenderView = {
   viewState?: Record<string, unknown>;
 };
 
+/** The state that the clean-up of one backend paint test reads. */
+export type BackendTestResult = {
+  /** The errors that deck.gl reported while the test drew. */
+  errors: string[];
+  /** The last frame that the test drew, a PNG data URL, or null. */
+  frame: string | null;
+  /** The name that the frame is kept under. */
+  name: string;
+  /** Keeps the frame for inspection. */
+  saveFrame?: (name: string, image: string) => Promise<void>;
+  /** Releases the Deck instance and its canvas. */
+  release: () => void;
+};
+
+/**
+ * Ends one backend paint test: keeps its last frame, releases its Deck instance, and then fails
+ * if deck.gl reported errors. A failed save does not skip the release, and it does not hide the
+ * error assertion.
+ */
+export async function finishBackendTest({
+  errors,
+  frame,
+  name,
+  saveFrame,
+  release
+}: BackendTestResult): Promise<void> {
+  let saveError: unknown = null;
+  try {
+    if (frame && saveFrame) {
+      await saveFrame(name, frame);
+    }
+  } catch (error) {
+    saveError = error;
+  } finally {
+    release();
+  }
+  expect(errors).toEqual([]);
+  if (saveError) {
+    throw saveError;
+  }
+}
+
 /**
  * Returns a function that draws layers on the backend of `options`, and registers the clean-up
  * of each test: the frame's errors must be empty, and the last frame is kept.
@@ -224,16 +266,17 @@ export function createBackendRenderer({deviceType, adapters, saveFrame}: Backend
   };
 
   afterEach(async () => {
-    try {
-      expect(errors).toEqual([]);
-    } finally {
-      if (lastFrame && saveFrame) {
-        await saveFrame(expect.getState().currentTestName ?? 'basemap-paint', lastFrame);
-      }
-      release();
-      lastFrame = null;
-      errors = [];
-    }
+    const frame = lastFrame;
+    const frameErrors = errors;
+    lastFrame = null;
+    errors = [];
+    await finishBackendTest({
+      errors: frameErrors,
+      frame,
+      name: expect.getState().currentTestName ?? 'basemap-paint',
+      saveFrame,
+      release
+    });
   });
 
   const wait = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
