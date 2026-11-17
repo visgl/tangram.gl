@@ -301,21 +301,41 @@ describe('MVTLabelLayer icon-text-fit', () => {
     ).toEqual([-6, -6, 6, 6]);
   });
 
-  test('a stretchable icon is drawn in one stretched layer per quad, over every row', () => {
+  /**
+   * The icons that `layers` draw, in draw order: each layer in turn draws its data in order. Each
+   * entry is the index of the drawn row in `getRows` and the icon's name.
+   */
+  const getDrawOrder = (layer: any, layers: any[]) => {
+    const rows = layer.getRows();
+    return layers.flatMap((sublayer: any) =>
+      sublayer.props.data.flatMap((object: any, index: number) => {
+        const icon = sublayer.props.getIcon(object, info(index));
+        return icon ? [[rows.indexOf(object.row ?? object), icon]] : [];
+      })
+    );
+  };
+
+  test('a stretchable icon is drawn as one stretched quad per part, in one layer', () => {
     const layer = labelLayer({...FIT_LAYOUT, 'icon-image': 'shield'}, [{name: 'abcd'}]);
     const iconLayers = layer.renderIconLayers();
-    expect(iconLayers).toHaveLength(9);
-    expect(iconLayers.every((sublayer: any) => sublayer instanceof StretchIconLayer)).toBe(true);
-    expect(iconLayers[0].id).toBe('labels-icons-fit-default');
-    expect(iconLayers[0].props.iconMapping).toBe(getStretchIconMapping(ATLAS));
+    expect(iconLayers).toHaveLength(1);
+    const [icons] = iconLayers;
+    expect(icons).toBeInstanceOf(StretchIconLayer);
+    expect(icons.id).toBe('labels-icons-fit-default');
+    expect(icons.props.iconMapping).toBe(getStretchIconMapping(ATLAS));
     const row = layer.getRows()[0];
-    const drawn = iconLayers.map((sublayer: any) => {
-      const {getIcon, getSize, getIconStretch, getPixelOffset} = sublayer.props;
+    expect(icons.props.data).toHaveLength(9);
+    const drawn = icons.props.data.map((piece: any, index: number) => {
+      const {getIcon, getSize, getIconStretch, getPixelOffset, getPosition, getPlacementSlot} =
+        icons.props;
+      // Each quad is drawn at its row's position, in its row's placement slot.
+      expect(getPosition(piece, info(index))).toBe(row.position);
+      expect(getPlacementSlot).toBe(layer.getPlacementSlotAccessor());
       return [
-        getIcon(row, info(0)),
-        getSize(row, info(0)),
-        getIconStretch(row, info(0)),
-        getPixelOffset(row, info(0))
+        getIcon(piece, info(index)),
+        getSize(piece, info(index)),
+        getIconStretch(piece, info(index)),
+        getPixelOffset(piece, info(index))
       ];
     });
     // The fitted box is [-14, -7, 12, 9]: the corners keep 4 pixels, the middle stretches.
@@ -324,28 +344,61 @@ describe('MVTLabelLayer icon-text-fit', () => {
     expect(drawn[8]).toEqual([getIconPartName('shield', 8), 4, [1, 1], [10, 7]]);
   });
 
+  test('overlapping icons are drawn whole, one after the other, not interleaved', () => {
+    // Two shields at the same point, as with icon-allow-overlap and text-allow-overlap.
+    const layer = labelLayer({...FIT_LAYOUT, 'icon-image': 'shield'}, [
+      {name: 'abcd'},
+      {name: 'efgh'}
+    ]);
+    const parts = Array.from({length: 9}, (_, part) => getIconPartName('shield', part));
+    expect(getDrawOrder(layer, layer.renderIconLayers())).toEqual([
+      ...parts.map(name => [0, name]),
+      ...parts.map(name => [1, name])
+    ]);
+  });
+
+  test("the placement slot of each quad is its row's", () => {
+    const layer = labelLayer({...FIT_LAYOUT, 'icon-image': 'shield'}, [
+      {name: 'abcd'},
+      {name: 'efgh'}
+    ]);
+    layer.state.placementSlotBase = 10;
+    const [icons] = layer.renderIconLayers();
+    const slots = icons.props.data.map((piece: any, index: number) =>
+      icons.props.getPlacementSlot(piece, info(index))
+    );
+    expect(slots).toEqual([...Array(9).fill(10), ...Array(9).fill(11)]);
+  });
+
   test('an image without stretch zones is drawn whole, stretched to the fitted box', () => {
     const layer = labelLayer({...FIT_LAYOUT, 'icon-image': 'plain'}, [{name: 'abcd'}]);
     const [icons, ...rest] = layer.renderIconLayers();
     expect(rest).toEqual([]);
-    const row = layer.getRows()[0];
-    expect(icons.props.getIcon(row, info(0))).toBe('plain');
-    expect(icons.props.getSize(row, info(0))).toBe(16);
+    const [piece] = icons.props.data;
+    expect(icons.props.getIcon(piece, info(0))).toBe('plain');
+    expect(icons.props.getSize(piece, info(0))).toBe(16);
     // 26 by 16 pixels from an image of aspect ratio 2.
-    expect(icons.props.getIconStretch(row, info(0))).toEqual([26 / 16 / 2, 1]);
-    expect(icons.props.getPixelOffset(row, info(0))).toEqual([-1, 1]);
+    expect(icons.props.getIconStretch(piece, info(0))).toEqual([26 / 16 / 2, 1]);
+    expect(icons.props.getPixelOffset(piece, info(0))).toEqual([-1, 1]);
   });
 
   test('a row without text draws its icon at its own size', () => {
     const layer = labelLayer({...FIT_LAYOUT, 'icon-image': 'shield'}, [{}, {name: 'abcd'}]);
     const iconLayers = layer.renderIconLayers();
-    // `getRows` holds the rows reversed: the row without text is the second.
-    const row = layer.getRows()[1];
-    expect(iconLayers[0].props.getIcon(row, info(1))).toBe('shield');
-    expect(iconLayers[0].props.getSize(row, info(1))).toBe(12);
-    expect(iconLayers[0].props.getIconStretch(row, info(1))).toEqual([1, 1]);
-    expect(iconLayers[1].props.getIcon(row, info(1))).toBeNull();
-    expect(iconLayers[1].props.getSize(row, info(1))).toBe(0);
+    // `getRows` holds the rows reversed: the row without text is the second, drawn whole.
+    const order = getDrawOrder(layer, iconLayers);
+    expect(order).toHaveLength(10);
+    expect(order[9]).toEqual([1, 'shield']);
+    const {data, getSize, getIconStretch} = iconLayers[0].props;
+    expect(getSize(data[9], info(9))).toBe(12);
+    expect(getIconStretch(data[9], info(9))).toEqual([1, 1]);
+  });
+
+  test('the data is kept while the rows and parts stay the same', () => {
+    const layer = labelLayer({...FIT_LAYOUT, 'icon-image': 'shield'}, [{name: 'abcd'}]);
+    const [first] = layer.renderIconLayers();
+    const [second] = layer.renderIconLayers();
+    expect(second.props.data).toBe(first.props.data);
   });
 
   test('without icon-text-fit the icons are drawn by a plain IconLayer', () => {
