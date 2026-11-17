@@ -1,0 +1,27 @@
+{
+  "name": "tangram-basemap-layer-extensions-example",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "vite --open",
+    "start-local": "vite --config ../../vite.config.local.mjs"
+  },
+  "dependencies": {
+    "@deck.gl-community/panels": "10.0.0-alpha.1",
+    "@deck.gl-community/widgets": "10.0.0-alpha.1",
+    "@deck.gl/core": "10.0.0-alpha.1",
+    "@deck.gl/extensions": "10.0.0-alpha.1",
+    "@deck.gl/geo-layers": "10.0.0-alpha.1",
+    "@deck.gl/layers": "10.0.0-alpha.1",
+    "@deck.gl/mesh-layers": "10.0.0-alpha.1",
+    "@deck.gl/widgets": "10.0.0-alpha.1",
+    "@loaders.gl/core": "5.0.0-beta.8",
+    "@luma.gl/core": "10.0.0-alpha.14",
+    "@luma.gl/engine": "10.0.0-alpha.14",
+    "@luma.gl/shaders": "10.0.0-alpha.14",
+    "@tangram.gl/basemap-layers": "workspace:*"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1"
+  }
+}

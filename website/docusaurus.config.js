@@ -71,6 +71,7 @@ const config = {
               path.resolve(__dirname, '../examples/basemap-layers'),
               path.resolve(__dirname, '../examples/layers/basemap-layer-map-view'),
               path.resolve(__dirname, '../examples/layers/basemap-layer-custom-projection'),
+              path.resolve(__dirname, '../examples/layers/basemap-layer-extensions'),
               path.resolve(__dirname, '../examples/layers/terrain-contract'),
               path.resolve(__dirname, '../examples/utils')
             ],
