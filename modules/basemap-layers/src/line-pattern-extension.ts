@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {LayerExtension} from '@deck.gl/core';
-import type {Layer} from '@deck.gl/core';
+import type {CompositeLayer, Layer} from '@deck.gl/core';
 import {createSegmentAttributeUpdate} from './line-metrics';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
@@ -55,7 +55,7 @@ type PatternFrame = {x: number; y: number; width: number; height: number};
  * `linePatternAtlas` holds the images, each with a 1 pixel border copied from its opposite edge
  * (see `getPatternAtlas`), at `linePatternMapping`'s rectangles; `getLinePattern` names a path's
  * image. `linePatternPixelsPerUnit` is 2 to the integer zoom: pixels per common unit at that
- * zoom. WebGL only.
+ * zoom. WebGL only: on WebGPU the paths draw nothing.
  */
 export class LinePatternExtension extends LayerExtension {
   static extensionName = 'LinePatternExtension';
@@ -95,6 +95,12 @@ export class LinePatternExtension extends LayerExtension {
         noAlloc: false
       }
     });
+  }
+
+  /** On WebGPU, where the pattern shader does not run, the paths draw nothing. */
+  getSubLayerProps(this: CompositeLayer, extension: this): any {
+    const props = LayerExtension.prototype.getSubLayerProps.call(this, extension);
+    return this.context.device.type === 'webgpu' ? {...props, getColor: [0, 0, 0, 0]} : props;
   }
 
   updateState(this: Layer<any>, {props, oldProps}: any, extension: this) {

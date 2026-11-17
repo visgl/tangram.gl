@@ -28,6 +28,7 @@ import {
   type FillPatternGroup,
   getFeaturesWithoutPattern,
   getFillPatternGroups,
+  getPatternRuns,
   getLinePatternProps,
   getFillPatternProps
 } from './fill-pattern';
@@ -2331,13 +2332,15 @@ function createLineSubLayers({
     );
   };
 
-  // A patterned line draws a sublayer per sprite atlas of its images, as a patterned fill does.
-  // Lines whose image is in no loaded sprite draw nothing, as in MapLibre GL JS, and so do all of
-  // them while the sprites load.
+  // A patterned line draws a sublayer per run of consecutive lines whose images are in one sprite
+  // atlas, so that the runs keep the lines' order (`line-sort-key`) across atlases. Lines whose
+  // image is in no loaded sprite draw nothing, as in MapLibre GL JS, and so do all of them while
+  // the sprites load.
   if (styleLayer.paint?.['line-pattern'] !== undefined) {
     const groups = getFillPatternGroups(features, styleLayer, zoom, spriteAtlases, 'line-pattern');
-    return groups.flatMap(pattern =>
-      draw(pattern.features, pattern, groups.length > 1 ? `-pattern-${pattern.atlasIndex}` : '')
+    const runs = getPatternRuns(features, groups);
+    return runs.flatMap(run =>
+      draw(run.features, run.group, runs.length > 1 ? `-pattern-${run.key}` : '')
     );
   }
   return draw(features, undefined, '');
@@ -2503,6 +2506,8 @@ type GeometryStyle = {
   pattern?: FillPatternGroup;
   /** The line's `line-gradient` ramp, which replaces `line-color`. */
   lineGradient: LineGradientRamp | null;
+  /** A gradient line's `line-color`, which it draws where the ramp shader does not run. */
+  lineGradientFallbackColor: StyleAccessor<number[]> | null;
   /**
    * A patterned line's `line-width` at the integer zoom, which its image's height is drawn at
    * along the line, as in MapLibre GL JS.
@@ -2735,6 +2740,7 @@ function getGeometryStyle({
     lineShape,
     pattern,
     lineGradient,
+    lineGradientFallbackColor: lineGradient ? paint.lineColor : null,
     linePatternWidth: linePattern
       ? getStyleAccessor(styleLayer, ['line-width'], Math.floor(zoom), ([width]) =>
           Math.max(0, Number(width ?? 1))
@@ -2964,6 +2970,7 @@ function createGeometrySubLayer({
     hasFillStyle,
     pattern,
     lineGradient,
+    lineGradientFallbackColor,
     linePatternWidth,
     zoom
   } = first;
@@ -3091,7 +3098,8 @@ function createGeometrySubLayer({
       ? {
           lineGradientImage: lineGradient.image,
           textureParameters: lineGradient.textureParameters,
-          getLineClip
+          getLineClip,
+          getLineGradientFallbackColor: lineGradientFallbackColor?.value
         }
       : {}),
     ...(linePattern && linePatternWidth
@@ -3117,7 +3125,8 @@ function createGeometrySubLayer({
       getOffset: typeof offsetValue === 'function' ? lineOffset?.updateTrigger : offsetValue,
       getBlur: lineBlur?.updateTrigger,
       getLinePattern: linePattern ? Math.floor(zoom) : undefined,
-      getLinePatternWidth: linePatternWidth?.updateTrigger
+      getLinePatternWidth: linePatternWidth?.updateTrigger,
+      getLineGradientFallbackColor: lineGradientFallbackColor?.updateTrigger
     },
     lineWidthUnits: 'pixels',
     lineWidthMinPixels: 0,

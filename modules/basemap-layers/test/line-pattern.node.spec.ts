@@ -53,7 +53,8 @@ function renderLines(
     zoom = 12,
     spriteAtlases = SPRITES,
     source = {type: 'vector', tiles: ['https://tiles.example.com/{z}/{x}/{y}.mvt']}
-  }: {zoom?: number; spriteAtlases?: SpriteAtlas[] | null; source?: Record<string, unknown>} = {}
+  }: {zoom?: number; spriteAtlases?: SpriteAtlas[] | null; source?: Record<string, unknown>} = {},
+  layout?: Record<string, unknown>
 ): any[] {
   const vectorLayer: any = getBasemapLayers({
     idPrefix: 'test',
@@ -63,7 +64,7 @@ function renderLines(
     styleDefinition: {
       version: 8,
       sources: {tiles: source},
-      layers: [{id: 'line', type: 'line', source: 'tiles', paint}]
+      layers: [{id: 'line', type: 'line', source: 'tiles', paint, ...(layout ? {layout} : {})}]
     } as any
   }).find(layer => layer.id === 'test-tiles');
   return [
@@ -97,6 +98,17 @@ describe('line-pattern', () => {
     expect(layer.props.getLinePattern).toBe('arrow');
     expect(layer.props.getLineColor).toEqual([255, 255, 255, 128]);
     expect(layer.props.textureParameters).toMatchObject({mipmapFilter: 'none'});
+  });
+
+  test('draws nothing on WebGPU, where the pattern shader does not run', () => {
+    const [layer] = renderLines({'line-pattern': 'arrow', 'line-color': '#ff0000'});
+    const extension = new LinePatternExtension();
+    const composite = (type: string) =>
+      ({context: {device: {type}}, props: layer.props, getSubLayerAccessor: (a: any) => a}) as any;
+    expect(extension.getSubLayerProps.call(composite('webgpu'), extension).getColor).toEqual([
+      0, 0, 0, 0
+    ]);
+    expect(extension.getSubLayerProps.call(composite('webgl'), extension).getColor).toBeUndefined();
   });
 
   test('measures repeats at the integer zoom, in the line-width at that zoom', () => {
@@ -141,6 +153,31 @@ describe('line-pattern', () => {
     expect(new Set(layers.map(layer => layer.id)).size).toBe(2);
     expect(renderLines({'line-pattern': 'arrow'}, [line()], {spriteAtlases: null})).toEqual([]);
     expect(renderLines({'line-pattern': 'missing'})).toEqual([]);
+  });
+
+  test('keeps the line-sort-key order across sprites, a sublayer per run of one sprite', () => {
+    const features = [
+      line({image: 'dots', key: 3}),
+      line({image: 'base:rail', key: 2}),
+      line({image: 'arrow', key: 1})
+    ];
+    const layers = renderLines(
+      {'line-pattern': ['get', 'image']},
+      features,
+      {},
+      {'line-sort-key': ['get', 'key']}
+    );
+    expect(
+      layers.map(layer => layer.props.data.map((feature: any) => feature.properties.key))
+    ).toEqual([[1], [2], [3]]);
+    expect(layers.map(layer => layer.props.linePatternAtlas)).toEqual([
+      DEFAULT_SPRITE.image,
+      BASE_SPRITE.image,
+      DEFAULT_SPRITE.image
+    ]);
+    expect(new Set(layers.map(layer => layer.id)).size).toBe(3);
+    // The runs of one sprite share its pattern atlas.
+    expect(layers[0].props.linePatternMapping).toBe(layers[2].props.linePatternMapping);
   });
 
   test('draws without dashes, and replaces a gradient, as MapLibre', () => {

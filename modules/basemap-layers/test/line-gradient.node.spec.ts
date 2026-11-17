@@ -42,6 +42,10 @@ const RAINBOW = [
   '#ff0000'
 ];
 
+function evaluate(accessor: unknown, object: unknown) {
+  return typeof accessor === 'function' ? accessor(object, {index: 0}) : accessor;
+}
+
 /** The RGBA pixel of a ramp at `index`. */
 function pixel(ramp: ReturnType<typeof getLineGradientRamp>, index: number): number[] {
   return Array.from(ramp!.image.data.subarray(index * 4, index * 4 + 4));
@@ -218,6 +222,19 @@ describe('line-gradient sublayers', () => {
     expect(layer.props.lineGradientImage.width).toBe(256);
     expect(layer.props.textureParameters).toMatchObject({mipmapFilter: 'none'});
     expect(layer.props.getLineClip(layer.props.data[0])).toEqual([0.25, 0.75]);
+  });
+
+  test('draw line-color on WebGPU, where the ramp shader does not run', () => {
+    const [layer] = sublayers({lineMetrics: true}, {'line-opacity': 0.5});
+    const extension = new LineGradientExtension();
+    const composite = (type: string) =>
+      ({context: {device: {type}}, props: layer.props, getSubLayerAccessor: (a: any) => a}) as any;
+    const webgpu = extension.getSubLayerProps.call(composite('webgpu'), extension);
+    expect(evaluate(webgpu.getColor, layer.props.data[0])).toEqual([255, 0, 255, 128]);
+    expect(webgpu.updateTriggers).toHaveProperty('getColor');
+    // On WebGL the ramp shader multiplies the white stroke color that GeoJsonLayer passes on.
+    const webgl = extension.getSubLayerProps.call(composite('webgl'), extension);
+    expect(webgl.getColor).toBeUndefined();
   });
 
   test('need a GeoJSON source with lineMetrics: otherwise line-color, with a warning', () => {

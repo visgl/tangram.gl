@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {LayerExtension} from '@deck.gl/core';
-import type {Layer} from '@deck.gl/core';
+import type {CompositeLayer, Layer} from '@deck.gl/core';
 import {createSegmentAttributeUpdate} from './line-metrics';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 import {getCompiledStyleProperty} from './style-expression';
@@ -102,13 +102,15 @@ in float lineGradient_progress;
  *
  * `getLineClip` gives a path's part of its whole line, `[start, end]` in 0 to 1, as geojson-vt
  * records it for a source with `lineMetrics` (`geojsonvt_clip_start`, `geojsonvt_clip_end`). The
- * progress runs from `start` to `end` along the path, by distance, as in MapLibre. WebGL only.
+ * progress runs from `start` to `end` along the path, by distance, as in MapLibre. WebGL only:
+ * on WebGPU the paths draw `getLineGradientFallbackColor`, the line-color.
  */
 export class LineGradientExtension extends LayerExtension {
   static extensionName = 'LineGradientExtension';
   static defaultProps = {
     lineGradientImage: {type: 'image', value: null, async: true},
-    getLineClip: {type: 'accessor', value: [0, 1]}
+    getLineClip: {type: 'accessor', value: [0, 1]},
+    getLineGradientFallbackColor: {type: 'accessor', value: [0, 0, 0, 255]}
   };
 
   isEnabled(layer: Layer): boolean {
@@ -134,6 +136,22 @@ export class LineGradientExtension extends LayerExtension {
         noAlloc: false
       }
     });
+  }
+
+  /**
+   * On WebGPU, where the ramp shader does not run, the paths draw `getLineGradientFallbackColor`
+   * in place of the white stroke color that the ramp multiplies.
+   */
+  getSubLayerProps(this: CompositeLayer, extension: this): any {
+    const props = LayerExtension.prototype.getSubLayerProps.call(this, extension);
+    if (this.context.device.type !== 'webgpu') {
+      return props;
+    }
+    return {
+      ...props,
+      getColor: props.getLineGradientFallbackColor,
+      updateTriggers: {...props.updateTriggers, getColor: props.updateTriggers.getLineGradientFallbackColor}
+    };
   }
 
   draw(this: Layer<any>, params: unknown, extension: this) {

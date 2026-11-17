@@ -353,6 +353,61 @@ export function bleedIntoTransparentPixels(
   }
 }
 
+/** Consecutive features, in draw order, whose images are in one group's atlas. */
+export type PatternRun = {
+  group: FillPatternGroup;
+  features: any[];
+  /** Unique among the runs of one list of groups, and the same while the groups are reused. */
+  key: string;
+};
+
+/** The runs per list of groups. */
+const patternRunCache = new WeakMap<FillPatternGroup[], PatternRun[]>();
+
+/**
+ * Splits groups into runs of consecutive `features` with the same atlas, so that sublayers drawn
+ * run after run keep the features' draw order, such as `line-sort-key`'s, across atlases. A group
+ * whose features are consecutive stays one run. The runs of a group share its pattern atlas.
+ * Cached per list of groups, which `getFillPatternGroups` reuses while its inputs are unchanged.
+ */
+export function getPatternRuns(features: any[], groups: FillPatternGroup[]): PatternRun[] {
+  const cached = patternRunCache.get(groups);
+  if (cached) {
+    return cached;
+  }
+  const groupOf = new Map<any, FillPatternGroup>();
+  for (const group of groups) {
+    for (const feature of group.features) {
+      groupOf.set(feature, group);
+    }
+  }
+  const result: PatternRun[] = [];
+  const runCounts = new Map<FillPatternGroup, number>();
+  for (const feature of features) {
+    const group = groupOf.get(feature);
+    if (!group) {
+      continue;
+    }
+    let run = result[result.length - 1];
+    if (run?.group !== group) {
+      const count = runCounts.get(group) ?? 0;
+      runCounts.set(group, count + 1);
+      const key = count ? `${group.atlasIndex}-${count}` : `${group.atlasIndex}`;
+      run = {group, features: [], key};
+      result.push(run);
+    }
+    run.features.push(feature);
+  }
+  // A group of one run keeps its feature array, so deck.gl does not re-tessellate its features.
+  for (const run of result) {
+    if (runCounts.get(run.group) === 1) {
+      run.features = run.group.features;
+    }
+  }
+  patternRunCache.set(groups, result);
+  return result;
+}
+
 /** The features without an image per list of groups. */
 const unpatternedCache = new WeakMap<FillPatternGroup[], any[]>();
 
