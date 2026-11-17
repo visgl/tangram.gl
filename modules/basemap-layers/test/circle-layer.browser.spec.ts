@@ -6,7 +6,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Deck, OrthographicView} from '@deck.gl/core';
+import {Deck, MapView, OrthographicView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {getBasemapLayers} from '../src/index';
@@ -57,7 +57,7 @@ function circleTile(paint: Record<string, unknown>) {
 }
 
 /** Renders layers on a white canvas and returns the first frame drawn after they load. */
-function render(layers: unknown[]) {
+function render(layers: unknown[], map: {bearing: number} | null = null) {
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise<ImageData>((resolve, reject) => {
@@ -68,8 +68,11 @@ function render(layers: unknown[]) {
       height: SIZE,
       useDevicePixels: false,
       deviceProps: {adapters: [webgl2Adapter]},
-      views: new OrthographicView({id: 'flat'}),
-      initialViewState: {target: [0, 0, 0], zoom: 0},
+      // `circle-translate` is in pixels on the map's ground, so it is tested on a map.
+      views: map ? new MapView({id: 'map'}) : new OrthographicView({id: 'flat'}),
+      initialViewState: map
+        ? {longitude: 0, latitude: 0, zoom: 5, bearing: map.bearing}
+        : {target: [0, 0, 0], zoom: 0},
       layers: layers as any,
       onAfterRender: () => {
         const loaded = (deck as any)?.layerManager?.getLayers() || [];
@@ -149,11 +152,29 @@ describe('circle layers in the browser', () => {
   });
 
   test('a positive circle-translate y moves the circle down the screen', async () => {
-    const image = await render([
-      circleTile({'circle-radius': 6, 'circle-color': '#ff0000', 'circle-translate': [0, 30]})
-    ]);
+    const image = await render(
+      [circleTile({'circle-radius': 6, 'circle-color': '#ff0000', 'circle-translate': [0, 30]})],
+      {bearing: 0}
+    );
     expectColor(pixel(image, CENTER, CENTER + 30), RED);
     expectColor(pixel(image, CENTER, CENTER), WHITE);
     expectColor(pixel(image, CENTER, CENTER - 30), WHITE);
+  });
+
+  test('on a map turned 90 degrees, a map anchor turns the offset and a viewport anchor does not', async () => {
+    const paint = {'circle-radius': 6, 'circle-color': '#ff0000', 'circle-translate': [0, 30]};
+    // With east up on screen, south is to the right: a map offset of 30 px south is 30 px right.
+    const map = await render([circleTile(paint)], {bearing: 90});
+    expectColor(pixel(map, CENTER + 30, CENTER), RED);
+    expectColor(pixel(map, CENTER, CENTER + 30), WHITE);
+    deck?.finalize();
+    deck = null;
+    parent?.remove();
+    const viewport = await render(
+      [circleTile({...paint, 'circle-translate-anchor': 'viewport'})],
+      {bearing: 90}
+    );
+    expectColor(pixel(viewport, CENTER, CENTER + 30), RED);
+    expectColor(pixel(viewport, CENTER + 30, CENTER), WHITE);
   });
 });
