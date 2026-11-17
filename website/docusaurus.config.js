@@ -72,6 +72,7 @@ const config = {
               path.resolve(__dirname, '../examples/layers/basemap-layer-map-view'),
               path.resolve(__dirname, '../examples/layers/basemap-layer-custom-projection'),
               path.resolve(__dirname, '../examples/layers/terrain-contract'),
+              path.resolve(__dirname, '../examples/layers/basemap-seafloor-relief'),
               path.resolve(__dirname, '../examples/utils')
             ],
             use: [getJSLoader({isServer})]
