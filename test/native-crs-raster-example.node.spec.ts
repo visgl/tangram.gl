@@ -19,6 +19,7 @@ import {
   toRGBA,
   type RasterLevel
 } from '../examples/layers/basemap-native-crs-raster/raster-window';
+import {getStatusText, type StatusState} from '../examples/layers/basemap-native-crs-raster/status';
 
 /** The levels of a 10980 pixel raster of 10 m pixels, as a Sentinel-2 image has them. */
 const LEVELS: RasterLevel[] = [
@@ -118,5 +119,36 @@ describe('native CRS raster example: raster windows', () => {
       [250, 250, 250]
     ]);
     expect([...rgba]).toEqual([250, 250, 250, 255, 0, 0, 0, 0, 50, 90, 130, 255]);
+  });
+});
+
+describe('native CRS raster example: status line', () => {
+  const LOADED: StatusState = {
+    styleError: null,
+    rasterErrors: [undefined, undefined],
+    imagery: true,
+    finest: 10.4,
+    pendingReads: 0
+  };
+
+  test('shows the pixel size of the raster, and the reads in progress', () => {
+    expect(getStatusText(LOADED)).toBe('Raster: 10 m pixels');
+    expect(getStatusText({...LOADED, finest: Infinity, pendingReads: 2})).toBe('Raster · loading…');
+  });
+
+  test('keeps a raster error above the pixel size, which a later render changes', () => {
+    const failed = {...LOADED, rasterErrors: [undefined, 'The raster did not load: 404']};
+    expect(getStatusText(failed)).toBe('The raster did not load: 404\nRaster: 10 m pixels');
+    expect(getStatusText({...failed, finest: 20, pendingReads: 1})).toBe(
+      'The raster did not load: 404\nRaster: 20 m pixels · loading…'
+    );
+  });
+
+  test('keeps a style error, also without the raster', () => {
+    const failed = {...LOADED, styleError: 'The basemap style did not load: 503'};
+    expect(getStatusText(failed)).toBe('The basemap style did not load: 503\nRaster: 10 m pixels');
+    expect(
+      getStatusText({...failed, imagery: false, rasterErrors: ['The raster did not load: 404']})
+    ).toBe('The basemap style did not load: 503');
   });
 });

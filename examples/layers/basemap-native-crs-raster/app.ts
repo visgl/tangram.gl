@@ -32,6 +32,7 @@ import {
   type GridLine
 } from './grid';
 import {NativeRaster, type RasterImage, type RasterInfo} from './native-raster';
+import {getStatusText} from './status';
 import {
   containsBounds,
   expandBounds,
@@ -94,6 +95,8 @@ type RasterState = {
   base?: RasterImage;
   /** The block of finer pixels for the area on the screen. */
   detail?: RasterImage;
+  /** Why the last read failed. A read that succeeds removes it. */
+  error?: string;
 };
 
 type SceneState = {
@@ -261,6 +264,8 @@ export function mountBasemapNativeCrsRasterExample(container: HTMLElement): () =
 
   let disposed = false;
   let styles: {under: BasemapStyle; over: BasemapStyle} | null = null;
+  /** Why the style did not load, or null. */
+  let styleError: string | null = null;
   let state: SceneState | null = null;
   let camera: Camera = {longitude: 0, latitude: 0, zoom: 1};
   let frame: Frame | null = null;
@@ -305,8 +310,7 @@ export function mountBasemapNativeCrsRasterExample(container: HTMLElement): () =
   /** Loads the style and divides its layers into the layers below and above the raster. */
   async function loadStyle() {
     try {
-      const response = await fetch(STYLE_URL);
-      const style = (await response.json()) as BasemapStyle;
+      const style = await fetchStyle(STYLE_URL);
       if (disposed) {
         return;
       }
@@ -321,7 +325,10 @@ export function mountBasemapNativeCrsRasterExample(container: HTMLElement): () =
       };
       render();
     } catch (error) {
-      hud.setStatus(`The basemap style did not load: ${getMessage(error)}`);
+      if (!disposed) {
+        styleError = `The basemap style did not load: ${getMessage(error)}`;
+        updateHud();
+      }
     }
   }
 
@@ -392,7 +399,7 @@ export function mountBasemapNativeCrsRasterExample(container: HTMLElement): () =
       raster.base = await raster.source.read(window, baseLevel, signal);
     } catch (error) {
       if (!signal.aborted) {
-        hud.setStatus(`The raster did not load: ${getMessage(error)}`);
+        raster.error = `The raster did not load: ${getMessage(error)}`;
       }
     } finally {
       if (state === sceneState) {
@@ -449,10 +456,11 @@ export function mountBasemapNativeCrsRasterExample(container: HTMLElement): () =
           const detail = await raster.source.read(window, level, abort.signal);
           if (!abort.signal.aborted) {
             raster.detail = detail;
+            raster.error = undefined;
           }
         } catch (error) {
           if (!abort.signal.aborted) {
-            hud.setStatus(`The raster did not load: ${getMessage(error)}`);
+            raster.error = `The raster did not load: ${getMessage(error)}`;
           }
         } finally {
           if (state === sceneState) {
@@ -685,18 +693,14 @@ export function mountBasemapNativeCrsRasterExample(container: HTMLElement): () =
           ? 'Grid north is up'
           : `Grid north is ${Math.abs(northAngle).toFixed(1)}° ${northAngle > 0 ? 'clockwise' : 'counterclockwise'} from up`,
       position,
-      status: getImageryStatus(finest)
+      status: getStatusText({
+        styleError,
+        rasterErrors: sceneState.rasters.map(raster => raster.error),
+        imagery: settings.imagery,
+        finest,
+        pendingReads
+      })
     });
-  }
-
-  function getImageryStatus(finest: number): string {
-    if (!settings.imagery) {
-      return '';
-    }
-    const loading = pendingReads > 0 ? ' · loading…' : '';
-    return Number.isFinite(finest)
-      ? `Raster: ${Math.round(finest)} m pixels${loading}`
-      : `Raster${loading}`;
   }
 
   function syncInfoWidget() {
@@ -911,6 +915,15 @@ function formatPercent(percent: number): string {
   return `${percent.toFixed(percent < 1 ? 2 : 1)}%`;
 }
 
+/** Fetches a style document. Rejects with the URL and the HTTP status when the response is not OK. */
+async function fetchStyle(url: string): Promise<BasemapStyle> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${url} failed: ${response.status} ${response.statusText}`.trim());
+  }
+  return (await response.json()) as BasemapStyle;
+}
+
 function getMessage(error: unknown): string {
   return error instanceof Error ? error.message : `${error}`;
 }
@@ -994,9 +1007,6 @@ function createHud(ownerDocument: Document) {
       north.textContent = content.north;
       position.textContent = content.position;
       status.textContent = content.status;
-    },
-    setStatus(text: string) {
-      status.textContent = text;
     }
   };
 }
