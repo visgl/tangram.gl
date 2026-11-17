@@ -41,6 +41,47 @@ export function createImage(columns: number[][]): HTMLCanvasElement {
   return canvas;
 }
 
+/** The props that a tile layer passes to each tile's sublayers. */
+const TILE_PROPS = {
+  pickable: false,
+  visible: true,
+  opacity: 1,
+  modelMatrix: null,
+  coordinateSystem: 'default',
+  coordinateOrigin: [0, 0, 0],
+  extensions: [],
+  highlightedObjectIndex: -1,
+  highlightColor: [0, 0, 128, 128],
+  wrapLongitude: false
+};
+
+/** The sublayers that a vector style layer draws for one tile of `features`. */
+export function vectorTile(
+  styleLayer: Record<string, unknown>,
+  features: unknown[],
+  deviceType: 'webgl' | 'webgpu',
+  zoom = 5
+): any[] {
+  const layers = getBasemapLayers({
+    idPrefix: 'test',
+    mode: 'map',
+    zoom,
+    styleDefinition: {
+      version: 8,
+      sources: {tiles: {type: 'vector', tiles: ['https://tiles.example.com/{z}/{x}/{y}.mvt']}},
+      layers: [{id: 'style', source: 'tiles', ...styleLayer}]
+    } as any
+  });
+  const vectorLayer: any = layers.find(layer => layer.id === 'test-tiles');
+  vectorLayer.context = {device: {type: deviceType}};
+  return vectorLayer.props.renderSubLayers({
+    ...TILE_PROPS,
+    id: 'test-tiles-tile',
+    data: features,
+    tile: {index: {x: 0, y: 0, z: 5}}
+  });
+}
+
 /** The bitmap layer that a raster style layer draws for one tile covering the whole canvas. */
 export function rasterTile(
   paint: Record<string, unknown>,
@@ -325,6 +366,52 @@ export function defineBackendPaintTests({
         center(image),
         referenceRasterColor(RASTER_COLOR, {opacity: 0.5, contrast: 0.8}, 0)
       );
+    });
+  });
+
+  describe(`${deviceType}: circle-blur`, () => {
+    const point = {type: 'Feature', geometry: {type: 'Point', coordinates: [0, 0]}, properties: {}};
+    const circles = (paint: Record<string, unknown>) =>
+      vectorTile({type: 'circle', paint: {'circle-color': '#000000', ...paint}}, [point], deviceType);
+
+    /**
+     * MapLibre GL JS's circle opacity at the center of the pixel `offset` pixels right of the
+     * circle's center (which is on a pixel corner), for a circle of `radius` pixels, stroke
+     * included.
+     */
+    const referenceAlpha = (offset: number, radius: number, blur: number) => {
+      const distance = Math.hypot(offset + 0.5, 0.5) / radius;
+      const t = Math.min(Math.max((distance - (1 - blur)) / blur, 0), 1);
+      return 1 - t * t * (3 - 2 * t);
+    };
+
+    /** Checks the pixels right of the center of a black circle drawn over white. */
+    const expectFade = (image: ImageData, radius: number, blur: number) => {
+      for (let offset = 0; offset < radius - 2; offset += 3) {
+        const expected = 255 * (1 - referenceAlpha(offset, radius, blur));
+        const actual = pixel(image, SIZE / 2 + offset, SIZE / 2);
+        expect(
+          Math.abs(actual[0] - expected),
+          `${offset} px from the center: ${actual[0]}, against ${expected.toFixed(1)}`
+        ).toBeLessThanOrEqual(3);
+      }
+    };
+
+    test.each([0.25, 0.5, 1])('fades the outer %s of the circle as MapLibre does', async blur => {
+      expectFade(await render(circles({'circle-radius': 40, 'circle-blur': blur})), 40, blur);
+    });
+
+    test('fades the stroke as part of the circle', async () => {
+      const image = await render(
+        circles({
+          'circle-radius': 28,
+          'circle-stroke-width': 12,
+          'circle-stroke-color': '#000000',
+          'circle-blur': 0.5
+        })
+      );
+      // The circle ends at the outer edge of the stroke, 40 pixels out.
+      expectFade(image, 40, 0.5);
     });
   });
 }
