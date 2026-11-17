@@ -163,8 +163,11 @@ export function isColorRampVisible(ramp: ColorRamp): boolean {
 }
 
 /**
- * An elevation as a DEM of the encoding `unpack` stores it: packed into 8-bit red, green and blue
- * as MapLibre GL JS's `packDEMData` packs it, and unpacked again.
+ * An elevation as the shader reads a DEM pixel of it: rounded to the steps of the encoding
+ * `unpack`, `min(factors)` meters, within what its 8-bit red, green and blue hold, as MapLibre GL
+ * JS's `packDEMData` rounds it; then to the steps of the elevation texture (see
+ * `prepareColorReliefTexture`). Unlike `packDEMData`, it counts the elevation once where factors
+ * overlap, as in the default custom factors `[1, 1, 1, 0]`, whose pixel `[100, 0, 0]` is 100 m.
  */
 export function quantizeElevation(
   elevation: number,
@@ -172,18 +175,12 @@ export function quantizeElevation(
 ): number {
   const factors = [redFactor, greenFactor, blueFactor].filter(factor => factor !== 0);
   if (factors.length === 0) {
-    return -baseShift;
+    return getTextureElevation(-baseShift);
   }
   const minScale = Math.min(...factors);
-  const scaled = Math.round((elevation + baseShift) / minScale);
-  const pack = (factor: number) =>
-    factor === 0 ? 0 : Math.floor((scaled * minScale) / factor) % 256;
-  return (
-    pack(redFactor) * redFactor +
-    pack(greenFactor) * greenFactor +
-    pack(blueFactor) * blueFactor -
-    baseShift
-  );
+  const maxSteps = Math.round((255 * factors.reduce((sum, factor) => sum + factor)) / minScale);
+  const steps = Math.min(Math.max(Math.round((elevation + baseShift) / minScale), 0), maxSteps);
+  return getTextureElevation(steps * minScale - baseShift);
 }
 
 /**
@@ -210,6 +207,20 @@ export function getColorRampTexels(ramp: ColorRamp, unpack: DemUnpackVector): Fl
 /** The elevations a DEM texture holds: as terrarium, in 1/256 meter steps. */
 const ELEVATION_SHIFT = 32768;
 const ELEVATION_STEPS = 256;
+const MAX_TEXTURE_VALUE = 2 ** 24 - 1;
+
+/** An elevation as the elevation texture stores it, in 1/256 meter steps, 24 bits. */
+function getTextureValue(elevation: number): number {
+  return Math.min(
+    Math.max(Math.round((elevation + ELEVATION_SHIFT) * ELEVATION_STEPS), 0),
+    MAX_TEXTURE_VALUE
+  );
+}
+
+/** An elevation as the shader reads it from the elevation texture. */
+function getTextureElevation(elevation: number): number {
+  return getTextureValue(elevation) / ELEVATION_STEPS - ELEVATION_SHIFT;
+}
 
 /**
  * The elevation texture of a DEM tile, `dim + 2` pixels square: the tile and a one-pixel border
@@ -224,14 +235,9 @@ export function prepareColorReliefTexture(
   const getElevation = getBorderedElevations(dem, getNeighbor);
   const size = dem.dim + 2;
   const texture = new Uint8ClampedArray(size * size * 4);
-  const maxValue = 2 ** 24 - 1;
   for (let row = 0; row < size; row++) {
     for (let column = 0; column < size; column++) {
-      const elevation = getElevation(column - 1, row - 1);
-      const value = Math.min(
-        Math.max(Math.round((elevation + ELEVATION_SHIFT) * ELEVATION_STEPS), 0),
-        maxValue
-      );
+      const value = getTextureValue(getElevation(column - 1, row - 1));
       const index = (row * size + column) * 4;
       texture[index] = Math.floor(value / 65536);
       texture[index + 1] = Math.floor(value / 256) % 256;
@@ -291,8 +297,13 @@ vec4 colorRelief_getColor(sampler2D dem, vec2 uv) {
       elevationL = elevationM;
     }
   }
+  // Stops that round to one elevation step have no width: an elevation at or above them takes the
+  // upper stop's color, as the search does where equal stops are followed by another.
+  float t = elevationR > elevationL
+    ? (elevation - elevationL) / (elevationR - elevationL)
+    : (elevation < elevationL ? 0.0 : 1.0);
   // MapLibre samples a linearly filtered texture of the colors, clamped to its edges.
-  float x = clamp(float(l) + (elevation - elevationL) / (elevationR - elevationL), 0.0, float(count - 1));
+  float x = clamp(float(l) + t, 0.0, float(count - 1));
   int i = min(int(x), count - 2);
   vec4 color = mix(
     texelFetch(colorReliefRamp, ivec2(i, 0), 0),

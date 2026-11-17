@@ -128,6 +128,21 @@ describe('color-relief shader inputs', () => {
     expect(quantizeElevation(5, [0, 0, 0, 3])).toBe(-3);
   });
 
+  test('rounds to the elevation the shader reads, also where factors overlap', () => {
+    // The style spec's default custom factors: a pixel [100, 0, 0] is 100 meters.
+    expect(quantizeElevation(100, [1, 1, 1, 0])).toBe(100);
+    expect(quantizeElevation(100.4, [1, 1, 1, 0])).toBe(100);
+    expect(quantizeElevation(700, [1, 1, 1, 0])).toBe(700);
+    // Past the most that the three bytes hold, 3 * 255, and below the base.
+    expect(quantizeElevation(1000, [1, 1, 1, 0])).toBe(765);
+    expect(quantizeElevation(-5, [1, 1, 1, 0])).toBe(0);
+    // The shader reads elevations in 1/256 meter steps (see `prepareColorReliefTexture`), and a
+    // mapbox pixel of 0.1 meters as 26/256.
+    expect(quantizeElevation(0.1, MAPBOX)).toBe(26 / 256);
+    const tile = demOf(1, () => 0.1);
+    expect(unpackTexel(prepareColorReliefTexture(tile), 3, 1, 1)).toBe(26 / 256);
+  });
+
   test('colors in the first row, premultiplied in 8 bits; elevations in the second', () => {
     const ramp = createColorRamp(
       [
