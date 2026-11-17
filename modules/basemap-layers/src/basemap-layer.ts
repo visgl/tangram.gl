@@ -37,6 +37,7 @@ import {
 } from './label-placement';
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {getDemUnpackVector} from './hillshade-layer';
+import {getTileLoadOptions} from './pmtiles-source';
 import {getStyleZoomKey} from './style-accessor';
 import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
 import {GlyphStore} from './glyph-store';
@@ -480,7 +481,10 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
           id: `${this.id}-loader`,
           data: source.tiles!,
           fetch: this.props.fetch,
-          loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
+          loadOptions: getTileLoadOptions(
+            source,
+            getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
+          )
         });
         loader.context = this.context;
         const tileset = new SharedTileset2D({

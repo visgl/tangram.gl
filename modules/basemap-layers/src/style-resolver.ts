@@ -9,6 +9,7 @@ import {
   BasemapStyleSchema,
   ResolvedBasemapStyleSchema
 } from './map-style-schema';
+import {getPMTilesSourceFields, isPMTilesUrl, PMTILES_PROTOCOL} from './pmtiles-source';
 
 /**
  * A basemap source entry from a style document.
@@ -16,7 +17,10 @@ import {
 export type BasemapSource = {
   /** Source kind such as `vector` or `raster`. */
   type?: string;
-  /** Optional TileJSON URL used to resolve the source metadata. */
+  /**
+   * Optional TileJSON URL used to resolve the source metadata, or a PMTiles archive,
+   * `pmtiles://<archive URL>`, whose header resolves it.
+   */
   url?: string;
   /** Inline tile templates for the source. */
   tiles?: string[];
@@ -238,6 +242,10 @@ async function resolveSource(
     return source.tiles ? {...source, tiles: normalizeTiles(source.tiles, baseUrl)} : {...source};
   }
 
+  if (isPMTilesUrl(source.url)) {
+    return await resolvePMTilesSource(source, baseUrl, loadOptions);
+  }
+
   const tileJsonUrl = normalizeUrl(source.url, baseUrl);
   const tileJsonFields = pickTileJsonFields(
     await fetchJson(tileJsonUrl || source.url, loadOptions)
@@ -262,6 +270,32 @@ async function resolveSource(
     throw new Error(`TileJSON has no tiles: ${tileJsonUrl}`);
   }
   return resolvedSource;
+}
+
+/**
+ * Resolves a source whose `url` is a PMTiles archive, `pmtiles://<archive URL>`, from the archive's
+ * header, as MapLibre GL JS's `pmtiles` protocol does: its tiles are read from the archive (see
+ * `getPMTilesSourceFields`). The archive URL resolves against the style's base URL. As with a
+ * TileJSON, the style's own source properties take precedence.
+ */
+async function resolvePMTilesSource(
+  source: BasemapSource,
+  baseUrl: string | undefined,
+  loadOptions?: BasemapLoadOptions
+): Promise<BasemapSource> {
+  const archiveUrl = String(source.url).slice(PMTILES_PROTOCOL.length);
+  const resolvedArchiveUrl = normalizeUrl(archiveUrl, baseUrl) || archiveUrl;
+  const archiveFields = await getPMTilesSourceFields(
+    resolvedArchiveUrl,
+    String(source.type),
+    loadOptions
+  );
+  return {
+    ...archiveFields,
+    ...source,
+    url: `${PMTILES_PROTOCOL}${resolvedArchiveUrl}`,
+    tiles: source.tiles ? normalizeTiles(source.tiles, baseUrl) : archiveFields.tiles
+  };
 }
 
 /**

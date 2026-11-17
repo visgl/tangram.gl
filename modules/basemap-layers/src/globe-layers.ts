@@ -77,6 +77,7 @@ import {
 } from './zoom-paint-extension';
 import type {BasemapGlobeConfig, BasemapLayerProps} from './basemap-layer';
 import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
+import {getTileLoadOptions} from './pmtiles-source';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {
@@ -786,7 +787,7 @@ export function createDemTileset(
   loadOptions?: BasemapLoadOptions,
   projectedMaxStretch?: number
 ): SharedTileset2D<DemTile | null> {
-  return createSharedDemTileset(source, loadOptions, {
+  return createSharedDemTileset(source, getTileLoadOptions(source, loadOptions), {
     ...getTilePyramidProps(source),
     adapter: getBasemapTilesetAdapter(projectedMaxStretch)
   });
@@ -826,6 +827,8 @@ function createRasterLayer({
     getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
     getRasterPaintValue(paint, 'resampling') === 'nearest';
   const tilePyramidProps = getTilePyramidProps(source);
+  // The tiles of a PMTiles archive load with a `fetch` that reads them from the archive.
+  const tileLoadOptions = getTileLoadOptions(source, loadOptions);
 
   // Also selects tiles in a projected view.
   return new ProjectedTileLayer({
@@ -835,7 +838,7 @@ function createRasterLayer({
     ...tilePyramidProps,
     // Tiles load with the `fetch` and `loadOptions` of the basemap, as vector tiles do.
     ...(fetch ? {fetch} : {}),
-    ...(loadOptions ? {loadOptions} : {}),
+    ...(tileLoadOptions ? {loadOptions: tileLoadOptions} : {}),
     // A tile without data is drawn from its nearest ancestor that has data.
     ...(rejectRasterTile
       ? {
@@ -843,7 +846,7 @@ function createRasterLayer({
             sourceId: layer.source || '',
             minZoom: tilePyramidProps.minZoom,
             rejectTile: rejectRasterTile,
-            loadOptions
+            loadOptions: tileLoadOptions
           }).getTileData
         }
       : {}),
@@ -3522,7 +3525,10 @@ function getStyleLayers({
         sourceLayers ??= getRunSourceLayers(allRuns);
         const loader = new SharedMVTLayer({
           data: run.source!.tiles!,
-          loadOptions: getSourceLoadOptions(loadOptions, sourceLayers.get(run.source!))
+          loadOptions: getTileLoadOptions(
+            run.source!,
+            getSourceLoadOptions(loadOptions, sourceLayers.get(run.source!))
+          )
         });
         const ownedTileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
