@@ -44,7 +44,11 @@ import {CompositeLayer} from '@deck.gl/core';
 import type {CompositeLayerProps, DefaultProps} from '@deck.gl/core';
 import type {BitmapBoundingBox} from '@deck.gl/layers';
 import {BitmapLayer} from '@deck.gl/layers';
-import {lngLatToMercatorWorld, mercatorWorldToLngLat} from './projected-viewport';
+import {
+  MAX_MERCATOR_LATITUDE,
+  lngLatToMercatorWorld,
+  mercatorWorldToLngLat
+} from './projected-viewport';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 
 /** A longitude and a latitude, in degrees. */
@@ -61,13 +65,26 @@ export type ImageSourceCorners = [
   ImageSourceCorner
 ];
 
+/**
+ * The largest longitude of a corner, in degrees: an image may reach into the world copies on
+ * either side, as in MapLibre, but no further.
+ */
+const MAX_CORNER_LONGITUDE = 540;
+
 function isCorner(value: unknown): value is ImageSourceCorner {
-  return Array.isArray(value) && value.length === 2 && value.every(Number.isFinite);
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    value.every(Number.isFinite) &&
+    Math.abs(value[0]) <= MAX_CORNER_LONGITUDE &&
+    Math.abs(value[1]) <= MAX_MERCATOR_LATITUDE
+  );
 }
 
 /**
  * The `coordinates` of an `image` source, or null unless they are four `[longitude, latitude]`
- * corners of finite numbers.
+ * corners of finite numbers, with latitudes within the Web Mercator world (±85.051129°) and
+ * longitudes within ±540°.
  */
 export function getImageSourceCorners(source: BasemapSource): ImageSourceCorners | null {
   const {coordinates} = source;
@@ -114,6 +131,9 @@ const BILINEAR_FORESHORTENING = 512;
  * cell: MapLibre GL JS draws a projective warp exactly, and a blended one on 16 cells.
  */
 const WARP_GRID_CELLS = 32;
+
+/** The most grid cells along each side of the mesh of an image, however large it is. */
+export const MAX_IMAGE_GRID_CELLS = 256;
 
 /**
  * How an image is warped onto its corners, as MapLibre GL JS warps it (`ImageSource` with its
@@ -211,6 +231,25 @@ export function warpImagePoint(
   return point;
 }
 
+/**
+ * The grid cells along each side of the mesh of an image (see `createImageMesh`): one for a
+ * parallelogram, `WARP_GRID_CELLS` for another quad, more where `subdivisionStep` asks for them,
+ * and never more than `MAX_IMAGE_GRID_CELLS`.
+ */
+export function getImageGridCells(corners: ImageSourceCorners, subdivisionStep = 0): number {
+  let cells = isParallelogram(getWorldCorners(corners)) ? 1 : WARP_GRID_CELLS;
+  if (subdivisionStep > 0) {
+    const longitudes = corners.map(corner => corner[0]);
+    const latitudes = corners.map(corner => corner[1]);
+    const span = Math.max(
+      Math.max(...longitudes) - Math.min(...longitudes),
+      Math.max(...latitudes) - Math.min(...latitudes)
+    );
+    cells = Math.max(cells, Math.ceil(span / subdivisionStep));
+  }
+  return Math.min(cells, MAX_IMAGE_GRID_CELLS);
+}
+
 /** A mesh of an image, as `BitmapLayer` draws it. */
 export type ImageMesh = {
   /** The count of indices. */
@@ -226,21 +265,12 @@ export type ImageMesh = {
  * The mesh of an image warped onto its corners (see `getImageWarp`). A parallelogram is one cell,
  * split from its bottom left to its top right corner as MapLibre splits it; another quad is a grid
  * of `WARP_GRID_CELLS`, or of more cells where `subdivisionStep` (degrees, on a globe) asks for
- * them. The vertices are placed in Web Mercator space, so the image is uniform there, as in MapLibre.
+ * them, up to `MAX_IMAGE_GRID_CELLS`. The vertices are placed in Web Mercator space, so the image is uniform there, as in MapLibre.
  */
 export function createImageMesh(corners: ImageSourceCorners, subdivisionStep = 0): ImageMesh {
   const world = getWorldCorners(corners);
   const warp = getImageWarp(corners);
-  let cells = isParallelogram(world) ? 1 : WARP_GRID_CELLS;
-  if (subdivisionStep > 0) {
-    const longitudes = corners.map(corner => corner[0]);
-    const latitudes = corners.map(corner => corner[1]);
-    const span = Math.max(
-      Math.max(...longitudes) - Math.min(...longitudes),
-      Math.max(...latitudes) - Math.min(...latitudes)
-    );
-    cells = Math.max(cells, Math.ceil(span / subdivisionStep));
-  }
+  const cells = getImageGridCells(corners, subdivisionStep);
   const side = cells + 1;
   const positions = new Float64Array(side * side * 3);
   const texCoords = new Float32Array(side * side * 2);

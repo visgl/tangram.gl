@@ -3423,6 +3423,11 @@ export function getStyleLayerRuns(
     } else if (layer.type === 'raster') {
       if (source?.tiles || isDrawableImageSource(source)) {
         runs.push({type: 'raster', id: layer.id, sourceId, source, styleLayers: [layer]});
+      } else if (source?.type === 'image') {
+        // Logged once per message: the runs are built again on each update.
+        log.warn(
+          `[BasemapLayer] Skipping raster layer "${layer.id}": image source "${sourceId}" needs a url and four [longitude, latitude] coordinates within the Web Mercator world`
+        )();
       } else {
         logBasemapRuntimeEvent('Skipping style layer without resolved tiles', {
           layerId: layer.id,

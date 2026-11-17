@@ -3,15 +3,18 @@
 // Copyright (c) vis.gl contributors
 
 /* eslint-disable import/no-extraneous-dependencies */
-import {describe, expect, test} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
+import {log} from '@deck.gl/core';
 import {getBasemapLayers} from '../src/index.ts';
 import {getStyleLayerRuns} from '../src/globe-layers.ts';
 import {
   createImageMesh,
+  getImageGridCells,
   getImageSourceBounds,
   getImageSourceCorners,
   getImageWarp,
   hasFlippedWinding,
+  MAX_IMAGE_GRID_CELLS,
   warpImagePoint,
   type ImageSourceCorners
 } from '../src/image-source-layer.ts';
@@ -59,6 +62,10 @@ function renderImage(imageLayer: any, deviceType = 'webgl'): any {
   return bitmap;
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('image source coordinates', () => {
   test('takes four [longitude, latitude] corners', () => {
     expect(getImageSourceCorners({type: 'image', coordinates: SKEWED})).toEqual(SKEWED);
@@ -72,9 +79,24 @@ describe('image source coordinates', () => {
     ['a corner with one number', [[0], ...SKEWED.slice(1)]],
     ['a corner with three numbers', [[0, 0, 0], ...SKEWED.slice(1)]],
     ['a corner that is not a number', [['0', 0], ...SKEWED.slice(1)]],
-    ['a corner that is not finite', [[Number.NaN, 0], ...SKEWED.slice(1)]]
+    ['a corner that is not finite', [[Number.NaN, 0], ...SKEWED.slice(1)]],
+    ['a corner that is infinite', [[Number.POSITIVE_INFINITY, 0], ...SKEWED.slice(1)]],
+    ['a corner past the north of the Web Mercator world', [[0, 85.06], ...SKEWED.slice(1)]],
+    ['a corner past the south of the Web Mercator world', [...SKEWED.slice(0, 3), [0, -90]]],
+    ['a corner past three worlds of longitude', [[541, 0], ...SKEWED.slice(1)]],
+    ['a corner at a huge longitude', [[-1e12, 0], ...SKEWED.slice(1)]]
   ])('rejects coordinates that are %s', (_, coordinates) => {
     expect(getImageSourceCorners({type: 'image', coordinates})).toBeNull();
+  });
+
+  test('takes corners at the limits: latitude ±85.051129, longitude ±540', () => {
+    const corners: ImageSourceCorners = [
+      [-540, 85.051129],
+      [540, 85.051129],
+      [540, -85.051129],
+      [-540, -85.051129]
+    ];
+    expect(getImageSourceCorners({type: 'image', coordinates: corners})).toEqual(corners);
   });
 
   test('turns the corners into the bounds of a bitmap layer: bottom left first, counterclockwise', () => {
@@ -141,6 +163,23 @@ describe('image warp', () => {
     expect(getImageWarp(concave)).toEqual([0, 0, 1]);
   });
 
+  test('the mesh of the largest image has at most MAX_IMAGE_GRID_CELLS cells along a side', () => {
+    const largest: ImageSourceCorners = [
+      [-540, 85],
+      [540, 80],
+      [540, -85],
+      [-540, -80]
+    ];
+    // A globe's subdivision step of a thousandth of a degree asks for a million cells a side.
+    expect(getImageGridCells(largest, 0.001)).toBe(MAX_IMAGE_GRID_CELLS);
+    const mesh = createImageMesh(largest, 0.001);
+    expect(MAX_IMAGE_GRID_CELLS).toBe(256);
+    expect(mesh.vertexCount).toBe(MAX_IMAGE_GRID_CELLS ** 2 * 6);
+    expect(mesh.positions.length).toBe((MAX_IMAGE_GRID_CELLS + 1) ** 2 * 3);
+    // Below the cap, the step still refines the grid: the quad spans 2.6 degrees, 52 steps.
+    expect(createImageMesh(SKEWED, 0.05).vertexCount).toBe(52 ** 2 * 6);
+  });
+
   test('a strongly foreshortened quad blends towards the bilinear warp', () => {
     const [topLeft, topRight] = SKEWED;
     // The bottom edge is far shorter than the top one.
@@ -173,6 +212,16 @@ describe('image source layers', () => {
       ['background', 'background'],
       ['raster', 'overlay']
     ]);
+  });
+
+  test.each([
+    ['a latitude that is not a number', [[0, Number.NaN], ...SKEWED.slice(1)]],
+    ['a latitude past the Web Mercator world', [[0, 89], ...SKEWED.slice(1)]],
+    ['a huge longitude', [[1e15, 0], ...SKEWED.slice(1)]]
+  ])('a source with %s is skipped with a warning', (_, coordinates) => {
+    const warn = vi.spyOn(log, 'warn');
+    expect(getImageLayer({coordinates})).toBeUndefined();
+    expect(warn.mock.calls.flat().join(' ')).toContain('image source "overlay"');
   });
 
   test.each([
