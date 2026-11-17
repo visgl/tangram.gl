@@ -2,11 +2,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Deck, OrthographicView, type Layer, type View} from '@deck.gl/core';
+import {Deck, MapView, OrthographicView, type Layer, type View} from '@deck.gl/core';
 import type {Adapter} from '@luma.gl/core';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {SolidPolygonLayer} from '@deck.gl/layers';
 import {getBasemapLayers} from '../src/index';
+import {
+  DEFAULT_FILL_EXTRUSION_LIGHT,
+  getFillExtrusionLightDirection
+} from '../src/fill-extrusion-lighting-extension';
 
 /**
  * Paint properties drawn by the shader extensions of this module, for one GPU backend. The
@@ -432,6 +436,132 @@ export function defineBackendPaintTests(options: BackendPaintTestOptions): void 
       );
       // The circle ends at the outer edge of the stroke, 40 pixels out.
       expectFade(image, 40, 0.5);
+    });
+  });
+
+  describe(`${deviceType}: fill-extrusion lighting`, () => {
+    const ZOOM = 15;
+    const COLOR = [192, 128, 96];
+    const HEIGHT = 150;
+    const SQUARE = {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [
+            [-0.0003, -0.0003],
+            [0.0003, -0.0003],
+            [0.0003, 0.0003],
+            [-0.0003, 0.0003],
+            [-0.0003, -0.0003]
+          ]
+        ]
+      },
+      properties: {}
+    };
+    const VIEW: RenderView = {
+      view: new MapView({id: 'extrusion-test'}),
+      viewState: {longitude: 0, latitude: 0.0008, zoom: ZOOM, pitch: 55, bearing: 30}
+    };
+    const buildings = (paint: Record<string, unknown> = {}) =>
+      vectorTile(
+        {
+          type: 'fill-extrusion',
+          paint: {
+            'fill-extrusion-color': `rgb(${COLOR.join(', ')})`,
+            'fill-extrusion-height': HEIGHT,
+            ...paint
+          }
+        },
+        [SQUARE],
+        deviceType,
+        ZOOM
+      );
+
+    /** The light vector of the style spec's default light, at bearing 30. */
+    const LIGHT = getFillExtrusionLightDirection(DEFAULT_FILL_EXTRUSION_LIGHT, 30);
+
+    /** MapLibre GL JS's fill-extrusion color for a face normal and a wall gradient factor. */
+    const referenceShade = (normal: number[], gradient = 1): number[] => {
+      const {intensity, color: lightColor} = DEFAULT_FILL_EXTRUSION_LIGHT;
+      const color = COLOR.map(value => value / 255);
+      const colorValue = color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+      const angle = Math.min(Math.max(normal.reduce((sum, n, i) => sum + n * LIGHT[i], 0), 0), 1);
+      const directional =
+        (1 - intensity + (Math.max(1 - colorValue + intensity, 1) - (1 - intensity)) * angle) *
+        gradient;
+      return color.map((value, i) => {
+        const shaded = (value + 0.03) * directional * lightColor[i];
+        const low = 0.3 * (1 - lightColor[i]);
+        return Math.min(Math.max(shaded, low), 1) * 255;
+      });
+    };
+    const ROOF = [0, 0, 1];
+    const WALLS = [
+      [1, 0, 0],
+      [-1, 0, 0],
+      [0, 1, 0],
+      [0, -1, 0]
+    ];
+
+    /** The colors that cover at least `share` of the pixels that are not white. */
+    const getFaceColors = (image: ImageData, share = 0.05): number[][] => {
+      const counts = new Map<number, number>();
+      let total = 0;
+      for (let i = 0; i < image.data.length; i += 4) {
+        const [r, g, b] = [image.data[i], image.data[i + 1], image.data[i + 2]];
+        if (r + g + b < 750) {
+          const key = (r << 16) | (g << 8) | b;
+          counts.set(key, (counts.get(key) || 0) + 1);
+          total++;
+        }
+      }
+      return [...counts]
+        .filter(([, count]) => count >= share * total)
+        .map(([key]) => [key >> 16, (key >> 8) & 255, key & 255]);
+    };
+    const isNear = (a: number[], b: number[], tolerance = 2) =>
+      a.every((value, i) => Math.abs(value - b[i]) <= tolerance);
+
+    test('shades the roof and walls as MapLibre does, without the vertical gradient', async () => {
+      const image = await render(buildings({'fill-extrusion-vertical-gradient': false}), VIEW);
+      const expected = [ROOF, ...WALLS].map(normal => referenceShade(normal));
+      const faces = getFaceColors(image);
+      const message = JSON.stringify({faces, expected: expected.map(c => c.map(Math.round))});
+      // The roof and two walls face the camera.
+      expect(faces.length, message).toBeGreaterThanOrEqual(3);
+      for (const face of faces) {
+        expect(
+          expected.some(color => isNear(face, color)),
+          message
+        ).toBe(true);
+      }
+      expect(
+        faces.some(face => isNear(face, referenceShade(ROOF))),
+        message
+      ).toBe(true);
+    });
+
+    test('darkens the walls toward the ground as MapLibre does', async () => {
+      const image = await render(buildings(), VIEW);
+      // A wall's gradient factor runs from clamp(0, mix(0.7, 0.98, 0.5), 1) = 0.84 at the ground to
+      // 1 at the top, for a building on the ground 150 m high.
+      const colors = new Set<string>();
+      for (let i = 0; i < image.data.length; i += 4) {
+        colors.add(`${image.data[i]},${image.data[i + 1]},${image.data[i + 2]}`);
+      }
+      const isDrawn = (expected: number[], tolerance: number) =>
+        [...colors].some(color => isNear(color.split(',').map(Number), expected, tolerance));
+      const walls = WALLS.filter(normal => isDrawn(referenceShade(normal), 2));
+      const message = JSON.stringify({
+        walls,
+        bottoms: walls.map(normal => referenceShade(normal, 0.84).map(Math.round))
+      });
+      // Two walls face the camera. Each shades from its top color down to its bottom color.
+      expect(walls.length, message).toBe(2);
+      for (const normal of walls) {
+        expect(isDrawn(referenceShade(normal, 0.84), 3), message).toBe(true);
+      }
     });
   });
 }
