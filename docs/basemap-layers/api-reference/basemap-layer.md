@@ -130,6 +130,9 @@ has a `basemapFeature` field of type `BasemapPickedFeature`, named as in a featu
 `queryRenderedFeatures()` reads them, use deck.gl's `pickObjects()`. Rasters, hillshades and the
 background are not pickable.
 
+The [hover and select example](/examples/basemap-layers/hover-and-select) highlights the hovered
+and the selected basemap feature with `featureState`, and names the picked feature in a card.
+
 ### `loadOptions`
 
 Type: `BasemapLoadOptions | null`
