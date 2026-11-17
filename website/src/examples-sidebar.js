@@ -17,6 +17,7 @@ const sidebars = {
         {type: 'doc', id: 'basemap-layers/map-view', label: 'BasemapLayer'},
         {type: 'doc', id: 'basemap-layers/terrain-contract', label: 'Terrain queries'},
         {type: 'doc', id: 'basemap-layers/split-view', label: 'MapLibre comparison'},
+        {type: 'doc', id: 'basemap-layers/image-overlay', label: 'Georeferenced image overlay'},
         {type: 'doc', id: 'basemap-layers/custom-projection', label: 'CustomProjectionView (experimental)'}
       ]
     },
