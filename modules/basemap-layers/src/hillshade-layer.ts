@@ -149,6 +149,36 @@ export function decodeDemTile(
 export type DemNeighbors = (dx: number, dy: number) => DemTile | null;
 
 /**
+ * The elevation at a pixel `(x, y)` of a DEM tile or of a border around it, up to one tile wide.
+ * Pixels past the tile's edges come from its loaded neighbors (of the same size), and where a
+ * neighbor is missing, from the tile's nearest edge pixel, as MapLibre GL JS backfills them.
+ */
+export function getBorderedElevations(
+  dem: DemTile,
+  getNeighbor: DemNeighbors
+): (x: number, y: number) => number {
+  const {dim} = dem;
+  const neighbors: (DemTile | null)[] = [];
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const neighbor = dx || dy ? getNeighbor(dx, dy) : dem;
+      neighbors.push(neighbor && neighbor.dim === dim ? neighbor : null);
+    }
+  }
+  return (x, y) => {
+    const dx = x < 0 ? -1 : x >= dim ? 1 : 0;
+    const dy = y < 0 ? -1 : y >= dim ? 1 : 0;
+    const neighbor = neighbors[(dy + 1) * 3 + dx + 1];
+    if (neighbor) {
+      return neighbor.elevations[(y - dy * dim) * dim + (x - dx * dim)];
+    }
+    const clampedX = Math.min(Math.max(x, 0), dim - 1);
+    const clampedY = Math.min(Math.max(y, 0), dim - 1);
+    return dem.elevations[clampedY * dim + clampedX];
+  };
+}
+
+/**
  * The slope texture of MapLibre GL JS's hillshade "prepare" pass, `dim + 2` pixels square: the
  * tile and a one-pixel border, RGBA, with the scaled east-west and north-south slopes in red and
  * green (128 is flat). Pixels past the tile's edges come from its loaded neighbors, and where a
@@ -163,25 +193,7 @@ export function prepareHillshadeTexture(
   getNeighbor: DemNeighbors = () => null
 ): Uint8ClampedArray<ArrayBuffer> {
   const {dim} = dem;
-  const neighbors: (DemTile | null)[] = [];
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      const neighbor = dx || dy ? getNeighbor(dx, dy) : dem;
-      neighbors.push(neighbor && neighbor.dim === dim ? neighbor : null);
-    }
-  }
-  // The elevation at a pixel of the tile or of its two-pixel border.
-  const getElevation = (x: number, y: number): number => {
-    const dx = x < 0 ? -1 : x >= dim ? 1 : 0;
-    const dy = y < 0 ? -1 : y >= dim ? 1 : 0;
-    const neighbor = neighbors[(dy + 1) * 3 + dx + 1];
-    if (neighbor) {
-      return neighbor.elevations[(y - dy * dim) * dim + (x - dx * dim)];
-    }
-    const clampedX = Math.min(Math.max(x, 0), dim - 1);
-    const clampedY = Math.min(Math.max(y, 0), dim - 1);
-    return dem.elevations[clampedY * dim + clampedX];
-  };
+  const getElevation = getBorderedElevations(dem, getNeighbor);
 
   const exaggerationFactor = zoom < 2 ? 0.4 : zoom < 4.5 ? 0.35 : 0.3;
   const exaggeration = zoom < 15 ? (zoom - 15) * exaggerationFactor : 0;
@@ -495,7 +507,7 @@ vec4 hillshade_getColor(sampler2D slopes, vec2 uv) {
  * The blending of the hillshade's premultiplied colors, as MapLibre blends them (and as
  * `RASTER_COLOR_BLEND_PARAMETERS`).
  */
-const PREMULTIPLIED_BLEND_PARAMETERS = {
+export const PREMULTIPLIED_BLEND_PARAMETERS = {
   blendColorOperation: 'add',
   blendColorSrcFactor: 'one',
   blendColorDstFactor: 'one-minus-src-alpha',
@@ -593,7 +605,8 @@ export async function loadDemTile(
 const preparedTextures = new WeakMap<DemTile, {key: string; image: ImageData}>();
 
 type TileIndex = {x: number; y: number; z: number};
-type DemTileHeader = {
+/** A tile of a `raster-dem` source's tileset. */
+export type DemTileHeader = {
   id: string;
   index: TileIndex;
   bbox: unknown;
@@ -603,7 +616,7 @@ type DemTileHeader = {
 
 /**
  * Creates the tileset of a `raster-dem` source: each tile is fetched and decoded once, and shared
- * by every `HillshadeTileLayer` drawn from it, as the tiles of a vector source are shared by its
+ * by every `DemTileLayer` drawn from it, as the tiles of a vector source are shared by its
  * style runs. `tilesetProps` are the source's tile pyramid (see `getTilePyramidProps`).
  */
 export function createSharedDemTileset(
@@ -627,36 +640,39 @@ export function createSharedDemTileset(
 }
 
 /**
- * A tileset shared by the `HillshadeTileLayer`s of one `raster-dem` source, finalized when the
- * last of them is. `BasemapLayer` owns its sources' tilesets itself; this is for the layers that
+ * A tileset shared by the `DemTileLayer`s of one `raster-dem` source, finalized when the last of
+ * them is. `BasemapLayer` owns its sources' tilesets itself; this is for the layers that
  * `getBasemapLayers` creates without it.
  */
 export type DemTilesetOwner = {tileset: SharedTileset2D; consumers: Set<object>};
 
-/** Props of a `HillshadeTileLayer`. */
-export type HillshadeTileLayerProps = SharedTile2DLayerProps<DemTile | null> & {
-  hillshadeParameters: HillshadeParameters;
-  /** Extra props of every tile's bitmap layer, such as `parameters`. */
-  hillshadeSubLayerProps?: Record<string, unknown>;
+/** Props of a `DemTileLayer`. */
+export type DemTileLayerProps = SharedTile2DLayerProps<DemTile | null> & {
   /** The owner of a shared `data` tileset that the layer releases when finalized. */
   demTilesetOwner?: DemTilesetOwner | null;
 };
 
+/** The loaded neighbors of a DEM tile, and a key that changes when a neighbor loads. */
+export type DemTileNeighbors = {getNeighbor: DemNeighbors; key: string};
+
 /**
- * The tiles of a `raster-dem` source, shaded by one `hillshade` style layer. The decoded tiles
- * come from the source's tileset, shared with the source's other hillshade layers (see
- * `createSharedDemTileset`); the slopes and the shading are the layer's own. Each tile's slopes are
- * prepared from its elevations and those of its loaded neighbors, so that tiles join without
- * seams. Draws nothing on WebGPU: the shader is GLSL.
+ * The tiles of a `raster-dem` source, drawn by one style layer (`hillshade` or `color-relief`).
+ * The decoded tiles come from the source's tileset, shared with the source's other such layers
+ * (see `createSharedDemTileset`). A tile is drawn from its elevations and the edge pixels of its
+ * loaded neighbors, so that tiles join without seams: when a tile loads, its neighbors are drawn
+ * again. Draws nothing on WebGPU: the shaders are GLSL.
  */
-export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, HillshadeTileLayerProps> {
-  static layerName = 'HillshadeTileLayer';
+export abstract class DemTileLayer<
+  PropsT extends DemTileLayerProps = DemTileLayerProps
+> extends SharedTile2DLayer<DemTile | null, PropsT> {
+  static layerName = 'DemTileLayer';
   static defaultProps = {
     ...SharedTile2DLayer.defaultProps,
-    hillshadeParameters: {type: 'object', value: null, compare: false},
-    hillshadeSubLayerProps: {type: 'object', value: null, compare: false},
     demTilesetOwner: {type: 'object', value: null, compare: false}
   };
+
+  /** The style layer type, for the WebGPU warning. */
+  protected abstract readonly styleLayerType: string;
 
   declare state: SharedTile2DLayer<DemTile | null>['state'] & {
     demTilesetOwner?: DemTilesetOwner;
@@ -728,20 +744,15 @@ export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, Hillsh
 
   renderLayers(): Layer | null | LayersList {
     if (this.context.device.type === 'webgpu') {
-      log.once(1, '[BasemapLayer] hillshade layers are not drawn on WebGPU')();
+      log.once(1, `[BasemapLayer] ${this.styleLayerType} layers are not drawn on WebGPU`)();
       return null;
     }
     return super.renderLayers();
   }
 
-  renderSubLayers(props: any): Layer | null | LayersList {
-    const dem = props.data as DemTile | null;
-    const tile = props.tile as DemTileHeader;
-    if (!dem || typeof ImageData === 'undefined') {
-      return null;
-    }
+  /** The loaded neighbors of a tile, which wrap around the antimeridian. */
+  protected getDemNeighbors(tile: DemTileHeader): DemTileNeighbors {
     const {x, y, z} = tile.index;
-
     const loaded = new Map<string, DemTile>();
     for (const other of (this.state.tileset?.tiles || []) as DemTileHeader[]) {
       if (other.index.z === z && other.isLoaded && other.content) {
@@ -752,15 +763,46 @@ export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, Hillsh
     const getNeighbor: DemNeighbors = (dx, dy) =>
       loaded.get(`${(x + dx + count) % count}/${y + dy}`) ?? null;
     // Which neighbors are loaded decides the texture's border.
-    const present = [-1, 0, 1]
+    const key = [-1, 0, 1]
       .flatMap(dy => [-1, 0, 1].map(dx => ((dx || dy) && getNeighbor(dx, dy) ? 1 : 0)))
       .join('');
-    const key = present;
+    return {getNeighbor, key};
+  }
+}
+
+/** Props of a `HillshadeTileLayer`. */
+export type HillshadeTileLayerProps = DemTileLayerProps & {
+  hillshadeParameters: HillshadeParameters;
+  /** Extra props of every tile's bitmap layer, such as `parameters`. */
+  hillshadeSubLayerProps?: Record<string, unknown>;
+};
+
+/**
+ * The tiles of a `raster-dem` source, shaded by one `hillshade` style layer (see `DemTileLayer`).
+ * Each tile's slopes are prepared from its elevations and those of its loaded neighbors.
+ */
+export class HillshadeTileLayer extends DemTileLayer<HillshadeTileLayerProps> {
+  static layerName = 'HillshadeTileLayer';
+  static defaultProps = {
+    ...DemTileLayer.defaultProps,
+    hillshadeParameters: {type: 'object', value: null, compare: false},
+    hillshadeSubLayerProps: {type: 'object', value: null, compare: false}
+  };
+
+  protected readonly styleLayerType = 'hillshade';
+
+  renderSubLayers(props: any): Layer | null | LayersList {
+    const dem = props.data as DemTile | null;
+    const tile = props.tile as DemTileHeader;
+    if (!dem || typeof ImageData === 'undefined') {
+      return null;
+    }
+    const {getNeighbor, key} = this.getDemNeighbors(tile);
     // Kept with the decoded tile, so the source's hillshade layers prepare its slopes once.
     let prepared = preparedTextures.get(dem);
     if (prepared?.key !== key) {
       const size = dem.dim + 2;
-      const pixels = prepareHillshadeTexture(dem, z, getNeighbor);
+      const pixels = prepareHillshadeTexture(dem, tile.index.z, getNeighbor);
       prepared = {key, image: new ImageData(pixels, size, size)};
       preparedTextures.set(dem, prepared);
     }

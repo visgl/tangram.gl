@@ -8,6 +8,7 @@ import {log} from '@deck.gl/core';
 import {
   Color,
   ColorArray,
+  Interpolate,
   NumberArray,
   Padding,
   VariableAnchorOffsetCollection,
@@ -244,6 +245,46 @@ export function getCompiledStyleProperty(
     layerCache.set(propertyName, entry);
   }
   return entry.compiled;
+}
+
+/** The stops of an interpolated color ramp: each stop's input, and its color. */
+export type ColorRampStops = {
+  inputs: number[];
+  /** Premultiplied RGBA in 0-1, as MapLibre GL JS's `Color` stores it. */
+  colors: [number, number, number, number][];
+};
+
+/**
+ * The stops of a color ramp property, such as `color-relief-color`, as MapLibre GL JS reads them:
+ * the inputs of an `interpolate` (or `interpolate-hcl`, `interpolate-lab`) expression, and the
+ * colors it evaluates to at each. `null` for any other value, such as a `step` expression or a
+ * constant color, which MapLibre draws transparent. An invalid value logs a warning once.
+ */
+export function getColorRampStops(
+  propertyName: string,
+  value: unknown,
+  inputName: string
+): ColorRampStops | null {
+  if (value === undefined) {
+    return null;
+  }
+  const reference = getStylePropertyReference(propertyName);
+  const compiled = expression.createPropertyExpression(value as any, reference as any);
+  if (compiled.result !== 'success') {
+    warnInvalidValue(propertyName, value, compiled.value.map(error => error.message).join(', '));
+    return null;
+  }
+  const ramp = compiled.value as any;
+  const interpolate = ramp.kind === 'constant' ? ramp._styleExpression?.expression : null;
+  if (!(interpolate instanceof Interpolate)) {
+    return null;
+  }
+  const inputs = [...interpolate.labels];
+  const colors = inputs.map(input => {
+    const color = ramp.evaluate({[inputName]: input}) as Color;
+    return [color.r, color.g, color.b, color.a] as [number, number, number, number];
+  });
+  return {inputs, colors};
 }
 
 /**

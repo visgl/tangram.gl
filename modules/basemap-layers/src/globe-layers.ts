@@ -36,10 +36,12 @@ import {LineBlurExtension, getBlurredLineWidth} from './line-blur-extension';
 import {
   HillshadeTileLayer,
   createSharedDemTileset,
+  getDemUnpackVector,
   getHillshadeParameters,
   type DemTile,
   type DemTilesetOwner
 } from './hillshade-layer';
+import {ColorReliefTileLayer, createColorRamp, isColorRampVisible} from './color-relief-layer';
 import type {LabelPlacement} from './label-placement';
 import {MVTLabelLayer, type LabelTile} from './mvt-label-layer';
 import {isSameList} from './util';
@@ -132,11 +134,11 @@ type BasemapLayerGroup = {
 };
 
 /**
- * Style layers that draw together, in style order: a background, raster or hillshade layer on its
- * own, or consecutive style layers of one vector source, which share one tile layer.
+ * Style layers that draw together, in style order: a background, raster, hillshade or color-relief
+ * layer on its own, or consecutive style layers of one vector source, which share one tile layer.
  */
 export type StyleLayerRun = {
-  type: 'background' | 'raster' | 'hillshade' | 'vector';
+  type: 'background' | 'raster' | 'hillshade' | 'color-relief' | 'vector';
   /** The deck.gl layer id, without the basemap's id prefix. */
   id: string;
   sourceId?: string;
@@ -224,7 +226,8 @@ const SUPPORTED_TYPES = new Set([
   'line',
   'symbol',
   'raster',
-  'hillshade'
+  'hillshade',
+  'color-relief'
 ]);
 const DEFAULT_CONFIG: BasemapLayerConfig = {atmosphere: false, basemap: true, labels: true};
 const DEFAULT_TEXT_COLOR = [0, 0, 0, 1];
@@ -777,7 +780,7 @@ export function getTilePyramidProps(source: BasemapSource): {
 
 /**
  * Creates the tileset of a `raster-dem` source: each tile is fetched and decoded once, and shared by
- * every `hillshade` layer drawn from it. `BasemapLayer` creates and finalizes these itself. Direct
+ * every `hillshade` and `color-relief` layer drawn from it. `BasemapLayer` creates and finalizes these itself. Direct
  * `getBasemapLayers` callers that call it on every render pass them in `tilesets`, keyed by source,
  * to keep the tiles across calls, and finalize them when done.
  */
@@ -932,6 +935,64 @@ function createHillshadeLayer({
     hillshadeParameters,
     hillshadeSubLayerProps: {
       // MapLibre samples the slopes without mipmaps.
+      textureParameters: {minFilter: filter, magFilter: filter, mipmapFilter: 'none'},
+      parameters: getTileParameters(mode, depthTested)
+    },
+    onTileError: error => {
+      logBasemapRuntimeError('DEM tile failed to load', error, {
+        layerId: layer.id,
+        sourceId: layer.source
+      });
+    },
+    parameters: getTileParameters(mode, depthTested)
+  });
+}
+
+/**
+ * A `color-relief` style layer over a `raster-dem` source, which shares the source's decoded tiles
+ * with its other layers (see `createHillshadeLayer`). A ramp that is not an `interpolate`
+ * expression is transparent, as in MapLibre, and draws nothing.
+ */
+function createColorReliefLayer({
+  idPrefix,
+  layer,
+  tileset,
+  demTilesetOwner,
+  source,
+  zoom,
+  mode,
+  depthTested
+}: {
+  idPrefix: string;
+  layer: BasemapStyleLayer;
+  /** The source's decoded tiles (see `createDemTileset`). */
+  tileset: SharedTileset2D;
+  /** Set when the layer shares a tileset that no `BasemapLayer` owns. */
+  demTilesetOwner?: DemTilesetOwner;
+  source: BasemapSource;
+  zoom: number;
+  mode: BasemapMode;
+  /** Drawn after an extrusion, see `getTileParameters`. */
+  depthTested?: boolean;
+}) {
+  const paint = getPaint(layer, zoom);
+  const opacity = (paint['color-relief-opacity'] as number | undefined) ?? 1;
+  const colorReliefColor = layer.paint?.['color-relief-color'];
+  const isNearest = getRasterPaintValue(paint, 'resampling') === 'nearest';
+  const filter = isNearest ? 'nearest' : 'linear';
+
+  return new ColorReliefTileLayer({
+    id: `${idPrefix}-${layer.id}`,
+    data: tileset,
+    demTilesetOwner,
+    ...getTilePyramidProps(source),
+    tileSize: source.tileSize || 512,
+    visible: opacity > 0 && isColorRampVisible(createColorRamp(colorReliefColor, Infinity)),
+    colorReliefColor,
+    colorReliefOpacity: opacity,
+    colorReliefUnpack: getDemUnpackVector(source),
+    colorReliefSubLayerProps: {
+      // MapLibre samples the elevations without mipmaps.
       textureParameters: {minFilter: filter, magFilter: filter, mipmapFilter: 'none'},
       parameters: getTileParameters(mode, depthTested)
     },
@@ -3321,13 +3382,13 @@ export function getSourceLoadOptions(
 }
 
 /**
- * Splits the style into runs that draw in style order, as in MapLibre: each background, raster
- * and hillshade layer on its own, and consecutive layers of one vector source together, so that a
+ * Splits the style into runs that draw in style order, as in MapLibre: each background, raster,
+ * hillshade and color-relief layer on its own, and consecutive layers of one vector source together, so that a
  * raster layer between two vector layers draws between them. Layers that cannot draw (a source
  * without tiles, labels turned off) do not split a run. Runs do not depend on zoom, so the tile
- * layers keep their ids and tiles when a layer leaves its zoom range. Background, raster and
- * hillshade runs have their style layer's id. The first run of a source has the source id as its
- * id, unless a background, raster or hillshade run already has that id; later runs, and a first run whose source id is
+ * layers keep their ids and tiles when a layer leaves its zoom range. Background, raster,
+ * hillshade and color-relief runs have their style layer's id. The first run of a source has the
+ * source id as its id, unless such a run already has that id; later runs, and a first run whose source id is
  * taken, add the quoted id of their first style layer.
  */
 export function getStyleLayerRuns(
@@ -3349,7 +3410,10 @@ export function getStyleLayerRuns(
       .filter(
         layer =>
           layer.type === 'background' ||
-          ((layer.type === 'raster' || layer.type === 'hillshade') && getSource(layer)?.tiles)
+          ((layer.type === 'raster' ||
+            layer.type === 'hillshade' ||
+            layer.type === 'color-relief') &&
+            getSource(layer)?.tiles)
       )
       .map(layer => layer.id)
   );
@@ -3367,11 +3431,11 @@ export function getStyleLayerRuns(
           sourceId
         });
       }
-    } else if (layer.type === 'hillshade') {
+    } else if (layer.type === 'hillshade' || layer.type === 'color-relief') {
       if (source?.tiles && source.type === 'raster-dem') {
-        runs.push({type: 'hillshade', id: layer.id, sourceId, source, styleLayers: [layer]});
+        runs.push({type: layer.type, id: layer.id, sourceId, source, styleLayers: [layer]});
       } else {
-        logBasemapRuntimeEvent('Skipping hillshade layer without a raster-dem source', {
+        logBasemapRuntimeEvent(`Skipping ${layer.type} layer without a raster-dem source`, {
           layerId: layer.id,
           sourceId
         });
@@ -3487,8 +3551,8 @@ function getStyleLayers({
         projectedMaxStretch
       });
     }
-    if (run.type === 'hillshade') {
-      // One tileset per raster-dem source, shared by its hillshade layers.
+    if (run.type === 'hillshade' || run.type === 'color-relief') {
+      // One tileset per raster-dem source, shared by its hillshade and color-relief layers.
       let owner: DemTilesetOwner | undefined;
       let tileset = tilesets?.get(run.source!);
       if (!tileset) {
@@ -3502,7 +3566,7 @@ function getStyleLayers({
         }
         tileset = owner.tileset;
       }
-      return createHillshadeLayer({
+      return (run.type === 'hillshade' ? createHillshadeLayer : createColorReliefLayer)({
         idPrefix,
         layer,
         tileset,
