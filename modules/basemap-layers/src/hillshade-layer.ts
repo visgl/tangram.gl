@@ -71,7 +71,6 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import {log} from '@deck.gl/core';
 import type {Layer, LayersList, UpdateParameters} from '@deck.gl/core';
 import {SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import type {SharedTile2DLayerProps, SharedTileset2DProps} from '@deck.gl-community/geo-layers';
@@ -478,6 +477,147 @@ vec4 hillshade_getColor(sampler2D slopes, vec2 uv) {
   return hillshade_standard(deriv);
 }
 `,
+  source: /* wgsl */ `\
+struct HillshadeUniforms {
+  accent: vec4<f32>,
+  altitudes: vec4<f32>,
+  azimuths: vec4<f32>,
+  shadows: mat4x4<f32>,
+  highlights: mat4x4<f32>,
+  latRange: vec2<f32>,
+  exaggeration: f32,
+  method: f32,
+  lightCount: f32,
+};
+
+@group(0) @binding(auto) var<uniform> hillshade: HillshadeUniforms;
+
+// The GLSL functions above, in WGSL.
+const HILLSHADE_PI: f32 = 3.141592653589793;
+
+// GLSL's \`mod\`, which rounds down. WGSL's \`%\` rounds toward zero.
+fn hillshade_mod(x: f32, y: f32) -> f32 {
+  return x - y * floor(x / y);
+}
+
+fn hillshade_getAspect(deriv: vec2<f32>) -> f32 {
+  if (deriv.x != 0.0) {
+    return atan2(deriv.y, -deriv.x);
+  }
+  return HILLSHADE_PI / 2.0 * select(-1.0, 1.0, deriv.y > 0.0);
+}
+
+fn hillshade_igor(derivIn: vec2<f32>) -> vec4<f32> {
+  let deriv = derivIn * hillshade.exaggeration * 2.0;
+  let aspect = hillshade_getAspect(deriv);
+  let azimuth = hillshade.azimuths[0] + HILLSHADE_PI;
+  let slopeStrength = atan(length(deriv)) * 2.0 / HILLSHADE_PI;
+  let aspectStrength = 1.0 - abs(hillshade_mod((aspect + azimuth) / HILLSHADE_PI + 0.5, 2.0) - 1.0);
+  let shadowStrength = slopeStrength * aspectStrength;
+  let highlightStrength = slopeStrength * (1.0 - aspectStrength);
+  return hillshade.shadows[0] * shadowStrength + hillshade.highlights[0] * highlightStrength;
+}
+
+fn hillshade_standard(deriv: vec2<f32>) -> vec4<f32> {
+  let azimuth = hillshade.azimuths[0] + HILLSHADE_PI;
+  let slope = atan(0.625 * length(deriv));
+  let aspect = hillshade_getAspect(deriv);
+  let intensity = hillshade.exaggeration;
+  let base = 1.875 - intensity * 1.75;
+  let maxValue = 0.5 * HILLSHADE_PI;
+  var scaledSlope = slope;
+  if (intensity != 0.5) {
+    scaledSlope = ((pow(base, slope) - 1.0) / (pow(base, maxValue) - 1.0)) * maxValue;
+  }
+  let accent = cos(scaledSlope);
+  let accentColor = (1.0 - accent) * hillshade.accent * clamp(intensity * 2.0, 0.0, 1.0);
+  let shade = abs(hillshade_mod((aspect + azimuth) / HILLSHADE_PI + 0.5, 2.0) - 1.0);
+  let shadeColor = mix(hillshade.shadows[0], hillshade.highlights[0], shade) *
+    sin(scaledSlope) * clamp(intensity * 2.0, 0.0, 1.0);
+  return accentColor * (1.0 - shadeColor.a) + shadeColor;
+}
+
+fn hillshade_basic(derivIn: vec2<f32>) -> vec4<f32> {
+  let deriv = derivIn * hillshade.exaggeration * 2.0;
+  let azimuth = hillshade.azimuths[0] + HILLSHADE_PI;
+  let cosAz = cos(azimuth);
+  let sinAz = sin(azimuth);
+  let cosAlt = cos(hillshade.altitudes[0]);
+  let sinAlt = sin(hillshade.altitudes[0]);
+  let cang = (sinAlt - (deriv.y * cosAz * cosAlt - deriv.x * sinAz * cosAlt)) /
+    sqrt(1.0 + dot(deriv, deriv));
+  let shade = clamp(cang, 0.0, 1.0);
+  if (shade > 0.5) {
+    return hillshade.highlights[0] * (2.0 * shade - 1.0);
+  }
+  return hillshade.shadows[0] * (1.0 - 2.0 * shade);
+}
+
+fn hillshade_multidirectional(derivIn: vec2<f32>) -> vec4<f32> {
+  let deriv = derivIn * hillshade.exaggeration * 2.0;
+  var color = vec4<f32>(0.0);
+  for (var i = 0; i < 4; i++) {
+    if (f32(i) >= hillshade.lightCount) {
+      break;
+    }
+    let cosAlt = cos(hillshade.altitudes[i]);
+    let sinAlt = sin(hillshade.altitudes[i]);
+    let cosAz = -cos(hillshade.azimuths[i]);
+    let sinAz = -sin(hillshade.azimuths[i]);
+    let cang = (sinAlt - (deriv.y * cosAz * cosAlt - deriv.x * sinAz * cosAlt)) /
+      sqrt(1.0 + dot(deriv, deriv));
+    let shade = clamp(cang, 0.0, 1.0);
+    var lightColor = hillshade.shadows[i] * (1.0 - 2.0 * shade);
+    if (shade > 0.5) {
+      lightColor = hillshade.highlights[i] * (2.0 * shade - 1.0);
+    }
+    color += lightColor / hillshade.lightCount;
+  }
+  return color;
+}
+
+fn hillshade_combined(derivIn: vec2<f32>) -> vec4<f32> {
+  let deriv = derivIn * hillshade.exaggeration * 2.0;
+  let azimuth = hillshade.azimuths[0] + HILLSHADE_PI;
+  let cosAz = cos(azimuth);
+  let sinAz = sin(azimuth);
+  let cosAlt = cos(hillshade.altitudes[0]);
+  let sinAlt = sin(hillshade.altitudes[0]);
+  let cang = clamp(
+    acos((sinAlt - (deriv.y * cosAz * cosAlt - deriv.x * sinAz * cosAlt)) /
+      sqrt(1.0 + dot(deriv, deriv))),
+    0.0,
+    HILLSHADE_PI / 2.0
+  );
+  let shade = cang * atan(length(deriv)) * 4.0 / HILLSHADE_PI / HILLSHADE_PI;
+  let highlight = (HILLSHADE_PI / 2.0 - cang) * atan(length(deriv)) * 4.0 / HILLSHADE_PI / HILLSHADE_PI;
+  return hillshade.shadows[0] * shade + hillshade.highlights[0] * highlight;
+}
+
+// The premultiplied color of a pixel of the slope texture, at \`uv\` in the tile. The slopes are
+// sampled from the first mip level, as MapLibre samples them.
+fn hillshade_getColor(slopes: texture_2d<f32>, slopesSampler: sampler, uv: vec2<f32>) -> vec4<f32> {
+  let size = vec2<f32>(textureDimensions(slopes, 0));
+  let pixel = textureSampleLevel(slopes, slopesSampler, (uv * (size - 2.0) + 1.0) / size, 0.0);
+  let scaleFactor = cos(radians(
+    (hillshade.latRange[0] - hillshade.latRange[1]) * (1.0 - uv.y) + hillshade.latRange[1]
+  ));
+  let deriv = (pixel.rg - 128.0 / 255.0) * 8.0 / scaleFactor;
+  if (hillshade.method > 3.5) {
+    return hillshade_basic(deriv);
+  }
+  if (hillshade.method > 2.5) {
+    return hillshade_multidirectional(deriv);
+  }
+  if (hillshade.method > 1.5) {
+    return hillshade_igor(deriv);
+  }
+  if (hillshade.method > 0.5) {
+    return hillshade_combined(deriv);
+  }
+  return hillshade_standard(deriv);
+}
+`,
   uniformTypes: {
     accent: 'vec4<f32>',
     altitudes: 'vec4<f32>',
@@ -510,9 +650,32 @@ type HillshadeBitmapLayerProps = {
   hillshadeLatRange: [number, number];
 };
 
+const GLSL_INJECTION = {
+  // At the end of main(), where the bitmap's sampler is in scope.
+  'fs:#main-end': /* glsl */ `
+  if (!bool(picking.isActive)) {
+    fragColor = hillshade_getColor(bitmapTexture, geometry.uv) * layer.opacity;
+  }
+`
+};
+
+const WGSL_INJECTION = {
+  // deck.gl's WGSL bitmap shader has no hook after its color, but its textures are module-scope.
+  // It premultiplies the filtered color itself, so the premultiplied hillshade is divided by its
+  // alpha here. In picking, the shader returns its own color and ignores this one.
+  'fs:DECKGL_FILTER_COLOR': /* wgsl */ `
+  let hillshadeColor = hillshade_getColor(bitmapTexture, bitmapTextureSampler, geometry.uv) *
+    layer.opacity;
+  *color = vec4<f32>(
+    select(vec3<f32>(0.0), hillshadeColor.rgb / hillshadeColor.a, hillshadeColor.a > 0.0),
+    hillshadeColor.a
+  );
+`
+};
+
 /**
  * A `BitmapLayer` whose image is a tile's slope texture (see `prepareHillshadeTexture`), drawn as
- * MapLibre GL JS shades it. WebGL only.
+ * MapLibre GL JS shades it, on WebGL and on WebGPU.
  */
 class HillshadeBitmapLayer extends ProjectedBitmapLayer<HillshadeBitmapLayerProps> {
   static layerName = 'HillshadeBitmapLayer';
@@ -524,12 +687,7 @@ class HillshadeBitmapLayer extends ProjectedBitmapLayer<HillshadeBitmapLayerProp
       modules: [...shaders.modules, hillshadeModule],
       inject: {
         ...shaders.inject,
-        // At the end of main(), where the bitmap's sampler is in scope.
-        'fs:#main-end': /* glsl */ `
-  if (!bool(picking.isActive)) {
-    fragColor = hillshade_getColor(bitmapTexture, geometry.uv) * layer.opacity;
-  }
-`
+        ...(this.context.device.type === 'webgpu' ? WGSL_INJECTION : GLSL_INJECTION)
       }
     };
   }
@@ -647,7 +805,7 @@ export type HillshadeTileLayerProps = SharedTile2DLayerProps<DemTile | null> & {
  * come from the source's tileset, shared with the source's other hillshade layers (see
  * `createSharedDemTileset`); the slopes and the shading are the layer's own. Each tile's slopes are
  * prepared from its elevations and those of its loaded neighbors, so that tiles join without
- * seams. Draws nothing on WebGPU: the shader is GLSL.
+ * seams.
  */
 export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, HillshadeTileLayerProps> {
   static layerName = 'HillshadeTileLayer';
@@ -724,14 +882,6 @@ export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, Hillsh
       }
     }
     super._onTileLoad(tile);
-  }
-
-  renderLayers(): Layer | null | LayersList {
-    if (this.context.device.type === 'webgpu') {
-      log.once(1, '[BasemapLayer] hillshade layers are not drawn on WebGPU')();
-      return null;
-    }
-    return super.renderLayers();
   }
 
   renderSubLayers(props: any): Layer | null | LayersList {
