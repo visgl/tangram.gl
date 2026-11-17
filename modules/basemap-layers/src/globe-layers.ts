@@ -6,7 +6,8 @@ import type {GlyphStore} from './glyph-store';
 import {SharedMVTLayer, SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {isGeographicViewport, isProjectedViewport} from './projected-viewport';
 import {getTileFeaturesInLngLat} from './projected-tile-data';
-import {getBasemapTilesetAdapter, ProjectedTileLayer} from './projected-tileset';
+import {getBasemapTilesetAdapter} from './projected-tileset';
+import {RasterFadeExtension, RasterFadeTileLayer} from './raster-fade';
 import {
   type Color,
   type Layer,
@@ -30,7 +31,11 @@ import {
   getFillPatternGroups,
   getFillPatternProps
 } from './fill-pattern';
-import {FillPatternExtension, FillTranslateExtension} from './fill-style-extensions';
+import {
+  FillPatternExtension,
+  FillTranslateExtension,
+  type FillTranslateAnchor
+} from './fill-style-extensions';
 import {FillOutlineExtension} from './fill-outline-extension';
 import {LineBlurExtension, getBlurredLineWidth} from './line-blur-extension';
 import {
@@ -255,6 +260,8 @@ const FILL_TRANSLATE_EXTENSION = new FillTranslateExtension();
 
 /** Applies the `raster-*` color adjustments, shared by every raster layer that sets them. */
 const RASTER_COLOR_EXTENSION = new RasterColorExtension();
+/** `raster-fade-duration`, shared by every raster tile. */
+const RASTER_FADE_EXTENSION = new RasterFadeExtension();
 
 /**
  * The texture filters of `raster-resampling: nearest`. MapLibre magnifies with the nearest texel
@@ -473,6 +480,12 @@ function getStyleSubLayerId(parentId: string, styleLayerId: string | string[]): 
  * null where fills and lines cannot take their paint from `ZoomPaintExtension`, which needs WebGL.
  */
 const ZOOM_PAINT_CONTEXT = 'zoomPaintContext';
+
+/**
+ * The prop that tells a tile's `renderSubLayers` that its tile layer draws on WebGPU, where the
+ * GLSL of `FillTranslateExtension` does not run.
+ */
+const WEBGPU_DEVICE = 'webgpuDevice';
 
 /** Shared by every fill and line sublayer, so deck.gl does not see their extensions change. */
 const ZOOM_PAINT_EXTENSION = new ZoomPaintExtension();
@@ -827,8 +840,11 @@ function createRasterLayer({
     getRasterPaintValue(paint, 'resampling') === 'nearest';
   const tilePyramidProps = getTilePyramidProps(source);
 
+  // MapLibre fades a raster tile in over `raster-fade-duration` once it loads.
+  const fadeDuration = Math.max(0, Number(getRasterPaintValue(paint, 'raster-fade-duration')) || 0);
+
   // Also selects tiles in a projected view.
-  return new ProjectedTileLayer({
+  return new RasterFadeTileLayer({
     id: `${idPrefix}-${layer.id}`,
     data: source.tiles,
     ...(projectedMaxStretch === undefined ? {} : {maxStretch: projectedMaxStretch}),
@@ -855,6 +871,7 @@ function createRasterLayer({
     // The color adjustments and texture filter are passed down to each tile's bitmap layer.
     ...(isColorAdjusted ? {extensions: [RASTER_COLOR_EXTENSION], rasterColorAdjustments} : {}),
     textureParameters: isNearest ? NEAREST_TEXTURE_PARAMETERS : null,
+    rasterFadeDuration: fadeDuration,
     renderSubLayers: props => {
       const {west, south, east, north} = (props.tile?.bbox || {}) as {
         west: number;
@@ -873,6 +890,9 @@ function createRasterLayer({
         // A texture keeps the filter it was created with, so a filter change needs a new layer.
         id: isNearest ? `${props.id}-nearest` : props.id,
         _imageCoordinateSystem: 'cartesian',
+        ...(fadeDuration > 0
+          ? {extensions: [...(props.extensions || []), RASTER_FADE_EXTENSION]}
+          : {}),
         data: null,
         image: props.data,
         bounds: [west, south, east, north],
@@ -1319,6 +1339,7 @@ class StyledMVTLayer extends SharedMVTLayer {
     const styledProps = {
       ...props,
       [ZOOM_PAINT_CONTEXT]: this.context.device?.type === 'webgpu' ? null : zoomPaintContext,
+      [WEBGPU_DEVICE]: this.context.device?.type === 'webgpu',
       [PREVIOUS_TILE_LAYERS]: previous
         ? new Map(previous.map((layer: Layer) => [layer.id, layer]))
         : undefined,
@@ -1634,6 +1655,11 @@ function createStyledVectorSubLayer({
       features,
       zoom,
       globe: mode === 'globe',
+      webgpu: Boolean(props[WEBGPU_DEVICE]),
+      translate:
+        styleLayer.paint?.['circle-translate'] === undefined
+          ? null
+          : getTranslateProps(styleLayer, zoom, 'circle'),
       // Depth-tested against the globe without writing depth: a circle's quad, blur and
       // antialiased edge included, would otherwise cut holes in the circles drawn after it.
       // Circles face the viewer, so back-face culling does not hide those on the far side.
@@ -2397,6 +2423,25 @@ function getLineShapeGroups(
 }
 
 /**
+ * The props of `FillTranslateExtension` from a style layer's `<prefix>-translate` and
+ * `<prefix>-translate-anchor` (`fill`, `line`, `circle` or `fill-extrusion`), evaluated at the
+ * stepped zoom: the style specification does not let them depend on feature data.
+ */
+function getTranslateProps(
+  styleLayer: BasemapStyleLayer,
+  zoom: number,
+  prefix: 'fill' | 'line' | 'circle' | 'fill-extrusion'
+): {fillTranslate: [number, number]; fillTranslateAnchor: FillTranslateAnchor} {
+  const paint = getPaint(styleLayer, zoom);
+  const translate = `${prefix}-translate`;
+  const anchor = `${prefix}-translate-anchor`;
+  return {
+    fillTranslate: paint[translate] ?? getStylePropertyDefault(translate),
+    fillTranslateAnchor: paint[anchor] ?? getStylePropertyDefault(anchor)
+  };
+}
+
+/**
  * The extensions and props of `fill-pattern` (with the features' images) and `fill-translate`
  * (when the layer sets it). `fill-translate` is evaluated at the stepped zoom; it cannot depend on
  * feature data.
@@ -2411,7 +2456,6 @@ function getFillStyleProps(
   if (!pattern && !hasTranslate) {
     return {};
   }
-  const paint = getPaint(styleLayer, zoom);
   return {
     extensions: [
       ...(extensions || []),
@@ -2419,13 +2463,7 @@ function getFillStyleProps(
       ...(hasTranslate ? [FILL_TRANSLATE_EXTENSION] : [])
     ],
     ...(pattern ? getFillPatternProps(pattern, zoom) : {}),
-    ...(hasTranslate
-      ? {
-          fillTranslate: paint['fill-translate'] ?? getStylePropertyDefault('fill-translate'),
-          fillTranslateAnchor:
-            paint['fill-translate-anchor'] ?? getStylePropertyDefault('fill-translate-anchor')
-        }
-      : {})
+    ...(hasTranslate ? getTranslateProps(styleLayer, zoom, 'fill') : {})
   };
 }
 
@@ -2457,6 +2495,8 @@ type GeometryStyle = {
   isBlurredGap: boolean;
   /** Whether the fill sets `fill-pattern` or `fill-translate`, which take their own extensions. */
   hasFillStyle: boolean;
+  /** Whether the line sets `line-translate`, which takes its own extension. */
+  hasLineTranslate: boolean;
   lineShape?: LineShape;
   /** The features' `fill-pattern` images; without it, a patterned fill draws no fill. */
   pattern?: FillPatternGroup;
@@ -2622,6 +2662,7 @@ function getGeometryStyle({
     isFill &&
     (styleLayer.paint?.['fill-pattern'] !== undefined ||
       styleLayer.paint?.['fill-translate'] !== undefined);
+  const hasLineTranslate = isLine && styleLayer.paint?.['line-translate'] !== undefined;
 
   // A constant transparent color or zero width draws nothing, so its sublayers are left out.
   const drawsFill = isFill && !isTransparent(fillColor);
@@ -2660,6 +2701,7 @@ function getGeometryStyle({
     gapOffset,
     isBlurredGap,
     hasFillStyle,
+    hasLineTranslate,
     lineShape,
     pattern,
     depthTested
@@ -2680,7 +2722,7 @@ function getBatchKey(style: GeometryStyle): string | null {
   if (style.isFill) {
     return style.drawsLines || style.hasFillStyle ? null : 'fill';
   }
-  if (style.lineOffset || style.lineBlur || !style.lineShape) {
+  if (style.lineOffset || style.lineBlur || style.hasLineTranslate || !style.lineShape) {
     return null;
   }
   const {lineCapRounded, lineJointRounded, lineMiterLimit} = style.lineShape;
@@ -2851,6 +2893,7 @@ function createGeometrySubLayer({
     gapOffset,
     isBlurredGap,
     hasFillStyle,
+    hasLineTranslate,
     pattern,
     zoom
   } = first;
@@ -2914,8 +2957,10 @@ function createGeometrySubLayer({
   // deck.gl draws lines without antialiasing and cut to a line's pixels by `FillOutlineExtension`.
   const fadesLines = drawsLines && !isFill;
   const drawsOutline = drawsLines && isFill;
+  // `line-translate` takes the extension of `fill-translate`, which moves any vertex.
+  const translatesLine = !isFill && hasLineTranslate;
   const geometryExtensions =
-    dashArray || lineOffset || fadesLines || drawsOutline || zoomPaint
+    dashArray || lineOffset || fadesLines || drawsOutline || zoomPaint || translatesLine
       ? [
           ...(baseProps.extensions || []),
           ...(dashArray ? [lineOffset ? DASH_OFFSET_EXTENSION : DASH_EXTENSION] : []),
@@ -2929,7 +2974,8 @@ function createGeometrySubLayer({
                   : LINE_BLUR_EXTENSION
               ]
             : []),
-          ...(drawsOutline ? [FILL_OUTLINE_EXTENSION] : [])
+          ...(drawsOutline ? [FILL_OUTLINE_EXTENSION] : []),
+          ...(translatesLine ? [FILL_TRANSLATE_EXTENSION] : [])
         ]
       : null;
   // `fill-pattern` and `fill-translate` add their extensions to these, so an outlined fill keeps
@@ -2971,6 +3017,7 @@ function createGeometrySubLayer({
     ...(fadesLines ? {getBlur: lineBlur ? lineBlur.value : 0} : {}),
     ...getBlurGap(1),
     ...fillStyleProps,
+    ...(translatesLine ? getTranslateProps(first.styleLayer, zoom, 'line') : {}),
     ...(offsetValue ? {getOffset: getOffset(1)} : {}),
     ...(lineDashArray
       ? {
@@ -3140,6 +3187,8 @@ function createExtrusionSubLayer({
     }
   );
   const baseProps = getSubLayerBaseProps(props);
+  // `fill-extrusion-translate` moves the whole extrusion, walls and roof, on the ground.
+  const translates = styleLayer.paint?.['fill-extrusion-translate'] !== undefined;
 
   return getTileGeoJsonLayer(props, {
     ...baseProps,
@@ -3160,7 +3209,12 @@ function createExtrusionSubLayer({
     getPointRadius: 0,
     pointRadiusMinPixels: 0,
     parameters: EXTRUSION_PARAMETERS,
-    extensions: [...(baseProps.extensions || []), FILL_EXTRUSION_LIGHTING_EXTENSION],
+    extensions: [
+      ...(baseProps.extensions || []),
+      FILL_EXTRUSION_LIGHTING_EXTENSION,
+      ...(translates ? [FILL_TRANSLATE_EXTENSION] : [])
+    ],
+    ...(translates ? getTranslateProps(styleLayer, zoom, 'fill-extrusion') : {}),
     fillExtrusionLight: light,
     fillExtrusionVerticalGradient: paint['fill-extrusion-vertical-gradient'] ?? true
   });
