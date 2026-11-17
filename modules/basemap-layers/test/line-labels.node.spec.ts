@@ -847,6 +847,53 @@ describe('text-rotation-alignment', () => {
   });
 });
 
+describe('text-rotate', () => {
+  function renderText(layout: Record<string, unknown>, placement = 'point'): any {
+    const layer = lineLayer({}, {'symbol-placement': placement, ...layout});
+    const object = {geometry: {type: 'Point', coordinates: [0.5, 0.5]}, properties: {turn: 30}};
+    layer.state = {labelData: [{position: [0.5, 0.5], angle: 0, __source: {object}} as any]};
+    layer.context = {viewport: {bearing: 0}} as any;
+    layer.internalState = {subLayers: []} as any;
+    return layer.renderLayers().at(-1);
+  }
+
+  test('leaves point text unturned without text-rotate', () => {
+    expect(typeof renderText({}).props.getAngle).not.toBe('function');
+  });
+
+  test('turns point text clockwise on screen, per feature', () => {
+    for (const rotate of [30, ['get', 'turn']]) {
+      const text = renderText({'text-rotate': rotate});
+      expect(text.props.billboard).toBe(true);
+      expect(text.props.getAngle(text.props.data[0])).toBe(-30);
+    }
+  });
+
+  test('turns text-anchor and text-offset with the text, about the point, as in MapLibre', () => {
+    // A left-anchored label one em (10 px) right of the point, turned 90 degrees clockwise, is
+    // 10 px below it.
+    const text = renderText({'text-rotate': 90, 'text-anchor': 'left', 'text-offset': [1, 0]});
+    const [x, y] = text.props.getPixelOffset(text.props.data[0], {index: 0});
+    expect(x).toBeCloseTo(0, 9);
+    expect(y).toBeCloseTo(10, 9);
+    expect(text.props.getTextAnchor(text.props.data[0], {index: 0})).toBe('start');
+  });
+
+  test('does not turn text along lines', () => {
+    const text = renderText({'text-rotate': 90}, 'line');
+    expect(text.props.getAngle(text.props.data[0])).toBe(0);
+  });
+
+  test('updates the angle and offset when text-rotate changes', () => {
+    const layer = lineLayer({}, {'symbol-placement': 'point', 'text-rotate': 0});
+    const before = layer.getLabelUpdateTriggers();
+    (layer.props.styleLayer as any).layout['text-rotate'] = 45;
+    const after = layer.getLabelUpdateTriggers();
+    expect(after.getAngle).not.toEqual(before.getAngle);
+    expect(after.getPixelOffset).not.toEqual(before.getPixelOffset);
+  });
+});
+
 describe('label length estimate', () => {
   test('counts wide characters as about one em and others as 0.6', () => {
     expect(getTextLengthEms('東京')).toBe(2);
