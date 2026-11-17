@@ -200,6 +200,43 @@ describe('Scene host lifecycle', () => {
 });
 
 describe('Scene render orchestration', () => {
+    test('a selection-map query that fails after worker teardown is handled', async () => {
+        const scene = createScene();
+        const teardown = new Error('Scene worker was destroyed');
+        scene.getFeatureSelectionMapSize = vi.fn(() => Promise.reject(teardown));
+        scene.renderPass = vi.fn(() => 4);
+        scene.updateBackground = vi.fn();
+        scene.logFirstFrame = vi.fn();
+        const unhandled = [];
+        const onUnhandled = event => {
+            unhandled.push(event.reason);
+            event.preventDefault();
+        };
+        window.addEventListener('unhandledrejection', onUnhandled);
+        try {
+            Scene.prototype.render.call(scene, {main: true, selection: false});
+            expect(scene.getFeatureSelectionMapSize).toHaveBeenCalledOnce();
+            // Unhandled rejections are reported after the microtask queue drains.
+            await new Promise(resolve => setTimeout(resolve, 50));
+        } finally {
+            window.removeEventListener('unhandledrejection', onUnhandled);
+        }
+        expect(unhandled).toEqual([]);
+        expect(scene.render_count_changed).toBe(true);
+    });
+
+    test('a failed selection-map query does not block the next query', async () => {
+        const scene = createScene();
+        scene.workers = [{}];
+        const postMessage = vi.spyOn(WorkerBroker, 'postMessage')
+            .mockRejectedValueOnce(new Error('Scene worker was destroyed'))
+            .mockResolvedValueOnce([1, 2]);
+        await expect(Scene.prototype.getFeatureSelectionMapSize.call(scene)).rejects.toThrow('Scene worker was destroyed');
+        expect(scene.fetching_selection_map).toBeNull();
+        await expect(Scene.prototype.getFeatureSelectionMapSize.call(scene)).resolves.toBe(3);
+        expect(postMessage).toHaveBeenCalledTimes(2);
+    });
+
     test('selection initialization locks readback for builds and unfinished pipelines', () => {
         const scene = createScene();
         const texture = {destroy: vi.fn()};
