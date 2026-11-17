@@ -147,7 +147,7 @@ async function writePng(name: string, pixels: Uint8ClampedArray): Promise<void> 
   const canvas = document.createElement('canvas');
   canvas.width = VIEWPORT.width;
   canvas.height = VIEWPORT.height;
-  canvas.getContext('2d')!.putImageData(new ImageData(pixels, VIEWPORT.width), 0, 0);
+  canvas.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(pixels), VIEWPORT.width), 0, 0);
   const base64 = canvas.toDataURL('image/png').split(',')[1];
   const directory = 'modules/basemap-layers/test/reference-render/__output__';
   await commands.writeFile(`${directory}/${name}.png`, base64, 'base64');

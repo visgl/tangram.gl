@@ -64,7 +64,7 @@ test(`${DEVICE_TYPE}: StretchIconLayer stretches each icon before turning it`, a
   const errors = harness.errors;
   const canvas = harness.canvas;
   // At size 20 the 8 by 4 image is 40 by 20 pixels; stretched 3 times across, 120 by 20.
-  const data = [
+  const data: {position: [number, number]; angle: number}[] = [
     {position: [-150, 0], angle: 0},
     {position: [100, 0], angle: 90}
   ];
@@ -73,10 +73,10 @@ test(`${DEVICE_TYPE}: StretchIconLayer stretches each icon before turning it`, a
     views: new OrthographicView({id: 'flat'}),
     initialViewState: {target: [0, 0, 0], zoom: 0},
     onError: error => {errors.push(error.message);},
-    layers: [new StretchIconLayer({
+    layers: [new StretchIconLayer<{position: [number, number]; angle: number}>({
       id: 'stretched', data, iconAtlas: createAtlas(),
       iconMapping: {bar: {x: 0, y: 0, width: 8, height: 4}},
-      getIcon: () => 'bar', getPosition: d => d.position as [number, number], getAngle: d => d.angle,
+      getIcon: () => 'bar', getPosition: d => d.position, getAngle: d => d.angle,
       getSize: 20, sizeUnits: 'pixels', getIconStretch: [3, 1]
     })]
   });
