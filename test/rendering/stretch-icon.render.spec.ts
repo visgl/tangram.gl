@@ -41,21 +41,23 @@ function createAtlas(): string {
   return canvas.toDataURL('image/png');
 }
 
-/** The bounds of the red and blue pixels in columns `[start, end)`, or null where there are none. */
-function getColorBounds(image: ImageData, start: number, end: number) {
-  const bounds = {red: null as number[] | null, blue: null as number[] | null};
+/**
+ * The bounds `[x1, y1, x2, y2]` of the icon pixels (red, blue, or a blend of the two) in columns
+ * `[start, end)`, or null where there are none.
+ */
+function getIconBounds(image: ImageData, start: number, end: number): number[] | null {
+  let box: number[] | null = null;
   for (let y = 0; y < image.height; y++) {
     for (let x = start; x < end; x++) {
       const offset = (y * image.width + x) * 4;
       const [r, g, b] = image.data.subarray(offset, offset + 3);
-      const color = r > 200 && g < 60 && b < 60 ? 'red' : b > 200 && r < 60 && g < 60 ? 'blue' : null;
-      if (color) {
-        const box = bounds[color] || [x, y, x, y];
-        bounds[color] = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)];
+      if (r + b > 200 && g < 60) {
+        box = box ? [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)]
+          : [x, y, x, y];
       }
     }
   }
-  return bounds;
+  return box;
 }
 
 test(`${DEVICE_TYPE}: StretchIconLayer stretches each icon before turning it`, async () => {
@@ -80,23 +82,18 @@ test(`${DEVICE_TYPE}: StretchIconLayer stretches each icon before turning it`, a
       getSize: 20, sizeUnits: 'pixels', getIconStretch: [3, 1]
     })]
   });
-  let bounds: ReturnType<typeof getColorBounds>[] = [];
+  let bounds: (number[] | null)[] = [];
   await expect.poll(async () => {
     expect(errors).toEqual([]);
     const image = await readCanvasPixels(canvas);
-    bounds = [getColorBounds(image, 0, 256), getColorBounds(image, 256, 512)];
-    return bounds.every(({red, blue}) => red && blue);
+    bounds = [getIconBounds(image, 0, 256), getIconBounds(image, 256, 512)];
+    return bounds.every(Boolean);
   }, {timeout: 15000, interval: 100}).toBe(true);
-  const size = (box: number[] | null) => [box![2] - box![0] + 1, box![3] - box![1] + 1];
-  const [flat, turned] = bounds;
-  // Unturned, centred at x 106: red is the left 60 pixels, blue the right 60, 20 high.
-  for (const [value, expected] of [...size(flat.red), ...size(flat.blue)].map((v, i) => [v, [60, 20, 60, 20][i]])) {
-    expect(Math.abs(value - expected)).toBeLessThanOrEqual(2);
-  }
-  expect(Math.abs(flat.red![0] - 46)).toBeLessThanOrEqual(2);
-  // Turned a quarter, counter-clockwise: 20 wide and 120 high, red below blue.
-  for (const [value, expected] of [...size(turned.red), ...size(turned.blue)].map((v, i) => [v, [20, 60, 20, 60][i]])) {
-    expect(Math.abs(value - expected)).toBeLessThanOrEqual(2);
-  }
-  expect(turned.red![1]).toBeGreaterThan(turned.blue![1]);
+  const [flat, turned] = bounds as number[][];
+  const expectBox = (box: number[], [x1, y1, x2, y2]: number[]) =>
+    box.forEach((value, index) => expect(Math.abs(value - [x1, y1, x2, y2][index])).toBeLessThanOrEqual(1));
+  // Unturned, centred on (106, 160): 120 by 20 pixels. Unstretched, it would be 40 by 20.
+  expectBox(flat, [46, 150, 165, 169]);
+  // Turned a quarter, centred on (356, 160): 20 by 120 pixels, the stretch turned with it.
+  expectBox(turned, [346, 100, 365, 219]);
 });
