@@ -14,8 +14,8 @@ declare const __TEST_DEVICE__: 'webgl' | 'webgpu';
 /**
  * `hillshade` style layers draw the same on the backend of the test lane as on WebGL, whose
  * shading the basemap-layers reference renders compare with MapLibre GL JS. Each case draws one
- * synthetic DEM tile at one screen pixel per DEM pixel, on WebGL and on the lane's backend, and
- * compares every pixel.
+ * synthetic DEM tile, at one screen pixel per DEM pixel unless it sets a zoom, on WebGL and on the
+ * lane's backend, and compares every pixel.
  */
 
 const SIZE = 256;
@@ -73,6 +73,13 @@ type HillshadeCase = {
   id: string;
   paint?: Record<string, unknown>;
   bearing?: number;
+  /** The map zoom, `VIEW_ZOOM` by default. */
+  zoom?: number;
+  /**
+   * Paint that WebGL must draw differently from `paint`, so that the case can tell the two apart:
+   * a backend that ignored the difference would fail it.
+   */
+  unlike?: Record<string, unknown>;
 };
 
 const CASES: HillshadeCase[] = [
@@ -101,7 +108,14 @@ const CASES: HillshadeCase[] = [
       'hillshade-shadow-color': ['#000000', '#331100', '#001133']
     }
   },
-  {id: 'nearest resampling', paint: {resampling: 'nearest'}},
+  // Four screen pixels per DEM pixel, so that most samples fall between texel centers, where
+  // nearest and linear filtering differ.
+  {
+    id: 'nearest resampling, magnified',
+    paint: {resampling: 'nearest'},
+    zoom: VIEW_ZOOM + 2,
+    unlike: {resampling: 'linear'}
+  },
   // A light anchored to the viewport turns with the map; one anchored to the map does not.
   {id: 'viewport-anchored light, map turned 60°', bearing: 60},
   {
@@ -166,7 +180,7 @@ const wait = (milliseconds: number) => new Promise(resolve => setTimeout(resolve
 async function render(
   deviceType: 'webgl' | 'webgpu',
   demTile: Blob,
-  {paint = {}, bearing = 0}: HillshadeCase
+  {paint = {}, bearing = 0, zoom = VIEW_ZOOM}: HillshadeCase
 ): Promise<ImageData> {
   release();
   const fetches: string[] = [];
@@ -207,7 +221,7 @@ async function render(
       webgl: {preserveDrawingBuffer: true}
     } as any,
     views: new MapView({id: 'map'}),
-    viewState: {longitude, latitude, zoom: VIEW_ZOOM, pitch: 0, bearing},
+    viewState: {longitude, latitude, zoom, pitch: 0, bearing},
     layers: [
       new BasemapLayer({id: 'basemap', mode: 'map', style: style as any, loadOptions: {fetch: fetchTile}})
     ],
@@ -359,6 +373,14 @@ describe(`${__TEST_DEVICE__}: hillshade style layers`, () => {
         MEDIAN_PIXEL_TOLERANCE
       );
       expect(colors.p99Difference, JSON.stringify(colors)).toBeLessThanOrEqual(P99_PIXEL_TOLERANCE);
+      if (hillshadeCase.unlike) {
+        const unlike = await render('webgl', demTile, {...hillshadeCase, paint: hillshadeCase.unlike});
+        // More than the comparison above accepts, so that the lane's frame cannot pass for both.
+        const contrast = compare(reference, unlike);
+        expect(contrast.p99Difference, `unlike paint: ${JSON.stringify(contrast)}`).toBeGreaterThan(
+          P99_PIXEL_TOLERANCE
+        );
+      }
     },
     300_000
   );
