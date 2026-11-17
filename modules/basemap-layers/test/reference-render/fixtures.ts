@@ -19,6 +19,11 @@ import {REFERENCE_STYLES, type ReferenceStyleId} from './scenes';
  * schema, from OpenFreeMap and CARTO, and Natural Earth relief (public domain). The styles are
  * OpenFreeMap's and CARTO's Positron (CC BY 4.0); the glyphs are Noto Sans and Montserrat (OFL).
  *
+ * The `carto-*-v2` styles are CARTO's styles on the Protomaps basemap schema (BSD-3-Clause, design
+ * CC BY 4.0: see `fixtures/styles/CARTO-LICENSE.txt`). Only the styles are committed. The CARTO
+ * Basemaps terms do not allow the redistribution of their tiles, glyphs and sprites, so record
+ * mode writes those under `tiles.basemaps.cartocdn.com/v/`, which git ignores.
+ *
  * The four DEM tiles under `s3.amazonaws.com/elevation-tiles-prod/terrarium/11/` (Mount Rainier,
  * for `hillshade.browser.spec.ts`) are from the Terrain Tiles open dataset on AWS (Mapzen
  * terrarium encoding); in the United States its elevations come from USGS 3DEP and SRTM, both

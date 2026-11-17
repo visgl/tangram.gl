@@ -75,7 +75,9 @@ import {log} from '@deck.gl/core';
 import type {Layer, LayersList, UpdateParameters} from '@deck.gl/core';
 import {SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import type {SharedTile2DLayerProps, SharedTileset2DProps} from '@deck.gl-community/geo-layers';
-import {BitmapLayer} from '@deck.gl/layers';
+import {ProjectedBitmapLayer} from './projected-bitmap-layer';
+import {basemapTilesetAdapter} from './projected-tileset';
+import {isProjectedViewport} from './projected-viewport';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 
 /**
@@ -512,7 +514,7 @@ type HillshadeBitmapLayerProps = {
  * A `BitmapLayer` whose image is a tile's slope texture (see `prepareHillshadeTexture`), drawn as
  * MapLibre GL JS shades it. WebGL only.
  */
-class HillshadeBitmapLayer extends BitmapLayer<HillshadeBitmapLayerProps> {
+class HillshadeBitmapLayer extends ProjectedBitmapLayer<HillshadeBitmapLayerProps> {
   static layerName = 'HillshadeBitmapLayer';
 
   getShaders() {
@@ -617,6 +619,7 @@ export function createSharedDemTileset(
   });
   return new SharedTileset2D<DemTile | null>({
     ...loader._getTilesetOptions(),
+    adapter: basemapTilesetAdapter,
     ...tilesetProps,
     tileSize: source.tileSize || 512,
     getTileData: tile => loader.getTileData(tile)
@@ -684,6 +687,24 @@ export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, Hillsh
       if (!owner.consumers.size) owner.tileset.finalize();
       this.state.demTilesetOwner = undefined;
     }
+  }
+
+  /** Tile traversal that also selects tiles in a projected view (see `basemapTilesetAdapter`). */
+  _getTilesetOptions(): SharedTileset2DProps<DemTile | null> {
+    return {...super._getTilesetOptions(), adapter: basemapTilesetAdapter};
+  }
+
+  /**
+   * In a projected view, tiles are not culled by the longitude/latitude box of the screen corners:
+   * a corner can lie outside the projection, and the tile selection has tested each tile already.
+   */
+  filterSubLayer(context: any): boolean {
+    const {tile} = context.layer.props;
+    if (tile && isProjectedViewport(context.viewport)) {
+      const view = this.state.tilesetViews?.get(context.viewport?.id || 'default');
+      return Boolean(view?.isTileVisible(tile));
+    }
+    return super.filterSubLayer(context);
   }
 
   _onTileLoad(tile: any): void {

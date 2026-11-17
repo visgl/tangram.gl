@@ -123,6 +123,30 @@ function normalizeTiles(tiles: string[] | undefined, baseUrl?: string) {
   return Array.isArray(tiles) ? tiles.map(tile => normalizeUrl(tile, baseUrl) || tile) : tiles;
 }
 
+/** The last path segment of an ArcGIS service root that lists relative tile templates. */
+const ARCGIS_SERVICE_ROOT = /\/(VectorTileServer|MapServer)$/i;
+
+/**
+ * The base URL for relative tile templates in a TileJSON. An ArcGIS service root, such as
+ * `.../VectorTileServer`, lists `tile/{z}/{y}/{x}.pbf` relative to the root as a directory, so a
+ * trailing slash is added. Every other TileJSON URL is used as it is, with standard URL resolution.
+ */
+function getTileJsonTileBaseUrl(tileJsonUrl: string | undefined) {
+  if (!tileJsonUrl) {
+    return tileJsonUrl;
+  }
+
+  try {
+    const url = new URL(tileJsonUrl);
+    if (ARCGIS_SERVICE_ROOT.test(url.pathname)) {
+      url.pathname = `${url.pathname}/`;
+    }
+    return url.toString();
+  } catch {
+    return tileJsonUrl;
+  }
+}
+
 /** Fetches and parses a JSON resource. */
 async function fetchJson(url: string, loadOptions?: BasemapLoadOptions) {
   const fetchFn = loadOptions?.fetch || fetch;
@@ -194,8 +218,8 @@ async function resolveGeoJsonSource(
 /**
  * Resolves a single source, including optional TileJSON indirection. As in MapLibre, the style's
  * own source properties take precedence over the TileJSON's. Inline `tiles` resolve against the
- * style's base URL and TileJSON `tiles` against the TileJSON URL. Throws if the TileJSON cannot be
- * fetched or the resolved source is invalid.
+ * style's base URL and TileJSON `tiles` against the TileJSON URL (see `getTileJsonTileBaseUrl`).
+ * Throws if the TileJSON cannot be fetched or the resolved source is invalid.
  */
 async function resolveSource(
   source: BasemapSource | undefined,
@@ -224,7 +248,10 @@ async function resolveSource(
     url: tileJsonUrl,
     tiles: source.tiles
       ? normalizeTiles(source.tiles, baseUrl)
-      : normalizeTiles(tileJsonFields.tiles as string[] | undefined, tileJsonUrl)
+      : normalizeTiles(
+          tileJsonFields.tiles as string[] | undefined,
+          getTileJsonTileBaseUrl(tileJsonUrl)
+        )
   };
 
   const result = BasemapSourceSchema.safeParse(resolvedSource);
