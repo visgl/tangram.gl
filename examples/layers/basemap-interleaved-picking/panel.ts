@@ -35,6 +35,7 @@ export type ControlPanelProps = {
 
 const ACCENT_COLOR = '#2563eb';
 const BORDER_COLOR = 'rgba(15, 23, 42, 0.2)';
+const ERROR_COLOR = '#b42318';
 
 /**
  * Creates the panel that sets the position of the data layer among the style layers. It has a
@@ -50,6 +51,10 @@ export function createControlPanel(
    * have a button of their own, and the selected position.
    */
   setPositions: (positions: LayerPosition[], presets: LayerPosition[], value: string) => void;
+  /** Selects a basemap style in the list, and does not call `onStyleChange`. */
+  setStyle: (value: string) => void;
+  /** Shows an error below the list of basemap styles, or removes it for null. */
+  setError: (message: string | null) => void;
 } {
   const create = <K extends keyof HTMLElementTagNameMap>(
     tag: K,
@@ -100,6 +105,8 @@ export function createControlPanel(
   styleSelect.dataset.control = 'style';
   styleSelect.append(...createOptions(props.styles));
   styleSelect.addEventListener('change', () => props.onStyleChange(styleSelect.value));
+  const error = create('div', {display: 'none', marginTop: '6px', color: ERROR_COLOR});
+  error.setAttribute('role', 'alert');
 
   const select = createSelect(props.positionLabel, MONOSPACE_FONT);
   select.dataset.control = 'position';
@@ -150,6 +157,7 @@ export function createControlPanel(
     create('div', {color: MUTED_COLOR, margin: '4px 0 12px'}, props.summary),
     create('div', {fontWeight: '600', marginBottom: '5px'}, props.styleLabel),
     styleSelect,
+    error,
     create('div', {fontWeight: '600', margin: '12px 0 5px'}, props.positionLabel),
     select,
     presetRow,
@@ -176,6 +184,13 @@ export function createControlPanel(
       select.replaceChildren(...createOptions(positions));
       setPresets(presets);
       setValue(value, false);
+    },
+    setStyle: value => {
+      styleSelect.value = value;
+    },
+    setError: message => {
+      error.textContent = message ?? '';
+      error.style.display = message ? 'block' : 'none';
     }
   };
 }

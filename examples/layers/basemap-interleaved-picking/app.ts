@@ -13,34 +13,19 @@ import {
 import {createInfoCard, type InfoCardContent} from './info-card';
 import {createControlPanel, type LayerPosition} from './panel';
 import {
+  isSamePicked,
+  type Picked,
+  type TractFeature,
+  type TractProperties
+} from './picked';
+import {
+  fetchStyle,
   getStylePositions,
   splitStyleAt,
   withFeatureStateHighlight,
   type StyleDocument,
   type StyleLayer
 } from './style-layers';
-
-/** The properties of a census tract in `manhattan-census-tracts.geojson`. */
-type TractProperties = {
-  geoid: string;
-  name: string;
-  population: number;
-  housingUnits: number;
-  landAreaKm2: number;
-  populationPerKm2: number;
-};
-
-type TractFeature = {
-  type: 'Feature';
-  id: string;
-  properties: TractProperties;
-  geometry: {type: 'Polygon' | 'MultiPolygon'; coordinates: number[][][] | number[][][][]};
-};
-
-/** What the cursor is on: a feature of the basemap style, or a feature of the data layer. */
-type Picked =
-  | {kind: 'basemap'; feature: BasemapPickedFeature}
-  | {kind: 'data'; feature: TractFeature};
 
 /** The basemap styles: the first one is the initial style. */
 const STYLES = [
@@ -98,6 +83,8 @@ export function mountBasemapInterleavedPickingExample(container: HTMLElement): (
   let style: StyleDocument | null = null;
   /** The two parts of `style`. They change only with the setting, so the tiles are kept. */
   let styleParts: ReturnType<typeof splitStyleAt> | null = null;
+  /** The URL of `style`. */
+  let styleUrl: string | null = null;
   let hovered: Picked | null = null;
   let selected: Picked | null = null;
   let featureState: BasemapFeatureState | null = null;
@@ -113,14 +100,14 @@ export function mountBasemapInterleavedPickingExample(container: HTMLElement): (
     getCursor: ({isDragging}) => (isDragging ? 'grabbing' : hovered ? 'pointer' : 'grab'),
     onHover: info => {
       const picked = getPicked(info);
-      if (getPickedKey(picked) !== getPickedKey(hovered)) {
+      if (!isSamePicked(picked, hovered)) {
         hovered = picked;
         update();
       }
     },
     onClick: info => {
       const picked = getPicked(info);
-      selected = getPickedKey(picked) === getPickedKey(selected) ? null : picked;
+      selected = isSamePicked(picked, selected) ? null : picked;
       update();
     }
   });
@@ -166,16 +153,20 @@ export function mountBasemapInterleavedPickingExample(container: HTMLElement): (
     container.replaceChildren();
   };
 
-  /** Loads a style document, and puts the data layer at the lowest of the style's positions. */
+  /**
+   * Loads a style document, and puts the data layer at the lowest of the style's positions. When
+   * the style does not load, the panel shows the error, and the map keeps the style it has.
+   */
   function loadStyle(url: string) {
     const request = ++styleRequest;
-    fetch(url)
-      .then(response => response.json())
-      .then((document: StyleDocument) => {
+    controlPanel.setError(null);
+    fetchStyle(url)
+      .then(document => {
         if (finalized || request !== styleRequest) {
           return;
         }
         style = withFeatureStateHighlight(document, HIGHLIGHT_COLORS);
+        styleUrl = url;
         const presets = [
           ...getStylePositions(style).map(({label, beforeId}) => ({label, value: beforeId})),
           {label: 'On top', value: TOP}
@@ -186,6 +177,15 @@ export function mountBasemapInterleavedPickingExample(container: HTMLElement): (
         selected = null;
         controlPanel.setPositions(getPositions(style), presets, position);
         update();
+      })
+      .catch((error: unknown) => {
+        if (finalized || request !== styleRequest) {
+          return;
+        }
+        controlPanel.setError(`The basemap style did not load: ${getMessage(error)}`);
+        if (styleUrl) {
+          controlPanel.setStyle(styleUrl);
+        }
       });
   }
 
@@ -198,7 +198,9 @@ export function mountBasemapInterleavedPickingExample(container: HTMLElement): (
     featureState = getFeatureState(hovered, selected, featureState);
     deck.setProps({layers: getLayers()});
     const shown = hovered ?? selected;
-    infoCard.setContent(shown ? getInfoCardContent(shown, shown === selected, style) : null);
+    infoCard.setContent(
+      shown ? getInfoCardContent(shown, isSamePicked(shown, selected), style) : null
+    );
   }
 
   function getLayers() {
@@ -256,17 +258,6 @@ function getPicked(info: PickingInfo): Picked | null {
     return {kind: 'data', feature: info.object as TractFeature};
   }
   return null;
-}
-
-function getPickedKey(picked: Picked | null): string {
-  if (!picked) {
-    return '';
-  }
-  if (picked.kind === 'data') {
-    return `data/${picked.feature.id}`;
-  }
-  const {source, sourceLayer, id, styleLayerId} = picked.feature;
-  return `basemap/${source}/${sourceLayer}/${id}/${styleLayerId}`;
 }
 
 /**
@@ -366,6 +357,10 @@ function getDensityColor(density: number): Color {
     }
   }
   return [color[0], color[1], color[2], DATA_OPACITY];
+}
+
+function getMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function formatNumber(value: number): string {

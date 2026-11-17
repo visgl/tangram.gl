@@ -3,7 +3,9 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, test} from 'vitest';
+import {isSamePicked, type Picked} from '../examples/layers/basemap-interleaved-picking/picked';
 import {
+  fetchStyle,
   getStylePositions,
   splitStyleAt,
   withFeatureStateHighlight,
@@ -12,8 +14,9 @@ import {
 } from '../examples/layers/basemap-interleaved-picking/style-layers';
 import {compileStylePropertyValue} from '../modules/basemap-layers/src/style-expression';
 
-// The style helpers of the interleaved picking example: the split of a style at a layer, the
-// highlight paint that reads feature state, and the positions that a style offers.
+// The helpers of the interleaved picking example: the split of a style at a layer, the highlight
+// paint that reads feature state, the positions that a style offers, the load of a style, and
+// the comparison of two picks.
 
 const COLORS = {hover: '#00ff00', selected: '#0000ff'};
 const HOVER_RGBA = [0, 255, 0, 1];
@@ -183,5 +186,61 @@ describe('getStylePositions', () => {
       {id: 'water', type: 'fill', source: 'tiles', 'source-layer': 'water'}
     ]);
     expect(getStylePositions(style)).toEqual([]);
+  });
+});
+
+describe('fetchStyle', () => {
+  const URL = 'https://example.com/style.json';
+
+  test('returns the style document of an OK response', async () => {
+    const style = createStyle([]);
+    const fetchFunction = async () => new Response(JSON.stringify(style), {status: 200});
+    await expect(fetchStyle(URL, fetchFunction as typeof fetch)).resolves.toEqual(style);
+  });
+
+  test('rejects with the URL and the status of a response that is not OK', async () => {
+    const fetchFunction = async () =>
+      new Response('{}', {status: 503, statusText: 'Service Unavailable'});
+    await expect(fetchStyle(URL, fetchFunction as typeof fetch)).rejects.toThrow(
+      `${URL} failed: 503 Service Unavailable`
+    );
+  });
+
+  test('rejects when the request fails or the body is not JSON', async () => {
+    const offline = async () => {
+      throw new TypeError('Failed to fetch');
+    };
+    await expect(fetchStyle(URL, offline as typeof fetch)).rejects.toThrow('Failed to fetch');
+    const notJson = async () => new Response('<html>', {status: 200});
+    await expect(fetchStyle(URL, notJson as typeof fetch)).rejects.toThrow(SyntaxError);
+  });
+});
+
+describe('isSamePicked', () => {
+  const basemapPick = (styleLayerId: string): Picked => ({
+    kind: 'basemap',
+    feature: {
+      source: 'openmaptiles',
+      sourceLayer: 'building',
+      id: 7,
+      styleLayerId,
+      properties: {}
+    }
+  });
+  const tractPick = (id: string): Picked => ({
+    kind: 'data',
+    feature: {type: 'Feature', id, properties: {} as never, geometry: {type: 'Polygon', coordinates: []}}
+  });
+
+  test('is true for two picks of one feature, which are different objects', () => {
+    expect(isSamePicked(basemapPick('building'), basemapPick('building'))).toBe(true);
+    expect(isSamePicked(tractPick('a'), tractPick('a'))).toBe(true);
+    expect(isSamePicked(null, null)).toBe(true);
+  });
+
+  test('is false for picks of different features or style layers', () => {
+    expect(isSamePicked(basemapPick('building'), basemapPick('building-3d'))).toBe(false);
+    expect(isSamePicked(tractPick('a'), tractPick('b'))).toBe(false);
+    expect(isSamePicked(tractPick('a'), null)).toBe(false);
   });
 });

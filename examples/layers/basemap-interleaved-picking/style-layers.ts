@@ -20,6 +20,21 @@ export type StyleDocument = {
   [key: string]: unknown;
 };
 
+/**
+ * Fetches a style document. Rejects with the URL and the HTTP status when the response is not OK,
+ * and with the error of `fetch` or of the JSON parser.
+ */
+export async function fetchStyle(
+  url: string,
+  fetchFunction: typeof fetch = fetch
+): Promise<StyleDocument> {
+  const response = await fetchFunction(url);
+  if (!response.ok) {
+    throw new Error(`${url} failed: ${response.status} ${response.statusText}`.trim());
+  }
+  return (await response.json()) as StyleDocument;
+}
+
 /** The colors of a hovered and of a selected basemap feature. */
 export type HighlightColors = {hover: string; selected: string};
 
