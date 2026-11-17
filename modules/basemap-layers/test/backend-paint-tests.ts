@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Deck, OrthographicView, type Layer} from '@deck.gl/core';
+import {Deck, OrthographicView, type Layer, type View} from '@deck.gl/core';
 import type {Adapter} from '@luma.gl/core';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {SolidPolygonLayer} from '@deck.gl/layers';
@@ -22,8 +22,9 @@ export type BackendPaintTestOptions = {
   saveFrame?: (name: string, image: string) => Promise<void>;
 };
 
-// The software GPU of the test lanes draws these frames slowly, WebGPU most of all.
-vi.setConfig({testTimeout: 120000});
+// The software GPU of the test lanes draws these frames slowly, WebGPU most of all, and some tests
+// draw several.
+vi.setConfig({testTimeout: 300000});
 
 /** The canvas size, in pixels. */
 export const SIZE = 128;
@@ -195,16 +196,28 @@ const RASTER_PROPERTY_NAMES: Record<keyof RasterPaint, string> = {
 /** The color of the raster test image. */
 const RASTER_COLOR = [200, 80, 40];
 
-/** Registers the paint tests for one GPU backend. */
-export function defineBackendPaintTests({
-  deviceType,
-  adapters,
-  saveFrame
-}: BackendPaintTestOptions): void {
+/** The view and view state a frame is drawn with: an orthographic view of the origin by default. */
+export type RenderView = {
+  view?: View;
+  viewState?: Record<string, unknown>;
+};
+
+/**
+ * Returns a function that draws layers on the backend of `options`, and registers the clean-up
+ * of each test: the frame's errors must be empty, and the last frame is kept.
+ */
+export function createBackendRenderer({deviceType, adapters, saveFrame}: BackendPaintTestOptions) {
   let deck: Deck<any> | null = null;
   let canvas: HTMLCanvasElement | null = null;
   let lastFrame: string | null = null;
   let errors: string[] = [];
+
+  const release = () => {
+    deck?.finalize();
+    deck = null;
+    canvas?.remove();
+    canvas = null;
+  };
 
   afterEach(async () => {
     try {
@@ -213,10 +226,7 @@ export function defineBackendPaintTests({
       if (lastFrame && saveFrame) {
         await saveFrame(expect.getState().currentTestName ?? 'basemap-paint', lastFrame);
       }
-      deck?.finalize();
-      deck = null;
-      canvas?.remove();
-      canvas = null;
+      release();
       lastFrame = null;
       errors = [];
     }
@@ -226,12 +236,16 @@ export function defineBackendPaintTests({
 
   /**
    * Renders layers on a white page and returns the first stable frame after they load and, on
-   * WebGPU, after their pipelines compile.
+   * WebGPU, after their pipelines compile. The layers of an earlier call are released.
    */
-  async function render(
+  return async function render(
     layers: unknown[],
-    view: Record<string, unknown> = {target: [0, 0, 0], zoom: 0}
+    {
+      view = new OrthographicView({id: 'flat'}),
+      viewState = {target: [0, 0, 0], zoom: 0}
+    }: RenderView = {}
   ): Promise<ImageData> {
+    release();
     canvas = document.createElement('canvas');
     canvas.style.cssText = `position: absolute; left: 0; top: 0; width: ${SIZE}px; height: ${SIZE}px;`;
     document.body.append(canvas);
@@ -244,8 +258,8 @@ export function defineBackendPaintTests({
       height: SIZE,
       useDevicePixels: false,
       deviceProps: {type: deviceType, adapters, webgl: {preserveDrawingBuffer: true}} as any,
-      views: new OrthographicView({id: 'flat'}),
-      initialViewState: view as any,
+      views: view,
+      initialViewState: viewState as any,
       layers: layers as any,
       onError: error => {
         errors.push(String(error?.message ?? error));
@@ -285,7 +299,7 @@ export function defineBackendPaintTests({
       });
     let image = '';
     for (;;) {
-      if (performance.now() - start > 90000) {
+      if (performance.now() - start > 120000) {
         throw new Error('Timed out rendering');
       }
       await wait(50);
@@ -308,7 +322,13 @@ export function defineBackendPaintTests({
     context.drawImage(bitmap, 0, 0);
     bitmap.close();
     return context.getImageData(0, 0, copy.width, copy.height);
-  }
+  };
+}
+
+/** Registers the paint tests for one GPU backend. */
+export function defineBackendPaintTests(options: BackendPaintTestOptions): void {
+  const {deviceType} = options;
+  const render = createBackendRenderer(options);
 
   const center = (image: ImageData) => pixel(image, SIZE / 2, SIZE / 2);
 

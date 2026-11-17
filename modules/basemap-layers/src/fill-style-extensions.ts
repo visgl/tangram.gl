@@ -9,6 +9,7 @@
 import {LayerExtension, project} from '@deck.gl/core';
 import type {CompositeLayer, Layer} from '@deck.gl/core';
 import {FillStyleExtension} from '@deck.gl/extensions';
+import type {ShaderPlugin} from '@luma.gl/shaders';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /** Whether a layer's device runs the GLSL injections of these extensions. */
@@ -57,6 +58,49 @@ layout(std140) uniform fillTranslateUniforms {
   }
 });
 
+/** The WGSL of `fillTranslateModule`. */
+const fillTranslatePluginWGSL: ShaderPlugin = {
+  name: 'fillTranslate',
+  module: {
+    name: 'fillTranslate',
+    dependencies: [project],
+    source: /* wgsl */ `\
+struct FillTranslateUniforms {
+  offset: vec2<f32>,
+};
+
+@group(0) @binding(auto) var<uniform> fillTranslate: FillTranslateUniforms;
+
+// The common position moved by the offset, as the GLSL injection moves it.
+fn fillTranslate_getPosition(position: vec4<f32>) -> vec4<f32> {
+  let pixels = vec2<f32>(fillTranslate.offset.x, -fillTranslate.offset.y);
+  if (project.projectionMode == PROJECTION_MODE_GLOBE) {
+    // The globe is centred at the origin with its axis along z.
+    let up = normalize(position.xyz);
+    var east = vec3<f32>(-up.y, up.x, 0.0);
+    east = select(vec3<f32>(1.0, 0.0, 0.0), normalize(east), length(east) > 0.0);
+    let north = cross(up, east);
+    return vec4<f32>(position.xyz + (east * pixels.x + north * pixels.y) / project.scale, position.w);
+  }
+  return vec4<f32>(position.xy + pixels / project.scale, position.zw);
+}
+`,
+    uniformTypes: {offset: 'vec2<f32>'}
+  },
+  injections: [
+    {
+      stage: 'vertex',
+      target: 'DECKGL_FILTER_GL_POSITION',
+      order: -1,
+      wgsl: /* wgsl */ `
+  if (any(fillTranslate.offset != vec2<f32>(0.0))) {
+    *position = project_common_position_to_clipspace(fillTranslate_getPosition(geometry.position));
+  }
+`
+    }
+  ]
+};
+
 /** The anchor of `fill-translate`. */
 export type FillTranslateAnchor = 'map' | 'viewport';
 
@@ -89,7 +133,7 @@ export function getFillTranslateOffset(
 
 /**
  * Offsets a fill and its outline by `fill-translate` pixels, anchored to the map or to the
- * viewport by `fill-translate-anchor`. WebGL only; on WebGPU fills draw untranslated.
+ * viewport by `fill-translate-anchor`, on WebGL and WebGPU.
  *
  * Added to a `GeoJsonLayer`, it reaches the polygon fill and outline sublayers.
  */
@@ -101,16 +145,10 @@ export class FillTranslateExtension extends LayerExtension {
   };
 
   getShaders(this: Layer) {
-    if (!isGLSLDevice(this)) {
-      return {};
-    }
-    return {plugins: [fillTranslateModule]};
+    return {plugins: [isGLSLDevice(this) ? fillTranslateModule : fillTranslatePluginWGSL]};
   }
 
   draw(this: Layer<FillTranslateExtensionProps>) {
-    if (!isGLSLDevice(this)) {
-      return;
-    }
     const {fillTranslate = [0, 0], fillTranslateAnchor = 'map'} = this.props;
     const bearing = (this.context.viewport as {bearing?: number}).bearing || 0;
     this.setShaderModuleProps({

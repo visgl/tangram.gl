@@ -305,15 +305,23 @@ describe('fill-translate', () => {
 describe('fill extensions on WebGPU', () => {
   const layer = (type: string) => ({context: {device: {type}}, props: {}}) as any;
 
-  test('a patterned fill draws nothing, and nothing is translated', () => {
+  test('a patterned fill draws nothing', () => {
     const pattern = new FillPatternExtension();
     expect(pattern.getSubLayerProps.call(layer('webgpu'), pattern).getFillColor).toEqual([
       0, 0, 0, 0
     ]);
     expect(pattern.getSubLayerProps.call(layer('webgl'), pattern).getFillColor).toBeUndefined();
+  });
+
+  test('fill-translate adds GLSL on WebGL and WGSL on WebGPU', () => {
     const translate = new FillTranslateExtension();
-    expect(translate.getShaders.call(layer('webgpu'))).toEqual({});
-    expect(translate.getShaders.call(layer('webgl')).plugins).toHaveLength(1);
+    const [webgl] = translate.getShaders.call(layer('webgl')).plugins as any[];
+    const [webgpu] = translate.getShaders.call(layer('webgpu')).plugins as any[];
+    expect(webgl.injections[0].glsl).toContain('fillTranslate.offset');
+    expect(webgpu.module.source).toContain('fn fillTranslate_getPosition');
+    expect(webgpu.injections).toEqual([
+      expect.objectContaining({stage: 'vertex', target: 'DECKGL_FILTER_GL_POSITION', order: -1})
+    ]);
   });
 });
 
