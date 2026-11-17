@@ -2350,6 +2350,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@deck.gl/aggregation-layers@npm:10.0.0-alpha.1":
+  version: 10.0.0-alpha.1
+  resolution: "@deck.gl/aggregation-layers@npm:10.0.0-alpha.1"
+  dependencies:
+    "@luma.gl/graph": "npm:10.0.0-alpha.14"
+    "@luma.gl/shaders": "npm:10.0.0-alpha.14"
+    "@math.gl/core": "npm:5.0.0-beta.8"
+    "@math.gl/web-mercator": "npm:5.0.0-beta.8"
+    d3-hexbin: "npm:^0.2.1"
+  peerDependencies:
+    "@deck.gl/core": ~10.0.0-alpha
+    "@deck.gl/layers": ~10.0.0-alpha
+    "@luma.gl/core": 10.0.0-alpha.14
+    "@luma.gl/engine": 10.0.0-alpha.14
+  checksum: 10c0/85182bdfdd6cdc7d20e81cc792807447f11582d426a9b6003ef624821760887a84adb0d369f7b410a8981191f96e3d410aafde27a3cce068cabb19b6227dfd41
+  languageName: node
+  linkType: hard
+
 "@deck.gl/core@npm:10.0.0-alpha.1":
   version: 10.0.0-alpha.1
   resolution: "@deck.gl/core@npm:10.0.0-alpha.1"
@@ -9824,6 +9842,13 @@ __metadata:
   version: 3.2.3
   resolution: "csstype@npm:3.2.3"
   checksum: 10c0/cd29c51e70fa822f1cecd8641a1445bed7063697469d35633b516e60fe8c1bde04b08f6c5b6022136bb669b64c63d4173af54864510fbb4ee23281801841a3ce
+  languageName: node
+  linkType: hard
+
+"d3-hexbin@npm:^0.2.1":
+  version: 0.2.2
+  resolution: "d3-hexbin@npm:0.2.2"
+  checksum: 10c0/775ed2d2b278836c84de2ce97770e515e74d44cda28bd548fcee90b0fd4026da5abf0cb089d67b7af44e3ad092df5f3da04953172ddf66a6328e2b15d37f70ea
   languageName: node
   linkType: hard
 
@@ -19169,6 +19194,28 @@ __metadata:
   dependencies:
     "@deck.gl-community/panels": "npm:10.0.0-alpha.1"
     "@deck.gl-community/widgets": "npm:10.0.0-alpha.1"
+    "@deck.gl/core": "npm:10.0.0-alpha.1"
+    "@deck.gl/extensions": "npm:10.0.0-alpha.1"
+    "@deck.gl/geo-layers": "npm:10.0.0-alpha.1"
+    "@deck.gl/layers": "npm:10.0.0-alpha.1"
+    "@deck.gl/mesh-layers": "npm:10.0.0-alpha.1"
+    "@deck.gl/widgets": "npm:10.0.0-alpha.1"
+    "@loaders.gl/core": "npm:5.0.0-beta.8"
+    "@luma.gl/core": "npm:10.0.0-alpha.14"
+    "@luma.gl/engine": "npm:10.0.0-alpha.14"
+    "@luma.gl/shaders": "npm:10.0.0-alpha.14"
+    "@tangram.gl/basemap-layers": "workspace:*"
+    vite: "npm:^7.3.1"
+  languageName: unknown
+  linkType: soft
+
+"tangram-basemap-heatmap-example@workspace:examples/layers/basemap-heatmap":
+  version: 0.0.0-use.local
+  resolution: "tangram-basemap-heatmap-example@workspace:examples/layers/basemap-heatmap"
+  dependencies:
+    "@deck.gl-community/panels": "npm:10.0.0-alpha.1"
+    "@deck.gl-community/widgets": "npm:10.0.0-alpha.1"
+    "@deck.gl/aggregation-layers": "npm:10.0.0-alpha.1"
     "@deck.gl/core": "npm:10.0.0-alpha.1"
     "@deck.gl/extensions": "npm:10.0.0-alpha.1"
     "@deck.gl/geo-layers": "npm:10.0.0-alpha.1"
