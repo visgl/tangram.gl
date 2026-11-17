@@ -185,6 +185,8 @@ export function mountBasemapDrapedTerrainExample(container: HTMLElement): () => 
   let terrainProps = getTerrainProps(settings.terrain.exaggeration);
   let viewState = INITIAL_VIEW_STATE;
   let style: StyleDocument | null = null;
+  /** Why the style did not load, or null. */
+  let styleError: string | null = null;
   let isMounted = true;
   let orbitFrame = 0;
   let orbitTime = 0;
@@ -214,12 +216,20 @@ export function mountBasemapDrapedTerrainExample(container: HTMLElement): () => 
   rootElement.append(createAttribution(rootElement.ownerDocument));
   syncInfoWidget();
 
-  void loadStyle().then(loadedStyle => {
-    if (isMounted) {
-      style = loadedStyle;
-      deck.setProps({layers: getLayers()});
+  loadStyle().then(
+    loadedStyle => {
+      if (isMounted) {
+        style = loadedStyle;
+        deck.setProps({layers: getLayers()});
+      }
+    },
+    (error: unknown) => {
+      if (isMounted) {
+        styleError = `The basemap style did not load: ${getMessage(error)}`;
+        syncInfoWidget();
+      }
     }
-  });
+  );
 
   return () => {
     isMounted = false;
@@ -287,6 +297,9 @@ export function mountBasemapDrapedTerrainExample(container: HTMLElement): () => 
               '- **Depth tint and isobaths**: a raster layer of the style, made from the same heights.'
             ].join('\n')
           }),
+          ...(styleError
+            ? [new MarkdownPanel({id: 'error', title: '', markdown: `**${escapeMarkdown(styleError)}**`})]
+            : []),
           new SettingsPanel({
             id: 'settings',
             label: 'Settings',
@@ -399,16 +412,21 @@ function atHeight(positions: LngLat[], height: number): Position3D[] {
   return positions.map(([longitude, latitude]) => [longitude, latitude, height]);
 }
 
+/** Fetches a style document. Rejects with the URL and the HTTP status when the response is not OK. */
+async function fetchStyle(url: string): Promise<StyleDocument> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${url} failed: ${response.status} ${response.statusText}`.trim());
+  }
+  return (await response.json()) as StyleDocument;
+}
+
 /**
  * The Liberty style with a raster layer of the depth tint above its water. The layer is a part of
  * the style: it is below the roads, the boundaries and the labels.
  */
 async function loadStyle(): Promise<StyleDocument> {
-  const response = await fetch(STYLE_URL);
-  if (!response.ok) {
-    throw new Error(`Failed to load the style: ${STYLE_URL} (${response.status})`);
-  }
-  const style = (await response.json()) as StyleDocument;
+  const style = await fetchStyle(STYLE_URL);
   const waterIndex = style.layers.findIndex(layer => layer.id === 'water');
   const layers = [...style.layers];
   layers.splice(waterIndex + 1, 0, {
@@ -430,6 +448,14 @@ async function loadStyle(): Promise<StyleDocument> {
     },
     layers
   };
+}
+
+function getMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function escapeMarkdown(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('*', '\\*').replaceAll('_', '\\_');
 }
 
 function createRoot(container: HTMLElement): HTMLDivElement {
