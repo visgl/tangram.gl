@@ -39,10 +39,11 @@ export type FillPatternGroup = {
 
 const warnedMissingPatterns = new Set<string>();
 
-function warnMissingPattern(name: string): void {
-  if (!warnedMissingPatterns.has(name)) {
-    warnedMissingPatterns.add(name);
-    log.warn(`[BasemapLayer] fill-pattern "${name}" is not in the style's sprite; skipped`)();
+function warnMissingPattern(propertyName: string, name: string): void {
+  const key = `${propertyName}:${name}`;
+  if (!warnedMissingPatterns.has(key)) {
+    warnedMissingPatterns.add(key);
+    log.warn(`[BasemapLayer] ${propertyName} "${name}" is not in the style's sprite; skipped`)();
   }
 }
 
@@ -60,15 +61,17 @@ const patternGroupCache = new WeakMap<
  * Returns no groups while the sprites load (`null`) or when the layer has no `fill-pattern`. A
  * pattern that does not depend on feature data keeps the tile's feature array, so deck.gl does not
  * re-tessellate the features at a new zoom step; per-feature groups are cached per tile, style
- * layer, sprite list and zoom.
+ * layer, sprite list and zoom. `propertyName` is `line-pattern` for a patterned line, which is
+ * grouped the same way.
  */
 export function getFillPatternGroups(
   features: any[],
   styleLayer: StyleLayerLike,
   zoom: number,
-  spriteAtlases: SpriteAtlas[] | null | undefined
+  spriteAtlases: SpriteAtlas[] | null | undefined,
+  propertyName: 'fill-pattern' | 'line-pattern' = 'fill-pattern'
 ): FillPatternGroup[] {
-  const property = getCompiledStyleProperty(styleLayer, 'fill-pattern');
+  const property = getCompiledStyleProperty(styleLayer, propertyName);
   if (!property || !spriteAtlases?.length) {
     return [];
   }
@@ -82,7 +85,7 @@ export function getFillPatternGroups(
     }
     const icon = resolveSpriteIcon(spriteAtlases, name);
     if (!icon) {
-      warnMissingPattern(name);
+      warnMissingPattern(propertyName, name);
     }
     return icon;
   };
@@ -396,5 +399,22 @@ export function getFillPatternProps(group: FillPatternGroup, zoom: number) {
       typeof getPixelRatio === 'function'
         ? (feature: StyleFeature) => unitScale / getPixelRatio(feature)
         : unitScale / getPixelRatio
+  };
+}
+
+/**
+ * `LinePatternExtension` props for a group of patterned lines: the pattern atlas, which its
+ * shader reads as MapLibre GL JS's does, and pixels per common unit at the integer zoom, which
+ * the pattern's repeats are measured in.
+ */
+export function getLinePatternProps(group: FillPatternGroup, zoom: number) {
+  group.patternAtlas ??= getPatternAtlas(group.atlas, group.names);
+  const {image, mapping} = group.patternAtlas;
+  return {
+    linePatternAtlas: image,
+    linePatternMapping: mapping,
+    linePatternPixelsPerUnit: 2 ** Math.floor(zoom),
+    textureParameters: PATTERN_TEXTURE_PARAMETERS,
+    getLinePattern: group.getFillPattern
   };
 }
