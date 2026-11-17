@@ -67,22 +67,59 @@ class FetchRangeSource implements Source {
     // An archive shorter than the first read, which is 16 KiB: some servers refuse the range.
     if (offset === 0 && response.status === 416) {
       const size = Number(response.headers.get('Content-Range')?.match(/^bytes \*\/(\d+)$/)?.[1]);
+      await response.body?.cancel();
       if (!size) {
         throw new Error(`PMTiles archive ${this.url}: no size in the 416 response`);
       }
       response = await this.fetchRange(0, size - 1, signal);
     }
     if (!response.ok) {
+      await response.body?.cancel();
       throw new Error(`Failed to load PMTiles archive: ${this.url} (${response.status})`);
     }
-    const data = await response.arrayBuffer();
-    if (data.byteLength > length) {
-      throw new Error(
+    return {data: await this.readAtMost(response, length)};
+  }
+
+  /**
+   * The body of a range response, which a server that ignores `Range` sends as the whole archive:
+   * a body longer than `length` bytes, by its `Content-Length` or as it streams in, is cancelled
+   * at once, not downloaded.
+   */
+  private async readAtMost(response: Response, length: number): Promise<ArrayBuffer> {
+    const tooLong = () =>
+      new Error(
         `PMTiles archive ${this.url}: the server returned more bytes than requested. It must ` +
           'support HTTP range requests.'
       );
+    if (Number(response.headers.get('Content-Length')) > length) {
+      await response.body?.cancel();
+      throw tooLong();
     }
-    return {data};
+    if (!response.body) {
+      return response.arrayBuffer();
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) {
+        break;
+      }
+      size += value.byteLength;
+      if (size > length) {
+        await reader.cancel();
+        throw tooLong();
+      }
+      chunks.push(value);
+    }
+    const data = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      data.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return data.buffer;
   }
 
   private fetchRange(first: number, last: number, signal?: AbortSignal): Promise<Response> {
@@ -97,12 +134,19 @@ class FetchRangeSource implements Source {
 /** Load options without a `fetch` or `fetchOptions` of their own share this key. */
 const DEFAULT_KEY = {};
 
-/** Opened archives, by `fetch`, by `fetchOptions` and by archive URL. */
+/**
+ * The most archive readers kept open per `fetch` and `fetchOptions`. Past it, the least recently
+ * used reader is released, with the header and directories it has read.
+ */
+export const MAX_OPEN_ARCHIVES = 32;
+
+/** Opened archives, by `fetch`, by `fetchOptions` and by archive URL, least recently used first. */
 const archives = new WeakMap<object, WeakMap<object, Map<string, PMTiles>>>();
 
 /**
  * The reader of an archive, opened once per archive URL, `fetch` and `fetchOptions`: it keeps the
- * header and directories it has read.
+ * header and directories it has read, while it is one of the `MAX_OPEN_ARCHIVES` most recently
+ * used.
  */
 function getArchive(url: string, loadOptions: BasemapLoadOptions | undefined): PMTiles {
   const fetchKey = loadOptions?.fetch || DEFAULT_KEY;
@@ -118,10 +162,16 @@ function getArchive(url: string, loadOptions: BasemapLoadOptions | undefined): P
     byFetchOptions.set(fetchOptionsKey, byUrl);
   }
   let archive = byUrl.get(url);
-  if (!archive) {
+  if (archive) {
+    byUrl.delete(url);
+  } else {
     archive = new PMTiles(new FetchRangeSource(url, loadOptions));
-    byUrl.set(url, archive);
+    if (byUrl.size >= MAX_OPEN_ARCHIVES) {
+      const [leastRecentlyUsed] = byUrl.keys();
+      byUrl.delete(leastRecentlyUsed);
+    }
   }
+  byUrl.set(url, archive);
   return archive;
 }
 

@@ -7,7 +7,11 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 import {log} from '@deck.gl/core';
 import {encodePMTiles} from '@loaders.gl/tiles/pmtiles';
 import {resolveBasemapStyle, type BasemapSource} from '../src/style-resolver';
-import {getTileLoadOptions, parsePMTilesTileUrl} from '../src/pmtiles-source';
+import {
+  MAX_OPEN_ARCHIVES,
+  getTileLoadOptions,
+  parsePMTilesTileUrl
+} from '../src/pmtiles-source';
 
 /** The fixtures of `fixtures/pmtiles/generate.mjs`. */
 const FIXTURES = new URL('./fixtures/pmtiles/', import.meta.url);
@@ -185,6 +189,87 @@ describe('pmtiles:// sources', () => {
     const failed = await resolveBasemapStyle(style, {fetch: long.fetch});
     expect(failed.sources.source.tiles).toBeUndefined();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not be loaded'));
+  });
+});
+
+describe('pmtiles:// archive reads', () => {
+  const style = {
+    version: 8,
+    sources: {source: {type: 'vector', url: `pmtiles://${ARCHIVE_URL}`}},
+    layers: []
+  };
+
+  /** A response of `chunks` chunks of 1 MiB that counts the chunks read and the cancels. */
+  function createLongResponse(chunks: number, headers: Record<string, string> = {}) {
+    const stats = {chunksRead: 0, cancelled: false};
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          if (stats.chunksRead === chunks) {
+            controller.close();
+            return;
+          }
+          stats.chunksRead++;
+          controller.enqueue(new Uint8Array(1 << 20));
+        },
+        cancel() {
+          stats.cancelled = true;
+        }
+      },
+      {highWaterMark: 0}
+    );
+    return {response: new Response(body, {status: 200, headers}), stats};
+  }
+
+  test('a whole archive answering a range request is not read past the range', async () => {
+    const warn = vi.spyOn(log, 'warn');
+    const {response, stats} = createLongResponse(64);
+    const fetch = vi.fn(async () => response) as unknown as typeof globalThis.fetch;
+    const resolved = await resolveBasemapStyle(style, {fetch});
+    expect(resolved.sources.source.tiles).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('could not be loaded'));
+    expect(stats.chunksRead).toBeLessThanOrEqual(1);
+    expect(stats.cancelled).toBe(true);
+  });
+
+  test('a whole archive of a known length is refused before its body is read', async () => {
+    vi.spyOn(log, 'warn');
+    const {response, stats} = createLongResponse(64, {'Content-Length': String(64 << 20)});
+    const fetch = vi.fn(async () => response) as unknown as typeof globalThis.fetch;
+    const resolved = await resolveBasemapStyle(style, {fetch});
+    expect(resolved.sources.source.tiles).toBeUndefined();
+    expect(stats.chunksRead).toBe(0);
+    expect(stats.cancelled).toBe(true);
+  });
+
+  test('the least recently used archive reader is released past the limit', async () => {
+    const urls = Array.from(
+      {length: MAX_OPEN_ARCHIVES + 1},
+      (_, index) => `https://data.example.com/region-${index}.pmtiles`
+    );
+    const fixture = readFixture('vector.pmtiles');
+    const server = createServer(Object.fromEntries(urls.map(url => [url, fixture])));
+    const tileFetch = getTileLoadOptions(
+      {type: 'vector', tiles: [`pmtiles://${urls[0]}/{z}/{x}/{y}`]},
+      {fetch: server.fetch}
+    )!.fetch!;
+    const headerReads = (url: string) =>
+      server.requests.filter(request => request.url === url && request.range?.startsWith('bytes=0-'))
+        .length;
+    const read = (url: string) => tileFetch(`pmtiles://${url}/0/0/0`);
+    for (const url of urls.slice(0, MAX_OPEN_ARCHIVES)) {
+      await read(url);
+    }
+    // Reading the first archive again makes the second the least recently used, which the last
+    // archive releases when it opens.
+    await read(urls[0]);
+    await read(urls[MAX_OPEN_ARCHIVES]);
+    await read(urls[0]);
+    await read(urls[2]);
+    expect(headerReads(urls[0])).toBe(1);
+    expect(headerReads(urls[2])).toBe(1);
+    await read(urls[1]);
+    expect(headerReads(urls[1])).toBe(2);
   });
 });
 
