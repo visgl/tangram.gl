@@ -157,7 +157,7 @@ export class BasemapMaskExtension extends MaskExtension {
       channel: channel.index,
       enabled: true,
       inverted: maskInverted,
-      drawOutside: maskOutside.drawLayer(getStyleLayerIds(this.id))
+      drawOutside: maskOutside.drawLayer(getStyleLayerIds(this))
     };
     // This extension draws the outside of the mask: `MaskExtension` must not discard it.
     this.setShaderModuleProps({mask: {enabled: false}, basemapMask});
@@ -222,12 +222,30 @@ function invert([a, b, c, d, e, f, g, h, i]: Matrix3): Matrix3 {
 
 const STYLE_LAYER_IDS = /\["(?:[^"\\]|\\.)*"(?:,"(?:[^"\\]|\\.)*")*\]|"(?:[^"\\]|\\.)*"/g;
 
+/** A layer and the composite layers that render it, as far as `getStyleLayerIds` reads them. */
+export type LayerNode = {id: string; parent: LayerNode | null};
+
 /**
- * The ids of the style layers that a `BasemapLayer` sublayer draws. The id of the sublayer ends
- * with the id of its style layer as a JSON string, or the ids of several as a JSON array, and a
- * suffix. An id of a style layer earlier in it names the group of style layers that draw together.
+ * The ids of the style layers that a `BasemapLayer` sublayer draws. The id of a sublayer of a
+ * vector source ends with the id of its style layer as a JSON string, or the ids of several as a
+ * JSON array, and a suffix. An id of a style layer earlier in it names the group of style layers
+ * that draw together.
+ *
+ * A background, raster or hillshade style layer has no JSON id: `BasemapLayer` gives the sublayer
+ * that it renders for the style layer the id `<BasemapLayer id>-<style layer id>`. The
+ * `BasemapLayer` must be a top-level layer.
  */
-export function getStyleLayerIds(layerId: string): string[] {
-  const ids = layerId.match(STYLE_LAYER_IDS)?.pop();
-  return ids ? [JSON.parse(ids) as string | string[]].flat() : [];
+export function getStyleLayerIds(layer: LayerNode): string[] {
+  const ids = layer.id.match(STYLE_LAYER_IDS)?.pop();
+  if (ids) {
+    return [JSON.parse(ids) as string | string[]].flat();
+  }
+  let sublayer = layer;
+  while (sublayer.parent?.parent) {
+    sublayer = sublayer.parent;
+  }
+  const basemap = sublayer.parent;
+  return basemap && sublayer.id.startsWith(`${basemap.id}-`)
+    ? [sublayer.id.slice(basemap.id.length + 1)]
+    : [];
 }

@@ -218,6 +218,8 @@ export function mountBasemapMaskedByDataExample(container: HTMLElement): () => v
   };
   const styleLayers = new Map<string, StyleLayer>();
   let style: {layers: StyleLayer[]} | null = null;
+  /** Why the style did not load, or null. */
+  let styleError: string | null = null;
   /** The distance of the vehicle along the track, in meters. */
   let trackDistance = TRACK.length * 0.4;
   let lastFrameTime: number | null = null;
@@ -248,9 +250,8 @@ export function mountBasemapMaskedByDataExample(container: HTMLElement): () => v
   rootElement.append(createAttribution(rootElement.ownerDocument));
   syncInfoWidget();
 
-  fetch(STYLE_URL)
-    .then(response => response.json())
-    .then((loadedStyle: {layers: StyleLayer[]}) => {
+  fetchStyle(STYLE_URL)
+    .then(loadedStyle => {
       if (!isMounted) {
         return;
       }
@@ -260,6 +261,12 @@ export function mountBasemapMaskedByDataExample(container: HTMLElement): () => v
       }
       maskOutside = getMaskOutside();
       deck.setProps({layers: getLayers()});
+    })
+    .catch((error: unknown) => {
+      if (isMounted) {
+        styleError = `The basemap style did not load: ${getMessage(error)}`;
+        syncInfoWidget();
+      }
     });
   animationFrame = requestAnimationFrame(animate);
 
@@ -317,6 +324,9 @@ export function mountBasemapMaskedByDataExample(container: HTMLElement): () => v
               'and filters and restyles them outside it.'
             ].join('\n')
           }),
+          ...(styleError
+            ? [new MarkdownPanel({id: 'error', title: '', markdown: `**${escapeMarkdown(styleError)}**`})]
+            : []),
           new SettingsPanel({
             id: 'settings',
             label: 'Settings',
@@ -428,6 +438,23 @@ export function mountBasemapMaskedByDataExample(container: HTMLElement): () => v
       ...dataLayers
     ];
   }
+}
+
+/** Fetches a style document. Rejects with the URL and the HTTP status when the response is not OK. */
+async function fetchStyle(url: string): Promise<{layers: StyleLayer[]}> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${url} failed: ${response.status} ${response.statusText}`.trim());
+  }
+  return (await response.json()) as {layers: StyleLayer[]};
+}
+
+function getMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function escapeMarkdown(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('*', '\\*').replaceAll('_', '\\_');
 }
 
 function createRoot(container: HTMLElement): HTMLDivElement {

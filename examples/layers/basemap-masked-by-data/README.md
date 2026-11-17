@@ -25,8 +25,10 @@ take a deck.gl extension.
 - `BasemapMaskExtension` (`basemap-mask-extension.ts`) extends `MaskExtension`. It reads the mask
   texture at each fragment. Inside the mask, it keeps the color. Outside the mask, it removes the
   saturation, inverts the lightness, mixes in a tint, or discards the fragment (`maskOutside`).
-- The extension reads the ids of the style layers from the id of each sublayer. A function then
-  selects the style layers to draw outside the mask, by their `source-layer`.
+- The extension reads the ids of the style layers from the id of each sublayer. For a
+  background or a raster style layer, it reads the id of the sublayer that `BasemapLayer` renders
+  for that style layer. A function then selects the style layers to draw outside the mask, by
+  their `source-layer`.
 
 Settings:
 
