@@ -193,6 +193,10 @@ export class RasterFadeExtension extends LayerExtension {
     } as any);
     if (values.mix > 0 || values.opacity < 1) {
       this.setNeedsRedraw();
+    } else if (parent && rasterFadeDuration > 0) {
+      // The cross-fade has ended: the tile layer renders the tile again without the ancestor's
+      // image (see `RasterFadeTileLayer.getSubLayerPropsByTile`), which releases its texture.
+      this.parent?.setNeedsUpdate();
     }
   }
 }
@@ -211,8 +215,9 @@ type TileFadeProps = {rasterFade: RasterFade; rasterFadeParentImage: unknown};
 /**
  * A `ProjectedTileLayer` of raster tiles that fade in over `rasterFadeDuration` (see
  * `RasterFadeExtension`, which `renderSubLayers` adds to the tiles' layers). A tile's fade starts
- * when it is first drawn, from the nearest ancestor that was loaded then. The layer is loaded once
- * its selected tiles have faded in, as MapLibre GL JS is idle only once its raster tiles have.
+ * when it is first drawn, from the nearest ancestor that was loaded then. When the fade ends, the
+ * tile lets go of the ancestor's image. The layer is loaded once its selected tiles have faded in,
+ * as MapLibre GL JS is idle only once its raster tiles have.
  */
 export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> extends ProjectedTileLayer<
   DataT,
@@ -251,6 +256,13 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
         },
         rasterFadeParentImage: ancestor ? ancestor.content : null
       };
+      this.state.tileFades.set(tile, fade);
+    } else if (
+      fade.rasterFadeParentImage &&
+      this.props.rasterFadeClock!() - fade.rasterFade.start >= this.props.rasterFadeDuration!
+    ) {
+      // The fade has ended: keep only its start, for `isLoaded`.
+      fade = {rasterFade: {start: fade.rasterFade.start, parent: null}, rasterFadeParentImage: null};
       this.state.tileFades.set(tile, fade);
     }
     return fade as Partial<LayerProps>;

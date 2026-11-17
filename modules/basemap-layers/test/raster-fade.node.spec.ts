@@ -137,6 +137,35 @@ describe('RasterFadeExtension', () => {
     expect(end.redraws).toBe(0);
   });
 
+  test('asks the tile layer to render again when a cross-fade ends', () => {
+    const clock = createClock(1000);
+    let updates = 0;
+    const props = {
+      rasterFadeDuration: 300,
+      rasterFadeClock: clock,
+      rasterFade: {start: 1000, parent},
+      rasterFadeParentImage: 'parent-texture'
+    };
+    const drawInLayer = (layerProps: Record<string, unknown>) => {
+      const layer = {
+        context: {device: {type: 'webgl'}},
+        props: {image: 'tile-texture', ...layerProps},
+        parent: {setNeedsUpdate: () => updates++},
+        setShaderModuleProps: () => {},
+        setNeedsRedraw: () => {}
+      };
+      RasterFadeExtension.prototype.draw.call(layer as any);
+    };
+    drawInLayer(props);
+    expect(updates).toBe(0);
+    clock.set(1300);
+    drawInLayer(props);
+    expect(updates).toBe(1);
+    // Once the image is gone, nothing is left to release.
+    drawInLayer({...props, rasterFade: {start: 1000, parent: null}, rasterFadeParentImage: null});
+    expect(updates).toBe(1);
+  });
+
   test('fades a tile without an ancestor in from transparent', () => {
     const clock = createClock(1150);
     const {uniforms, redraws} = draw({
@@ -213,6 +242,26 @@ describe('RasterFadeTileLayer', () => {
     clock.set(700);
     // The same object, so that `TileLayer` does not clone the tile's layers at every render.
     expect(layer.getSubLayerPropsByTile(tile as any)).toBe(props);
+  });
+
+  test('a tile lets go of the ancestor image when its fade ends', () => {
+    const clock = createClock(500);
+    const tile = child();
+    const layer = createLayer(300, clock, [tile]);
+    expect((layer.getSubLayerPropsByTile(tile as any) as any).rasterFadeParentImage).toBe(
+      'root-image'
+    );
+    clock.set(799);
+    expect((layer.getSubLayerPropsByTile(tile as any) as any).rasterFadeParentImage).toBe(
+      'root-image'
+    );
+    clock.set(800);
+    const done = layer.getSubLayerPropsByTile(tile as any) as any;
+    expect(done).toEqual({rasterFade: {start: 500, parent: null}, rasterFadeParentImage: null});
+    // The fade's own record keeps no image either, and the layer stays loaded.
+    expect((layer.state as any).tileFades.get(tile)).toBe(done);
+    expect(layer.getSubLayerPropsByTile(tile as any)).toBe(done);
+    expect(layer.isLoaded).toBe(true);
   });
 
   test('is loaded once its selected tiles have faded in', () => {
