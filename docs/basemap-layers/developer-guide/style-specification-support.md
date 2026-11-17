@@ -50,13 +50,13 @@ See [Sources][sources].
 
 See [Expressions][expressions].
 
-| Feature                         | Status        | Notes                                                                                           |
-| ------------------------------- | ------------- | ----------------------------------------------------------------------------------------------- |
-| Constant and data-driven values | Supported     | Evaluated with `@maplibre/maplibre-gl-style-spec`, per feature where the property allows it.    |
-| Zoom-dependent values           | Partial       | Evaluated at the zoom rounded down to a 0.25 step, not interpolated continuously.               |
-| `feature-state`                 | Not supported | Feature state is always empty.                                                                  |
-| `filter`                        | Supported     | Evaluated per feature. `["zoom"]` in a filter uses the integer zoom, as the specification says. |
-| Legacy `ref` layers             | Supported     | Resolved when the style loads.                                                                  |
+| Feature                         | Status    | Notes                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Constant and data-driven values | Supported | Evaluated with `@maplibre/maplibre-gl-style-spec`, per feature where the property allows it.                                                                                                                                                                                                                                                                 |
+| Zoom-dependent values           | Partial   | Evaluated at the zoom rounded down to a 0.25 step, not interpolated continuously.                                                                                                                                                                                                                                                                            |
+| `feature-state`                 | Partial   | Read in the paint properties of `fill`, `line`, `circle` and `fill-extrusion` layers, from `BasemapLayer`'s `featureState` prop (see [Feature state](../api-reference/basemap-layer.md#featurestate)). A state change computes the paint attributes again, not the geometry. Empty in `symbol` layers. The specification allows it in paint properties only. |
+| `filter`                        | Supported | Evaluated per feature. `["zoom"]` in a filter uses the integer zoom, as the specification says.                                                                                                                                                                                                                                                              |
+| Legacy `ref` layers             | Supported | Resolved when the style loads.                                                                                                                                                                                                                                                                                                                               |
 
 ## Layer visibility and zoom range
 

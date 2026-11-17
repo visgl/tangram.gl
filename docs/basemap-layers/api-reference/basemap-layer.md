@@ -45,6 +45,7 @@ import {BasemapLayer} from '@tangram.gl/basemap-layers';
 - cuts GeoJSON sources into vector tiles on the client, in a web worker
 - generates `background`, `fill`, `line`, `symbol`, and `raster` sublayers
 - supports flat map rendering, globe rendering, and rendering in a projected view (`_CustomProjectionView`)
+- reads `["feature-state", ...]` from its `featureState` prop, and names its picked features (see [Picking](#picking))
 
 ## Terrain queries (experimental)
 
@@ -83,6 +84,51 @@ The style document to render. Pass either:
 Type: `'map' | 'globe'`
 
 Controls whether the generated sublayers are optimized for a flat map or a globe. Defaults to `'map'`.
+
+### `featureState`
+
+Type: `BasemapFeatureState | null`
+
+The state of features, which `["feature-state", key]` reads in paint properties. It is the state that
+MapLibre GL JS's `map.setFeatureState()` sets, as data: by source id, then, for a `vector` source, by
+source layer, then by feature id. A feature of a `vector` source with a `promoteId` has the id of that
+property. Defaults to `null`: every state is empty.
+
+```ts
+const hoverColor = ['case', ['boolean', ['feature-state', 'hover'], false], '#ff6600', '#cccccc'];
+
+new BasemapLayer({
+  id: 'basemap',
+  style,
+  pickable: true,
+  // The building with id 42 in the `building` source layer of the `openmaptiles` source.
+  featureState: {openmaptiles: {building: {42: {hover: true}}}},
+  onHover: ({basemapFeature}) => setHovered(basemapFeature)
+});
+```
+
+Pass a new object to change a state: the prop is compared by identity, as deck.gl compares `data`.
+Only the style layers whose paint reads a changed state update, and only their paint attributes:
+the tiles are not loaded again, and their polygons and lines are not tessellated again. The states
+are read in the paint of `fill`, `line`, `circle` and `fill-extrusion` layers. In `symbol` layers they
+are empty. A `fill-extrusion-height` or `fill-extrusion-base` that reads a state rebuilds the
+extrusions of the style layer when the state changes.
+
+### Picking
+
+With `pickable: true`, the features of `vector` and `geojson` sources are pickable. The picking info
+has a `basemapFeature` field of type `BasemapPickedFeature`, named as in a feature of MapLibre GL JS's
+`queryRenderedFeatures()`:
+
+- `id`: the feature's id, or its `promoteId` property, or undefined
+- `source`: the id of the source in the style
+- `sourceLayer`: the source layer, for a `vector` source
+- `styleLayerId`: the id of the style layer that drew the feature
+- `properties`: the feature's properties
+
+`info.object` is the picked GeoJSON feature. To read the features in a rectangle, as
+`queryRenderedFeatures()` reads them, use deck.gl's `pickObjects()`. Rasters, hillshades and the
+background are not pickable.
 
 ### `loadOptions`
 

@@ -9,6 +9,7 @@ Copyright (c) vis.gl contributors
 ## November 2026
 
 - `BasemapLayer` draws in a deck.gl `_CustomProjectionView`, a flat view in a projected coordinate reference system such as a UTM zone or a conic projection. Web Mercator tiles are selected for the area the screen shows. Fills and lines are projected at each vertex, raster and hillshade tiles are drawn on a mesh that follows the projection, and labels stay upright. Styles are evaluated at the zoom of the Web Mercator map of the same scale. See [Projected views](./api-reference/basemap-layer.md#projected-views). `getProjectedTileIndices`, `ProjectedTileset2D`, `ProjectedBitmapLayer` and `getMercatorZoom` are exported for other tiled layers.
+- `["feature-state", key]` reads the new `featureState` prop of `BasemapLayer` in the paint of `fill`, `line`, `circle` and `fill-extrusion` layers, as MapLibre GL JS reads `setFeatureState`. A state change updates only the paint attributes of the style layers that read it, without new tiles or new geometry. With `pickable: true`, picked features of vector and GeoJSON sources are named in `info.basemapFeature`: the style layer id, the source, the source layer, the feature id and its properties. See [`featureState`](./api-reference/basemap-layer.md#featurestate) and [Picking](./api-reference/basemap-layer.md#picking).
 
 ## October 2026
 
