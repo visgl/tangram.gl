@@ -164,6 +164,30 @@ vec3 rasterColor_adjust(vec3 color) {
   return mix(vec3(rasterColor.brightnessLow), vec3(rasterColor.brightnessHigh), rgb);
 }
 `,
+  source: /* wgsl */ `\
+struct RasterColorUniforms {
+  brightnessLow: f32,
+  brightnessHigh: f32,
+  saturationFactor: f32,
+  contrastFactor: f32,
+  spinWeights: vec3<f32>,
+};
+
+@group(0) @binding(auto) var<uniform> rasterColor: RasterColorUniforms;
+
+// The GLSL function above, in WGSL.
+fn rasterColor_adjust(color: vec3<f32>) -> vec3<f32> {
+  var rgb = vec3<f32>(
+    dot(color, rasterColor.spinWeights.xyz),
+    dot(color, rasterColor.spinWeights.zxy),
+    dot(color, rasterColor.spinWeights.yzx)
+  );
+  let average = (color.r + color.g + color.b) / 3.0;
+  rgb += (average - rgb) * rasterColor.saturationFactor;
+  rgb = (rgb - 0.5) * rasterColor.contrastFactor + 0.5;
+  return mix(vec3<f32>(rasterColor.brightnessLow), vec3<f32>(rasterColor.brightnessHigh), rgb);
+}
+`,
   uniformTypes: {
     brightnessLow: 'f32',
     brightnessHigh: 'f32',
@@ -173,12 +197,20 @@ vec3 rasterColor_adjust(vec3 color) {
   }
 } as const;
 
-const injection = {
+const glslInjection = {
   // MapLibre writes the adjusted color premultiplied, so a value pushed above 1 is clamped only
   // after the multiplication by alpha. Layers using this extension blend premultiplied colors
   // (`RASTER_COLOR_BLEND_PARAMETERS`) to draw the same.
   'fs:DECKGL_FILTER_COLOR': /* glsl */ `
   color.rgb = rasterColor_adjust(color.rgb) * color.a;
+`
+};
+
+const wgslInjection = {
+  // deck.gl's WGSL bitmap shader premultiplies the filtered color itself, and WebGPU draws with
+  // premultiplied blending, so the adjusted color is clamped after the multiplication by alpha.
+  'fs:DECKGL_FILTER_COLOR': /* wgsl */ `
+  *color = vec4<f32>(rasterColor_adjust((*color).rgb), (*color).a);
 `
 };
 
@@ -198,20 +230,18 @@ type RasterColorExtensionProps = {
   rasterColorAdjustments?: RasterColorAdjustments;
 };
 
-/** Whether the extension's shader runs on a layer's device. It is written in GLSL only. */
-function isRasterColorSupported(layer: Layer): boolean {
-  return layer.context.device.type !== 'webgpu';
+function isWebGPU(layer: Layer): boolean {
+  return layer.context.device.type === 'webgpu';
 }
 
 /**
  * Applies a raster style layer's `raster-brightness-min`, `raster-brightness-max`,
  * `raster-saturation`, `raster-contrast` and `raster-hue-rotate` to a `BitmapLayer`, with the
- * formulas of MapLibre GL JS's raster shader. WebGL only.
+ * formulas of MapLibre GL JS's raster shader, on WebGL and WebGPU.
  *
  * The adjusted colors are premultiplied, so the layer must blend with
- * `RASTER_COLOR_BLEND_PARAMETERS` exactly where the shader runs. Added to a composite layer, the
- * extension passes them to its sublayers as `rasterColorBlendParameters`, decided by the same
- * device check as the shader; on WebGPU they are `null` and the sublayers keep their blending.
+ * `RASTER_COLOR_BLEND_PARAMETERS`. Added to a composite layer, the extension passes them to its
+ * sublayers as `rasterColorBlendParameters`. On WebGPU they are deck.gl's default blending.
  */
 export class RasterColorExtension extends LayerExtension {
   static extensionName = 'RasterColorExtension';
@@ -220,25 +250,20 @@ export class RasterColorExtension extends LayerExtension {
   };
 
   getShaders(this: Layer<RasterColorExtensionProps>) {
-    if (!isRasterColorSupported(this)) {
-      return {};
-    }
-    return {modules: [rasterColorModule], inject: injection};
+    return {
+      modules: [rasterColorModule],
+      inject: isWebGPU(this) ? wgslInjection : glslInjection
+    };
   }
 
   getSubLayerProps(this: CompositeLayer<RasterColorExtensionProps>, extension: this) {
     return {
       ...LayerExtension.prototype.getSubLayerProps.call(this, extension),
-      rasterColorBlendParameters: isRasterColorSupported(this)
-        ? RASTER_COLOR_BLEND_PARAMETERS
-        : null
+      rasterColorBlendParameters: RASTER_COLOR_BLEND_PARAMETERS
     };
   }
 
   draw(this: Layer<RasterColorExtensionProps>) {
-    if (!isRasterColorSupported(this)) {
-      return;
-    }
     const adjustments = this.props.rasterColorAdjustments ?? DEFAULT_RASTER_COLOR_ADJUSTMENTS;
     this.setShaderModuleProps({rasterColor: getRasterColorUniforms(adjustments)});
   }
