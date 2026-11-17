@@ -8,6 +8,7 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
+- `heatmap` layers are drawn as MapLibre GL JS draws them: each point of a vector or GeoJSON source adds a Gaussian kernel of `heatmap-radius` pixels, scaled by `heatmap-weight` and `heatmap-intensity`, to a density a quarter of the canvas's size, and the density is colored by the `heatmap-color` ramp over `["heatmap-density"]`, with `heatmap-opacity`. A heatmap sums the points of all of its tiles before it is colored, and draws in style order. Also on a globe and in a `_CustomProjectionView`. WebGL only (WebGPU draws no heatmap).
 - `BasemapLayer` draws in a deck.gl `_CustomProjectionView`, a flat view in a projected coordinate reference system such as a UTM zone or a conic projection. Web Mercator tiles are selected for the area the screen shows. Fills and lines are projected at each vertex, raster and hillshade tiles are drawn on a mesh that follows the projection, and labels stay upright. Styles are evaluated at the zoom of the Web Mercator map of the same scale. See [Projected views](./api-reference/basemap-layer.md#projected-views). `getProjectedTileIndices`, `ProjectedTileset2D`, `ProjectedBitmapLayer` and `getMercatorZoom` are exported for other tiled layers.
 
 ## October 2026
