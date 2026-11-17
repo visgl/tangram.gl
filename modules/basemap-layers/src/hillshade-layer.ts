@@ -77,6 +77,7 @@ import {SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers'
 import type {SharedTile2DLayerProps, SharedTileset2DProps} from '@deck.gl-community/geo-layers';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
 import {basemapTilesetAdapter} from './projected-tileset';
+import {getSourceTileTemplates} from './source-tiles';
 import {isProjectedViewport} from './projected-viewport';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 
@@ -614,7 +615,7 @@ export function createSharedDemTileset(
   const unpack = getDemUnpackVector(source);
   // Expands the source's URL template for a tile, as the layer does for its own tileset.
   const loader = new SharedTile2DLayer<DemTile | null>({
-    data: source.tiles as string[],
+    data: getSourceTileTemplates(source) as string[],
     getTileData: ({url, signal}) => (url ? loadDemTile(url, unpack, {signal, loadOptions}) : null)
   });
   return new SharedTileset2D<DemTile | null>({

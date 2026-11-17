@@ -7,6 +7,7 @@ import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from '.
 import {isGlobeViewport} from './is-globe-viewport';
 import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
+import {getSourceTileBounds, getSourceTileTemplates} from './source-tiles';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
 import type {BasemapSource} from './style-resolver';
 import {
@@ -478,14 +479,17 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       if (!this.state.tilesets.has(source)) {
         const loader = new SharedMVTLayer({
           id: `${this.id}-loader`,
-          data: source.tiles!,
+          data: getSourceTileTemplates(source)!,
           fetch: this.props.fetch,
           loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
         });
         loader.context = this.context;
         const tileset = new SharedTileset2D({
           ...loader._getTilesetOptions(),
-          adapter: getBasemapTilesetAdapter(this.props.projectedMaxStretch),
+          adapter: getBasemapTilesetAdapter(
+            this.props.projectedMaxStretch,
+            getSourceTileBounds(source)
+          ),
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,

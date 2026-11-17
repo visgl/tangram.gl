@@ -11,31 +11,39 @@ import {
   getProjectedTileZoom
 } from './projected-tile-selection';
 import {isProjectedViewport} from './projected-viewport';
+import {type SourceTileBounds, filterTileIndicesByBounds} from './source-tiles';
 
 type DeckAdapter = typeof sharedTile2DDeckAdapter;
 type TraversalContext = Parameters<DeckAdapter['getTileIndices']>[0];
 type TileContext = Parameters<DeckAdapter['getTileBoundingBox']>[0];
 type TileIndex = ReturnType<DeckAdapter['getTileIndices']>[number];
 
-function createBasemapTilesetAdapter(maxStretch: number) {
+function createBasemapTilesetAdapter(maxStretch: number, tileBounds: SourceTileBounds | null) {
+  /** The tiles that cover the view, before the source's `bounds` are applied. */
+  function getViewTileIndices(
+    context: Omit<TraversalContext, 'viewState'> & {viewState: unknown}
+  ): TileIndex[] {
+    const viewport = context.viewState as Viewport;
+    if (!isProjectedViewport(viewport)) {
+      return sharedTile2DDeckAdapter.getTileIndices({...context, viewState: viewport});
+    }
+    const z = getProjectedTileZoom(viewport, context);
+    return z === null
+      ? []
+      : getProjectedTileIndices(viewport, {
+          z,
+          extent: context.extent,
+          minZoom: context.minZoom,
+          maxZoom: context.maxZoom,
+          maxStretch
+        });
+  }
+
   return {
     getTileIndices(
       context: Omit<TraversalContext, 'viewState'> & {viewState: unknown}
     ): TileIndex[] {
-      const viewport = context.viewState as Viewport;
-      if (!isProjectedViewport(viewport)) {
-        return sharedTile2DDeckAdapter.getTileIndices({...context, viewState: viewport});
-      }
-      const z = getProjectedTileZoom(viewport, context);
-      return z === null
-        ? []
-        : getProjectedTileIndices(viewport, {
-            z,
-            extent: context.extent,
-            minZoom: context.minZoom,
-            maxZoom: context.maxZoom,
-            maxStretch
-          });
+      return filterTileIndicesByBounds(getViewTileIndices(context), tileBounds);
     },
     getTileBoundingBox(
       context: Omit<TileContext, 'viewState'> & {viewState: unknown},
@@ -49,19 +57,25 @@ function createBasemapTilesetAdapter(maxStretch: number) {
   };
 }
 
-const adapters = new Map<number, ReturnType<typeof createBasemapTilesetAdapter>>();
+const adapters = new Map<string, ReturnType<typeof createBasemapTilesetAdapter>>();
 
 /**
  * The tile traversal of the basemap's shared tilesets: deck.gl's in a Web Mercator view and on a
  * globe, and `getProjectedTileIndices` with `maxStretch` (see `ProjectedTileSelectionOptions`) in
  * a projected view. A tileset can serve views of both kinds at once, so the view is tested at
- * each traversal. The same limit gives the same adapter.
+ * each traversal. With `tileBounds`, a source's `bounds` (see `getSourceTileBounds`), the tiles
+ * outside them are not selected, so they are never requested. The same limit and bounds give the
+ * same adapter.
  */
-export function getBasemapTilesetAdapter(maxStretch = DEFAULT_MAX_STRETCH) {
-  let adapter = adapters.get(maxStretch);
+export function getBasemapTilesetAdapter(
+  maxStretch = DEFAULT_MAX_STRETCH,
+  tileBounds: SourceTileBounds | null = null
+) {
+  const key = `${maxStretch}:${tileBounds ? tileBounds.join(',') : ''}`;
+  let adapter = adapters.get(key);
   if (!adapter) {
-    adapter = createBasemapTilesetAdapter(maxStretch);
-    adapters.set(maxStretch, adapter);
+    adapter = createBasemapTilesetAdapter(maxStretch, tileBounds);
+    adapters.set(key, adapter);
   }
   return adapter;
 }
@@ -71,7 +85,8 @@ export const basemapTilesetAdapter = getBasemapTilesetAdapter();
 
 /**
  * A deck.gl `Tileset2D` that also selects Web Mercator tiles in a projected view. Pass it to a
- * `TileLayer` as `TilesetClass`. In other views it selects as `Tileset2D` does.
+ * `TileLayer` as `TilesetClass`. In other views it selects as `Tileset2D` does. With a
+ * `tileBounds` option (see `getSourceTileBounds`), the tiles outside the bounds are not selected.
  */
 export class ProjectedTileset2D<DataT = any, ViewStateT = Viewport> extends Tileset2D<
   DataT,
@@ -80,6 +95,14 @@ export class ProjectedTileset2D<DataT = any, ViewStateT = Viewport> extends Tile
   private selectionViewport: Viewport | null = null;
 
   getTileIndices(options: Parameters<Tileset2D<DataT, ViewStateT>['getTileIndices']>[0]) {
+    const {tileBounds} = this.opts as {tileBounds?: SourceTileBounds | null};
+    return filterTileIndicesByBounds(this.getViewTileIndices(options), tileBounds);
+  }
+
+  /** The tiles that cover the view, before the `tileBounds` are applied. */
+  private getViewTileIndices(
+    options: Parameters<Tileset2D<DataT, ViewStateT>['getTileIndices']>[0]
+  ) {
     const {viewport} = options;
     this.selectionViewport = viewport || null;
     if (!viewport || !isProjectedViewport(viewport)) {
@@ -119,17 +142,25 @@ export class ProjectedTileset2D<DataT = any, ViewStateT = Viewport> extends Tile
 }
 
 /**
- * A deck.gl `TileLayer` that hands its `maxStretch` (see `ProjectedTileSelectionOptions`) to a
- * `ProjectedTileset2D`, its `TilesetClass`.
+ * A deck.gl `TileLayer` that hands its `maxStretch` (see `ProjectedTileSelectionOptions`) and its
+ * `tileBounds` (see `getSourceTileBounds`) to a `ProjectedTileset2D`, its `TilesetClass`.
  */
 export class ProjectedTileLayer<DataT = any, ExtraPropsT extends {} = {}> extends TileLayer<
   DataT,
-  ExtraPropsT & {maxStretch?: number}
+  ExtraPropsT & {maxStretch?: number; tileBounds?: SourceTileBounds | null}
 > {
   static layerName = 'ProjectedTileLayer';
-  static defaultProps = {TilesetClass: ProjectedTileset2D, maxStretch: DEFAULT_MAX_STRETCH};
+  static defaultProps = {
+    TilesetClass: ProjectedTileset2D,
+    maxStretch: DEFAULT_MAX_STRETCH,
+    tileBounds: null
+  };
 
   _getTilesetOptions() {
-    return {...super._getTilesetOptions(), maxStretch: this.props.maxStretch};
+    return {
+      ...super._getTilesetOptions(),
+      maxStretch: this.props.maxStretch,
+      tileBounds: this.props.tileBounds
+    };
   }
 }
