@@ -115,6 +115,10 @@ By default (`false`), the labels of every `BasemapLayer` in a deck are placed to
 
 The shared placement takes the `labelPlacementInterval` of the last `BasemapLayer` rendered: give layers that share it the same interval.
 
+## Draping on terrain (experimental)
+
+`BasemapLayer` makes deck.gl layers, so deck.gl's `_TerrainExtension` can drape them on a `TerrainLayer`. `BasemapLayer` does not pass its `extensions` prop to the layers that it makes. The [Draped on terrain example](/examples/basemap-layers/draped-terrain) adds the extension in a subclass, and draws data layers in the same depth buffer as the basemap and the terrain.
+
 ## Projected views
 
 `BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, and `mode` stays `'map'`.
