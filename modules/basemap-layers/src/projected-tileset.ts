@@ -57,25 +57,42 @@ function createBasemapTilesetAdapter(maxStretch: number, tileBounds: SourceTileB
   };
 }
 
-const adapters = new Map<string, ReturnType<typeof createBasemapTilesetAdapter>>();
+type BasemapTilesetAdapter = ReturnType<typeof createBasemapTilesetAdapter>;
+
+/**
+ * The adapters of each stretch limit: one without bounds, and one for each bounds array. The
+ * bounds arrays are held weakly, so an adapter is released with its source's bounds.
+ */
+const adapters = new Map<
+  number,
+  {unbounded: BasemapTilesetAdapter; bounded: WeakMap<SourceTileBounds, BasemapTilesetAdapter>}
+>();
 
 /**
  * The tile traversal of the basemap's shared tilesets: deck.gl's in a Web Mercator view and on a
  * globe, and `getProjectedTileIndices` with `maxStretch` (see `ProjectedTileSelectionOptions`) in
  * a projected view. A tileset can serve views of both kinds at once, so the view is tested at
  * each traversal. With `tileBounds`, a source's `bounds` (see `getSourceTileBounds`), the tiles
- * outside them are not selected, so they are never requested. The same limit and bounds give the
- * same adapter.
+ * outside them are not selected, so they are never requested. The same limit and the same bounds
+ * array give the same adapter. The cache holds a bounds array weakly: pass the array that
+ * `getSourceTileBounds` returns, which stays the same while the source's `bounds` do.
  */
 export function getBasemapTilesetAdapter(
   maxStretch = DEFAULT_MAX_STRETCH,
   tileBounds: SourceTileBounds | null = null
-) {
-  const key = `${maxStretch}:${tileBounds ? tileBounds.join(',') : ''}`;
-  let adapter = adapters.get(key);
+): BasemapTilesetAdapter {
+  let entry = adapters.get(maxStretch);
+  if (!entry) {
+    entry = {unbounded: createBasemapTilesetAdapter(maxStretch, null), bounded: new WeakMap()};
+    adapters.set(maxStretch, entry);
+  }
+  if (!tileBounds) {
+    return entry.unbounded;
+  }
+  let adapter = entry.bounded.get(tileBounds);
   if (!adapter) {
     adapter = createBasemapTilesetAdapter(maxStretch, tileBounds);
-    adapters.set(key, adapter);
+    entry.bounded.set(tileBounds, adapter);
   }
   return adapter;
 }

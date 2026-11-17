@@ -6,9 +6,12 @@
 import {SharedMVTLayer} from '@deck.gl-community/geo-layers';
 import {WebMercatorViewport} from '@deck.gl/core';
 import {TileLayer, _getURLFromTemplate as getURLFromTemplate} from '@deck.gl/geo-layers';
+import {setFlagsFromString} from 'node:v8';
+import {runInNewContext} from 'node:vm';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {createDemTileset, getBasemapLayers} from '../src/globe-layers';
+import {getBasemapTilesetAdapter} from '../src/projected-tileset';
 import {getRasterTileLoader} from '../src/raster-tile-loader';
 import {getSourceTileBounds, getSourceTileTemplates, isTileInBounds} from '../src/source-tiles';
 import {resolveBasemapStyle} from '../src/style-resolver';
@@ -473,5 +476,33 @@ describe('scheme and bounds from a TileJSON', () => {
     }).find(layer => layer.id === 't-imagery');
     expect(raster.props.data).toEqual(['https://r.example.com/tiles/{z}/{x}/{y}.png']);
     expect(await getRasterRequests(raster, getWorldViewport(3))).toHaveLength(64);
+  });
+});
+
+describe('bounded tileset adapters', () => {
+  test('are the same for the same bounds array', () => {
+    const source: any = {type: 'vector', bounds: [-10, 40, 10, 50]};
+    const adapter = getBasemapTilesetAdapter(undefined, getSourceTileBounds(source));
+    expect(getBasemapTilesetAdapter(undefined, getSourceTileBounds(source))).toBe(adapter);
+    expect(getBasemapTilesetAdapter(16, getSourceTileBounds(source))).not.toBe(adapter);
+    expect(getBasemapTilesetAdapter()).not.toBe(adapter);
+  });
+
+  test('are released with the bounds of a closed source', async () => {
+    setFlagsFromString('--expose-gc');
+    const collectGarbage = runInNewContext('gc') as () => void;
+    // Each source has bounds of its own, as regional datasets do.
+    const openSource = (index: number) =>
+      new WeakRef(
+        getBasemapTilesetAdapter(
+          undefined,
+          getSourceTileBounds({type: 'vector', bounds: [index, 40, index + 1, 50]} as any)
+        )
+      );
+    const adapters = Array.from({length: 20}, (_, index) => openSource(index));
+    // A WeakRef keeps its target until the current job ends.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    collectGarbage();
+    expect(adapters.filter(adapter => adapter.deref())).toHaveLength(0);
   });
 });
