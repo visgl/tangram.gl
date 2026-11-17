@@ -20,6 +20,13 @@ import {GeoJsonLayer, SolidPolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {ProjectedBackgroundLayer} from './projected-background-layer';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
+import {
+  ImageSourceLayer,
+  getImageSourceCorners,
+  hasFlippedWinding,
+  isDrawableImageSource,
+  type ImageSourceCorners
+} from './image-source-layer';
 import {getGlobeAtmosphereLayer, getGlobeAtmosphereSkyLayer} from './atmosphere-layer';
 import {createCircleSubLayer} from './circle-layer';
 import {sortFeaturesByKey} from './sort-key';
@@ -889,6 +896,60 @@ function createRasterLayer({
     },
     parameters: getTileParameters(mode, depthTested)
   });
+}
+
+/**
+ * A `raster` style layer over an `image` source: the source's image at its four corners, with the
+ * raster paint properties of a raster tile layer. As in MapLibre, the image draws at every zoom.
+ */
+function createImageLayer({
+  idPrefix,
+  layer,
+  source,
+  zoom,
+  mode,
+  loadOptions,
+  fetch,
+  depthTested
+}: {
+  idPrefix: string;
+  layer: BasemapStyleLayer;
+  source: BasemapSource;
+  zoom: number;
+  mode: BasemapMode;
+  loadOptions?: BasemapLoadOptions;
+  fetch?: LayerProps['fetch'];
+  /** Drawn after an extrusion, see `getTileParameters`. */
+  depthTested?: boolean;
+}) {
+  const paint = getPaint(layer, zoom);
+  const rasterColorAdjustments = getRasterColorAdjustments(paint);
+  const isColorAdjusted = hasRasterColorAdjustments(rasterColorAdjustments);
+  const isNearest =
+    getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
+    getRasterPaintValue(paint, 'resampling') === 'nearest';
+  const corners = getImageSourceCorners(source) as ImageSourceCorners;
+  return new ImageSourceLayer({
+    id: `${idPrefix}-${layer.id}`,
+    image: source.url as string,
+    corners,
+    ...(fetch ? {fetch} : {}),
+    ...(loadOptions ? {loadOptions} : {}),
+    // As for raster tiles: deck.gl draws with `opacity ** (1 / 2.2)`.
+    opacity: getRasterPaintValue(paint, 'raster-opacity') ** 2.2,
+    ...(isColorAdjusted ? {extensions: [RASTER_COLOR_EXTENSION], rasterColorAdjustments} : {}),
+    textureParameters: isNearest ? NEAREST_TEXTURE_PARAMETERS : null,
+    onError: (error: Error) => {
+      logBasemapRuntimeError('Image failed to load', error, {
+        layerId: layer.id,
+        sourceId: layer.source
+      });
+    },
+    parameters:
+      mode === 'globe' && hasFlippedWinding(corners)
+        ? {...getTileParameters(mode, depthTested), cullMode: 'front'}
+        : getTileParameters(mode, depthTested)
+  } as any);
 }
 
 /**
@@ -3349,7 +3410,8 @@ export function getStyleLayerRuns(
       .filter(
         layer =>
           layer.type === 'background' ||
-          ((layer.type === 'raster' || layer.type === 'hillshade') && getSource(layer)?.tiles)
+          ((layer.type === 'raster' || layer.type === 'hillshade') && getSource(layer)?.tiles) ||
+          (layer.type === 'raster' && isDrawableImageSource(getSource(layer)))
       )
       .map(layer => layer.id)
   );
@@ -3359,7 +3421,7 @@ export function getStyleLayerRuns(
     if (layer.type === 'background') {
       runs.push({type: 'background', id: layer.id, styleLayers: [layer]});
     } else if (layer.type === 'raster') {
-      if (source?.tiles) {
+      if (source?.tiles || isDrawableImageSource(source)) {
         runs.push({type: 'raster', id: layer.id, sourceId, source, styleLayers: [layer]});
       } else {
         logBasemapRuntimeEvent('Skipping style layer without resolved tiles', {
@@ -3472,6 +3534,18 @@ function getStyleLayers({
     const [layer] = run.styleLayers;
     if (run.type === 'background') {
       return createBackgroundLayer({idPrefix, layer, zoom, mode, projected});
+    }
+    if (run.type === 'raster' && run.source?.type === 'image') {
+      return createImageLayer({
+        idPrefix,
+        layer,
+        source: run.source,
+        zoom,
+        mode,
+        loadOptions,
+        fetch,
+        depthTested: depthTested.has(layer)
+      });
     }
     if (run.type === 'raster') {
       return createRasterLayer({

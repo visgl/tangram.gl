@@ -234,6 +234,11 @@ async function resolveSource(
     return await resolveGeoJsonSource(source, baseUrl, loadOptions);
   }
 
+  // An image's url resolves against the style's base url, as tile templates do.
+  if (source.type === 'image' && typeof source.url === 'string') {
+    return {...source, url: normalizeUrl(source.url, baseUrl)};
+  }
+
   if (!source.url || !TILEJSON_SOURCE_TYPES.has(String(source.type))) {
     return source.tiles ? {...source, tiles: normalizeTiles(source.tiles, baseUrl)} : {...source};
   }
