@@ -302,15 +302,29 @@ describe('fill-translate', () => {
   });
 });
 
-describe('fill extensions on WebGPU', () => {
+describe('fill extensions on WebGL and WebGPU', () => {
   const layer = (type: string) => ({context: {device: {type}}, props: {}}) as any;
 
-  test('a patterned fill draws nothing', () => {
+  test('a patterned fill keeps its fill color, which the pattern is drawn with', () => {
     const pattern = new FillPatternExtension();
-    expect(pattern.getSubLayerProps.call(layer('webgpu'), pattern).getFillColor).toEqual([
-      0, 0, 0, 0
-    ]);
+    expect(pattern.getSubLayerProps.call(layer('webgpu'), pattern).getFillColor).toBeUndefined();
     expect(pattern.getSubLayerProps.call(layer('webgl'), pattern).getFillColor).toBeUndefined();
+  });
+
+  test('a pattern on WebGPU places its pattern by a vec3 common position', () => {
+    const pattern = new FillPatternExtension();
+    // `isEnabled` asks for an attribute manager and a layer state.
+    const shaders = pattern.getShaders.call(
+      {...layer('webgpu'), state: {}, getAttributeManager: () => ({})},
+      pattern
+    );
+    const wgsl = shaders.plugins
+      .flatMap((plugin: any) => Object.entries(plugin.injections ?? {}))
+      .filter(([key]: [string]) => key.startsWith('wgsl:'))
+      .map(([, value]: [string, string]) => value)
+      .join('\n');
+    expect(wgsl).toContain('project_common_position_to_flat_continuous(geometry.position.xyz,');
+    expect(wgsl).not.toContain('project_common_position_to_flat_continuous(geometry.position,');
   });
 
   test('fill-translate adds GLSL on WebGL and WGSL on WebGPU', () => {

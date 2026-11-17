@@ -7,7 +7,7 @@
 // Copyright (c) vis.gl contributors
 
 import {LayerExtension, project} from '@deck.gl/core';
-import type {CompositeLayer, Layer} from '@deck.gl/core';
+import type {Layer} from '@deck.gl/core';
 import {FillStyleExtension} from '@deck.gl/extensions';
 import type {ShaderPlugin} from '@luma.gl/shaders';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
@@ -20,7 +20,8 @@ function isGLSLDevice(layer: Layer): boolean {
 /**
  * `fill-translate` in common space. The offset is in pixels on the ground plane, as MapLibre GL
  * JS applies it in tile units: x east and y south on a map, along the local east and south on a
- * globe. The vertex moves before later injections run, so a pattern moves with the fill.
+ * globe. Only the clip-space position moves: a pattern is placed by the vertex's own position, so
+ * it moves with the fill, as in MapLibre GL JS.
  */
 const fillTranslateModule = createShaderInjectionPlugin({
   name: 'fillTranslate',
@@ -37,6 +38,7 @@ layout(std140) uniform fillTranslateUniforms {
       injection: /* glsl */ `
   if (fillTranslate.offset != vec2(0.0)) {
     vec2 fillTranslate_pixels = vec2(fillTranslate.offset.x, -fillTranslate.offset.y);
+    vec4 fillTranslate_position = geometry.position;
     if (project.projectionMode == PROJECTION_MODE_GLOBE) {
       // The globe is centred at the origin with its axis along z.
       vec3 fillTranslate_up = normalize(geometry.position.xyz);
@@ -45,13 +47,13 @@ layout(std140) uniform fillTranslateUniforms {
         ? normalize(fillTranslate_east)
         : vec3(1.0, 0.0, 0.0);
       vec3 fillTranslate_north = cross(fillTranslate_up, fillTranslate_east);
-      geometry.position.xyz +=
+      fillTranslate_position.xyz +=
         (fillTranslate_east * fillTranslate_pixels.x + fillTranslate_north * fillTranslate_pixels.y) /
         project.scale;
     } else {
-      geometry.position.xy += fillTranslate_pixels / project.scale;
+      fillTranslate_position.xy += fillTranslate_pixels / project.scale;
     }
-    position = project_common_position_to_clipspace(geometry.position);
+    position = project_common_position_to_clipspace(fillTranslate_position);
   }
 `
     }
@@ -184,9 +186,42 @@ const globePatternModule = createShaderInjectionPlugin({
 });
 
 /**
- * `FillStyleExtension` with image patterns, run only where its GLSL shader runs. On WebGPU it adds
- * no shader code, and the fills it is added to draw nothing, as before patterns were supported:
- * their fill color is only the pattern's opacity.
+ * deck.gl 10.0.0-alpha.1's WGSL pattern places the pattern with
+ * `project_common_position_to_flat_continuous(geometry.position, ...)`, which takes a `vec3<f32>`,
+ * so its vertex shader does not compile. This copy of its plugin passes `geometry.position.xyz`.
+ * Where the call is already correct, the plugin is returned unchanged.
+ */
+const BROKEN_FLAT_POSITION = 'project_common_position_to_flat_continuous(geometry.position,';
+const FIXED_FLAT_POSITION = 'project_common_position_to_flat_continuous(geometry.position.xyz,';
+const fixedPatternPlugins = new WeakMap<ShaderPlugin, ShaderPlugin>();
+
+function fixPatternPluginWGSL(plugin: ShaderPlugin): ShaderPlugin {
+  const {injections} = plugin;
+  if (!injections || Array.isArray(injections)) {
+    return plugin;
+  }
+  const key = 'wgsl:vs:DECKGL_FILTER_GL_POSITION';
+  if (!injections[key]?.includes(BROKEN_FLAT_POSITION)) {
+    return plugin;
+  }
+  let fixed = fixedPatternPlugins.get(plugin);
+  if (!fixed) {
+    fixed = {
+      ...plugin,
+      injections: {
+        ...injections,
+        [key]: injections[key].replaceAll(BROKEN_FLAT_POSITION, FIXED_FLAT_POSITION)
+      }
+    };
+    fixedPatternPlugins.set(plugin, fixed);
+  }
+  return fixed;
+}
+
+/**
+ * `FillStyleExtension` with image patterns, on WebGL and WebGPU. On a globe, the pattern is placed
+ * by the vertex's Web Mercator position: by `globePatternModule` on WebGL, and by deck.gl's own
+ * WGSL on WebGPU.
  */
 export class FillPatternExtension extends FillStyleExtension {
   static extensionName = 'FillPatternExtension';
@@ -200,17 +235,10 @@ export class FillPatternExtension extends FillStyleExtension {
     return (
       shaders && {
         ...shaders,
-        plugins: [...(shaders.plugins ?? []), globePatternModule]
+        plugins: isGLSLDevice(this)
+          ? [...(shaders.plugins ?? []), globePatternModule]
+          : (shaders.plugins ?? []).map(fixPatternPluginWGSL)
       }
     );
-  }
-
-  isEnabled(layer: Layer): boolean {
-    return isGLSLDevice(layer) && super.isEnabled(layer);
-  }
-
-  getSubLayerProps(this: CompositeLayer, extension: this): any {
-    const props = LayerExtension.prototype.getSubLayerProps.call(this, extension);
-    return isGLSLDevice(this) ? props : {...props, getFillColor: [0, 0, 0, 0]};
   }
 }
