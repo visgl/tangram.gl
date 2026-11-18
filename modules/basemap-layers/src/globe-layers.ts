@@ -2162,7 +2162,9 @@ export function getGlobeBaseLayers({
   spriteAtlases,
   fontFamily,
   glyphs,
-  labelPlacement
+  labelPlacement,
+  featureState,
+  pickable
 }: Omit<BasemapLayerGroup, 'mode'>) {
   return getBasemapLayers({
     idPrefix,
@@ -2174,7 +2176,9 @@ export function getGlobeBaseLayers({
     spriteAtlases,
     fontFamily,
     glyphs,
-    labelPlacement
+    labelPlacement,
+    featureState,
+    pickable
   });
 }
 
