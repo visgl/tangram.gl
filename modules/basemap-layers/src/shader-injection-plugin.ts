@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import type {ShaderModule, ShaderPlugin} from '@luma.gl/shaders';
+import type {ShaderInjection, ShaderModule, ShaderPlugin} from '@luma.gl/shaders';
 
 /** Separates a GLSL extension's ordered hook contributions from its uniform module. */
 export function createShaderInjectionPlugin(
@@ -12,7 +12,7 @@ export function createShaderInjectionPlugin(
   return {
     name: module.name,
     module,
-    injections: Object.entries(inject).map(([key, value]) => {
+    injections: Object.entries(inject).map(([key, value]): ShaderInjection => {
       const separator = key.indexOf(':');
       return {
         stage: key.startsWith('vs:') ? 'vertex' : 'fragment',
