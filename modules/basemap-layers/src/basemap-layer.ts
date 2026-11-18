@@ -172,7 +172,8 @@ type BasemapLayerState = {
   styleInput: BasemapLayerProps['style'];
   /**
    * A copy of `styleInput` when it is an object, as it was when it was read. A style changed in
-   * place is compared with this copy.
+   * place is compared with this copy. Null while a load runs, and when a source or the sprite of
+   * the style failed to load: the next style then loads.
    */
   styleSnapshot: BasemapStyle | null;
   /** The most recent style-resolution error, if one occurred. */
@@ -336,7 +337,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
    */
   private updateStyleByDiff(style: BasemapLayerProps['style']): boolean {
     const {resolvedStyle, styleSnapshot} = this.state;
-    if (!resolvedStyle || !styleSnapshot || !isStyleObject(style)) {
+    // A glyph range that failed loads again with the next load.
+    if (!resolvedStyle || !styleSnapshot || !isStyleObject(style) || this.state.glyphs?.failed) {
       return false;
     }
     const snapshot = copyStyle(style);
@@ -386,6 +388,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     this.setState({loadToken});
     const styleJson = isStyleObject(style) ? JSON.stringify(style) : null;
     const styleSnapshot: BasemapStyle | null = styleJson ? JSON.parse(styleJson) : null;
+    // A style update by diff waits for this load (see `updateStyleByDiff`).
+    this.state.styleSnapshot = null;
     // A load with other options takes a new cache: a load still running fills only its own.
     if (loadOptions !== this.state.sourceCacheOptions) {
       this.state.sourceCache = new Map();
@@ -424,7 +428,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
           this.setState({
             resolvedStyle,
             styleInput: style,
-            styleSnapshot,
+            styleSnapshot: hasFailedSource(styleSnapshot, resolvedStyle) ? null : styleSnapshot,
             loadError: null,
             styleLoadOptions: loadOptions,
             glyphs: keepGlyphs ? this.state.glyphs : glyphs
@@ -483,6 +487,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
         // A sprite that failed loads again with the next style.
         if (spriteAtlases.length < spriteCount && this.state.spriteLoad === spriteLoad) {
           this.state.spriteKey = null;
+          this.state.styleSnapshot = null;
         }
       });
     }
@@ -664,6 +669,19 @@ const LOADING_DIFF_COMMANDS = new Set([
 
 function isStyleObject(style: BasemapLayerProps['style']): style is BasemapStyle {
   return Boolean(style) && typeof style === 'object';
+}
+
+/**
+ * Whether a source of `style` failed to load: the TileJSON of a source with a `url`, or the data of
+ * a GeoJSON source given by URL (see `resolveBasemapStyle`).
+ */
+function hasFailedSource(style: BasemapStyle | null, resolvedStyle: ResolvedBasemapStyle): boolean {
+  return Object.entries(style?.sources || {}).some(([sourceId, source]) => {
+    const resolved = resolvedStyle.sources[sourceId];
+    return source.type === 'geojson'
+      ? typeof source.data === 'string' && !resolved?.data
+      : Boolean(source.url) && !resolved?.url;
+  });
 }
 
 /** A copy of a style object, as `loadStyle` reads it: through JSON. */

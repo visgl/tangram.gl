@@ -4,7 +4,7 @@
 
 import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
-import {afterEach, describe, expect, test} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 
 // A new style object keeps the TileJSON, the sprite and the tiles of the sources it shares with
@@ -35,11 +35,22 @@ async function getPng(): Promise<Blob> {
   return await canvas.convertToBlob({type: 'image/png'});
 }
 
-/** `loadOptions.fetch`: serves the TileJSON of each host and a sprite, and counts the requests. */
-function createResourceFetch(requests: Requests): typeof fetch {
+/**
+ * `loadOptions.fetch`: serves the TileJSON of each host and a sprite, and counts the requests. It
+ * answers after `ready`, and with status 500 to the first request whose URL ends with `failOnce`.
+ */
+function createResourceFetch(
+  requests: Requests,
+  {ready, failOnce}: {ready?: Promise<void>; failOnce?: string} = {}
+): typeof fetch {
   return (async (input: RequestInfo | URL) => {
     const url = String(input);
     requests.resources.push(url);
+    await ready;
+    if (failOnce && url.endsWith(failOnce)) {
+      failOnce = undefined;
+      return new Response('', {status: 500});
+    }
     if (url.endsWith('/tiles.json')) {
       const host = new URL(url).host;
       return new Response(JSON.stringify({tiles: [`https://${host}/{z}/{x}/{y}.mvt`]}));
@@ -377,3 +388,47 @@ test('a style changed in place and given as a shallow copy draws the change', as
   const colors = countColors(await settledFrame());
   expect([colors.blue > 1000, colors.red]).toEqual([true, 0]);
 }, 60_000);
+
+describe('a style update by diff', () => {
+  test('a paint change during a load with new loadOptions draws once the load ends', async () => {
+    const requests: Requests = {resources: [], tiles: []};
+    const props = createProps(requests);
+    const style = createStyle();
+    createDeck(createLayer(style, props));
+    expect(countColors(await settledFrame()).red).toBeGreaterThan(1000);
+
+    // New loadOptions start a load that ends later; a paint change comes before it ends.
+    let release!: () => void;
+    const ready = new Promise<void>(resolve => (release = resolve));
+    const slow = {...props, loadOptions: {fetch: createResourceFetch(requests, {ready})}};
+    deck!.setProps({layers: [createLayer(style, slow)]});
+    await nextFrame();
+    deck!.setProps({layers: [createLayer(createStyle({water: '#0000ff'}), slow)]});
+    await nextFrame();
+    release();
+    // The load with the new loadOptions ends.
+    await vi.waitFor(() => expect(getBasemapState().styleLoadOptions).toBe(slow.loadOptions));
+    const colors = countColors(await settledFrame());
+    expect([colors.blue > 1000, colors.red]).toEqual([true, 0]);
+  }, 60_000);
+
+  test.each(['/tiles.json', '/sprite.json'])(
+    'loads %s again after it failed to load',
+    async failOnce => {
+      const requests: Requests = {resources: [], tiles: []};
+      const loadOptions = {fetch: createResourceFetch(requests, {failOnce})};
+      const props = {...createProps(requests), loadOptions};
+      createDeck(createLayer(createStyle(), props));
+      // Without its TileJSON, the source draws nothing: wait for the load, not for a frame.
+      await vi.waitFor(() => expect(getBasemapState()?.resolvedStyle).toBeTruthy());
+      await new Promise(resolve => setTimeout(resolve, 500));
+      expect(requests.resources.filter(url => url.endsWith(failOnce))).toHaveLength(1);
+
+      deck!.setProps({layers: [createLayer(createStyle({water: '#0000ff'}), props)]});
+      const colors = countColors(await settledFrame());
+      expect(requests.resources.filter(url => url.endsWith(failOnce))).toHaveLength(2);
+      expect(colors.blue).toBeGreaterThan(1000);
+    },
+    60_000
+  );
+});
