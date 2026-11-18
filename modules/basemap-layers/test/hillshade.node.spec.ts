@@ -515,4 +515,40 @@ describe('hillshade layers share the decoded tiles of their source', () => {
     shadow.finalizeState();
     highlight.finalizeState();
   });
+
+  test('a decoded tile drawn in views of two bodies gets the slopes of each body', async () => {
+    // Node has no ImageData: a stand-in that keeps the pixels.
+    vi.stubGlobal(
+      'ImageData',
+      class {
+        constructor(
+          public data: Uint8ClampedArray,
+          public width: number,
+          public height: number
+        ) {}
+      }
+    );
+    try {
+      const [shadow, highlight]: any[] = getBasemapLayers({styleDefinition: style});
+      const dem = demOf(4, x => x * 250);
+      const tile = {id: '0-0-6', index: {x: 0, y: 0, z: 6}, bbox: {west: 0, south: 0, east: 1, north: 1}};
+      const moonCrs = await projectionEngine.getCRS('+proj=eqc +R=1737400 +units=m +no_defs');
+      const moon = new CustomProjectionViewport({crs: moonCrs, center: [0, 0, 0], zoom: 8, width: 800, height: 600});
+      const earth = new WebMercatorViewport({width: 512, height: 512, zoom: 6});
+      const draw = (layer: any, viewport: unknown) => {
+        layer.context = {viewport} as any;
+        layer.state = {tileset: {tiles: []}};
+        return [...layer.renderSubLayers({id: 'tile', data: dem, tile}).props.image.data];
+      };
+      const earthSlopes = [...prepareHillshadeTexture(dem, 6)];
+      const moonSlopes = [...prepareHillshadeTexture(dem, 6, undefined, 1737400)];
+      expect(moonSlopes).not.toEqual(earthSlopes);
+      // Both layers draw the one decoded tile, first on the Earth, then on the Moon, then back.
+      expect(draw(shadow, earth)).toEqual(earthSlopes);
+      expect(draw(highlight, moon)).toEqual(moonSlopes);
+      expect(draw(shadow, earth)).toEqual(earthSlopes);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
