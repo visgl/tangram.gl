@@ -19,6 +19,8 @@ const SIZE = 256;
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
 let onFrame: ((image: ImageData) => void) | null = null;
+let onFailure: ((error: unknown) => void) | null = null;
+let redrawPending = false;
 
 function cleanup() {
   deck?.finalize();
@@ -26,9 +28,43 @@ function cleanup() {
   parent?.remove();
   parent = null;
   onFrame = null;
+  onFailure = null;
 }
 
 afterEach(cleanup);
+
+/** Whether the basemap has resolved its style, and every layer has loaded. */
+function isLoaded(): boolean {
+  const layers = (deck as any)?.layerManager?.getLayers() || [];
+  // A basemap draws no sublayers until its style resolves.
+  return layers.length >= 2 && layers.every((layer: any) => layer.isLoaded);
+}
+
+/**
+ * Draws in a later browser frame, once every layer has loaded: `redraw` draws at once. Until then
+ * each frame only checks again, so that the wait adds no draws while the tiles load. At most one
+ * such frame is pending, so that a wait counts each frame that the browser draws once.
+ */
+function redrawWhenLoaded(reason: string, delay = 0) {
+  if (redrawPending) {
+    return;
+  }
+  redrawPending = true;
+  const check = () =>
+    window.requestAnimationFrame(() => {
+      if (deck && !isLoaded()) {
+        check();
+        return;
+      }
+      redrawPending = false;
+      deck?.redraw(reason);
+    });
+  if (delay) {
+    window.setTimeout(check, delay);
+  } else {
+    check();
+  }
+}
 
 /** Every tile has a road; only tiles with an odd `x` have a place. */
 const fetchTile = async (url: string) => {
@@ -84,24 +120,33 @@ const STYLE = {
   ]
 } as any;
 
-/** Resolves with the frame drawn once every sublayer has loaded and the frame stops changing. */
+/**
+ * Resolves with the frame drawn once every sublayer has loaded and the frame stops changing.
+ *
+ * The test timeout bounds the wait. Concurrent browser test files share one GPU process, so a
+ * shorter limit here times out on a busy CI runner while the tiles and labels still load.
+ */
 function nextFrame(): Promise<ImageData> {
   return new Promise((resolve, reject) => {
     let previous: ImageData | null = null;
     let same = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
+    onFailure = error => {
+      onFrame = null;
+      onFailure = null;
+      reject(error);
+    };
     onFrame = image => {
       same = previous && countDifferent(previous, image) === 0 ? same + 1 : 0;
       previous = image;
       if (same < 10) {
-        window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
+        redrawWhenLoaded('settle', 20);
         return;
       }
       onFrame = null;
-      window.clearTimeout(timeout);
+      onFailure = null;
       resolve(image);
     };
-    window.requestAnimationFrame(() => deck?.redraw('frame'));
+    redrawWhenLoaded('frame');
   });
 }
 
@@ -133,8 +178,13 @@ function createDeck(longitude: number): Promise<ImageData> {
     viewState: {longitude, latitude: 0, zoom: 2} as any,
     layers: [new BasemapLayer({id: 'basemap', mode: 'map', fetch: fetchTile, style: STYLE})],
     onAfterRender: () => {
-      const layers = (deck as any)?.layerManager?.getLayers() || [];
-      if (!onFrame || layers.length < 2 || layers.some((l: any) => !l.isLoaded)) {
+      if (!onFrame) {
+        return;
+      }
+      if (!isLoaded()) {
+        // Draw again once the layers load, so that the wait never depends on a frame that deck
+        // draws by itself.
+        redrawWhenLoaded('load');
         return;
       }
       const copy = document.createElement('canvas');
@@ -145,7 +195,11 @@ function createDeck(longitude: number): Promise<ImageData> {
       onFrame(context.getImageData(0, 0, SIZE, SIZE));
     },
     onError: error => {
-      throw error;
+      if (!onFailure) {
+        throw error;
+      }
+      // Fail the wait at once, not at the test timeout.
+      onFailure(error);
     }
   });
   return frame;
