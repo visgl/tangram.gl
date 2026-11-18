@@ -6,6 +6,7 @@ import {_getURLFromTemplate as getURLFromTemplate} from '@deck.gl/geo-layers';
 import type {_TileLoadProps as TileLoadProps} from '@deck.gl/geo-layers';
 import {parse} from '@loaders.gl/core';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
+import {BasemapFetchError} from './basemap-error';
 
 /** The position of a tile in the tile pyramid. */
 export type RasterTileIndex = {x: number; y: number; z: number};
@@ -144,7 +145,11 @@ export class RasterTileLoader {
     const fetchFn = loadOptions?.fetch || fetch;
     const response = await fetchFn(url, {...loadOptions?.fetchOptions, signal});
     if (!response.ok) {
-      throw new Error(`Failed to load raster tile: ${url} (${response.status})`);
+      throw new BasemapFetchError(
+        `Failed to load raster tile: ${url} (${response.status})`,
+        url,
+        response.status
+      );
     }
     const arrayBuffer = await response.arrayBuffer();
     if (arrayBuffer.byteLength === 0 || (await rejectTile({url, sourceId, index, arrayBuffer}))) {

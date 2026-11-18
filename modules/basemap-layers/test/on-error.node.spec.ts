@@ -6,6 +6,8 @@
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {load} from '@loaders.gl/core';
 import {BasemapLayer} from '../src/basemap-layer.ts';
+import {loadDemTile} from '../src/hillshade-layer.ts';
+import {RasterTileLoader} from '../src/raster-tile-loader.ts';
 import {BasemapLoadError} from '../src/index.ts';
 
 const TILES_URL = 'https://tiles.example.com';
@@ -132,15 +134,39 @@ describe('BasemapLayer onError', () => {
     });
   });
 
+  test('a glyph range of a style that was replaced does not call onError', async () => {
+    let answer!: (response: Response) => void;
+    const fetchFn = vi.fn(async (url: string) =>
+      url.endsWith('.pbf')
+        ? await new Promise<Response>(resolve => {
+            answer = resolve;
+          })
+        : new Response('{}', {status: 404})
+    ) as unknown as typeof fetch;
+    const {layer, onError} = basemap({
+      style: style({glyphs: GLYPHS}),
+      loadOptions: {fetch: fetchFn}
+    });
+    await settled(layer);
+    const loading = layer.state.glyphs.load('Noto Sans Regular', ['Paris']);
+    await vi.waitFor(() => expect(answer).toBeDefined());
+    layer.loadStyle(style({}), null);
+    answer(new Response(null, {status: 404}));
+    await loading;
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   describe('tiles', () => {
     const SOURCES = {
       streets: {type: 'vector', tiles: [`${TILES_URL}/streets/{z}/{x}/{y}.mvt`]},
-      relief: {type: 'raster', tiles: [`${TILES_URL}/relief/{z}/{x}/{y}.png`]}
+      relief: {type: 'raster', tiles: [`${TILES_URL}/relief/{z}/{x}/{y}.png`]},
+      terrain: {type: 'raster-dem', tiles: [`${TILES_URL}/terrain/{z}/{x}/{y}.png`]}
     };
     const LAYERS = [
       {id: 'water', type: 'fill', source: 'streets', 'source-layer': 'water'},
       {id: 'relief', type: 'raster', source: 'relief'},
-      {id: 'roads', type: 'line', source: 'streets', 'source-layer': 'road'}
+      {id: 'roads', type: 'line', source: 'streets', 'source-layer': 'road'},
+      {id: 'shade', type: 'hillshade', source: 'terrain'}
     ];
 
     async function renderedBasemap() {
@@ -177,6 +203,33 @@ describe('BasemapLayer onError', () => {
         tile: {x: 1, y: 2, z: 3},
         cause: error
       });
+    });
+
+    test('the loaders of DEM tiles and of rejectRasterTile keep the HTTP status', async () => {
+      const {sublayers, onError} = await renderedBasemap();
+      const tile = {index: {x: 1, y: 2, z: 3}};
+      const demUrl = `${TILES_URL}/terrain/3/1/2.png`;
+      const demError = await loadDemTile(demUrl, [256, 1, 1 / 256, -32768], {
+        loadOptions: {fetch: fakeFetch({}, 404)}
+      }).catch((error: Error) => error);
+      sublayers.find(sublayer => sublayer.id === 'basemap-shade').props.onTileError(demError, tile);
+
+      const rasterLoader = new RasterTileLoader({
+        tiles: SOURCES.relief.tiles,
+        sourceId: 'relief',
+        rejectTile: () => false,
+        loadOptions: {fetch: fakeFetch({}, 503)}
+      });
+      const rasterError = await Promise.resolve(rasterLoader.getTileData(tile as any)).catch(
+        (error: Error) => error
+      );
+      const relief = sublayers.find(sublayer => sublayer.id === 'basemap-relief');
+      relief.props.onTileError(rasterError, tile);
+
+      expect(onError.mock.calls.map(([error]) => [error.kind, error.url, error.status])).toEqual([
+        ['tile', demUrl, 404],
+        ['tile', `${TILES_URL}/relief/3/1/2.png`, 503]
+      ]);
     });
 
     test('a failed vector tile calls onError once for all the layers of its source', async () => {

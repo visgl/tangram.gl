@@ -349,18 +349,18 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       loadToken
     });
 
-    // A source of a style that was replaced is not reported.
-    const onSourceError = (error: BasemapLoadError) => {
+    // A source, sprite or glyph range of a style that was replaced is not reported.
+    const onStyleResourceError = (error: BasemapLoadError) => {
       if (this.state.loadToken === loadToken) {
         this.reportError(error);
       }
     };
     Promise.resolve(
       typeof style === 'string'
-        ? load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions, onSourceError))
+        ? load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions, onStyleResourceError))
         : MapStyleLoader.parse(
             new TextEncoder().encode(JSON.stringify(style)).buffer,
-            getMapStyleLoaderOptions(loadOptions, onSourceError)
+            getMapStyleLoaderOptions(loadOptions, onStyleResourceError)
           )
     )
       .then(resolvedStyle => {
@@ -374,9 +374,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
             resolvedStyle,
             loadError: null,
             spriteAtlases: null,
-            glyphs: getGlyphStore(resolvedStyle, style, loadOptions, error =>
-              this.reportError(error)
-            )
+            glyphs: getGlyphStore(resolvedStyle, style, loadOptions, onStyleResourceError)
           });
           this.loadSprites(resolvedStyle, style, loadOptions, loadToken);
         }
