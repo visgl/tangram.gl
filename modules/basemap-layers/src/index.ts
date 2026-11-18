@@ -2,8 +2,21 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-/** Runtime exports for `@deck.gl-community/basemap-layers`. */
+/** Runtime exports for `@tangram.gl/basemap-layers`. */
 export {BasemapLayer} from './basemap-layer';
+export type {
+  BasemapGlobeConfig,
+  BasemapLayerLoadOptions,
+  BasemapLayerProps
+} from './basemap-layer';
+export type {
+  BasemapLoadOptions,
+  BasemapSource,
+  BasemapStyle,
+  BasemapStyleLayer,
+  ResolvedBasemapStyle,
+  ResolvedBasemapStyleLayer
+} from './style-resolver';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';
 export {

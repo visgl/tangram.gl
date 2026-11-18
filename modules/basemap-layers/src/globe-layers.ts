@@ -2064,34 +2064,22 @@ export function getBasemapLayers({
   return layers.filter(layer => Boolean(layer));
 }
 
+/**
+ * `getBasemapLayers` with `mode: 'globe'` and the id prefix `'globe-basemap'`.
+ *
+ * @deprecated Use `getBasemapLayers({...options, mode: 'globe'})`.
+ */
 export function getGlobeBaseLayers({
-  globe,
-  styleDefinition,
   idPrefix = 'globe-basemap',
-  zoom = 0,
-  loadOptions,
-  spriteAtlases,
-  fontFamily,
-  glyphs,
-  labelPlacement
+  ...options
 }: Omit<BasemapLayerGroup, 'mode'>) {
-  return getBasemapLayers({
-    idPrefix,
-    mode: 'globe',
-    globe,
-    styleDefinition,
-    zoom,
-    loadOptions,
-    spriteAtlases,
-    fontFamily,
-    glyphs,
-    labelPlacement
-  });
+  log.deprecated('getGlobeBaseLayers', "getBasemapLayers({...options, mode: 'globe'})")();
+  return getBasemapLayers({...options, idPrefix, mode: 'globe'});
 }
 
-export function getGlobeTopLayers({globe}: {globe: {config: BasemapGlobeConfig}}) {
-  const {config} = globe;
-  return config.atmosphere ? [getGlobeAtmosphereLayer()] : [];
+/** The layers drawn over the globe: the atmosphere, when `globe.config.atmosphere` is set. */
+export function getGlobeTopLayers({globe}: {globe?: {config?: BasemapGlobeConfig}} = {}) {
+  return getConfig(globe).atmosphere ? [getGlobeAtmosphereLayer()] : [];
 }
 
 function createSymbolSubLayer({

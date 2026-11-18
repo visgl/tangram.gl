@@ -38,7 +38,7 @@ import {
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
-import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
+import type {BasemapLoadOptions, BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
 import {GlyphStore} from './glyph-store';
 import {loadSpriteAtlases} from './sprite';
 import type {SpriteAtlas} from './sprite';
@@ -79,16 +79,27 @@ export type BasemapGlobeConfig = {
   labels?: boolean;
 };
 
+/** The `loadOptions` of {@link BasemapLayer}: basemap request options and loaders.gl options. */
+export type BasemapLayerLoadOptions = NonNullable<BasemapLoadOptions> & Record<string, unknown>;
+
 /**
  * Props accepted by {@link BasemapLayer}.
  */
 export type BasemapLayerProps = {
   /** Optional deck.gl layer identifier. */
   id?: string;
-  /** MapLibre or Mapbox style JSON, or a URL that resolves to one. */
-  style: string | BasemapStyle | null;
-  /** Load options forwarded to {@link resolveBasemapStyle}. */
-  loadOptions?: Record<string, unknown> | null;
+  /** MapLibre or Mapbox style JSON, or a URL that resolves to one. Default `null`. */
+  style?: string | BasemapStyle | null;
+  /**
+   * Options for the requests of the layer, and loaders.gl options for its tiles:
+   * - `baseUrl`, `fetch` and `fetchOptions` apply to the TileJSON, GeoJSON `data`, sprite and
+   *   glyph requests (see `resolveBasemapStyle`). With `rejectRasterTile`, they also apply to
+   *   raster tiles.
+   * - loaders.gl namespaces such as `mvt` and `core` go to the tile loaders, with the deck.gl
+   *   `fetch` prop.
+   * - A style URL loads with `MapStyleLoader`, with these options as its `mapStyle` options.
+   */
+  loadOptions?: BasemapLayerLoadOptions | null;
   /** Selects whether deck layers are generated for a flat map or a globe. */
   mode?: 'map' | 'globe';
   /** Optional globe-specific configuration used when `mode` is `'globe'`. */
@@ -108,7 +119,9 @@ export type BasemapLayerProps = {
   /**
    * Milliseconds between two placements of the labels while the view keeps changing, as MapLibre
    * GL JS's `fadeDuration` (default 300). The view the map comes to rest in is always placed; 0
-   * places every frame.
+   * places every frame. The `BasemapLayer`s of a deck share one placement (see
+   * `separateLabelPlacement`), which takes the interval of the last of them rendered: give them
+   * the same interval.
    */
   labelPlacementInterval?: number;
   /**
@@ -197,11 +210,6 @@ type BasemapLayerState = {
  * corresponding basemap sublayers.
  */
 export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
-  /** Query a caller-owned displayed terrain surface through the selected deck viewport. */
-  getTerrainAt(viewport: Viewport, pixel: readonly [number, number], surface: TerrainSurface,
-    commonToSurface: Readonly<ArrayLike<number>>): TerrainSurfaceHit | null {
-    return pickTerrainSurface(viewport, pixel, surface, commonToSurface);
-  }
   /** Deck.gl layer name. */
   static layerName = 'BasemapLayer';
 
@@ -229,6 +237,19 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
   /** Current layer state. */
   state: BasemapLayerState = undefined!;
+
+  /**
+   * Queries a caller-owned displayed terrain surface through the selected deck viewport. The
+   * layer adds nothing: this is `pickTerrainSurface(viewport, pixel, surface, commonToSurface)`.
+   */
+  getTerrainAt(
+    viewport: Viewport,
+    pixel: readonly [number, number],
+    surface: TerrainSurface,
+    commonToSurface: Readonly<ArrayLike<number>>
+  ): TerrainSurfaceHit | null {
+    return pickTerrainSurface(viewport, pixel, surface, commonToSurface);
+  }
 
   /** Initializes the asynchronous style-loading state. */
   initializeState(): void {

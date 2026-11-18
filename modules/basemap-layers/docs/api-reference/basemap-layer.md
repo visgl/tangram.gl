@@ -7,7 +7,6 @@ Copyright (c) vis.gl contributors
 # BasemapLayer
 
 <p class="badges">
-  <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 </p>
 
@@ -19,14 +18,20 @@ Recommended example:
 
 ## Installation
 
+The package has eight peer dependencies. Install them with it:
+
 ```sh
-yarn add @tangram.gl/basemap-layers @deck.gl-community/geo-layers@10.0.0-alpha.1
+yarn add @tangram.gl/basemap-layers \
+  @deck.gl/core@10.0.0-alpha.1 @deck.gl/layers@10.0.0-alpha.1 \
+  @deck.gl/geo-layers@10.0.0-alpha.1 @deck.gl/extensions@10.0.0-alpha.1 \
+  @deck.gl-community/geo-layers@10.0.0-alpha.1 \
+  @luma.gl/core@10.0.0-alpha.14 @luma.gl/engine@10.0.0-alpha.14 \
+  @loaders.gl/core@5.0.0-beta.8
 ```
 
 ## Main Export
 
 <p class="badges">
-  <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 </p>
 
@@ -39,8 +44,29 @@ import {BasemapLayer} from '@tangram.gl/basemap-layers';
 - accepts a style URL or parsed style object
 - resolves TileJSON-backed sources, and fetches the data of GeoJSON sources given by URL
 - cuts GeoJSON sources into vector tiles on the client, in a web worker
-- generates `background`, `fill`, `line`, `symbol`, and `raster` sublayers
+- generates sublayers for the `background`, `fill`, `line`, `symbol`, `circle`, `fill-extrusion`, `raster` and `hillshade` style layers
 - supports flat map rendering, globe rendering, and rendering in a projected view (`_CustomProjectionView`)
+
+## Terrain queries (experimental)
+
+`layer.getTerrainAt(viewport, pixel, surface, commonToSurface)` does not read the layer: it is the same as `pickTerrainSurface(viewport, pixel, surface, commonToSurface)`. It queries a caller-owned
+`TerrainSurface` structurally compatible with `@loaders.gl/raster/terrain`. `pixel` is an absolute, top-origin CSS
+pixel and `viewport` is the actual deck view or stereo eye containing it. The explicit,
+invertible affine matrix converts viewport common coordinates to the surface's content
+coordinates. The method returns the nearest intersection on the camera's finite near-to-far
+segment, or `null`; a miss does not imply that terrain coverage is complete.
+
+The hit's `position` describes displayed geometry, while `coordinate[2]` remains the physical,
+unexaggerated elevation in meters. The caller owns the provider and must keep it synchronized
+with the displayed terrain; this API does not load, mesh or draw terrain. The same operation is
+available as `pickTerrainSurface` from `@tangram.gl/basemap-layers`. See the
+[offline terrain query example](/examples/basemap-layers/terrain-contract).
+
+`TangramLayer.getTerrainAt` instead uses the renderer's last frame and, unless a
+surface is supplied, its admitted draped terrain snapshot. BasemapLayer does not
+own such a snapshot, so its caller supplies the current surface, viewport and
+coordinate transform explicitly. Both APIs return physical source elevation
+separately from displayed position; neither treats a miss as proof of coverage.
 
 ## Props
 
@@ -61,15 +87,35 @@ Controls whether the generated sublayers are optimized for a flat map or a globe
 
 ### `loadOptions`
 
-Type: `BasemapLoadOptions | null`
+Type: `BasemapLayerLoadOptions | null`
 
-Optional loader configuration used by `resolveBasemapStyle`. This can include:
+Options for the requests of the layer. The object holds two kinds of options:
 
-- `baseUrl` for resolving relative URLs in in-memory styles
-- `fetch` for a custom fetch implementation
-- `fetchOptions` to customize network requests
+- Basemap request options, as in `resolveBasemapStyle`. They apply to the TileJSON, GeoJSON `data`, sprite and glyph requests:
+  - `baseUrl` for resolving relative URLs in in-memory styles
+  - `fetch` for a custom fetch implementation
+  - `fetchOptions` to customize network requests
+- loaders.gl options, such as `mvt` and `core`. They go to the tile loaders.
 
-The tiles of raster sources load with `loadOptions` and with the `fetch` prop of the layer, as vector tiles do.
+A style URL loads with `MapStyleLoader`, with these options as its `mapStyle` options. The tiles of vector and raster sources load with `loadOptions` and with the `fetch` prop of the layer. With `rejectRasterTile`, raster tiles load with the `fetch` and `fetchOptions` of `loadOptions` (see below).
+
+### `fontFamily`
+
+Type: `string | ((fontStack: string[]) => string | Partial<LabelFont> | null) | null`
+
+Draws labels with the browser's fonts instead of the style's `glyphs`. By default, labels are
+drawn with the style's glyphs, and a style without `glyphs` maps each symbol layer's `text-font`
+to a CSS font (see [Label fonts](/docs/modules/basemap-layers#label-fonts)). Defaults to `null`.
+
+- A string replaces the CSS family list for every label. The weight and style still come from
+  `text-font`. `'Monaco, monospace'` restores the font used before `text-font` was read.
+- A function receives the evaluated `text-font` names, such as `['Noto Sans Bold']`, and returns a
+  CSS family list, or an object with any of `fontFamily`, `fontWeight` (100-900) and `fontStyle`
+  (`'normal'` or `'italic'`). Fields it leaves out, and a `null` result, keep the mapped values.
+  Pass a stable function: tiles regenerate when it changes.
+
+`getBasemapLayers` and `getGlobeBaseLayers` accept the same `fontFamily` option, and a `glyphs`
+option, a `GlyphStore` of the style's `glyphs` URL, to draw labels with the style's glyphs.
 
 ### `rejectRasterTile`
 
@@ -107,6 +153,14 @@ Optional globe-specific toggles:
 - `basemap`: enable the main globe basemap geometry
 - `labels`: enable symbol-label rendering on the globe path
 
+### `labelPlacementInterval`
+
+Type: `number`
+
+Milliseconds between two placements of the labels while the view keeps changing, as MapLibre GL JS's `fadeDuration`. Defaults to `300`. The view that the map comes to rest in is always placed. `0` places the labels at every frame.
+
+The `BasemapLayer`s of a deck share one label placement (see `separateLabelPlacement`). That placement takes the interval of the last of them rendered, so a value on one layer changes the others. Give the layers that share a placement the same interval.
+
 ### `separateLabelPlacement`
 
 Type: `boolean`
@@ -114,6 +168,12 @@ Type: `boolean`
 By default (`false`), the labels of every `BasemapLayer` in a deck are placed together, as the layers of one style: a label is hidden where it overlaps a label placed before it, and the labels of a `BasemapLayer` drawn later (later in the `layers` array) are placed first. Stacking a base style and a labels-only style this way does not draw their labels over each other. Set `true` to place this layer's labels on their own, so that they collide only with each other and never hide, or are hidden by, those of another `BasemapLayer`.
 
 The shared placement takes the `labelPlacementInterval` of the last `BasemapLayer` rendered: give layers that share it the same interval.
+
+### `projectedMaxStretch`
+
+Type: `number`
+
+The stretch limit of the tile selection in a projected view (deck.gl's `_CustomProjectionView`), see `ProjectedTileSelectionOptions.maxStretch`. Defaults to `4` (`DEFAULT_MAX_STRETCH`), which suits most projections. A projection whose scale grows steeply toward the edge of its area of use, such as a polar stereographic projection, needs a larger limit to draw out to that edge: `16` draws an EPSG:3031 view out to latitude 60N. A change reloads the tiles.
 
 ## Projected views
 
@@ -181,13 +241,20 @@ Returns the zoom at which a Web Mercator map has the scale of a projected viewpo
 ### `getBasemapLayers(options)`
 
 <p class="badges">
-  <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 </p>
 
 Generates the deck.gl sublayers for an already-resolved style definition. Use this when you want the sublayers without creating a `BasemapLayer` instance.
 
 `BasemapLayer` keeps each source's tiles in a shared tileset across renders. A direct caller that calls `getBasemapLayers` on every render keeps them by passing its own `tilesets` map, keyed by source, and finalizes those tilesets when done.
+
+### `createDemTileset(source, loadOptions?, projectedMaxStretch?)`
+
+<p class="badges">
+  <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
+</p>
+
+Creates the shared tileset of a `raster-dem` source, for the `tilesets` map of `getBasemapLayers`: each tile is fetched and decoded once for all of the source's `hillshade` layers. `projectedMaxStretch` is the stretch limit of its tile selection in a projected view (see the `projectedMaxStretch` prop). The caller finalizes it.
 
 ### `createRasterTileFingerprintFilter(fingerprints)`
 
@@ -214,37 +281,53 @@ While the promise is pending, tiles wait for it. If the promise rejects, the fun
 
 Returns a promise of the SHA-256 digest of the bytes of a raster tile, as a hexadecimal string. It uses `crypto.subtle`, which browsers supply on secure origins only.
 
-### `createDemTileset(source, loadOptions?)`
+### `getGlobeBaseLayers(options)` (deprecated)
 
-<p class="badges">
-  <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
-  <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
-</p>
-
-Creates the shared tileset of a `raster-dem` source, for the `tilesets` map of `getBasemapLayers`: each tile is fetched and decoded once for all of the source's `hillshade` layers. The caller finalizes it.
-
-### `getGlobeBaseLayers(options)`
-
-<p class="badges">
-  <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
-  <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
-</p>
-
-Convenience wrapper around `getBasemapLayers` that forces `mode: 'globe'`.
+Deprecated: use `getBasemapLayers({...options, mode: 'globe'})`. It logs a deprecation warning one time. It calls `getBasemapLayers` with `mode: 'globe'`, the id prefix `'globe-basemap'` by default, and all other options.
 
 ### `getGlobeTopLayers(options)`
 
 <p class="badges">
-  <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 </p>
 
-Returns the globe overlay layers that should render after the base globe content.
+Returns the globe overlay layers that should render after the base globe content: the atmosphere, when `globe.config.atmosphere` is set. `options` and `globe` are optional.
+
+### `pickTerrainSurface(viewport, pixel, surface, commonToSurface)`
+
+Queries a caller-owned displayed terrain surface. See [Terrain queries](#terrain-queries-experimental).
+
+### `getLabelFont(fontStack)`
+
+Returns the CSS font (`fontFamily`, `fontWeight` and `fontStyle`) that a `text-font` stack maps to, when the style has no `glyphs` (see [Label fonts](/docs/modules/basemap-layers#label-fonts)).
+
+### `GlyphStore`
+
+The glyphs of a style's `glyphs` URL, loaded per font stack and range as labels need them, as MapLibre GL JS loads them. `new GlyphStore({url, baseUrl?, fetch?, fetchOptions?})`. `BasemapLayer` creates one for each style. Pass one as the `glyphs` option of `getBasemapLayers` to draw labels with the style's glyphs.
+
+### `loadSpriteAtlases(sprite, options?)`
+
+Loads every sprite that a style's `sprite` value references: a URL, or the array of `{id, url}`. `options` are `baseUrl`, `fetch`, `fetchOptions` and `pixelRatio` (at 2 or more, the `@2x` sprite is requested first). It returns a promise of `SpriteAtlas[]`, for the `spriteAtlases` option of `getBasemapLayers`. A sprite that fails to load is skipped with a warning.
+
+### `getSpriteSources(sprite, baseUrl?)`
+
+Resolves a style's `sprite` value to `{id, url}` sources with absolute URLs. A single URL has the id `'default'`.
+
+### `getSpriteIconMapping(index)`
+
+Converts a sprite's JSON index to a deck.gl `IconLayer` icon mapping.
+
+### `ProjectedTileLayer`
+
+A deck.gl `TileLayer` that uses `ProjectedTileset2D`, and gives it its `maxStretch` prop (see `ProjectedTileSelectionOptions`).
+
+### `DEFAULT_MAX_STRETCH`
+
+The default stretch limit of the projected tile selection: `4`.
 
 ### `resolveBasemapStyle(style, loadOptions?)`
 
 <p class="badges">
-  <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 </p>
 
@@ -253,8 +336,21 @@ Loads and normalizes a style document. This resolves:
 - remote style JSON URLs
 - TileJSON-backed source definitions
 - GeoJSON source `data` URLs, fetched into the source's `data`
-- relative tile template URLs
+- relative tile template URLs. Inline `tiles` resolve against the style URL, and TileJSON `tiles`
+  against the TileJSON URL, with standard URL resolution. An ArcGIS service root that ends in
+  `/VectorTileServer` or `/MapServer` is a directory: `tile/{z}/{y}/{x}.pbf` resolves to
+  `.../VectorTileServer/tile/{z}/{y}/{x}.pbf`
 - legacy Mapbox `ref` layer inheritance
+
+## Types
+
+The root entry point exports these types:
+
+- `BasemapLayerProps`, `BasemapLayerLoadOptions` and `BasemapGlobeConfig`, the props of `BasemapLayer`
+- `BasemapStyle`, `BasemapStyleLayer`, `BasemapSource` and `BasemapLoadOptions`, a style before it is resolved
+- `ResolvedBasemapStyle` and `ResolvedBasemapStyleLayer`, a style that `resolveBasemapStyle` returned
+
+The `/map-style` entry point exports the style types too.
 
 ## Example
 
@@ -264,6 +360,7 @@ import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import styleJson from '../../../../website/static/mapstyle/deck-light.json';
 
 new Deck({
+  // deck.gl 10 uses subdivisions per revolution; 36 matches the former 10° step.
   views: new _GlobeView({resolution: 36}),
   controller: true,
   layers: [
