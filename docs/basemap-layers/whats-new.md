@@ -8,6 +8,9 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
+- `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
+- `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
+- `text-rotate` turns point labels clockwise, per feature, as MapLibre GL JS turns them: about the point, with their `text-anchor` and `text-offset`. They collide with the box around the turned text.
 - A `vector`, `raster` or `raster-dem` source can take its tiles from a PMTiles v3 archive, `"url": "pmtiles://<archive URL>"`, as with the `pmtiles` protocol of MapLibre GL JS. The archive header gives the source's `minzoom`, `maxzoom` and `bounds`. The header, the directories and the tiles are read with HTTP range requests, with the `fetch` and `fetchOptions` of `loadOptions`, so an application can serve its basemap from its own origin with no tile server. See [PMTiles archives](./developer-guide/style-specification-support.md#pmtiles-archives).
 - `BasemapLayer` draws in a deck.gl `_CustomProjectionView`, a flat view in a projected coordinate reference system such as a UTM zone or a conic projection. Web Mercator tiles are selected for the area the screen shows. Fills and lines are projected at each vertex, raster and hillshade tiles are drawn on a mesh that follows the projection, and labels stay upright. Styles are evaluated at the zoom of the Web Mercator map of the same scale. See [Projected views](./api-reference/basemap-layer.md#projected-views). `getProjectedTileIndices`, `ProjectedTileset2D`, `ProjectedBitmapLayer` and `getMercatorZoom` are exported for other tiled layers.
 
