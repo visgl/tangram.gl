@@ -453,9 +453,19 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     const sourceLayers = getStyleSourceLayers(style, this.props.globe);
     const getDecodedLayers = (source: BasemapSource) =>
       (getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source)) as any)?.mvt?.layers;
+    // Projected views and globes show latitudes past the edges of Web Mercator tiles: GeoJSON is
+    // cut at them there, and tiled again when the view changes from one to the other.
+    const geoJson = {
+      clipToMercatorRange: this.props.mode === 'globe' || isProjectedViewport(this.context.viewport)
+    };
     const sourceLayerKeys = new Map([
       ...[...sources].map(
-        source => [source, JSON.stringify(getDecodedLayers(source) ?? null)] as const
+        source =>
+          [
+            source,
+            JSON.stringify(getDecodedLayers(source) ?? null) +
+              (source.type === 'geojson' ? `:${geoJson.clipToMercatorRange}` : '')
+          ] as const
       ),
       // An encoding edited in place reloads the source's tiles.
       ...[...demSources].map(source => [source, `dem:${getDemUnpackVector(source)}`] as const)
@@ -489,7 +499,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
-          getTileData: getVectorTileLoader(source, loader)
+          getTileData: getVectorTileLoader(source, loader, geoJson)
         });
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);

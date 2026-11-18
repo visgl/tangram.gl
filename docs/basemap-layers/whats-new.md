@@ -8,6 +8,7 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
+- In a projected view and on a globe, `geojson` sources are cut at the edge of Web Mercator tiles, at 85.051129 degrees north and south. Points past it are not drawn, and lines and polygons end where they cross it. Before, geojson-vt moved them onto the edge: in a south polar view, a point at -89.5 degrees drew on the -85.05 degree parallel. The layer warns once per source that has such features. `MapView` draws them as before, as MapLibre GL JS does. See [Projected views](./api-reference/basemap-layer.md#projected-views).
 - `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
 - `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
 - `text-rotate` turns point labels clockwise, per feature, as MapLibre GL JS turns them: about the point, with their `text-anchor` and `text-offset`. They collide with the box around the turned text.
