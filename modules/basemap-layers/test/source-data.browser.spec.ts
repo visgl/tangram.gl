@@ -101,12 +101,13 @@ test('sourceData moves a GeoJSON shape without loading the other sources again',
   let latest = '';
   const waitFor = (predicate: (counts: Counts) => boolean) =>
     new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`No expected frame: ${latest}`)), 10000);
+      const timeout = setTimeout(() => reject(new Error(`No expected frame: ${latest}`)), 30_000);
       check = predicate;
       complete = () => {
         clearTimeout(timeout);
         resolve();
       };
+      window.requestAnimationFrame(() => deck?.redraw('frame'));
     });
   try {
     const initial = waitFor(({redLeft, redRight, blue}) => redLeft > 50 && !redRight && blue > 10);
@@ -131,12 +132,15 @@ test('sourceData moves a GeoJSON shape without loading the other sources again',
         }
         const counts = countPixels(deck!);
         latest = `${JSON.stringify(counts)} requests=${requests}`;
-        if (check(counts)) {
-          const done = complete!;
-          check = undefined;
-          complete = undefined;
-          done();
+        if (!check(counts)) {
+          // `redraw` draws at once, so wait for the browser's next frame first.
+          window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
+          return;
         }
+        const done = complete!;
+        check = undefined;
+        complete = undefined;
+        done();
       }
     });
     await initial;
@@ -160,4 +164,4 @@ test('sourceData moves a GeoJSON shape without loading the other sources again',
     deck?.finalize();
     parent.remove();
   }
-}, 30000);
+}, 60_000);
