@@ -2063,9 +2063,14 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
         'text-padding',
         'text-size',
         'text-rotation-alignment',
+        'text-rotate',
         'symbol-placement'
       ),
-      getAngle: `${this.state?.bearingStep}|${getTrigger('text-keep-upright')}`,
+      getAngle: `${this.state?.bearingStep}|${getTrigger(
+        'text-keep-upright',
+        'text-rotate',
+        'symbol-placement'
+      )}`,
       // Also lays out the lines of each label (see `LabelTextLayer`).
       getTextAnchor: getTrigger(
         'text-anchor',
@@ -2989,6 +2994,24 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
   }
 
   /**
+   * The angle `text-rotate` turns each row's text by, counter-clockwise in degrees as deck.gl
+   * takes it, or null when the layer does not set it. Only point labels are turned: MapLibre turns
+   * each glyph along a line about its own center, which labels along lines do not do here.
+   */
+  getTextRotateAngle(): ((row: LabelRow) => number) | null {
+    if (!this.getStyleProperty('text-rotate') || isLinePlacement(this.getSymbolPlacement())) {
+      return null;
+    }
+    // `text-rotate` is clockwise; deck.gl angles are counter-clockwise.
+    return (row: LabelRow) =>
+      -(
+        Number(
+          this.evaluateStyleProperty('text-rotate', (row as any).__source?.object ?? row) ?? 0
+        ) || 0
+      );
+  }
+
+  /**
    * Forgets a font load in flight, so that its completion does not update a finalized layer, and
    * releases the shared sprite textures.
    */
@@ -3494,6 +3517,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     const iconBoxes = new Float64Array(count * 4).fill(Number.NaN);
     const sortKey = this.getStyleProperty('symbol-sort-key');
     const keys = sortKey ? new Float64Array(count) : null;
+    const textPadding = this.getTextPadding();
+    const getTextRotate = this.getTextRotateAngle();
     for (let i = 0; i < count; i++) {
       const row = labelData[i];
       const rowIndex = count - 1 - i;
@@ -3518,16 +3543,25 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
         const scale = linePlacement || !(size > 0) ? 1 : this.getCollisionLabelSize(feature) / size;
         // Variable anchors include a shift by the padded box. Padding stays in pixels when the
         // text and its em offsets are scaled to the collision size.
-        const padding = this.getRowTextAnchor(row) ? 2 * this.getTextPadding() : 0;
-        textBoxes.set(
-          [
-            (-(ax + 0.5) * w + dx + ax * padding) * scale - ax * padding,
-            (-(ay + 0.5) * h + dy + ay * padding) * scale - ay * padding,
-            w * scale,
-            h * scale
-          ],
-          i * 4
-        );
+        const padding = this.getRowTextAnchor(row) ? 2 * textPadding : 0;
+        const box = [
+          (-(ax + 0.5) * w + dx + ax * padding) * scale - ax * padding,
+          (-(ay + 0.5) * h + dy + ay * padding) * scale - ay * padding,
+          w * scale,
+          h * scale
+        ];
+        const angle = getTextRotate ? getTextRotate(row) : 0;
+        if (angle) {
+          // As in MapLibre, turned text collides with the box around its turned, padded box.
+          // `getTextBox` pads the box again.
+          const p = textPadding;
+          const [x1, y1, x2, y2] = getTurnedBounds(
+            [box[0] - p, box[1] - p, box[0] + box[2] + p, box[1] + box[3] + p],
+            angle
+          );
+          box.splice(0, 4, x1 + p, y1 + p, x2 - x1 - 2 * p, y2 - y1 - 2 * p);
+        }
+        textBoxes.set(box, i * 4);
         textOffsets.set([dx, dy], i * 2);
       }
       const resolved = icons?.[rowIndex];
@@ -3579,7 +3613,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       textBoxes,
       textOffsets,
       iconBoxes,
-      textPadding: this.getTextPadding()
+      textPadding
     };
     this.state.placementGeometry = geometry;
     return geometry;
@@ -3943,6 +3977,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
         // group's rows decide which rows have text, so they are part of it.
         const getTextTrigger = [updateTriggers.getText, ...(groupTrigger || [])];
         const lineLabelProps = this.getLineLabelProps();
+        const getTextRotate = this.getTextRotateAngle();
         const lineGlyphs = this.getLineGlyphProps();
         updateTriggers.getLineGlyphs = lineGlyphs.trigger;
         const textProps = {
@@ -3958,6 +3993,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
           parameters: LABEL_PARAMETERS,
           billboard,
           ...lineLabelProps,
+          ...(getTextRotate ? {getAngle: getTextRotate} : {}),
           characterSet: 'auto',
           // Glyphs are signed distance fields, which `TextLayer` outlines for halos.
           ...this.getFontProps(font),
@@ -3972,9 +4008,14 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
             (feature: FeatureLike) => this.getLabelColor(feature),
             [0, 0, 0, 0]
           ),
-          getPixelOffset: withLineDirection(
-            forRows(rows, (row: LabelRow) => this.getRowPixelOffset(row), [0, 0]) as any,
-            Boolean(lineLabelProps.getAngle)
+          // `text-rotate` turns the text with its anchor and offset about the point, as an icon
+          // turns (see `withIconAngle`).
+          getPixelOffset: withIconAngle(
+            withLineDirection(
+              forRows(rows, (row: LabelRow) => this.getRowPixelOffset(row), [0, 0]) as any,
+              Boolean(lineLabelProps.getAngle)
+            ),
+            getTextRotate
           ),
           getLineGlyphs: lineGlyphs.getLineGlyphs,
           getLineGlyphKey: lineGlyphs.getLineGlyphKey,
