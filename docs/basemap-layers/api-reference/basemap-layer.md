@@ -127,7 +127,8 @@ Optional globe-specific toggles:
 Type: `((style: ResolvedBasemapStyle) => void) | null`
 
 Called with the resolved style each time a style resolves, as MapLibre GL JS's `style.load` event.
-The sprites, the glyphs and the tiles of the style can still be loading. Defaults to `null`.
+The sprites, the glyphs and the tiles of the style can still be loading. An error that the
+function throws goes to deck.gl's `onError`, and the style stays loaded. Defaults to `null`.
 
 ### `onTileLoad`
 
@@ -153,7 +154,7 @@ Type: `((attributions: string[]) => void) | null`
 Called with the `attribution` of the sources that the style draws, when they change, as
 `TangramLayer.onAttributionChange`. The list is collected as MapLibre GL JS's
 `AttributionControl` collects it: a source that only hidden layers draw at the current zoom is
-left out, each attribution is given once, and one that another contains is left out. A change of
+left out (also layers that `globe.config` turns off, and layer types that are not drawn), each attribution is given once, and one that another contains is left out. A change of
 style or zoom can change the list, and a style of `null` gives `[]`. The strings are the
 provider's HTML and are **not sanitized**: display them as safe linked text. `BasemapLayer` does
 not draw an attribution control. Defaults to `null`.

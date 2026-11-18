@@ -184,6 +184,28 @@ describe('BasemapLayer isLoaded and lifecycle callbacks', () => {
     expect(isLoaded()).toBe(true);
   });
 
+  test('an error in onStyleLoad keeps the style and goes to onError', async () => {
+    const error = new Error('app callback');
+    const onError = vi.fn(() => true);
+    const background = {id: 'land', type: 'background', paint: {'background-color': '#ffffff'}};
+    mount(
+      new BasemapLayer({
+        id: 'basemap',
+        style: {version: 8, sources: {}, layers: [background]} as any,
+        onStyleLoad: () => {
+          throw error;
+        },
+        onError
+      } as any)
+    );
+    await settle();
+    const basemap = manager!.getLayers({layerIds: ['basemap']})[0] as BasemapLayer;
+    expect(basemap.state.resolvedStyle).not.toBe(null);
+    expect(basemap.getSubLayers().map(layer => layer.id)).toEqual(['basemap-land']);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect((onError.mock.calls[0] as unknown[])[0]).toMatchObject({cause: error});
+  });
+
   test('does not report a viewport that selects no tiles', async () => {
     const tiles = deferredTileFetch();
     const onViewportLoad = vi.fn();
@@ -270,10 +292,35 @@ describe('BasemapLayer onAttributionChange', () => {
     await settle();
     expect(onAttributionChange.mock.calls).toEqual([[['© Streets']], [['© Terrain']]]);
 
+    // With labels off, a source that only symbol layers draw is not drawn.
+    const labelled = styleWith(
+      {
+        terrain: {type: 'raster', tiles: TILES, attribution: '© Terrain'},
+        places: {type: 'vector', tiles: TILES, attribution: '© Places'},
+        // A layer type that is not drawn draws no source.
+        heat: {type: 'geojson', data: {type: 'FeatureCollection', features: []}, attribution: '© Heat'}
+      },
+      [
+        {id: 'terrain', type: 'raster', source: 'terrain'},
+        {id: 'places', type: 'symbol', source: 'places', 'source-layer': 'places'},
+        {id: 'heat', type: 'heatmap', source: 'heat'}
+      ]
+    );
+    const props = {id: 'basemap', style: labelled, fetch: neverFetch, onAttributionChange};
+    layerManager.setLayers([new BasemapLayer(props as any)]);
+    await settle();
+    expect(onAttributionChange.mock.calls.at(-1)).toEqual([['© Terrain', '© Places']]);
+    layerManager.setLayers([
+      new BasemapLayer({...props, globe: {config: {labels: false}}} as any)
+    ]);
+    await settle();
+    expect(onAttributionChange.mock.calls.at(-1)).toEqual([['© Terrain']]);
+    onAttributionChange.mockClear();
+
     layerManager.setLayers([
       new BasemapLayer({id: 'basemap', style: null, onAttributionChange} as any)
     ]);
     await settle();
-    expect(onAttributionChange.mock.calls).toEqual([[['© Streets']], [['© Terrain']], [[]]]);
+    expect(onAttributionChange.mock.calls).toEqual([[[]]]);
   });
 });

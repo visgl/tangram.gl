@@ -32,6 +32,7 @@ import {
   getStyleSourceLayers,
   getTilePyramidProps,
   getVectorTileLoader,
+  isDrawnStyleLayer,
   isVectorTileSource,
   VECTOR_TILE_ZOOM_OFFSET
 } from './globe-layers';
@@ -45,7 +46,11 @@ import {
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
-import type {BasemapStyle, BasemapStyleLayer, ResolvedBasemapStyle} from './style-resolver';
+import type {
+  BasemapStyle,
+  ResolvedBasemapStyle,
+  ResolvedBasemapStyleLayer
+} from './style-resolver';
 import {GlyphStore} from './glyph-store';
 import {loadSpriteAtlases} from './sprite';
 import type {SpriteAtlas} from './sprite';
@@ -419,7 +424,12 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
             glyphs: getGlyphStore(resolvedStyle, style, loadOptions)
           });
           this.loadSprites(resolvedStyle, style, loadOptions, loadToken);
-          this.getCurrentProps().onStyleLoad?.(resolvedStyle);
+          // An error of the app's callback is not a load failure: it must not clear the style.
+          try {
+            this.getCurrentProps().onStyleLoad?.(resolvedStyle);
+          } catch (error) {
+            (this.getCurrentLayer() ?? this).raiseError(error as Error, 'onStyleLoad');
+          }
         }
       })
       .catch((error: Error) => {
@@ -641,7 +651,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
   /** Calls `onAttributionChange` when the attributions of the drawn sources change. */
   private updateAttributions(style: ResolvedBasemapStyle | null, zoom: number): void {
-    const attributions = style ? getStyleAttributions(style, zoom) : [];
+    const attributions = style ? getStyleAttributions(style, zoom, this.props.globe) : [];
     const key = JSON.stringify(attributions);
     if (key !== this.state.attributions) {
       this.state.attributions = key;
@@ -735,9 +745,17 @@ function getLoadedSelectedTiles(layer: Layer): BasemapTile[] | null {
   return [];
 }
 
-/** Whether a style layer is drawn at `zoom`, as MapLibre GL JS's `StyleLayer.isHidden`. */
-function isShownAt(layer: BasemapStyleLayer, zoom: number): boolean {
+/**
+ * Whether a style layer is drawn at `zoom`, as MapLibre GL JS's `StyleLayer.isHidden`, and with
+ * the globe toggles.
+ */
+function isShownAt(
+  layer: ResolvedBasemapStyleLayer,
+  zoom: number,
+  globe: BasemapLayerProps['globe']
+): boolean {
   return (
+    isDrawnStyleLayer(layer, globe) &&
     layer.layout?.visibility !== 'none' &&
     !(layer.minzoom !== undefined && zoom < layer.minzoom) &&
     !(layer.maxzoom !== undefined && zoom >= layer.maxzoom)
@@ -749,9 +767,13 @@ function isShownAt(layer: BasemapStyleLayer, zoom: number): boolean {
  * order, as MapLibre GL JS's `AttributionControl` collects them: each once, without blank ones,
  * and without one that another contains.
  */
-function getStyleAttributions(style: ResolvedBasemapStyle, zoom: number): string[] {
+function getStyleAttributions(
+  style: ResolvedBasemapStyle,
+  zoom: number,
+  globe: BasemapLayerProps['globe']
+): string[] {
   const used = new Set(
-    (style.layers || []).filter(layer => isShownAt(layer, zoom)).map(layer => layer.source)
+    (style.layers || []).filter(layer => isShownAt(layer, zoom, globe)).map(layer => layer.source)
   );
   const attributions: string[] = [];
   for (const [id, source] of Object.entries(style.sources || {})) {
