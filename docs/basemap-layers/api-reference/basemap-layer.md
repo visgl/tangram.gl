@@ -112,15 +112,29 @@ to a CSS font (see [Label fonts](/docs/modules/basemap-layers#label-fonts)). Def
 `getBasemapLayers` and `getGlobeBaseLayers` accept the same `fontFamily` option, and a `glyphs`
 option, a `GlyphStore` of the style's `glyphs` URL, to draw labels with the style's glyphs.
 
-### `globe`
+### `labels`
 
-Type: `{config?: BasemapGlobeConfig}`
+Type: `boolean`
 
-Optional globe-specific toggles:
+Draws the style's symbol layers (labels and icons). Defaults to `true`. It applies in every mode, not only on a globe. With `false`, the tiles do not decode the source layers that only symbol layers read. MapLibre GL JS has no such switch: there, an app sets `layout.visibility` on each symbol layer.
 
-- `atmosphere`: enable atmosphere overlay helpers
-- `basemap`: enable the main globe basemap geometry
-- `labels`: enable symbol-label rendering on the globe path
+### `atmosphere`
+
+Type: `boolean`
+
+Draws the atmosphere around the globe in globe mode. Defaults to `false`. The atmosphere layers are placeholders that draw nothing yet.
+
+### `globe` (deprecated)
+
+Type: `{config?: BasemapGlobeConfig} | null`
+
+Deprecated. Use `labels` and `atmosphere`. The layer logs a deprecation warning one time when `globe.config` is set, and it still applies the fields:
+
+- `labels`: as the `labels` prop
+- `atmosphere`: as the `atmosphere` prop
+- `basemap`: `false` draws no style layers. Use deck.gl's `visible: false` in its place.
+
+A field set in `globe.config` overrides the flat prop of the same name. A field that it leaves out keeps the flat prop.
 
 ## Projected views
 
@@ -257,13 +271,7 @@ new Deck({
       id: 'earth',
       mode: 'globe',
       style: styleJson,
-      globe: {
-        config: {
-          atmosphere: false,
-          basemap: true,
-          labels: false
-        }
-      }
+      labels: false
     })
   ]
 });

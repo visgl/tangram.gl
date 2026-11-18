@@ -68,14 +68,15 @@ function getMapStyleLoaderOptions(
 }
 
 /**
- * Globe-related runtime toggles used by {@link BasemapLayer}.
+ * Drawing toggles of the basemap helpers (`getBasemapLayers`). They apply in every mode, not only
+ * on a globe. `BasemapLayer` takes them as the flat `labels` and `atmosphere` props.
  */
 export type BasemapGlobeConfig = {
-  /** Renders the atmosphere overlays returned by the globe helpers when available. */
+  /** Draws the atmosphere in globe mode. Default `false`. */
   atmosphere?: boolean;
-  /** Renders the main globe basemap content when `true`. */
+  /** Draws the style layers. Default `true`. `false` draws only the atmosphere. */
   basemap?: boolean;
-  /** Enables symbol-label rendering on the globe path when `true`. */
+  /** Draws the style's symbol layers (labels and icons). Default `true`. */
   labels?: boolean;
 };
 
@@ -91,11 +92,23 @@ export type BasemapLayerProps = {
   loadOptions?: Record<string, unknown> | null;
   /** Selects whether deck layers are generated for a flat map or a globe. */
   mode?: 'map' | 'globe';
-  /** Optional globe-specific configuration used when `mode` is `'globe'`. */
+  /**
+   * Draws the style's symbol layers (labels and icons). Default `true`. It applies in every mode.
+   * With `false`, the tiles do not decode the source layers that only symbol layers read.
+   */
+  labels?: boolean;
+  /**
+   * Draws the atmosphere around the globe in globe mode. Default `false`. The atmosphere layers
+   * are placeholders that draw nothing yet.
+   */
+  atmosphere?: boolean;
+  /**
+   * @deprecated Use the `labels` and `atmosphere` props, and deck.gl's `visible` prop in place of
+   * `basemap: false`. A field set here overrides the flat prop of the same name.
+   */
   globe?: {
-    /** Rendering toggles for globe-specific basemap behavior. */
     config?: BasemapGlobeConfig;
-  };
+  } | null;
   /**
    * Draws labels with the browser's fonts instead of the style's `glyphs`. By default labels are
    * drawn with the style's glyphs, as in MapLibre GL JS, and a style without `glyphs` maps each
@@ -190,6 +203,13 @@ type BasemapLayerState = {
   tileMaxStretch: number | null;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
+  /** The config `getStyleConfig` last returned, kept while its inputs do not change. */
+  styleConfig: {
+    labels: unknown;
+    atmosphere: unknown;
+    globe: unknown;
+    value: {config: Required<BasemapGlobeConfig>};
+  } | null;
 };
 
 /**
@@ -208,16 +228,9 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
   /** Default props for {@link BasemapLayer}. */
   static defaultProps: DefaultProps<BasemapLayerProps> = {
     mode: 'map',
-    globe: {
-      type: 'object',
-      value: {
-        config: {
-          atmosphere: false,
-          basemap: true,
-          labels: true
-        }
-      }
-    },
+    labels: true,
+    atmosphere: false,
+    globe: null,
     style: null,
     loadOptions: null,
     fontFamily: null,
@@ -245,8 +258,45 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tileMaxStretch: null,
       tileFetch: null,
       spriteAtlases: null,
-      glyphs: null
+      glyphs: null,
+      styleConfig: null
     };
+  }
+
+  /**
+   * The drawing toggles of the props, in the `{config}` form of the basemap helpers: `labels` and
+   * `atmosphere`, with the fields of the deprecated `globe.config` over them. The object keeps
+   * its identity while these props do not change.
+   */
+  getStyleConfig(): {config: Required<BasemapGlobeConfig>} {
+    const {labels, atmosphere, globe} = this.props;
+    const cached = this.state?.styleConfig;
+    if (
+      cached &&
+      cached.labels === labels &&
+      cached.atmosphere === atmosphere &&
+      cached.globe === globe
+    ) {
+      return cached.value;
+    }
+    const config = {labels: labels !== false, atmosphere: Boolean(atmosphere), basemap: true};
+    const legacy = globe?.config;
+    if (legacy) {
+      log.deprecated(
+        'BasemapLayer prop `globe.config`',
+        'the `labels` and `atmosphere` props, and `visible` for `basemap: false`'
+      )();
+      for (const key of ['labels', 'atmosphere', 'basemap'] as const) {
+        if (legacy[key] !== undefined) {
+          config[key] = Boolean(legacy[key]);
+        }
+      }
+    }
+    const value = {config};
+    if (this.state) {
+      this.state.styleConfig = {labels, atmosphere, globe, value};
+    }
+    return value;
   }
 
   /**
@@ -450,7 +500,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       this.state.tileMaxStretch !== this.props.projectedMaxStretch;
     // Tiles decode only the source layers the style draws: a style edit or a labels toggle that
     // changes the layers the loader decodes reloads the source's tiles.
-    const sourceLayers = getStyleSourceLayers(style, this.props.globe);
+    const sourceLayers = getStyleSourceLayers(style, this.getStyleConfig());
     const getDecodedLayers = (source: BasemapSource) =>
       (getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source)) as any)?.mvt?.layers;
     const sourceLayerKeys = new Map([
@@ -530,7 +580,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     return getBasemapLayers({
       idPrefix: this.props.id,
       mode: this.getDrawMode(viewport),
-      globe: this.props.globe,
+      globe: this.getStyleConfig(),
       styleDefinition: resolvedStyle,
       zoom,
       loadOptions: this.props.loadOptions,
