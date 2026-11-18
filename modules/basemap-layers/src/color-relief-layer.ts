@@ -71,6 +71,7 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+import {log} from '@deck.gl/core';
 import type {Layer, LayersList, UpdateParameters} from '@deck.gl/core';
 import type {Device, Texture} from '@luma.gl/core';
 import {
@@ -382,7 +383,8 @@ export type ColorReliefTileLayerProps = DemTileLayerProps & {
 
 /**
  * The tiles of a `raster-dem` source, colored by elevation by one `color-relief` style layer (see
- * `DemTileLayer`). The layer owns the texture of its ramp, which its tiles share.
+ * `DemTileLayer`). The layer owns the texture of its ramp, which its tiles share. Draws nothing on
+ * WebGPU: the shader is GLSL.
  */
 export class ColorReliefTileLayer extends DemTileLayer<ColorReliefTileLayerProps> {
   static layerName = 'ColorReliefTileLayer';
@@ -394,7 +396,13 @@ export class ColorReliefTileLayer extends DemTileLayer<ColorReliefTileLayerProps
     colorReliefSubLayerProps: {type: 'object', value: null, compare: false}
   };
 
-  protected readonly styleLayerType = 'color-relief';
+  renderLayers(): Layer | null | LayersList {
+    if (this.context.device.type === 'webgpu') {
+      log.once(1, '[BasemapLayer] color-relief layers are not drawn on WebGPU')();
+      return null;
+    }
+    return super.renderLayers();
+  }
 
   declare state: DemTileLayer<ColorReliefTileLayerProps>['state'] & {
     colorRamp?: ColorRampTexture & {key: string; device: Device};
