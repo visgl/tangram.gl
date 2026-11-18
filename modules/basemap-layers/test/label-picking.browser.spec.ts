@@ -15,18 +15,26 @@ import {BasemapLayer} from '../src/basemap-layer';
 
 const SIZE = 256;
 
+/**
+ * How long to wait for the label to become pickable. Deck start-up, shader compiles and the first
+ * draws run on software WebGL in CI, beside other browser test files: with coverage instrumentation
+ * they took more than 25 s on some runs. This stays below the test's own timeout, so that a label
+ * that never becomes pickable fails with the message below.
+ */
+const PICKABLE_TIMEOUT_MS = 50_000;
+
 type ViewState = {longitude: number; latitude: number; zoom: number};
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
-let onFrame: ((image: ImageData) => void) | null = null;
+let polling = false;
 
 function cleanup() {
+  polling = false;
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
-  onFrame = null;
 }
 
 afterEach(cleanup);
@@ -63,34 +71,53 @@ const STYLE = {
 } as any;
 
 /**
- * Resolves with the frame drawn once every sublayer has loaded and the frame has stopped changing:
- * a style resolves, and fonts load, over several frames.
+ * Resolves with the first feature picked at `x`, `y` once every sublayer has loaded: a style
+ * resolves, and the tile and font load, over several frames. Each animation frame draws once and
+ * picks once, also while sublayers still load, so the wait never depends on a frame that deck
+ * draws by itself, and ends at the first frame that has the label.
  */
-function nextFrame(): Promise<ImageData> {
+function pickWhenDrawn(x: number, y: number): Promise<any> {
   return new Promise((resolve, reject) => {
-    let previous: ImageData | null = null;
-    let same = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
-    onFrame = image => {
-      same = previous && countDifferent(previous, image) === 0 ? same + 1 : 0;
-      previous = image;
-      if (same < 10) {
-        // `redraw` draws at once, so wait for the browser's next frame first.
-        window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
+    const start = performance.now();
+    polling = true;
+    const finish = (settle: () => void) => {
+      polling = false;
+      settle();
+    };
+    const poll = () => {
+      if (!polling) {
         return;
       }
-      onFrame = null;
-      window.clearTimeout(timeout);
-      resolve(image);
+      let info: any = null;
+      try {
+        const layers = (deck as any)?.layerManager?.getLayers() || [];
+        // A basemap draws no sublayers until its style resolves.
+        if (layers.length >= 2 && layers.every((layer: any) => layer.isLoaded)) {
+          // `redraw` draws at once: the label is placed before the pick reads it.
+          deck!.redraw('poll');
+          info = deck!.pickObject({x, y, radius: 4});
+        }
+      } catch (error) {
+        // An error in an animation frame would otherwise end the polling silently.
+        finish(() => reject(error));
+        return;
+      }
+      // The pickable background is picked until the label draws over it.
+      if (info?.object?.properties) {
+        finish(() => resolve(info));
+      } else if (performance.now() - start > PICKABLE_TIMEOUT_MS) {
+        finish(() => reject(new Error('Timed out waiting for a pickable label')));
+      } else {
+        window.requestAnimationFrame(poll);
+      }
     };
-    window.requestAnimationFrame(() => deck?.redraw('frame'));
+    window.requestAnimationFrame(poll);
   });
 }
 
-function createDeck(layer: unknown, viewState: ViewState): Promise<ImageData> {
+function createDeck(layer: unknown, viewState: ViewState): void {
   parent = document.createElement('div');
   document.body.append(parent);
-  const frame = nextFrame();
   deck = new Deck({
     parent,
     width: SIZE,
@@ -100,39 +127,10 @@ function createDeck(layer: unknown, viewState: ViewState): Promise<ImageData> {
     views: new MapView({id: 'map'}),
     viewState: viewState as any,
     layers: [layer as any],
-    onAfterRender: () => {
-      const layers = (deck as any)?.layerManager?.getLayers() || [];
-      // A basemap draws no sublayers until its style resolves.
-      if (!onFrame || layers.length < 2 || layers.some((l: any) => !l.isLoaded)) {
-        return;
-      }
-      const copy = document.createElement('canvas');
-      copy.width = SIZE;
-      copy.height = SIZE;
-      const context = copy.getContext('2d')!;
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, SIZE, SIZE));
-    },
     onError: error => {
       throw error;
     }
   });
-  return frame;
-}
-
-/** The number of pixels whose channels differ by more than 8. */
-function countDifferent(a: ImageData, b: ImageData): number {
-  let count = 0;
-  for (let i = 0; i < a.data.length; i += 4) {
-    if (
-      Math.abs(a.data[i] - b.data[i]) > 8 ||
-      Math.abs(a.data[i + 1] - b.data[i + 1]) > 8 ||
-      Math.abs(a.data[i + 2] - b.data[i + 2]) > 8
-    ) {
-      count++;
-    }
-  }
-  return count;
 }
 
 /** A basemap whose vector tile layers are pickable, as an application can make them. */
@@ -153,10 +151,8 @@ describe('a picked label', () => {
     } as any);
     // The center of tile 1-1-1, (0.75, 0.75) of the world, at the center of the view.
     const anchor = [90, (360 / Math.PI) * Math.atan(Math.exp(-0.5 * Math.PI)) - 90];
-    await createDeck(basemap, {longitude: anchor[0], latitude: anchor[1], zoom: 1.2});
-    const [x, y] = [SIZE / 2, SIZE / 2];
-    const info: any = deck!.pickObject({x, y, radius: 4});
-    expect(info).toBeTruthy();
+    createDeck(basemap, {longitude: anchor[0], latitude: anchor[1], zoom: 1.2});
+    const info = await pickWhenDrawn(SIZE / 2, SIZE / 2);
     expect(info.object.properties.name).toBe('T111');
     expect(info.tile?.id).toBe('1-1-1');
     const [lng, lat] = info.object.geometry.coordinates;

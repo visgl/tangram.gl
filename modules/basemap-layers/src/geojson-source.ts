@@ -46,7 +46,8 @@ function getNumber(value: unknown, fallback: number): number {
 /**
  * geojson-vt options for a GeoJSON source, as MapLibre GL JS 6 sets them: `buffer` and
  * `tolerance` are given in pixels of a 512 pixel tile, and the source's `maxzoom` is the deepest
- * zoom tiled. Clustering is supported without `clusterProperties`.
+ * zoom tiled. Clustering is supported without `clusterProperties`. `lineMetrics` adds each tiled
+ * line's part of its whole line to its properties, as in MapLibre.
  */
 export function getGeoJsonVtOptions(source: BasemapSource): GeoJSONVTOptions {
   const maxZoom = getGeoJsonMaxZoom(source);
@@ -59,7 +60,9 @@ export function getGeoJsonVtOptions(source: BasemapSource): GeoJSONVTOptions {
     tolerance: getNumber(source.tolerance, 0.375) * TILE_UNITS_PER_PIXEL,
     generateId,
     // geojson-vt rejects `promoteId` together with `generateId`, which then wins, as in MapLibre.
-    promoteId: generateId ? undefined : promoteId
+    promoteId: generateId ? undefined : promoteId,
+    // Each tiled line records its part of the whole line, which `line-gradient` draws by.
+    lineMetrics: Boolean(source.lineMetrics)
   };
   if (source.cluster) {
     const clusterMaxZoom = getNumber(source.clusterMaxZoom, maxZoom - 1);
