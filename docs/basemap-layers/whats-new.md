@@ -8,6 +8,7 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
+- `background-pattern` draws the sprite image across the map, as MapLibre GL JS draws it: repeated from the map's origin, so it moves with the map, at its size at the integer zoom, scaled with the map between integer zooms, times `background-opacity`. Also on a globe, and in a projected view at the size of the Web Mercator map of the same scale. Before, a patterned background drew nothing. WebGL only.
 - `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
 - `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
 - `text-rotate` turns point labels clockwise, per feature, as MapLibre GL JS turns them: about the point, with their `text-anchor` and `text-offset`. They collide with the box around the turned text.
