@@ -6,6 +6,7 @@
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {log} from '@deck.gl/core';
 import {getBasemapLayers} from '../src/index.ts';
+import {BasemapLayer} from '../src/basemap-layer';
 import {load} from '@loaders.gl/core';
 import {MapStyleLoader} from '../src/map-style-loader';
 import {resolveBasemapStyle} from '../src/style-resolver';
@@ -484,5 +485,101 @@ describe('the source cache', () => {
     await load(STYLE_URL, MapStyleLoader, {mapStyle: {fetch, sourceCache}});
     await load(STYLE_URL, MapStyleLoader, {mapStyle: {fetch, sourceCache}});
     expect(requested.filter(url => url === TILEJSON_URL)).toEqual([TILEJSON_URL]);
+  });
+});
+
+describe('BasemapLayer style loads', () => {
+  const TILEJSON = 'https://tiles.example.com/tiles.json';
+
+  /** A style of one vector source, with a new object for each call. */
+  const createStyle = (extra: Record<string, unknown> = {}): any => ({
+    version: 8,
+    sources: {tiles: {type: 'vector', url: TILEJSON}},
+    layers: [],
+    ...extra
+  });
+
+  /** A BasemapLayer whose state updates without a deck. */
+  function createLayer(): any {
+    const layer: any = new BasemapLayer({id: 'basemap', style: null} as any);
+    layer.initializeState();
+    layer.setState = (state: any) => Object.assign(layer.state, state);
+    return layer;
+  }
+
+  /** Loads `style` and waits until it resolves. */
+  async function load(layer: any, style: unknown, loadOptions: unknown): Promise<any> {
+    const previous = layer.state.resolvedStyle;
+    layer.loadStyle(style, loadOptions);
+    await vi.waitFor(() => {
+      expect(layer.state.resolvedStyle).not.toBe(previous);
+      expect(layer.state.resolvedStyle?.sources.tiles.tiles).toBeTruthy();
+    });
+    return layer.state.resolvedStyle;
+  }
+
+  /** `loadOptions` whose TileJSON lists tiles at `host`, served when `ready` resolves. */
+  function createOptions(host: string, ready: Promise<void> = Promise.resolve()) {
+    const requests: string[] = [];
+    const fetch = (async (url: string) => {
+      requests.push(url);
+      await ready;
+      if (url === TILEJSON) {
+        return new Response(JSON.stringify({tiles: [`https://${host}/{z}/{x}/{y}.mvt`]}));
+      }
+      return new Response('', {status: 404});
+    }) as typeof globalThis.fetch;
+    return {options: {fetch}, requests};
+  }
+
+  test('a load superseded by other loadOptions does not fill the cache of the next', async () => {
+    const layer = createLayer();
+    const a = createOptions('a.example.com');
+    let release!: () => void;
+    const b = createOptions('b.example.com', new Promise(resolve => (release = resolve)));
+    await load(layer, createStyle(), a.options);
+
+    // A slow load with B, then back to A before it ends.
+    layer.loadStyle(createStyle(), b.options);
+    const style = await load(layer, createStyle(), a.options);
+    expect(style.sources.tiles.tiles).toEqual(['https://a.example.com/{z}/{x}/{y}.mvt']);
+    release();
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // The next style with A reads only what A loaded.
+    const next = await load(layer, createStyle({metadata: {edit: 1}}), a.options);
+    expect(next.sources.tiles.tiles).toEqual(['https://a.example.com/{z}/{x}/{y}.mvt']);
+  });
+
+  test('a sprite that failed to load loads again with the next style', async () => {
+    vi.spyOn(log, 'warn').mockReturnValue(() => {});
+    const layer = createLayer();
+    const {options, requests} = createOptions('a.example.com');
+    const sprite = {sprite: 'https://assets.example.com/sprite'};
+    await load(layer, createStyle(sprite), options);
+    await vi.waitFor(() => expect(layer.state.spriteAtlases).toEqual([]));
+    await load(layer, createStyle({...sprite, metadata: {edit: 1}}), options);
+    await vi.waitFor(() => expect(layer.state.spriteAtlases).toEqual([]));
+    const spriteRequests = requests.filter(url => url.includes('sprite'));
+    expect(spriteRequests).toEqual([
+      'https://assets.example.com/sprite.json',
+      'https://assets.example.com/sprite.json'
+    ]);
+  });
+
+  test('a glyph store with a range that failed is made again for the next style', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const layer = createLayer();
+    const {options} = createOptions('a.example.com');
+    const glyphs = {glyphs: 'https://assets.example.com/{fontstack}/{range}.pbf'};
+    await load(layer, createStyle(glyphs), options);
+    const store = layer.state.glyphs;
+    await load(layer, createStyle({...glyphs, metadata: {edit: 1}}), options);
+    expect(layer.state.glyphs).toBe(store);
+
+    await store.load('Noto Sans Regular', ['a']);
+    expect(store.failed).toBe(true);
+    await load(layer, createStyle({...glyphs, metadata: {edit: 2}}), options);
+    expect(layer.state.glyphs).not.toBe(store);
   });
 });

@@ -178,8 +178,10 @@ type BasemapLayerState = {
   spriteKey: string | null;
   /** The load of the sprites of the resolved style, kept for a new style with the same sprites. */
   spriteLoad: Promise<SpriteAtlas[]> | null;
-  /** The sources of the styles resolved with `styleLoadOptions` (see `BasemapLoadOptions`). */
+  /** The sources of the styles resolved with `sourceCacheOptions` (see `BasemapLoadOptions`). */
   sourceCache: Map<string, BasemapSource>;
+  /** The `loadOptions` that the sources in `sourceCache` were loaded with. */
+  sourceCacheOptions: BasemapLayerProps['loadOptions'] | undefined;
   /** The `loadOptions` that the sources, the sprites and the glyphs were loaded with. */
   styleLoadOptions: BasemapLayerProps['loadOptions'] | undefined;
   /** The glyphs of the resolved style's `glyphs` URL, or null without one. */
@@ -255,6 +257,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       spriteKey: null,
       spriteLoad: null,
       sourceCache: new Map(),
+      sourceCacheOptions: undefined,
       styleLoadOptions: undefined,
       glyphs: null
     };
@@ -330,8 +333,10 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
     const loadToken = this.state.loadToken + 1;
     this.setState({loadToken});
-    if (loadOptions !== this.state.styleLoadOptions) {
+    // A load with other options takes a new cache: a load still running fills only its own.
+    if (loadOptions !== this.state.sourceCacheOptions) {
       this.state.sourceCache = new Map();
+      this.state.sourceCacheOptions = loadOptions;
     }
     const {sourceCache} = this.state;
     logBasemapLayerEvent('Resolving basemap style', {
@@ -360,7 +365,9 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
             reuseSources(resolvedStyle, this.state.resolvedStyle);
           }
           const glyphs = getGlyphStore(resolvedStyle, style, loadOptions);
-          const keepGlyphs = sameOptions && glyphs?.url === this.state.glyphs?.url;
+          // A glyph range that failed loads again with a new store.
+          const keepGlyphs =
+            sameOptions && glyphs?.url === this.state.glyphs?.url && !this.state.glyphs?.failed;
           this.setState({
             resolvedStyle,
             loadError: null,
@@ -404,15 +411,19 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     const pixelRatio = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
     const spriteKey = JSON.stringify([getSpriteSources(resolvedStyle.sprite, baseUrl), pixelRatio]);
     if (!sameOptions || spriteKey !== this.state.spriteKey || !this.state.spriteLoad) {
-      this.setState({
-        spriteAtlases: null,
-        spriteKey,
-        spriteLoad: loadSpriteAtlases(resolvedStyle.sprite, {
-          baseUrl,
-          fetch: options.fetch,
-          fetchOptions: options.fetchOptions,
-          pixelRatio
-        })
+      const spriteCount = getSpriteSources(resolvedStyle.sprite, baseUrl).length;
+      const spriteLoad = loadSpriteAtlases(resolvedStyle.sprite, {
+        baseUrl,
+        fetch: options.fetch,
+        fetchOptions: options.fetchOptions,
+        pixelRatio
+      });
+      this.setState({spriteAtlases: null, spriteKey, spriteLoad});
+      spriteLoad.then(spriteAtlases => {
+        // A sprite that failed loads again with the next style.
+        if (spriteAtlases.length < spriteCount && this.state.spriteLoad === spriteLoad) {
+          this.state.spriteKey = null;
+        }
       });
     }
     this.state.spriteLoad!.then(spriteAtlases => {
