@@ -216,6 +216,16 @@ describe('BasemapLayer resources with a registered scheme', () => {
     expect(controllers[0].signal.aborted).toBe(true);
   });
 
+  test('a tile request carries the headers of fetchOptions; an empty tile has no data', async () => {
+    const {requests} = registerMemoryProtocol({'mem://tiles/0/0/0.png': new ArrayBuffer(0)});
+    const tile = await getBasemapLayerFetch(DEFAULT_MVT_FETCH, 'image')('mem://tiles/0/0/0.png', {
+      propName: 'data',
+      layer: {props: {loaders: []}, getLoadOptions: () => ({fetchOptions: {headers: {a: 'b'}}})} as any
+    });
+    expect(tile).toBeNull();
+    expect(requests).toEqual([{url: 'mem://tiles/0/0/0.png', type: 'image', headers: {a: 'b'}}]);
+  });
+
   test('the layer fetch is the same function for the same fetch, so tile layer props stay equal', () => {
     const deckFetch = (Layer.defaultProps as any).fetch.value;
     expect(getBasemapLayerFetch(deckFetch, 'image')).toBe(getBasemapLayerFetch(deckFetch, 'image'));

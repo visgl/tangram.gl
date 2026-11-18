@@ -211,7 +211,7 @@ export function getBasemapFetch(
     if (scheme && !fetchFn) {
       throw getUnregisteredSchemeError(scheme, url);
     }
-    return (fetchFn || globalThis.fetch)(input, init);
+    return fetchFn ? fetchFn(input, init) : globalThis.fetch(input, init);
   };
 }
 
@@ -246,7 +246,11 @@ export function getBasemapLayerFetch(
       if (handler) {
         return loadProtocolTile(handler, url, type, context);
       }
-      if (scheme && isDefaultLayerFetch(nextFetch) && typeof context.loadOptions?.fetch !== 'function') {
+      if (
+        scheme &&
+        isDefaultLayerFetch(nextFetch) &&
+        typeof getLayerLoadOptions(context)?.fetch !== 'function'
+      ) {
         return Promise.reject(getUnregisteredSchemeError(scheme, url));
       }
       return nextFetch(url, context);
@@ -268,6 +272,11 @@ function isDefaultLayerFetch(layerFetch: BasemapLayerFetch): boolean {
   return layerFetch === DEFAULT_LAYER_FETCH || layerFetch === DEFAULT_MVT_FETCH;
 }
 
+/** The loaders.gl options of a layer `fetch` call, as deck.gl's default `fetch` takes them. */
+function getLayerLoadOptions(context: LayerFetchContext): any {
+  return context.loadOptions || context.layer.getLoadOptions();
+}
+
 /** Loads a tile with a protocol handler and parses it; an empty resource is a tile without data. */
 async function loadProtocolTile(
   handler: BasemapProtocolHandler,
@@ -275,7 +284,11 @@ async function loadProtocolTile(
   type: BasemapRequestType,
   context: LayerFetchContext
 ): Promise<unknown> {
-  const data = await requestProtocolResource(handler, url, type, {signal: context.signal});
+  const loadOptions = getLayerLoadOptions(context);
+  const data = await requestProtocolResource(handler, url, type, {
+    ...loadOptions?.fetchOptions,
+    signal: context.signal
+  });
   const body = getResponseBody(url, type, data);
   const bytes =
     typeof Blob !== 'undefined' && body instanceof Blob
@@ -289,6 +302,6 @@ async function loadProtocolTile(
   return parse(
     bytes as ArrayBuffer | string,
     context.loaders || context.layer.props.loaders,
-    context.loadOptions || context.layer.getLoadOptions()
+    loadOptions
   );
 }
