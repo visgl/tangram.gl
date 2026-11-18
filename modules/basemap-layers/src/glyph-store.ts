@@ -66,6 +66,8 @@ export class GlyphStore {
    */
   readonly id = ++lastStoreId;
   readonly url: string;
+  /** Whether a glyph range failed to load. Such a range holds no glyphs, and is not loaded again. */
+  failed = false;
   private readonly fetch: typeof fetch;
   private readonly fetchOptions?: RequestInit;
   private readonly stacks = new Map<string, StackEntry>();
@@ -252,6 +254,7 @@ export class GlyphStore {
         }
       }
     } catch (error) {
+      this.failed = true;
       // biome-ignore lint/suspicious/noConsole: a missing range leaves its characters undrawn.
       console.warn(`Failed to load glyphs ${this.getRangeUrl(fontStack, range)}`, error);
     }
