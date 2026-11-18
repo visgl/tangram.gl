@@ -44,12 +44,16 @@ function rasterTile(paint: Record<string, unknown>, image: HTMLCanvasElement, in
   });
 }
 
-/** Renders layers on a white canvas and returns the first frame drawn after they load. */
+/**
+ * Renders layers on a white canvas and returns the first frame drawn after they load.
+ *
+ * The test timeout bounds the wait. Concurrent browser test files share one GPU process, so a
+ * shorter limit here times out on a busy CI runner while the layers still load.
+ */
 function render(layers: unknown[]) {
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise<ImageData>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 10_000);
     deck = new Deck({
       parent,
       width: SIZE,
@@ -62,6 +66,9 @@ function render(layers: unknown[]) {
       onAfterRender: () => {
         const loaded = (deck as any)?.layerManager?.getLayers() || [];
         if (!loaded.length || loaded.some((layer: any) => !layer.isLoaded)) {
+          // Draw again in the next frame, so that the wait never depends on a frame that deck draws
+          // by itself.
+          window.requestAnimationFrame(() => deck?.redraw('load'));
           return;
         }
         const copy = document.createElement('canvas');
@@ -71,11 +78,9 @@ function render(layers: unknown[]) {
         context.fillStyle = '#ffffff';
         context.fillRect(0, 0, SIZE, SIZE);
         context.drawImage(deck!.getCanvas()!, 0, 0);
-        window.clearTimeout(timeout);
         resolve(context.getImageData(0, 0, SIZE, SIZE));
       },
       onError: error => {
-        window.clearTimeout(timeout);
         reject(error);
       }
     });
