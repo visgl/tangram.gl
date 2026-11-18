@@ -3,9 +3,11 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, test, vi} from 'vitest';
-import {WebMercatorViewport} from '@deck.gl/core';
+import {_CustomProjectionViewport as CustomProjectionViewport, WebMercatorViewport} from '@deck.gl/core';
 import {RequestScheduler} from '@loaders.gl/core/loader-utils';
+import {projectionEngine} from '@math.gl/geospatial/projection';
 import {BasemapLayer} from '../src/basemap-layer';
+import {getStyleZoom} from '../src/projected-viewport';
 import {ZoomLoadGate} from '../src/zoom-load-gate';
 
 describe('ZoomLoadGate', () => {
@@ -252,6 +254,32 @@ describe('BasemapLayer zoomLoadDelay', () => {
     const tile = tileset.getTile({x: 0, y: 0, z: 2}, true);
     await vi.waitFor(() => expect(tile.isLoaded).toBe(true));
     expect(fetch).toHaveBeenCalledTimes(1);
+    basemap.finalizeState();
+  });
+
+  test('in a projected view a pan across latitudes does not hold loads; a zoom does', async () => {
+    const {basemap, tileset} = createBasemap(10_000);
+    const gate = basemap.state.zoomLoadGate;
+    const crs = await projectionEngine.getCRS('EPSG:32632');
+    const selectAt = (latitude: number, zoomLevel: number) => {
+      const viewState = new CustomProjectionViewport({
+        id: 'projected',
+        crs,
+        center: [9, latitude, 0],
+        zoom: zoomLevel,
+        width: 64,
+        height: 64
+      } as any);
+      tileset.getTileIndices({viewState, maxZoom: 14, minZoom: 0});
+      return viewState;
+    };
+    const north = selectAt(40, 8);
+    const south = selectAt(50, 8);
+    // The pan changes the Web Mercator zoom that styles use, but not the view's own zoom.
+    expect(Math.abs(getStyleZoom(north) - getStyleZoom(south))).toBeGreaterThan(0.1);
+    expect(gate.getRemainingDelay()).toBe(0);
+    selectAt(50, 8.5);
+    expect(gate.getRemainingDelay()).toBeGreaterThan(0);
     basemap.finalizeState();
   });
 });

@@ -637,7 +637,8 @@ function holdBeforeRequestSlot(tileset: SharedTileset2D, gate: ZoomLoadGate): vo
 
 /**
  * The basemap tile traversal `adapter`, which also records each view's zoom in `gate` at each tile
- * selection. In a projected view the zoom is that of the Web Mercator map of the same scale.
+ * selection. This is the view's own zoom: in a projected view the Web Mercator zoom of the same
+ * scale changes with the latitude, so a pan would hold loads as a zoom does.
  */
 function getZoomGatedAdapter(
   gate: ZoomLoadGate,
@@ -646,7 +647,7 @@ function getZoomGatedAdapter(
   return {
     getTileIndices(context) {
       const viewport = context.viewState as Viewport;
-      gate.noteZoom(viewport.id, getStyleZoom(viewport));
+      gate.noteZoom(viewport.id, viewport.zoom);
       return adapter.getTileIndices(context);
     },
     getTileBoundingBox: (context, index) => adapter.getTileBoundingBox(context, index)
