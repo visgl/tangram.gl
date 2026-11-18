@@ -2,14 +2,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import { Deck, MapView, type Layer } from "@deck.gl/core";
-import { webgl2Adapter } from "@luma.gl/core/webgl";
-import { webgpuAdapter } from "@luma.gl/core/webgpu";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { commands } from "vitest/browser";
-import { BasemapLayer } from "../../modules/basemap-layers/src/basemap-layer";
+import {Deck, MapView, type Layer} from '@deck.gl/core';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
+import {webgpuAdapter} from '@luma.gl/core/webgpu';
+import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+import {commands} from 'vitest/browser';
+import {BasemapLayer} from '../../modules/basemap-layers/src/basemap-layer';
 
-declare const __TEST_DEVICE__: "webgl" | "webgpu";
+declare const __TEST_DEVICE__: 'webgl' | 'webgpu';
 
 /**
  * `color-relief` style layers draw the same on the backend of the test lane as on WebGL, whose
@@ -20,9 +20,9 @@ declare const __TEST_DEVICE__: "webgl" | "webgpu";
 
 const SIZE = 256;
 /** The DEM tile drawn: 256-pixel tiles of zoom 9 are drawn 256 pixels wide at map zoom 8. */
-const TILE = { x: 90, y: 190, z: 9 };
+const TILE = {x: 90, y: 190, z: 9};
 const VIEW_ZOOM = 8;
-const DEM_URL = "https://dem.test/{z}/{x}/{y}.png";
+const DEM_URL = 'https://dem.test/{z}/{x}/{y}.png';
 const BACKGROUND = [128, 128, 128];
 
 /** The center of `TILE`, so that the tile fills the canvas. */
@@ -30,9 +30,7 @@ function getTileCenter(): [number, number] {
     const count = 2 ** TILE.z;
     const longitude = ((TILE.x + 0.5) / count) * 360 - 180;
     const latitude =
-        (Math.atan(Math.sinh(Math.PI * (1 - (2 * (TILE.y + 0.5)) / count))) *
-            180) /
-        Math.PI;
+        (Math.atan(Math.sinh(Math.PI * (1 - (2 * (TILE.y + 0.5)) / count))) * 180) / Math.PI;
     return [longitude, latitude];
 }
 
@@ -42,13 +40,11 @@ function getElevation(x: number, y: number): number {
         [70, 80, 8000, 26],
         [175, 165, 6000, 20],
         [200, 60, 5000, 16],
-        [60, 200, -4000, 22],
+        [60, 200, -4000, 22]
     ];
     let elevation = 9000 + 150 * Math.sin((x + 2 * y) / 9);
     for (const [cx, cy, height, radius] of hills) {
-        elevation +=
-            height *
-            Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * radius ** 2));
+        elevation += height * Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * radius ** 2));
     }
     return elevation;
 }
@@ -56,7 +52,7 @@ function getElevation(x: number, y: number): number {
 /** The DEM tile, a terrarium-encoded PNG. */
 async function createDemTile(): Promise<Blob> {
     const canvas = new OffscreenCanvas(SIZE, SIZE);
-    const context = canvas.getContext("2d")!;
+    const context = canvas.getContext('2d')!;
     const image = context.createImageData(SIZE, SIZE);
     for (let y = 0; y < SIZE; y++) {
         for (let x = 0; x < SIZE; x++) {
@@ -65,42 +61,37 @@ async function createDemTile(): Promise<Blob> {
             const index = (y * SIZE + x) * 4;
             image.data[index] = Math.floor(value / 256);
             image.data[index + 1] = Math.floor(value) % 256;
-            image.data[index + 2] = Math.floor(
-                (value - Math.floor(value)) * 256,
-            );
+            image.data[index + 2] = Math.floor((value - Math.floor(value)) * 256);
             image.data[index + 3] = 255;
         }
     }
     context.putImageData(image, 0, 0);
-    return canvas.convertToBlob({ type: "image/png" });
+    return canvas.convertToBlob({type: 'image/png'});
 }
 
 /** A height ramp over the elevations of the tile. */
 const HYPSOMETRIC = [
-    "interpolate",
-    ["linear"],
-    ["elevation"],
+    'interpolate',
+    ['linear'],
+    ['elevation'],
     4800,
-    "#08306b",
+    '#08306b',
     8800,
-    "#2171b5",
+    '#2171b5',
     9200,
-    "#6baed6",
+    '#6baed6',
     11000,
-    "#c7e9c0",
+    '#c7e9c0',
     14000,
-    "#fdae6b",
+    '#fdae6b',
     17200,
-    "#ffffff",
+    '#ffffff'
 ];
 
 /** 64 stops, 150 meters apart, with alternating colors: the binary search finds each band. */
-const BANDS: unknown[] = ["interpolate", ["linear"], ["elevation"]];
+const BANDS: unknown[] = ['interpolate', ['linear'], ['elevation']];
 for (let stop = 0; stop < 64; stop++) {
-    BANDS.push(
-        5000 + stop * 150,
-        stop % 2 ? "#1f78b4" : `hsl(${stop * 5}, 80%, 60%)`,
-    );
+    BANDS.push(5000 + stop * 150, stop % 2 ? '#1f78b4' : `hsl(${stop * 5}, 80%, 60%)`);
 }
 
 type ColorReliefCase = {
@@ -120,75 +111,75 @@ type ColorReliefCase = {
 };
 
 const CASES: ColorReliefCase[] = [
-    { id: "hypsometric ramp", paint: { "color-relief-color": HYPSOMETRIC } },
+    {id: 'hypsometric ramp', paint: {'color-relief-color': HYPSOMETRIC}},
     {
-        id: "64 bands",
-        paint: { "color-relief-color": BANDS },
-        unlike: { "color-relief-color": HYPSOMETRIC },
+        id: '64 bands',
+        paint: {'color-relief-color': BANDS},
+        unlike: {'color-relief-color': HYPSOMETRIC}
     },
     {
-        id: "translucent stops and opacity",
+        id: 'translucent stops and opacity',
         paint: {
-            "color-relief-color": [
-                "interpolate",
-                ["linear"],
-                ["elevation"],
+            'color-relief-color': [
+                'interpolate',
+                ['linear'],
+                ['elevation'],
                 5000,
-                "rgba(0, 0, 255, 0.2)",
+                'rgba(0, 0, 255, 0.2)',
                 9000,
-                "rgba(0, 200, 120, 0.9)",
+                'rgba(0, 200, 120, 0.9)',
                 15000,
-                "rgba(255, 60, 0, 0.5)",
+                'rgba(255, 60, 0, 0.5)'
             ],
-            "color-relief-opacity": 0.7,
+            'color-relief-opacity': 0.7
         },
         unlike: {
-            "color-relief-color": [
-                "interpolate",
-                ["linear"],
-                ["elevation"],
+            'color-relief-color': [
+                'interpolate',
+                ['linear'],
+                ['elevation'],
                 5000,
-                "rgba(0, 0, 255, 0.2)",
+                'rgba(0, 0, 255, 0.2)',
                 9000,
-                "rgba(0, 200, 120, 0.9)",
+                'rgba(0, 200, 120, 0.9)',
                 15000,
-                "rgba(255, 60, 0, 0.5)",
+                'rgba(255, 60, 0, 0.5)'
             ],
-            "color-relief-opacity": 1,
-        },
+            'color-relief-opacity': 1
+        }
     },
     {
-        id: "interpolate-hcl",
+        id: 'interpolate-hcl',
         paint: {
-            "color-relief-color": [
-                "interpolate-hcl",
-                ["linear"],
-                ["elevation"],
+            'color-relief-color': [
+                'interpolate-hcl',
+                ['linear'],
+                ['elevation'],
                 5000,
-                "#2b83ba",
+                '#2b83ba',
                 17000,
-                "#d7191c",
-            ],
-        },
+                '#d7191c'
+            ]
+        }
     },
     // Four screen pixels per DEM pixel, so that most samples fall between texel centers, where
     // nearest and linear filtering differ.
     {
-        id: "nearest resampling, magnified",
-        paint: { "color-relief-color": BANDS, resampling: "nearest" },
+        id: 'nearest resampling, magnified',
+        paint: {'color-relief-color': BANDS, resampling: 'nearest'},
         zoom: VIEW_ZOOM + 2,
-        unlike: { "color-relief-color": BANDS, resampling: "linear" },
+        unlike: {'color-relief-color': BANDS, resampling: 'linear'}
     },
     {
-        id: "map turned 60°",
-        paint: { "color-relief-color": HYPSOMETRIC },
-        bearing: 60,
+        id: 'map turned 60°',
+        paint: {'color-relief-color': HYPSOMETRIC},
+        bearing: 60
     },
     {
-        id: "under a hillshade",
-        paint: { "color-relief-color": HYPSOMETRIC },
-        hillshade: true,
-    },
+        id: 'under a hillshade',
+        paint: {'color-relief-color': HYPSOMETRIC},
+        hillshade: true
+    }
 ];
 
 /**
@@ -227,28 +218,22 @@ afterEach(async () => {
     }
 });
 
-const wait = (milliseconds: number) =>
-    new Promise((resolve) => setTimeout(resolve, milliseconds));
+const wait = (milliseconds: number) => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 /**
  * Draws a color-relief style layer over the DEM tile on `deviceType`, and returns the first frame
  * that stays the same after the tile has loaded and, on WebGPU, after the pipelines compile.
  */
 async function render(
-    deviceType: "webgl" | "webgpu",
+    deviceType: 'webgl' | 'webgpu',
     demTile: Blob,
-    {
-        paint,
-        bearing = 0,
-        zoom = VIEW_ZOOM,
-        hillshade = false,
-    }: ColorReliefCase,
+    {paint, bearing = 0, zoom = VIEW_ZOOM, hillshade = false}: ColorReliefCase
 ): Promise<ImageData> {
     release();
     const fetches: string[] = [];
-    const tileUrl = DEM_URL.replace("{z}", String(TILE.z))
-        .replace("{x}", String(TILE.x))
-        .replace("{y}", String(TILE.y));
+    const tileUrl = DEM_URL.replace('{z}', String(TILE.z))
+        .replace('{x}', String(TILE.x))
+        .replace('{y}', String(TILE.y));
     // Tiles other than `TILE` are empty: tiles without data.
     const fetchTile = async (url: string) => {
         fetches.push(url);
@@ -258,32 +243,30 @@ async function render(
         version: 8,
         sources: {
             dem: {
-                type: "raster-dem",
+                type: 'raster-dem',
                 tiles: [DEM_URL],
-                encoding: "terrarium",
+                encoding: 'terrarium',
                 tileSize: 256,
-                maxzoom: 9,
-            },
+                maxzoom: 9
+            }
         },
         layers: [
             {
-                id: "background",
-                type: "background",
-                paint: { "background-color": `rgb(${BACKGROUND})` },
+                id: 'background',
+                type: 'background',
+                paint: {'background-color': `rgb(${BACKGROUND})`}
             },
-            { id: "color-relief", type: "color-relief", source: "dem", paint },
-            ...(hillshade
-                ? [{ id: "hillshade", type: "hillshade", source: "dem" }]
-                : []),
-        ],
+            {id: 'color-relief', type: 'color-relief', source: 'dem', paint},
+            ...(hillshade ? [{id: 'hillshade', type: 'hillshade', source: 'dem'}] : [])
+        ]
     };
     const [longitude, latitude] = getTileCenter();
-    canvas = document.createElement("canvas");
+    canvas = document.createElement('canvas');
     canvas.style.cssText = `position: absolute; left: 0; top: 0; width: ${SIZE}px; height: ${SIZE}px;`;
     document.body.append(canvas);
     const target = canvas;
     let frames = 0;
-    let drawnOn = "";
+    let drawnOn = '';
     let capture: ((image: string) => void) | null = null;
     const current = new Deck<any>({
         canvas,
@@ -293,22 +276,22 @@ async function render(
         deviceProps: {
             type: deviceType,
             adapters: [webgl2Adapter, webgpuAdapter],
-            webgl: { preserveDrawingBuffer: true },
+            webgl: {preserveDrawingBuffer: true}
         } as any,
-        views: new MapView({ id: "map" }),
-        viewState: { longitude, latitude, zoom, pitch: 0, bearing },
+        views: new MapView({id: 'map'}),
+        viewState: {longitude, latitude, zoom, pitch: 0, bearing},
         layers: [
             new BasemapLayer({
-                id: "basemap",
-                mode: "map",
+                id: 'basemap',
+                mode: 'map',
                 style: style as any,
-                loadOptions: { fetch: fetchTile },
-            }),
+                loadOptions: {fetch: fetchTile}
+            })
         ],
-        onDeviceInitialized: (device) => {
+        onDeviceInitialized: device => {
             drawnOn = device.type;
         },
-        onError: (error) => {
+        onError: error => {
             errors.push(String(error?.message ?? error));
         },
         onAfterRender: () => {
@@ -316,21 +299,16 @@ async function render(
             if (capture) {
                 const resolve = capture;
                 capture = null;
-                resolve(target.toDataURL("image/png"));
+                resolve(target.toDataURL('image/png'));
             }
-        },
+        }
     });
     deck = current;
 
     const isSettled = () => {
-        const drawn = ((current as any).layerManager?.getLayers() ??
-            []) as Layer[];
-        const pipelines = drawn.flatMap((layer) =>
-            layer.getModels().map((model) => model.pipeline),
-        );
-        for (const pipeline of pipelines.filter(
-            (candidate) => (candidate as any)?.isErrored,
-        )) {
+        const drawn = ((current as any).layerManager?.getLayers() ?? []) as Layer[];
+        const pipelines = drawn.flatMap(layer => layer.getModels().map(model => model.pipeline));
+        for (const pipeline of pipelines.filter(candidate => (candidate as any)?.isErrored)) {
             const message = `Pipeline ${pipeline.id} failed`;
             if (!errors.includes(message)) {
                 errors.push(message);
@@ -339,21 +317,20 @@ async function render(
         return (
             frames > 0 &&
             fetches.includes(tileUrl) &&
-            drawn.some((layer) => layer.id === "basemap-color-relief") &&
-            drawn.every((layer) => layer.isLoaded) &&
+            drawn.some(layer => layer.id === 'basemap-color-relief') &&
+            drawn.every(layer => layer.isLoaded) &&
             // WebGL links a pipeline when it is first drawn, and does not report it as pending.
-            (deviceType === "webgl" ||
-                pipelines.every((pipeline) => !(pipeline as any)?.isPending))
+            (deviceType === 'webgl' || pipelines.every(pipeline => !(pipeline as any)?.isPending))
         );
     };
     const captureFrame = () =>
-        new Promise<string>((resolve) => {
+        new Promise<string>(resolve => {
             capture = resolve;
-            current.redraw("capture");
+            current.redraw('capture');
         });
 
     const start = performance.now();
-    let image = "";
+    let image = '';
     for (;;) {
         if (performance.now() - start > 120_000) {
             throw new Error(`Timed out rendering on ${deviceType}`);
@@ -369,10 +346,10 @@ async function render(
             break;
         }
     }
-    expect(drawnOn, "backend drawn on").toBe(deviceType);
+    expect(drawnOn, 'backend drawn on').toBe(deviceType);
     const bitmap = await createImageBitmap(await (await fetch(image)).blob());
     const copy = new OffscreenCanvas(bitmap.width, bitmap.height);
-    const context = copy.getContext("2d")!;
+    const context = copy.getContext('2d')!;
     context.drawImage(bitmap, 0, 0);
     bitmap.close();
     return context.getImageData(0, 0, copy.width, copy.height);
@@ -390,12 +367,9 @@ function compare(reference: ImageData, candidate: ImageData) {
             sums[channel] += reference.data[index + channel];
             sums[channel + 3] += candidate.data[index + channel];
             difference += Math.abs(
-                reference.data[index + channel] -
-                    candidate.data[index + channel],
+                reference.data[index + channel] - candidate.data[index + channel]
             );
-            fromBackground += Math.abs(
-                reference.data[index + channel] - BACKGROUND[channel],
-            );
+            fromBackground += Math.abs(reference.data[index + channel] - BACKGROUND[channel]);
         }
         differences.push(difference);
         if (fromBackground > 12) {
@@ -405,39 +379,32 @@ function compare(reference: ImageData, candidate: ImageData) {
     const count = differences.length;
     differences.sort((a, b) => a - b);
     return {
-        reference: sums.slice(0, 3).map((sum) => sum / count),
-        candidate: sums.slice(3).map((sum) => sum / count),
+        reference: sums.slice(0, 3).map(sum => sum / count),
+        candidate: sums.slice(3).map(sum => sum / count),
         coloredShare: colored / count,
         medianDifference: differences[Math.floor(count / 2)],
         p99Difference: differences[Math.floor(count * 0.99)],
-        maxDifference: differences[count - 1],
+        maxDifference: differences[count - 1]
     };
 }
 
 /** WebGL's frame, the lane's frame and their difference, amplified 8 times, side by side. */
-async function saveComparison(
-    id: string,
-    reference: ImageData,
-    candidate: ImageData,
-) {
+async function saveComparison(id: string, reference: ImageData, candidate: ImageData) {
     const sheet = new OffscreenCanvas(SIZE * 3, SIZE);
-    const context = sheet.getContext("2d")!;
+    const context = sheet.getContext('2d')!;
     context.putImageData(reference, 0, 0);
     context.putImageData(candidate, SIZE, 0);
     const difference = new ImageData(SIZE, SIZE);
     for (let index = 0; index < reference.data.length; index += 4) {
         for (let channel = 0; channel < 3; channel++) {
             difference.data[index + channel] =
-                Math.abs(
-                    reference.data[index + channel] -
-                        candidate.data[index + channel],
-                ) * 8;
+                Math.abs(reference.data[index + channel] - candidate.data[index + channel]) * 8;
         }
         difference.data[index + 3] = 255;
     }
     context.putImageData(difference, SIZE * 2, 0);
-    const blob = await sheet.convertToBlob({ type: "image/png" });
-    const url = await new Promise<string>((resolve) => {
+    const blob = await sheet.convertToBlob({type: 'image/png'});
+    const url = await new Promise<string>(resolve => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
         reader.readAsDataURL(blob);
@@ -452,50 +419,42 @@ describe(`${__TEST_DEVICE__}: color-relief style layers`, () => {
     });
 
     test.each(CASES)(
-        "$id draws as on WebGL",
-        async (colorReliefCase) => {
-            const reference = await render("webgl", demTile, colorReliefCase);
+        '$id draws as on WebGL',
+        async colorReliefCase => {
+            const reference = await render('webgl', demTile, colorReliefCase);
             const candidate =
-                __TEST_DEVICE__ === "webgl"
+                __TEST_DEVICE__ === 'webgl'
                     ? reference
                     : await render(__TEST_DEVICE__, demTile, colorReliefCase);
             const colors = compare(reference, candidate);
             await saveComparison(colorReliefCase.id, reference, candidate);
             // The reference is colored over most of the tile, so that an empty frame cannot match it.
-            expect(
-                colors.coloredShare,
-                "share of colored pixels",
-            ).toBeGreaterThan(0.3);
+            expect(colors.coloredShare, 'share of colored pixels').toBeGreaterThan(0.3);
             for (let channel = 0; channel < 3; channel++) {
-                const offset = Math.abs(
-                    colors.candidate[channel] - colors.reference[channel],
+                const offset = Math.abs(colors.candidate[channel] - colors.reference[channel]);
+                expect(offset, `mean ${'RGB'[channel]} offset from WebGL`).toBeLessThanOrEqual(
+                    MEAN_TOLERANCE
                 );
-                expect(
-                    offset,
-                    `mean ${"RGB"[channel]} offset from WebGL`,
-                ).toBeLessThanOrEqual(MEAN_TOLERANCE);
             }
-            expect(
-                colors.medianDifference,
-                JSON.stringify(colors),
-            ).toBeLessThanOrEqual(MEDIAN_PIXEL_TOLERANCE);
-            expect(
-                colors.p99Difference,
-                JSON.stringify(colors),
-            ).toBeLessThanOrEqual(P99_PIXEL_TOLERANCE);
+            expect(colors.medianDifference, JSON.stringify(colors)).toBeLessThanOrEqual(
+                MEDIAN_PIXEL_TOLERANCE
+            );
+            expect(colors.p99Difference, JSON.stringify(colors)).toBeLessThanOrEqual(
+                P99_PIXEL_TOLERANCE
+            );
             if (colorReliefCase.unlike) {
-                const unlike = await render("webgl", demTile, {
+                const unlike = await render('webgl', demTile, {
                     ...colorReliefCase,
-                    paint: colorReliefCase.unlike,
+                    paint: colorReliefCase.unlike
                 });
                 // More than the comparison above accepts, so that the lane's frame cannot pass for both.
                 const contrast = compare(reference, unlike);
                 expect(
                     contrast.p99Difference,
-                    `unlike paint: ${JSON.stringify(contrast)}`,
+                    `unlike paint: ${JSON.stringify(contrast)}`
                 ).toBeGreaterThan(P99_PIXEL_TOLERANCE);
             }
         },
-        300_000,
+        300_000
     );
 });
