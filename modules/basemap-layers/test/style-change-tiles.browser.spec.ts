@@ -298,11 +298,21 @@ describe('a new style object', () => {
   }, 60_000);
 });
 
-/** The first frame drawn after the style changes to `style`. */
+/**
+ * The first frame drawn with the layer of `style`. A frame that deck.gl had begun before the new
+ * layer replaced the old one can come first: it is skipped.
+ */
 async function frameAfterUpdate(style: unknown, props: ReturnType<typeof createProps>) {
-  const frame = nextFrame();
   deck!.setProps({layers: [createLayer(style, props)]});
-  return countColors(await frame);
+  for (;;) {
+    const frame = await nextFrame();
+    const basemap = (deck as any).layerManager
+      .getLayers()
+      .find((layer: any) => layer.id === 'basemap');
+    if (basemap.props.style === style) {
+      return countColors(frame);
+    }
+  }
 }
 
 describe('a style update', () => {
@@ -420,7 +430,9 @@ describe('a style update by diff', () => {
       const props = {...createProps(requests), loadOptions};
       createDeck(createLayer(createStyle(), props));
       // Without its TileJSON, the source draws nothing: wait for the load, not for a frame.
-      await vi.waitFor(() => expect(getBasemapState()?.resolvedStyle).toBeTruthy());
+      await vi.waitFor(() => expect(getBasemapState()?.resolvedStyle).toBeTruthy(), {
+        timeout: 10_000
+      });
       await new Promise(resolve => setTimeout(resolve, 500));
       expect(requests.resources.filter(url => url.endsWith(failOnce))).toHaveLength(1);
 

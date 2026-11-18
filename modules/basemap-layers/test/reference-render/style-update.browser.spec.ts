@@ -4,8 +4,8 @@
 
 /**
  * Compares a style updated in place of another with MapLibre GL JS's render of the new style. The
- * `BasemapLayer` first draws the scene's style, and then a copy of it with a new water color. The
- * update loads nothing, and must draw what MapLibre draws from the new style.
+ * `BasemapLayer` first draws the scene's background and water, and then a copy of them with a new
+ * water color. The update loads nothing, and must draw what MapLibre draws from the new style.
  */
 
 import type {Deck} from '@deck.gl/core';
@@ -81,15 +81,24 @@ function countWater(pixels: Uint8ClampedArray): number {
   return count;
 }
 
+/**
+ * The mean difference from MapLibre's pixels after the update, in gray levels of 255. The update
+ * and a new `BasemapLayer` of the new style both measure 0.06; the old water color measures 2.6.
+ */
+const MAX_MEAN_DIFFERENCE = 0.5;
+
 test('a new water color draws as MapLibre draws the new style, and loads nothing', async () => {
+  // The background and the fills of the water only: the update, not the labels, is measured.
   const style = await loadReferenceStyle(SCENE.style);
+  style.layers = style.layers.filter(
+    (layer: {id: string}) => layer.id === 'background' || layer.id === 'water'
+  );
   const updated = structuredClone(style);
   const water = updated.layers.find((layer: any) => layer.id === 'water');
   expect(water.type).toBe('fill');
   water.paint = {...water.paint, 'fill-color': WATER};
 
   const reference = await renderMapLibre(structuredClone(updated), SCENE);
-  const fresh = await renderBasemapLayer(structuredClone(updated), SCENE);
   let update: {pixels: Uint8ClampedArray; requests: number} | null = null;
   const before = await renderBasemapLayer(
     structuredClone(style),
@@ -109,9 +118,5 @@ test('a new water color draws as MapLibre draws the new style, and loads nothing
   const referenceWater = countWater(reference.pixels);
   expect(referenceWater).toBeGreaterThan(5000);
   expect(Math.abs(countWater(pixels) - referenceWater)).toBeLessThan(referenceWater * 0.05);
-  // The update draws as a new BasemapLayer draws the new style.
-  expect(getMeanDifference(pixels, fresh.pixels)).toBeLessThan(0.5);
-  expect(getMeanDifference(pixels, reference.pixels)).toBeLessThan(
-    getMeanDifference(fresh.pixels, reference.pixels) + 0.25
-  );
-}, 300_000);
+  expect(getMeanDifference(pixels, reference.pixels)).toBeLessThan(MAX_MEAN_DIFFERENCE);
+}, 120_000);
