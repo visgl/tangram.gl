@@ -32,3 +32,10 @@ export type {
 export {ProjectedTileLayer, ProjectedTileset2D} from './projected-tileset';
 export {getMercatorZoom} from './projected-viewport';
 export type {ProjectedViewportLike} from './projected-viewport';
+export {registerBasemapProtocol, unregisterBasemapProtocol} from './basemap-protocol';
+export type {
+  BasemapProtocolHandler,
+  BasemapRequestParameters,
+  BasemapRequestType,
+  BasemapResourceResponse
+} from './basemap-protocol';
