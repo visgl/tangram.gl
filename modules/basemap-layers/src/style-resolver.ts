@@ -147,8 +147,8 @@ function getTileJsonTileBaseUrl(tileJsonUrl: string | undefined) {
   }
 }
 
-/** Fetches and parses a JSON resource. */
-async function fetchJson(url: string, loadOptions?: BasemapLoadOptions) {
+/** Fetches and parses a JSON resource with the `fetch` and `fetchOptions` of `loadOptions`. */
+export async function fetchJson(url: string, loadOptions?: BasemapLoadOptions) {
   const fetchFn = loadOptions?.fetch || fetch;
   const response = await fetchFn(url, loadOptions?.fetchOptions);
 

@@ -8,7 +8,7 @@ import {isGlobeViewport} from './is-globe-viewport';
 import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
-import type {BasemapSource} from './style-resolver';
+import {fetchJson, resolveBasemapStyle, type BasemapSource} from './style-resolver';
 import {
   CompositeLayer,
   log,
@@ -16,7 +16,6 @@ import {
   type UpdateParameters,
   type Viewport
 } from '@deck.gl/core';
-import {load} from '@loaders.gl/core';
 import {
   createDemTileset,
   getBasemapLayers,
@@ -38,7 +37,7 @@ import {
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
-import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
+import type {BasemapLoadOptions, BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
 import {GlyphStore} from './glyph-store';
 import {loadSpriteAtlases} from './sprite';
 import type {SpriteAtlas} from './sprite';
@@ -326,7 +325,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
     Promise.resolve(
       typeof style === 'string'
-        ? load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions))
+        ? loadStyleUrl(style, loadOptions)
         : MapStyleLoader.parse(
             new TextEncoder().encode(JSON.stringify(style)).buffer,
             getMapStyleLoaderOptions(loadOptions)
@@ -546,6 +545,20 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       projectedMaxStretch: this.props.projectedMaxStretch
     });
   }
+}
+
+/**
+ * Fetches the style document of a URL with the `fetch` and `fetchOptions` of `loadOptions`, as its
+ * sources, sprites and glyphs are fetched, and resolves it. Relative URLs in the style resolve
+ * against `loadOptions.baseUrl`, or else against the style URL.
+ */
+async function loadStyleUrl(
+  url: string,
+  loadOptions: BasemapLayerProps['loadOptions']
+): Promise<ResolvedBasemapStyle> {
+  const options = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
+  const style = (await fetchJson(url, options)) as BasemapStyle;
+  return resolveBasemapStyle(style, {...options, baseUrl: options.baseUrl || url});
 }
 
 /**
