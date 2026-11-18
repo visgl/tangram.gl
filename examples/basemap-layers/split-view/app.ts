@@ -160,8 +160,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
   const getBasemapLayer = () =>
     new BasemapLayer({
       id: `basemap-${select.value}-${viewMode}`,
-      style: getStyleUrl(),
-      mode: viewMode === 'globe' ? 'globe' : 'map'
+      style: getStyleUrl()
     });
   const getFirstPersonCamera = () =>
     addMetersToLngLat(

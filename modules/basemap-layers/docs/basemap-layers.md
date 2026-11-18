@@ -118,7 +118,6 @@ new Deck({
   layers: [
     new BasemapLayer({
       id: 'earth',
-      mode: 'globe',
       style: styleJson,
       globe: {
         config: {

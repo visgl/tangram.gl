@@ -84,7 +84,7 @@ import {
   createZoomPaintValues,
   getZoomPaintOffset
 } from './zoom-paint-extension';
-import type {BasemapGlobeConfig, BasemapLayerProps} from './basemap-layer';
+import type {BasemapGlobeConfig} from './basemap-layer';
 import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
@@ -95,7 +95,8 @@ import type {
   ResolvedBasemapStyle
 } from './style-resolver';
 
-type BasemapMode = NonNullable<BasemapLayerProps['mode']>;
+/** The mode the sublayers draw in; `BasemapLayer` resolves its `'auto'` mode to one of these. */
+type BasemapMode = 'map' | 'globe';
 
 type BasemapLayerConfig = {
   atmosphere: boolean;
