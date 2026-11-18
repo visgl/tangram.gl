@@ -101,7 +101,7 @@ new BasemapLayer({style, rejectRasterTile});
 
 Type: `((error: Error) => boolean | void) | null`
 
-The `onError` prop of every deck.gl layer. `BasemapLayer` calls it once for each resource of the style that fails to load, with a `BasemapLoadError`. If the function does not return `true`, the `onError` of the `Deck` also receives the error. The default `onError` of the `Deck` logs it. A cancelled request, such as a tile that leaves the view before it loads, is not a failure.
+The `onError` prop of every deck.gl layer. `BasemapLayer` calls it once for each resource of the style that fails to load, with a `BasemapLoadError`. If the function does not return `true`, the `onError` of the `Deck` also receives the error. The default `onError` of the `Deck` logs it. A cancelled request, such as a tile that leaves the view before it loads, is not a failure. As in MapLibre GL JS, a vector tile that answers 404 is a tile without data, not a failure; a raster or raster-dem tile that answers 404 is a failure.
 
 A `BasemapLoadError` is an `Error` with these fields, which match those of the `error` event of MapLibre GL JS:
 

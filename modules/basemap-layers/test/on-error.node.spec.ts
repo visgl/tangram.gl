@@ -200,6 +200,15 @@ describe('BasemapLayer onError', () => {
       });
     });
 
+    test('a vector tile that answers 404 has no data, and does not call onError', async () => {
+      // As in MapLibre GL JS. A raster tile that answers 404 is a failure, as there.
+      const {sublayers, onError} = await renderedBasemap();
+      const streets = sublayers.find(sublayer => String(sublayer.id).startsWith('basemap-streets'));
+      const error = await fetchError(`${TILES_URL}/streets/3/1/2.mvt`, 404);
+      streets.props.onTileError(error, {index: {x: 1, y: 2, z: 3}});
+      expect(onError).not.toHaveBeenCalled();
+    });
+
     test('an aborted tile does not call onError', async () => {
       const {sublayers, onError, deckOnError} = await renderedBasemap();
       const relief = sublayers.find(sublayer => sublayer.id === 'basemap-relief');

@@ -167,16 +167,19 @@ function logBasemapRuntimeError(message: string, error: unknown, details?: unkno
 
 /**
  * Gives a tile that failed to load to `onError`, with its URL and index, or logs it without one.
+ * With `missingIsEmpty`, a tile that answers 404 is a tile without data, not a failure, as a vector
+ * tile is in MapLibre GL JS.
  */
 function reportTileError(
   onError: BasemapLoadErrorHandler | null | undefined,
   error: unknown,
   tile: {index?: unknown} | undefined,
-  {source, sourceId, message, details}: {
+  {source, sourceId, message, details, missingIsEmpty}: {
     source: BasemapSource;
     sourceId?: string;
     message: string;
     details: Record<string, unknown>;
+    missingIsEmpty?: boolean;
   }
 ): void {
   if (!onError) {
@@ -188,13 +191,14 @@ function reportTileError(
     index && source.tiles
       ? getURLFromTemplate(source.tiles, {index, id: `${index.x}-${index.y}-${index.z}`})
       : null;
-  onError(
-    getBasemapLoadError('tile', error, {
-      sourceId,
-      ...(url ? {url} : {}),
-      ...(index ? {tile: {x: index.x, y: index.y, z: index.z}} : {})
-    })
-  );
+  const loadError = getBasemapLoadError('tile', error, {
+    sourceId,
+    ...(url ? {url} : {}),
+    ...(index ? {tile: {x: index.x, y: index.y, z: index.z}} : {})
+  });
+  if (!(missingIsEmpty && loadError.status === 404)) {
+    onError(loadError);
+  }
 }
 
 function getBackgroundParameters(mode: BasemapMode) {
@@ -1842,7 +1846,8 @@ function createVectorLayerGroup({
         source,
         sourceId,
         message: 'Vector tile layer failed',
-        details: {sourceId}
+        details: {sourceId},
+        missingIsEmpty: true
       });
     },
     onTileLoad: (tile: Parameters<NonNullable<SharedMVTLayer['props']['onTileLoad']>>[0]) => {
