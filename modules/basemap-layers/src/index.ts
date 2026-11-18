@@ -21,6 +21,11 @@ export {
   getRasterTileFingerprint
 } from './raster-tile-fingerprint';
 export type {RasterTileIndex, RasterTileResponse, RejectRasterTile} from './raster-tile-loader';
+export type {
+  BasemapResourceType,
+  BasemapTransformedRequest,
+  BasemapTransformRequest
+} from './basemap-request';
 export {GlyphStore} from './glyph-store';
 export type {GlyphStoreOptions} from './glyph-store';
 export {ProjectedBitmapLayer} from './projected-bitmap-layer';

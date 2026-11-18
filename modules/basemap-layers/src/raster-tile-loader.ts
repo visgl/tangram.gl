@@ -5,6 +5,7 @@
 import {_getURLFromTemplate as getURLFromTemplate} from '@deck.gl/geo-layers';
 import type {_TileLoadProps as TileLoadProps} from '@deck.gl/geo-layers';
 import {parse} from '@loaders.gl/core';
+import {getBasemapRequestFetch} from './basemap-request';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 
 /** The position of a tile in the tile pyramid. */
@@ -44,7 +45,7 @@ export type RasterTileLoaderOptions = {
   minZoom?: number;
   /** Tiles for which this returns `true` have no data. */
   rejectTile: RejectRasterTile;
-  /** The `fetch` and `fetchOptions` that tiles are requested with. */
+  /** The `fetch`, `fetchOptions` and `transformRequest` that tiles are requested with. */
   loadOptions?: BasemapLoadOptions;
   /** Decodes the bytes of a tile. Default: the image loader that deck.gl registers. */
   decodeImage?: (arrayBuffer: ArrayBuffer) => Promise<TileImage>;
@@ -141,7 +142,7 @@ export class RasterTileLoader {
     if (!url) {
       return null;
     }
-    const fetchFn = loadOptions?.fetch || fetch;
+    const fetchFn = getBasemapRequestFetch('Tile', loadOptions || undefined);
     const response = await fetchFn(url, {...loadOptions?.fetchOptions, signal});
     if (!response.ok) {
       throw new Error(`Failed to load raster tile: ${url} (${response.status})`);

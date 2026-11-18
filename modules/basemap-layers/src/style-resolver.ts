@@ -5,6 +5,11 @@
 import {log} from '@deck.gl/core';
 import {derefLayers} from '@maplibre/maplibre-gl-style-spec';
 import {
+  getBasemapRequestFetch,
+  type BasemapResourceType,
+  type BasemapTransformRequest
+} from './basemap-request';
+import {
   BasemapSourceSchema,
   BasemapStyleSchema,
   ResolvedBasemapStyleSchema
@@ -101,6 +106,11 @@ export type BasemapLoadOptions = {
   fetch?: typeof fetch;
   /** Optional init object passed to the selected fetch implementation. */
   fetchOptions?: RequestInit;
+  /**
+   * Changes each request before it is sent (see `BasemapTransformRequest`). `BasemapLayer` sets it
+   * from its `transformRequest` prop.
+   */
+  transformRequest?: BasemapTransformRequest | null;
   /** Additional loader options are accepted for forward compatibility. */
   [key: string]: unknown;
 } | null;
@@ -147,9 +157,16 @@ function getTileJsonTileBaseUrl(tileJsonUrl: string | undefined) {
   }
 }
 
-/** Fetches and parses a JSON resource with the `fetch` and `fetchOptions` of `loadOptions`. */
-export async function fetchJson(url: string, loadOptions?: BasemapLoadOptions) {
-  const fetchFn = loadOptions?.fetch || fetch;
+/**
+ * Fetches and parses a JSON resource with the `fetch`, `fetchOptions` and `transformRequest` of
+ * `loadOptions`.
+ */
+export async function fetchJson(
+  url: string,
+  loadOptions: BasemapLoadOptions | undefined,
+  resourceType: BasemapResourceType
+) {
+  const fetchFn = getBasemapRequestFetch(resourceType, loadOptions || undefined);
   const response = await fetchFn(url, loadOptions?.fetchOptions);
 
   if (!response.ok) {
@@ -208,7 +225,7 @@ async function resolveGeoJsonSource(
     return {...source};
   }
   const dataUrl = normalizeUrl(source.data, baseUrl) || source.data;
-  const data = await fetchJson(dataUrl, loadOptions);
+  const data = await fetchJson(dataUrl, loadOptions, 'Source');
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error(`Invalid GeoJSON: ${dataUrl}`);
   }
@@ -240,7 +257,7 @@ async function resolveSource(
 
   const tileJsonUrl = normalizeUrl(source.url, baseUrl);
   const tileJsonFields = pickTileJsonFields(
-    await fetchJson(tileJsonUrl || source.url, loadOptions)
+    await fetchJson(tileJsonUrl || source.url, loadOptions, 'Source')
   );
   const resolvedSource: BasemapSource = {
     ...tileJsonFields,
@@ -284,7 +301,9 @@ export async function resolveBasemapStyle(
   loadOptions?: BasemapLoadOptions
 ): Promise<ResolvedBasemapStyle> {
   const styleDefinition = BasemapStyleSchema.parse(
-    typeof style === 'string' ? await fetchJson(style, loadOptions) : structuredClone(style)
+    typeof style === 'string'
+      ? await fetchJson(style, loadOptions, 'Style')
+      : structuredClone(style)
   );
   const baseUrl = typeof style === 'string' ? style : loadOptions?.baseUrl;
   const resolvedSources: Record<string, BasemapSource> = {};

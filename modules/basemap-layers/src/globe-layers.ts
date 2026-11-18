@@ -9,7 +9,7 @@ import {getTileFeaturesInLngLat} from './projected-tile-data';
 import {getBasemapTilesetAdapter, ProjectedTileLayer} from './projected-tileset';
 import {
   type Color,
-  type Layer,
+  Layer,
   type LayerProps,
   type LayersList,
   type UpdateParameters,
@@ -86,6 +86,7 @@ import {
 } from './zoom-paint-extension';
 import type {BasemapGlobeConfig, BasemapLayerProps} from './basemap-layer';
 import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
+import {getBasemapLayerFetch, type BasemapTransformRequest} from './basemap-request';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {
@@ -112,6 +113,8 @@ type BasemapLayerGroup = {
   loadOptions?: BasemapLoadOptions;
   /** Loads the tiles of raster sources (see deck.gl's `fetch` layer prop). */
   fetch?: LayerProps['fetch'];
+  /** Changes each tile request before it is sent (see `BasemapLayerProps.transformRequest`). */
+  transformRequest?: BasemapTransformRequest | null;
   /** Matches the raster tiles that have no data (see `BasemapLayerProps.rejectRasterTile`). */
   rejectRasterTile?: RejectRasterTile | null;
   /**
@@ -788,6 +791,26 @@ export function getTilePyramidProps(source: BasemapSource): {
   };
 }
 
+/** deck.gl's default layer `fetch`, which loads with loaders.gl. */
+const DEFAULT_LAYER_FETCH = (Layer.defaultProps as unknown as {fetch: {value: LayerFetch}}).fetch
+  .value;
+
+/** `SharedMVTLayer`'s default `fetch`, which also loads without a deck.gl context. */
+const DEFAULT_MVT_FETCH = (SharedMVTLayer.defaultProps as unknown as {fetch: LayerFetch}).fetch;
+
+type LayerFetch = NonNullable<LayerProps['fetch']>;
+
+/**
+ * `loadOptions` with `transformRequest`, for the loaders that fetch with the basemap load options
+ * themselves: raster-dem tiles, and raster tiles with `rejectRasterTile`.
+ */
+export function withTransformRequest(
+  loadOptions: BasemapLoadOptions | undefined,
+  transformRequest: BasemapTransformRequest | null | undefined
+): BasemapLoadOptions | undefined {
+  return transformRequest ? {...loadOptions, transformRequest} : loadOptions;
+}
+
 /**
  * Creates the tileset of a `raster-dem` source: each tile is fetched and decoded once, and shared by
  * every `hillshade` layer drawn from it. `BasemapLayer` creates and finalizes these itself. Direct
@@ -813,6 +836,7 @@ function createRasterLayer({
   mode,
   loadOptions,
   fetch,
+  transformRequest,
   rejectRasterTile,
   depthTested,
   projectedMaxStretch
@@ -824,6 +848,7 @@ function createRasterLayer({
   mode: BasemapMode;
   loadOptions?: BasemapLoadOptions;
   fetch?: LayerProps['fetch'];
+  transformRequest?: BasemapTransformRequest | null;
   rejectRasterTile?: RejectRasterTile | null;
   /** Drawn after an extrusion, see `getTileParameters`. */
   depthTested?: boolean;
@@ -846,8 +871,11 @@ function createRasterLayer({
     data: source.tiles,
     ...(projectedMaxStretch === undefined ? {} : {maxStretch: projectedMaxStretch}),
     ...tilePyramidProps,
-    // Tiles load with the `fetch` and `loadOptions` of the basemap, as vector tiles do.
-    ...(fetch ? {fetch} : {}),
+    // Tiles load with the `fetch`, `loadOptions` and `transformRequest` of the basemap, as vector
+    // tiles do.
+    ...(fetch || transformRequest
+      ? {fetch: getBasemapLayerFetch(fetch || DEFAULT_LAYER_FETCH, transformRequest)}
+      : {}),
     ...(loadOptions ? {loadOptions} : {}),
     // A tile without data is drawn from its nearest ancestor that has data.
     ...(rejectRasterTile
@@ -856,7 +884,7 @@ function createRasterLayer({
             sourceId: layer.source || '',
             minZoom: tilePyramidProps.minZoom,
             rejectTile: rejectRasterTile,
-            loadOptions
+            loadOptions: withTransformRequest(loadOptions, transformRequest)
           }).getTileData
         }
       : {}),
@@ -2014,6 +2042,7 @@ export function getBasemapLayers({
   zoom = 0,
   loadOptions,
   fetch,
+  transformRequest,
   rejectRasterTile,
   spriteAtlases,
   fontFamily,
@@ -2046,6 +2075,7 @@ export function getBasemapLayers({
         config,
         loadOptions,
         fetch,
+        transformRequest,
         rejectRasterTile,
         mode,
         spriteAtlases,
@@ -3559,6 +3589,7 @@ function getStyleLayers({
   config,
   loadOptions,
   fetch,
+  transformRequest,
   rejectRasterTile,
   mode,
   spriteAtlases,
@@ -3578,6 +3609,7 @@ function getStyleLayers({
   config: BasemapLayerConfig;
   loadOptions?: BasemapLoadOptions;
   fetch?: LayerProps['fetch'];
+  transformRequest?: BasemapTransformRequest | null;
   rejectRasterTile?: RejectRasterTile | null;
   mode: BasemapMode;
   spriteAtlases?: SpriteAtlas[] | null;
@@ -3622,6 +3654,7 @@ function getStyleLayers({
         mode,
         loadOptions,
         fetch,
+        transformRequest,
         rejectRasterTile,
         depthTested: depthTested.has(layer),
         projectedMaxStretch
@@ -3635,7 +3668,11 @@ function getStyleLayers({
         owner = ownedDemTilesets.get(run.source!);
         if (!owner) {
           owner = {
-            tileset: createDemTileset(run.source!, loadOptions, projectedMaxStretch),
+            tileset: createDemTileset(
+              run.source!,
+              withTransformRequest(loadOptions, transformRequest),
+              projectedMaxStretch
+            ),
             consumers: new Set()
           };
           ownedDemTilesets.set(run.source!, owner);
@@ -3662,6 +3699,9 @@ function getStyleLayers({
         sourceLayers ??= getRunSourceLayers(allRuns);
         const loader = new SharedMVTLayer({
           data: run.source!.tiles!,
+          ...(transformRequest
+            ? {fetch: getBasemapLayerFetch(DEFAULT_MVT_FETCH, transformRequest)}
+            : {}),
           loadOptions: getSourceLoadOptions(loadOptions, sourceLayers.get(run.source!))
         });
         const ownedTileset: SharedTileset2D = new SharedTileset2D({

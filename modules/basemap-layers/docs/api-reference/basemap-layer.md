@@ -68,8 +68,47 @@ Optional loader configuration used by `resolveBasemapStyle`. This can include:
 - `baseUrl` for resolving relative URLs in in-memory styles
 - `fetch` for a custom fetch implementation
 - `fetchOptions` to customize network requests
+- `transformRequest`, for `resolveBasemapStyle` and the other loaders. `BasemapLayer` takes it as its own [`transformRequest`](#transformrequest) prop.
 
 The tiles of raster sources load with `loadOptions` and with the `fetch` prop of the layer, as vector tiles do.
+
+A style URL is fetched with the same `fetch` and `fetchOptions` as the requests it leads to.
+
+### `transformRequest`
+
+Type: `((url: string, resourceType: BasemapResourceType) => BasemapTransformedRequest | null | undefined) | null`
+
+Changes each request that the layer makes before it is sent, as MapLibre GL JS's `transformRequest` map option. The same function works in both. Use it to add an API key to each URL, or to send headers or cookies to a tile service that requires authentication.
+
+```ts
+new BasemapLayer({
+  style: 'https://tiles.example.com/style.json',
+  transformRequest: (url, resourceType) =>
+    url.startsWith('https://tiles.example.com/')
+      ? {url, headers: {Authorization: `Bearer ${token}`}}
+      : undefined
+});
+```
+
+The function receives the absolute URL, after relative URLs are resolved and after `{z}`, `{x}` and `{y}` are filled in, and the kind of resource. The resource types have the names of MapLibre GL JS's `ResourceType`:
+
+| Request | `resourceType` |
+|---|---|
+| The style, when `style` is a URL | `'Style'` |
+| The TileJSON of a source `url`, and the `data` URL of a `geojson` source | `'Source'` |
+| Vector, raster and raster-dem tiles | `'Tile'` |
+| Glyph ranges of `glyphs` | `'Glyphs'` |
+| The sprite index and the sprite image | `'SpriteJSON'`, `'SpriteImage'` |
+
+It returns the request to send: `url`, and optionally `headers`, `credentials`, `method`, `body` and `cache`. Return `undefined` or `null` to send the request as it is. `type` and `collectResourceTiming` are accepted, for MapLibre GL JS compatibility, and not used.
+
+How a request is made:
+
+1. `transformRequest` gives the URL and the request fields.
+2. The fields it returns replace those of the same name in the request, such as those of `loadOptions.fetchOptions`. `headers` are merged by name, and a header it returns replaces one of the same name. The abort signal of the request is always kept.
+3. `loadOptions.fetch` sends the request, or the global `fetch` without one. Tiles drawn through deck.gl also go through the `fetch` prop of the layer, which receives the URL that `transformRequest` returned.
+
+Relative URLs in a style or TileJSON resolve against the original URL, not the URL that `transformRequest` returned. Pass a stable function: when the function changes, the style and its tiles load again.
 
 ### `rejectRasterTile`
 

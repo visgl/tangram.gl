@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {log} from '@deck.gl/core';
+import {getBasemapRequestFetch} from './basemap-request';
 import type {BasemapLoadOptions} from './style-resolver';
 
 /** One image in a style sprite, as listed in the sprite's JSON index. */
@@ -57,7 +58,7 @@ export type SpriteLoadOptions = {
   baseUrl?: string;
   /** Device pixel ratio. At 2 or more, the `@2x` sprite is requested first. Default 1. */
   pixelRatio?: number;
-} & Pick<NonNullable<BasemapLoadOptions>, 'fetch' | 'fetchOptions'>;
+} & Pick<NonNullable<BasemapLoadOptions>, 'fetch' | 'fetchOptions' | 'transformRequest'>;
 
 /** Resolves a style's `sprite` value into sprite sources with absolute URLs. */
 export function getSpriteSources(sprite: unknown, baseUrl?: string): SpriteSource[] {
@@ -132,13 +133,13 @@ async function loadSpriteAtlas(
   source: SpriteSource,
   options: SpriteLoadOptions
 ): Promise<SpriteAtlas> {
-  const fetchFn = options.fetch || fetch;
+  const fetchJsonFn = getBasemapRequestFetch('SpriteJSON', options);
   const suffixes = (options.pixelRatio ?? 1) > 1 ? ['@2x', ''] : [''];
   let lastError: unknown;
   for (const suffix of suffixes) {
     const jsonUrl = getSpriteFileUrl(source.url, suffix, '.json');
     try {
-      const response = await fetchFn(jsonUrl, options.fetchOptions);
+      const response = await fetchJsonFn(jsonUrl, options.fetchOptions);
       if (!response.ok) {
         throw new Error(`Failed to load sprite: ${jsonUrl} (${response.status})`);
       }
@@ -147,7 +148,7 @@ async function loadSpriteAtlas(
         id: source.id,
         image: await loadSpriteImage(
           getSpriteFileUrl(source.url, suffix, '.png'),
-          fetchFn,
+          getBasemapRequestFetch('SpriteImage', options),
           options.fetchOptions
         ),
         mapping: getSpriteIconMapping(index)

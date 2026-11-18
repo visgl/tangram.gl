@@ -16,6 +16,7 @@ import {
   type UpdateParameters,
   type Viewport
 } from '@deck.gl/core';
+import {getBasemapLayerFetch, type BasemapTransformRequest} from './basemap-request';
 import {
   createDemTileset,
   getBasemapLayers,
@@ -25,7 +26,8 @@ import {
   getTilePyramidProps,
   getVectorTileLoader,
   isVectorTileSource,
-  VECTOR_TILE_ZOOM_OFFSET
+  VECTOR_TILE_ZOOM_OFFSET,
+  withTransformRequest
 } from './globe-layers';
 import {
   acquireSharedLabelPlacement,
@@ -88,6 +90,16 @@ export type BasemapLayerProps = {
   style: string | BasemapStyle | null;
   /** Load options forwarded to {@link resolveBasemapStyle}. */
   loadOptions?: Record<string, unknown> | null;
+  /**
+   * Changes each request the layer makes before it is sent, as MapLibre GL JS's `transformRequest`
+   * map option: the style, TileJSON, GeoJSON data, vector, raster and raster-dem tiles, sprites and
+   * glyphs. It receives the absolute URL and the resource type (see `BasemapResourceType`), and
+   * returns the URL to request, with `headers`, `credentials`, `method`, `body` or `cache`, or
+   * nothing to send the request as it is. The request is then sent with `loadOptions.fetch`.
+   * Fields it returns replace those of `loadOptions.fetchOptions`; headers merge by name. Pass a
+   * stable function: the style and its tiles load again when it changes.
+   */
+  transformRequest?: BasemapTransformRequest | null;
   /** Selects whether deck layers are generated for a flat map or a globe. */
   mode?: 'map' | 'globe';
   /** Optional globe-specific configuration used when `mode` is `'globe'`. */
@@ -189,6 +201,8 @@ type BasemapLayerState = {
   tileMaxStretch: number | null;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
+  /** The `transformRequest` the current source caches request tiles with. */
+  tileTransformRequest: BasemapTransformRequest | null;
 };
 
 /**
@@ -219,6 +233,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     },
     style: null,
     loadOptions: null,
+    transformRequest: null,
     fontFamily: null,
     rejectRasterTile: null,
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
@@ -243,6 +258,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tileLoadOptions: null,
       tileMaxStretch: null,
       tileFetch: null,
+      tileTransformRequest: null,
       spriteAtlases: null,
       glyphs: null
     };
@@ -288,9 +304,10 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     if (
       changeFlags.dataChanged ||
       props.style !== oldProps.style ||
-      props.loadOptions !== oldProps.loadOptions
+      props.loadOptions !== oldProps.loadOptions ||
+      props.transformRequest !== oldProps.transformRequest
     ) {
-      this.loadStyle(props.style, props.loadOptions);
+      this.loadStyle(props.style, props.loadOptions, props.transformRequest);
     }
   }
 
@@ -300,8 +317,14 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
    */
   loadStyle(
     style: BasemapLayerProps['style'],
-    loadOptions: BasemapLayerProps['loadOptions']
+    layerLoadOptions: BasemapLayerProps['loadOptions'],
+    transformRequest?: BasemapTransformRequest | null
   ): void {
+    // The load options of the requests the layer makes itself, with `transformRequest`.
+    const loadOptions = withTransformRequest(
+      (layerLoadOptions || undefined) as BasemapLoadOptions | undefined,
+      transformRequest
+    ) as BasemapLayerProps['loadOptions'];
     if (!style) {
       const loadToken = this.state.loadToken + 1;
       logBasemapLayerEvent('Clearing basemap style');
@@ -371,15 +394,12 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       this.setState({spriteAtlases: []});
       return;
     }
-    const options = (loadOptions || {}) as {
-      baseUrl?: string;
-      fetch?: typeof fetch;
-      fetchOptions?: RequestInit;
-    };
+    const options = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
     loadSpriteAtlases(resolvedStyle.sprite, {
       baseUrl: typeof style === 'string' ? style : options.baseUrl,
       fetch: options.fetch,
       fetchOptions: options.fetchOptions,
+      transformRequest: options.transformRequest,
       pixelRatio: typeof devicePixelRatio === 'number' ? devicePixelRatio : 1
     }).then(spriteAtlases => {
       if (this.state.loadToken === loadToken) {
@@ -434,6 +454,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
   }
 
   private updateSourceTilesets(style: ResolvedBasemapStyle): void {
+    const {transformRequest = null} = this.props;
     const sources = new Set(
       Object.values(style.sources || {}).filter(source => isVectorTileSource(source))
     );
@@ -446,6 +467,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     const optionsChanged =
       this.state.tileLoadOptions !== this.props.loadOptions ||
       this.state.tileFetch !== this.props.fetch ||
+      this.state.tileTransformRequest !== transformRequest ||
       this.state.tileMaxStretch !== this.props.projectedMaxStretch;
     // Tiles decode only the source layers the style draws: a style edit or a labels toggle that
     // changes the layers the loader decodes reloads the source's tiles.
@@ -472,13 +494,14 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     }
     this.state.tileLoadOptions = this.props.loadOptions;
     this.state.tileFetch = this.props.fetch;
+    this.state.tileTransformRequest = transformRequest;
     this.state.tileMaxStretch = this.props.projectedMaxStretch ?? null;
     for (const source of sources) {
       if (!this.state.tilesets.has(source)) {
         const loader = new SharedMVTLayer({
           id: `${this.id}-loader`,
           data: source.tiles!,
-          fetch: this.props.fetch,
+          fetch: getBasemapLayerFetch(this.props.fetch, transformRequest),
           loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
         });
         loader.context = this.context;
@@ -496,7 +519,11 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     }
     for (const source of demSources) {
       if (!this.state.tilesets.has(source)) {
-        const tileset = createDemTileset(source, this.props.loadOptions, this.props.projectedMaxStretch);
+        const tileset = createDemTileset(
+          source,
+          withTransformRequest(this.props.loadOptions as BasemapLoadOptions, transformRequest),
+          this.props.projectedMaxStretch
+        );
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
       }
@@ -534,6 +561,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       zoom,
       loadOptions: this.props.loadOptions,
       fetch: this.props.fetch,
+      transformRequest: this.props.transformRequest,
       rejectRasterTile: this.props.rejectRasterTile,
       spriteAtlases: this.state.spriteAtlases,
       fontFamily: this.props.fontFamily,
@@ -557,7 +585,7 @@ async function loadStyleUrl(
   loadOptions: BasemapLayerProps['loadOptions']
 ): Promise<ResolvedBasemapStyle> {
   const options = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
-  const style = (await fetchJson(url, options)) as BasemapStyle;
+  const style = (await fetchJson(url, options, 'Style')) as BasemapStyle;
   return resolveBasemapStyle(style, {...options, baseUrl: options.baseUrl || url});
 }
 
@@ -574,15 +602,12 @@ function getGlyphStore(
   if (typeof url !== 'string' || !url) {
     return null;
   }
-  const options = (loadOptions || {}) as {
-    baseUrl?: string;
-    fetch?: typeof fetch;
-    fetchOptions?: RequestInit;
-  };
+  const options = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
   return new GlyphStore({
     url,
     baseUrl: typeof style === 'string' ? style : options.baseUrl,
     fetch: options.fetch,
-    fetchOptions: options.fetchOptions
+    fetchOptions: options.fetchOptions,
+    transformRequest: options.transformRequest
   });
 }
