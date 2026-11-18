@@ -148,7 +148,7 @@ describe('querySourceFeaturesInTiles', () => {
     ];
     const features = querySourceFeaturesInTiles(tiles, 'carto', VECTOR, {sourceLayer: 'place'});
     expect(features.map(f => f.tile)).toEqual([{x: 1, y: 1, z: 1}]);
-    expect(features[0].geometry.coordinates[0]).toBeCloseTo(90, 9);
+    expect((features[0].geometry.coordinates as number[])[0]).toBeCloseTo(90, 9);
   });
 
   test('a feature in two tiles is returned once per tile, as in MapLibre', () => {
