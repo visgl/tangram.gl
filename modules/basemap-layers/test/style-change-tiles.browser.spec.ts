@@ -286,3 +286,94 @@ describe('a new style object', () => {
     expect(requests.tiles.length).toBeGreaterThan(tiles);
   }, 60_000);
 });
+
+/** The first frame drawn after the style changes to `style`. */
+async function frameAfterUpdate(style: unknown, props: ReturnType<typeof createProps>) {
+  const frame = nextFrame();
+  deck!.setProps({layers: [createLayer(style, props)]});
+  return countColors(await frame);
+}
+
+describe('a style update', () => {
+  /** The style, with a blue copy of the water drawn before (under) the red water. */
+  function layeredStyle(): any {
+    const style = createStyle();
+    const water = style.layers[1];
+    style.layers.splice(1, 0, {...water, id: 'water-under', paint: {'fill-color': '#0000ff'}});
+    return style;
+  }
+
+  test('draws a new paint value in the first frame after it, with no request', async () => {
+    const requests: Requests = {resources: [], tiles: []};
+    const props = createProps(requests);
+    createDeck(createLayer(createStyle(), props));
+    await settledFrame();
+    const counts = [requests.resources.length, requests.tiles.length];
+
+    const colors = await frameAfterUpdate(createStyle({water: '#0000ff'}), props);
+    expect(colors.blue).toBeGreaterThan(1000);
+    expect(colors.red).toBe(0);
+    expect([requests.resources.length, requests.tiles.length]).toEqual(counts);
+  }, 60_000);
+
+  test('applies a new filter in the first frame after it, with no request', async () => {
+    const requests: Requests = {resources: [], tiles: []};
+    const props = createProps(requests);
+    createDeck(createLayer(createStyle(), props));
+    expect(countColors(await settledFrame()).red).toBeGreaterThan(1000);
+    const counts = [requests.resources.length, requests.tiles.length];
+
+    const style = createStyle();
+    style.layers[1].filter = ['==', ['get', 'kind'], 'lake'];
+    expect((await frameAfterUpdate(style, props)).red).toBe(0);
+    expect([requests.resources.length, requests.tiles.length]).toEqual(counts);
+  }, 60_000);
+
+  test('applies a new visibility and layer order in the first frame after it', async () => {
+    const requests: Requests = {resources: [], tiles: []};
+    const props = createProps(requests);
+    createDeck(createLayer(layeredStyle(), props));
+    const colors = countColors(await settledFrame());
+    expect([colors.red > 1000, colors.blue]).toEqual([true, 0]);
+    const counts = [requests.resources.length, requests.tiles.length];
+
+    const reordered = layeredStyle();
+    reordered.layers.push(...reordered.layers.splice(1, 1));
+    const over = await frameAfterUpdate(reordered, props);
+    expect([over.blue > 1000, over.red]).toEqual([true, 0]);
+
+    const hidden = layeredStyle();
+    hidden.layers[2].layout = {visibility: 'none'};
+    const under = await frameAfterUpdate(hidden, props);
+    expect([under.blue > 1000, under.red]).toEqual([true, 0]);
+    expect([requests.resources.length, requests.tiles.length]).toEqual(counts);
+  }, 60_000);
+
+  test('keeps the style layers that did not change, and their sources', async () => {
+    const requests: Requests = {resources: [], tiles: []};
+    const props = createProps(requests);
+    createDeck(createLayer(createStyle(), props));
+    await settledFrame();
+    const before = getBasemapState().resolvedStyle;
+
+    await frameAfterUpdate(createStyle({water: '#0000ff'}), props);
+    const after = getBasemapState().resolvedStyle;
+    expect(after).not.toBe(before);
+    expect(after.layers[0]).toBe(before.layers[0]);
+    expect(after.layers[1]).not.toBe(before.layers[1]);
+    expect(after.sources).toBe(before.sources);
+  }, 60_000);
+});
+
+test('a style changed in place and given as a shallow copy draws the change', async () => {
+  const requests: Requests = {resources: [], tiles: []};
+  const props = createProps(requests);
+  const style = createStyle();
+  createDeck(createLayer(style, props));
+  expect(countColors(await settledFrame()).red).toBeGreaterThan(1000);
+
+  style.layers[1].paint['fill-color'] = '#0000ff';
+  deck!.setProps({layers: [createLayer({...style}, props)]});
+  const colors = countColors(await settledFrame());
+  expect([colors.blue > 1000, colors.red]).toEqual([true, 0]);
+}, 60_000);

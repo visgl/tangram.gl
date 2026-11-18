@@ -84,6 +84,13 @@ its tiles and its decoded data. The sprites and the glyphs keep their loaded ima
 URLs do not change. A source is decoded again when the style draws a different set of its source
 layers. A new `loadOptions` object loads everything again.
 
+A new style object is compared with the previous one by `diff` from
+`@maplibre/maplibre-gl-style-spec`, as in MapLibre GL JS. When only paint or layout values,
+filters, zoom ranges, the order of the layers or other values that load nothing change, the new
+style applies in the same update, without a load, and the next frame draws it. A change of a
+source, the sprite or the glyphs loads the style as above. Give a new style object for each
+change: the same object again does nothing, also when it was changed in place.
+
 ### `mode`
 
 Type: `'map' | 'globe'`

@@ -17,6 +17,7 @@ import {
   type Viewport
 } from '@deck.gl/core';
 import {load} from '@loaders.gl/core';
+import {derefLayers, diff, type StyleSpecification} from '@maplibre/maplibre-gl-style-spec';
 import {
   createDemTileset,
   getBasemapLayers,
@@ -36,6 +37,7 @@ import {
   releaseSharedLabelPlacement
 } from './label-placement';
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
+import {BasemapStyleSchema, ResolvedBasemapStyleSchema} from './map-style-schema';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
 import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
@@ -166,6 +168,13 @@ type BasemapLayerState = {
   sharedLabelPlacementKey: object | null;
   /** The fully resolved style definition currently backing the generated sublayers. */
   resolvedStyle: ResolvedBasemapStyle | null;
+  /** The `style` prop that `resolvedStyle` was made from. */
+  styleInput: BasemapLayerProps['style'];
+  /**
+   * A copy of `styleInput` when it is an object, as it was when it was read. A style changed in
+   * place is compared with this copy.
+   */
+  styleSnapshot: BasemapStyle | null;
   /** The most recent style-resolution error, if one occurred. */
   loadError: Error | null;
   /** Monotonic token used to discard stale async style loads. */
@@ -243,6 +252,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       labelPlacement: null,
       sharedLabelPlacementKey: null,
       resolvedStyle: null,
+      styleInput: null,
+      styleSnapshot: null,
       loadError: null,
       loadToken: 0,
       zoomKey: null,
@@ -302,8 +313,46 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       props.style !== oldProps.style ||
       props.loadOptions !== oldProps.loadOptions
     ) {
-      this.loadStyle(props.style, props.loadOptions);
+      const updated =
+        !changeFlags.dataChanged &&
+        props.loadOptions === oldProps.loadOptions &&
+        oldProps.style === this.state.styleInput &&
+        this.updateStyleByDiff(props.style);
+      if (!updated) {
+        this.loadStyle(props.style, props.loadOptions);
+      }
     }
+  }
+
+  /**
+   * Applies a new style object as MapLibre GL JS's `setStyle(style, {diff: true})` applies it. A
+   * change that loads nothing, such as a paint or layout value, a filter, a zoom range or the order
+   * of the layers, makes a new resolved style with the sources of the current one, in this update.
+   * Returns false when the style must load: a source, the sprite or the glyphs changed, or the
+   * styles cannot be compared.
+   */
+  private updateStyleByDiff(style: BasemapLayerProps['style']): boolean {
+    const {resolvedStyle, styleSnapshot} = this.state;
+    if (!resolvedStyle || !styleSnapshot || !isStyleObject(style)) {
+      return false;
+    }
+    const snapshot = copyStyle(style);
+    let commands: ReturnType<typeof diff>;
+    try {
+      commands = diff(styleSnapshot as StyleSpecification, snapshot as StyleSpecification);
+    } catch {
+      return false;
+    }
+    if (commands.some(({command}) => LOADING_DIFF_COMMANDS.has(command))) {
+      return false;
+    }
+    const updatedStyle = commands.length ? getUpdatedStyle(snapshot, resolvedStyle) : resolvedStyle;
+    if (!updatedStyle) {
+      return false;
+    }
+    logBasemapLayerEvent('Updated basemap style', {commands: commands.length});
+    this.setState({resolvedStyle: updatedStyle, styleInput: style, styleSnapshot: snapshot});
+    return true;
   }
 
   /**
@@ -320,6 +369,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       this.clearSourceTilesets();
       this.setState({
         resolvedStyle: null,
+        styleInput: null,
+        styleSnapshot: null,
         loadError: null,
         loadToken,
         spriteAtlases: null,
@@ -330,6 +381,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
     const loadToken = this.state.loadToken + 1;
     this.setState({loadToken});
+    const styleJson = isStyleObject(style) ? JSON.stringify(style) : null;
+    const styleSnapshot: BasemapStyle | null = styleJson ? JSON.parse(styleJson) : null;
     if (loadOptions !== this.state.styleLoadOptions) {
       this.state.sourceCache = new Map();
     }
@@ -343,7 +396,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       typeof style === 'string'
         ? load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions, sourceCache))
         : MapStyleLoader.parse(
-            new TextEncoder().encode(JSON.stringify(style)).buffer,
+            new TextEncoder().encode(styleJson!).buffer,
             getMapStyleLoaderOptions(loadOptions, sourceCache)
           )
     )
@@ -363,6 +416,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
           const keepGlyphs = sameOptions && glyphs?.url === this.state.glyphs?.url;
           this.setState({
             resolvedStyle,
+            styleInput: style,
+            styleSnapshot,
             loadError: null,
             styleLoadOptions: loadOptions,
             glyphs: keepGlyphs ? this.state.glyphs : glyphs
@@ -374,7 +429,12 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
         if (this.state.loadToken === loadToken) {
           logBasemapLayerError('Failed to resolve basemap style', error);
           this.clearSourceTilesets();
-          this.setState({resolvedStyle: null, loadError: error});
+          this.setState({
+            resolvedStyle: null,
+            styleInput: null,
+            styleSnapshot: null,
+            loadError: error
+          });
         }
       });
   }
@@ -579,6 +639,60 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       projectedMaxStretch: this.props.projectedMaxStretch
     });
   }
+}
+
+/** Diff commands that load a source, the sprite or the glyphs (see `diff`). */
+const LOADING_DIFF_COMMANDS = new Set([
+  'setStyle',
+  'addSource',
+  'removeSource',
+  'setGeoJSONSourceData',
+  'setSprite',
+  'setGlyphs'
+]);
+
+function isStyleObject(style: BasemapLayerProps['style']): style is BasemapStyle {
+  return Boolean(style) && typeof style === 'object';
+}
+
+/** A copy of a style object, as `loadStyle` reads it: through JSON. */
+function copyStyle(style: BasemapStyle): BasemapStyle {
+  return JSON.parse(JSON.stringify(style));
+}
+
+/**
+ * A copy of a style (see `copyStyle`) resolved with the sources of `current`, or null if it is not
+ * valid. A style layer that did not change keeps its object, and with it the caches of its paint
+ * and filters.
+ */
+function getUpdatedStyle(
+  style: BasemapStyle,
+  current: ResolvedBasemapStyle
+): ResolvedBasemapStyle | null {
+  const {sources: _sources, ...definition} = style;
+  const parsed = BasemapStyleSchema.safeParse(definition);
+  if (!parsed.success) {
+    return null;
+  }
+  const resolved = ResolvedBasemapStyleSchema.safeParse({
+    ...parsed.data,
+    sources: {},
+    layers: derefLayers([...(parsed.data.layers || [])] as Parameters<typeof derefLayers>[0])
+  });
+  if (!resolved.success) {
+    return null;
+  }
+  const currentLayers = new Map(current.layers.map(layer => [layer.id, layer]));
+  return {
+    ...resolved.data,
+    sources: current.sources,
+    layers: resolved.data.layers.map(layer => {
+      const currentLayer = currentLayers.get(layer.id);
+      return currentLayer && getSourceKey(currentLayer) === getSourceKey(layer)
+        ? currentLayer
+        : layer;
+    })
+  };
 }
 
 /**
