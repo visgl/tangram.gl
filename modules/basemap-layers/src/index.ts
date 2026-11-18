@@ -12,6 +12,7 @@ export {
   getGlobeBaseLayers,
   getGlobeTopLayers
 } from './globe-layers';
+export type {StyleLayerSubLayerProps} from './globe-layers';
 export {getSpriteIconMapping, getSpriteSources, loadSpriteAtlases} from './sprite';
 export type {SpriteAtlas, SpriteIconMappingEntry, SpriteSource} from './sprite';
 export {getLabelFont} from './text-font';

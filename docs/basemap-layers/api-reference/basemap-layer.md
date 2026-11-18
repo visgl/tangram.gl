@@ -122,6 +122,39 @@ Optional globe-specific toggles:
 - `basemap`: enable the main globe basemap geometry
 - `labels`: enable symbol-label rendering on the globe path
 
+### `getStyleLayerProps`
+
+Type: `((styleLayer: ResolvedBasemapStyleLayer) => StyleLayerSubLayerProps | null) | null`
+
+Gives extra deck.gl props to the sublayers that draw one style layer. Return `null` for a style layer that needs none. Defaults to `null`. Use it to:
+
+- mask only the roads with `MaskExtension`
+- filter only the fills with `DataFilterExtension`
+- hide one style layer in one deck with `visible: false`
+
+```ts
+import {MaskExtension} from '@deck.gl/extensions';
+
+const mask = new MaskExtension();
+
+new BasemapLayer({
+  style,
+  getStyleLayerProps: styleLayer =>
+    styleLayer.type === 'line' ? {extensions: [mask], maskId: 'data-mask'} : null
+});
+```
+
+The layer calls the function one time for each style layer when the style or the function changes, not for each tile. Pass a stable function: the tiles regenerate when it changes.
+
+- `extensions` are added after the sublayer's own extensions.
+- `updateTriggers` are merged with the sublayer's own triggers.
+- `id` and `data` are ignored.
+- Other props replace the sublayer's own value.
+
+The props go to the fill, line, circle, extrusion and label sublayers of each tile, and to the layer of a background, raster or hillshade style layer. A fill or line style layer with extra props draws in a sublayer of its own: it does not share a sublayer with its neighbors in the style. A style layer that the function gives props for can thus cost one more draw call for each tile.
+
+The function receives the resolved style layer. Select style layers by `id`, `type`, `source` or `source-layer`, not by the deck.gl ids of the sublayers: those change when the style changes. The deck.gl form of this prop for other composite layers is `_subLayerProps`, keyed by sublayer id.
+
 ## Projected views
 
 `BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, and `mode` stays `'map'`.

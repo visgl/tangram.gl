@@ -23,10 +23,13 @@ import {
   getSourceLoadOptions,
   getStyleDefinitionZoomLimits,
   getStyleSourceLayers,
+  getStyleLayerPropsMap,
   getTilePyramidProps,
   getVectorTileLoader,
   isVectorTileSource,
-  VECTOR_TILE_ZOOM_OFFSET
+  VECTOR_TILE_ZOOM_OFFSET,
+  type StyleLayerPropsMap,
+  type StyleLayerSubLayerProps
 } from './globe-layers';
 import {
   acquireSharedLabelPlacement,
@@ -38,7 +41,7 @@ import {
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
-import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
+import type {BasemapStyle, ResolvedBasemapStyle, ResolvedBasemapStyleLayer} from './style-resolver';
 import {GlyphStore} from './glyph-store';
 import {loadSpriteAtlases} from './sprite';
 import type {SpriteAtlas} from './sprite';
@@ -135,6 +138,17 @@ export type BasemapLayerProps = {
    * function: raster tiles reload when it changes. See `createRasterTileFingerprintFilter`.
    */
   rejectRasterTile?: RejectRasterTile | null;
+  /**
+   * Extra deck.gl props for the sublayers that draw one style layer, or null for none: for example
+   * `extensions` and their props for the roads only. Called for each style layer when the style or
+   * the function changes, not for each tile. `extensions` are added after the sublayer's own and
+   * `updateTriggers` are merged with its own; `id` and `data` are ignored. A fill or line layer
+   * with extra props draws in a sublayer of its own, not batched with its neighbors. Pass a
+   * stable function: the tiles regenerate when it changes.
+   */
+  getStyleLayerProps?:
+    | ((styleLayer: ResolvedBasemapStyleLayer) => StyleLayerSubLayerProps | null | undefined)
+    | null;
 };
 
 const fractionalZoomLimitsCache = new WeakMap<ResolvedBasemapStyle, number[]>();
@@ -190,6 +204,12 @@ type BasemapLayerState = {
   tileMaxStretch: number | null;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
+  /** The extra sublayer props of each style layer, and the style and function they came from. */
+  styleLayerProps: {
+    style: ResolvedBasemapStyle;
+    getStyleLayerProps: BasemapLayerProps['getStyleLayerProps'];
+    value: StyleLayerPropsMap | null;
+  } | null;
 };
 
 /**
@@ -222,6 +242,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     loadOptions: null,
     fontFamily: null,
     rejectRasterTile: null,
+    getStyleLayerProps: null,
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
     separateLabelPlacement: false,
     projectedMaxStretch: DEFAULT_MAX_STRETCH
@@ -245,8 +266,24 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tileMaxStretch: null,
       tileFetch: null,
       spriteAtlases: null,
-      glyphs: null
+      glyphs: null,
+      styleLayerProps: null
     };
+  }
+
+  /**
+   * The extra sublayer props of each style layer of `style` (see `getStyleLayerProps`), computed
+   * once per style and function.
+   */
+  private getStyleLayerPropsMap(style: ResolvedBasemapStyle): StyleLayerPropsMap | null {
+    const {getStyleLayerProps} = this.props;
+    const cached = this.state.styleLayerProps;
+    if (cached?.style === style && cached.getStyleLayerProps === getStyleLayerProps) {
+      return cached.value;
+    }
+    const value = getStyleLayerPropsMap(style, getStyleLayerProps ?? null);
+    this.state.styleLayerProps = {style, getStyleLayerProps, value};
+    return value;
   }
 
   /**
@@ -543,7 +580,8 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       labelPlacement: this.getLabelPlacement(),
       tilesets: this.state.tilesets,
       projected: isProjectedViewport(viewport),
-      projectedMaxStretch: this.props.projectedMaxStretch
+      projectedMaxStretch: this.props.projectedMaxStretch,
+      styleLayerProps: this.getStyleLayerPropsMap(resolvedStyle)
     });
   }
 }

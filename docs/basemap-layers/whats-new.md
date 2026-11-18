@@ -8,6 +8,7 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
+- `BasemapLayer`'s new `getStyleLayerProps` prop gives extra deck.gl props, such as `extensions` and their props, to the sublayers of one style layer: for example, mask only the roads. It is called for each style layer when the style or the function changes, not for each tile.
 - `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
 - `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
 - `text-rotate` turns point labels clockwise, per feature, as MapLibre GL JS turns them: about the point, with their `text-anchor` and `text-offset`. They collide with the box around the turned text.

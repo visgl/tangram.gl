@@ -10,6 +10,7 @@ import {getBasemapTilesetAdapter, ProjectedTileLayer} from './projected-tileset'
 import {
   type Color,
   type Layer,
+  type LayerExtension,
   type LayerProps,
   type LayersList,
   type UpdateParameters,
@@ -138,7 +139,69 @@ type BasemapLayerGroup = {
    * `ProjectedTileSelectionOptions.maxStretch`). It applies to the tilesets these layers create.
    */
   projectedMaxStretch?: number;
+  /**
+   * Extra deck.gl props for the sublayers of some style layers, by style layer (see
+   * `BasemapLayerProps.getStyleLayerProps` and `getStyleLayerPropsMap`). Compared by identity:
+   * the tiles regenerate when it changes.
+   */
+  styleLayerProps?: StyleLayerPropsMap | null;
 };
+
+/**
+ * Extra deck.gl props for the sublayers that draw one style layer. `extensions` are added after
+ * the sublayer's own, and `updateTriggers` are merged with the sublayer's own. `id` and `data`
+ * are ignored.
+ */
+export type StyleLayerSubLayerProps = Partial<LayerProps> & {
+  extensions?: LayerExtension[];
+  updateTriggers?: Record<string, unknown>;
+  [key: string]: unknown;
+};
+
+/** Extra sublayer props by style layer; style layers without extra props have no entry. */
+export type StyleLayerPropsMap = ReadonlyMap<BasemapStyleLayer, StyleLayerSubLayerProps>;
+
+/**
+ * The extra sublayer props of each style layer of `styleDefinition`, from `getProps`, or null when
+ * no style layer has any.
+ */
+export function getStyleLayerPropsMap(
+  styleDefinition: ResolvedBasemapStyle,
+  getProps: ((styleLayer: BasemapStyleLayer) => StyleLayerSubLayerProps | null | undefined) | null
+): StyleLayerPropsMap | null {
+  if (!getProps) {
+    return null;
+  }
+  const map = new Map<BasemapStyleLayer, StyleLayerSubLayerProps>();
+  for (const styleLayer of styleDefinition.layers || []) {
+    const props = getProps(styleLayer);
+    if (props) {
+      map.set(styleLayer, props);
+    }
+  }
+  return map.size > 0 ? map : null;
+}
+
+/**
+ * `layers`, the sublayers of one style layer, with its extra props (see
+ * `StyleLayerSubLayerProps`). Without extra props, `layers` is returned as it is.
+ */
+function withStyleLayerProps<T>(layers: T, props: StyleLayerSubLayerProps | undefined): T {
+  if (!props || !layers) {
+    return layers;
+  }
+  if (Array.isArray(layers)) {
+    return layers.map(layer => withStyleLayerProps(layer, props)) as T;
+  }
+  const layer = layers as unknown as Layer;
+  const {id: _id, data: _data, extensions, updateTriggers, ...rest} = props;
+  const ownProps = layer.props as {extensions?: LayerExtension[]; updateTriggers?: object};
+  return layer.clone({
+    ...rest,
+    ...(extensions?.length ? {extensions: [...(ownProps.extensions || []), ...extensions]} : {}),
+    ...(updateTriggers ? {updateTriggers: {...ownProps.updateTriggers, ...updateTriggers}} : {})
+  }) as unknown as T;
+}
 
 /**
  * Style layers that draw together, in style order: a background, raster or hillshade layer on its
@@ -1742,7 +1805,8 @@ function createVectorLayerGroup({
   spriteAtlases,
   fontFamily,
   glyphs,
-  labelPlacement
+  labelPlacement,
+  styleLayerProps
 }: {
   idPrefix: string;
   id: string;
@@ -1769,6 +1833,8 @@ function createVectorLayerGroup({
   glyphs?: GlyphStore | null;
   /** The label placement shared by the map's label layers (see `LabelPlacement`). */
   labelPlacement?: LabelPlacement | null;
+  /** Extra sublayer props by style layer; tiles regenerate when it changes. */
+  styleLayerProps?: StyleLayerPropsMap | null;
 }) {
   const filterSnapshots = new FilterSnapshots();
 
@@ -1819,7 +1885,8 @@ function createVectorLayerGroup({
         spriteAtlases,
         fontFamily,
         glyphs,
-        labelPlacement
+        labelPlacement,
+        styleLayerProps
       ]
     },
     renderLabelLayers: ((tilesByStyleLayer, getSubLayerProps, hidden) =>
@@ -1829,7 +1896,7 @@ function createVectorLayerGroup({
         if (!styleLayer) {
           return [];
         }
-        return createSymbolSubLayer({
+        const labelLayer = createSymbolSubLayer({
           props: {
             ...getSubLayerProps(`labels-${JSON.stringify(styleLayer.id)}`),
             // A label layer kept without features (see `renderViewLabelLayers`) is not drawn.
@@ -1851,6 +1918,7 @@ function createVectorLayerGroup({
           glyphs,
           labelPlacement
         });
+        return withStyleLayerProps(labelLayer, styleLayerProps?.get(styleLayer));
       })) as RenderLabelLayers,
     renderSubLayers: (props: Parameters<SharedMVTLayer['renderSubLayers']>[0]) => {
       const styleProps = props as typeof props & {
@@ -1873,12 +1941,18 @@ function createVectorLayerGroup({
       let batchIndex = 0;
       const flush = () => {
         if (batch.length > 0) {
+          // A style layer with extra props draws alone (see below).
+          const ownProps =
+            batch.length === 1 ? styleLayerProps?.get(batch[0].styleLayer) : undefined;
           layers.push(
-            createGeometrySubLayer({
-              props: {...props, [STYLE_LAYER_INDEX]: batchIndex},
-              styles: batch,
-              mode
-            })
+            withStyleLayerProps(
+              createGeometrySubLayer({
+                props: {...props, [STYLE_LAYER_INDEX]: batchIndex},
+                styles: batch,
+                mode
+              }),
+              ownProps
+            )
           );
           batch = [];
         }
@@ -1935,7 +2009,11 @@ function createVectorLayerGroup({
             // buffers overlap a tile's later style layer would draw under a neighbour's earlier one.
             // A highlight colors one object of a sublayer: in a batch, a feature drawn by two
             // style layers would be highlighted only under the second one's copy.
-            const key = mode === 'globe' || highlights ? null : getBatchKey(style);
+            // A style layer with extra props draws in a sublayer of its own, which takes them.
+            const key =
+              mode === 'globe' || highlights || styleLayerProps?.has(styleLayer)
+                ? null
+                : getBatchKey(style);
             if (!canBatch(batch, style, key)) {
               flush();
               batchIndex = styleLayerIndex;
@@ -1954,27 +2032,26 @@ function createVectorLayerGroup({
           return;
         }
         flush();
-        layers.push(
-          createStyledVectorSubLayer({
-            idPrefix,
-            sourceId,
-            styleLayer,
-            features: layerFeatures,
-            props: {...props, [STYLE_LAYER_INDEX]: styleLayerIndex},
-            zoom,
-            config,
-            mode,
-            depthTested,
-            collisionPriorityRange: labelPriorityRanges?.get(styleLayer),
-            spriteAtlases,
-            loadOptions,
-            fontFamily,
-            glyphs,
-            labelPlacement,
-            light: getFillExtrusionLight(styleDefinition, zoom),
-            lineMetrics: source.type === 'geojson' && Boolean(source.lineMetrics)
-          })
-        );
+        const sublayers = createStyledVectorSubLayer({
+          idPrefix,
+          sourceId,
+          styleLayer,
+          features: layerFeatures,
+          props: {...props, [STYLE_LAYER_INDEX]: styleLayerIndex},
+          zoom,
+          config,
+          mode,
+          depthTested,
+          collisionPriorityRange: labelPriorityRanges?.get(styleLayer),
+          spriteAtlases,
+          loadOptions,
+          fontFamily,
+          glyphs,
+          labelPlacement,
+          light: getFillExtrusionLight(styleDefinition, zoom),
+          lineMetrics: source.type === 'geojson' && Boolean(source.lineMetrics)
+        });
+        layers.push(withStyleLayerProps(sublayers, styleLayerProps?.get(styleLayer)));
       });
       flush();
 
@@ -2021,7 +2098,8 @@ export function getBasemapLayers({
   labelPlacement,
   tilesets,
   projected,
-  projectedMaxStretch
+  projectedMaxStretch,
+  styleLayerProps
 }: BasemapLayerGroup) {
   const config = getConfig(globe);
   const styleLayers = (styleDefinition.layers || []).filter(layer =>
@@ -2054,7 +2132,8 @@ export function getBasemapLayers({
         labelPlacement,
         tilesets,
         projected,
-        projectedMaxStretch
+        projectedMaxStretch,
+        styleLayerProps
       })
     );
   }
@@ -3567,10 +3646,12 @@ function getStyleLayers({
   labelPlacement,
   tilesets,
   projected,
-  projectedMaxStretch
+  projectedMaxStretch,
+  styleLayerProps
 }: {
   projected?: boolean;
   projectedMaxStretch?: number;
+  styleLayerProps?: StyleLayerPropsMap | null;
   idPrefix: string;
   styleLayers: BasemapStyleLayer[];
   styleDefinition: ResolvedBasemapStyle;
@@ -3608,7 +3689,7 @@ function getStyleLayers({
   const ownedTilesets = new Map<BasemapSource, SourceTilesetOwner>();
   const ownedDemTilesets = new Map<BasemapSource, DemTilesetOwner>();
   let sourceLayers: Map<BasemapSource, string[] | null> | undefined;
-  return runs.map(run => {
+  const createRunLayer = (run: StyleLayerRun) => {
     const [layer] = run.styleLayers;
     if (run.type === 'background') {
       return createBackgroundLayer({idPrefix, layer, zoom, mode, projected});
@@ -3695,9 +3776,18 @@ function getStyleLayers({
       spriteAtlases,
       fontFamily,
       glyphs,
-      labelPlacement
+      labelPlacement,
+      styleLayerProps
     });
-  });
+  };
+  // A background, raster or hillshade run draws one style layer, in one layer that takes its
+  // extra props. A vector run gives them to the sublayers of each of its style layers.
+  return runs.map(run =>
+    withStyleLayerProps(
+      createRunLayer(run),
+      run.type === 'vector' ? undefined : styleLayerProps?.get(run.styleLayers[0])
+    )
+  );
 }
 
 function getGlobePreLayers({
