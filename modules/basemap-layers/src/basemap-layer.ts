@@ -8,7 +8,7 @@ import {isGlobeViewport} from './is-globe-viewport';
 import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
-import type {BasemapSource} from './style-resolver';
+import {getSourceKey, type BasemapSource} from './style-resolver';
 import {
   CompositeLayer,
   log,
@@ -40,7 +40,7 @@ import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
 import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
 import {GlyphStore} from './glyph-store';
-import {loadSpriteAtlases} from './sprite';
+import {getSpriteSources, loadSpriteAtlases} from './sprite';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {RejectRasterTile} from './raster-tile-loader';
@@ -60,11 +60,10 @@ function logBasemapLayerError(message: string, error: Error): void {
 }
 
 function getMapStyleLoaderOptions(
-  loadOptions: BasemapLayerProps['loadOptions']
+  loadOptions: BasemapLayerProps['loadOptions'],
+  sourceCache: Map<string, BasemapSource>
 ): MapStyleLoaderOptions {
-  return {
-    mapStyle: (loadOptions || undefined) as NonNullable<MapStyleLoaderOptions['mapStyle']>
-  };
+  return {mapStyle: {...loadOptions, sourceCache}};
 }
 
 /**
@@ -175,6 +174,14 @@ type BasemapLayerState = {
   zoomKey: string | null;
   /** Sprites of the resolved style, once loaded. */
   spriteAtlases: SpriteAtlas[] | null;
+  /** The sprite URLs and pixel ratio of `spriteLoad`. */
+  spriteKey: string | null;
+  /** The load of the sprites of the resolved style, kept for a new style with the same sprites. */
+  spriteLoad: Promise<SpriteAtlas[]> | null;
+  /** The sources of the styles resolved with `styleLoadOptions` (see `BasemapLoadOptions`). */
+  sourceCache: Map<string, BasemapSource>;
+  /** The `loadOptions` that the sources, the sprites and the glyphs were loaded with. */
+  styleLoadOptions: BasemapLayerProps['loadOptions'] | undefined;
   /** The glyphs of the resolved style's `glyphs` URL, or null without one. */
   glyphs: GlyphStore | null;
   /** Decoded data caches owned by this basemap, shared across style runs. */
@@ -245,6 +252,10 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tileMaxStretch: null,
       tileFetch: null,
       spriteAtlases: null,
+      spriteKey: null,
+      spriteLoad: null,
+      sourceCache: new Map(),
+      styleLoadOptions: undefined,
       glyphs: null
     };
   }
@@ -319,6 +330,10 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
     const loadToken = this.state.loadToken + 1;
     this.setState({loadToken});
+    if (loadOptions !== this.state.styleLoadOptions) {
+      this.state.sourceCache = new Map();
+    }
+    const {sourceCache} = this.state;
     logBasemapLayerEvent('Resolving basemap style', {
       style: typeof style === 'string' ? style : 'inline-style-object',
       loadToken
@@ -326,10 +341,10 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
 
     Promise.resolve(
       typeof style === 'string'
-        ? load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions))
+        ? load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions, sourceCache))
         : MapStyleLoader.parse(
             new TextEncoder().encode(JSON.stringify(style)).buffer,
-            getMapStyleLoaderOptions(loadOptions)
+            getMapStyleLoaderOptions(loadOptions, sourceCache)
           )
     )
       .then(resolvedStyle => {
@@ -339,13 +354,20 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
             sources: Object.keys(resolvedStyle.sources || {}),
             layers: resolvedStyle.layers?.length || 0
           });
+          // The tilesets are keyed by source object: a source that did not change keeps its tiles.
+          const sameOptions = loadOptions === this.state.styleLoadOptions;
+          if (sameOptions && this.state.resolvedStyle) {
+            reuseSources(resolvedStyle, this.state.resolvedStyle);
+          }
+          const glyphs = getGlyphStore(resolvedStyle, style, loadOptions);
+          const keepGlyphs = sameOptions && glyphs?.url === this.state.glyphs?.url;
           this.setState({
             resolvedStyle,
             loadError: null,
-            spriteAtlases: null,
-            glyphs: getGlyphStore(resolvedStyle, style, loadOptions)
+            styleLoadOptions: loadOptions,
+            glyphs: keepGlyphs ? this.state.glyphs : glyphs
           });
-          this.loadSprites(resolvedStyle, style, loadOptions, loadToken);
+          this.loadSprites(resolvedStyle, style, loadOptions, loadToken, sameOptions);
         }
       })
       .catch((error: Error) => {
@@ -365,11 +387,12 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     resolvedStyle: ResolvedBasemapStyle,
     style: BasemapLayerProps['style'],
     loadOptions: BasemapLayerProps['loadOptions'],
-    loadToken: number
+    loadToken: number,
+    sameOptions: boolean
   ): void {
     if (!resolvedStyle.sprite) {
       // No sprites to wait for (`null` means loading, see `MVTLabelLayerProps.spriteAtlases`).
-      this.setState({spriteAtlases: []});
+      this.setState({spriteAtlases: [], spriteKey: null, spriteLoad: null});
       return;
     }
     const options = (loadOptions || {}) as {
@@ -377,13 +400,23 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       fetch?: typeof fetch;
       fetchOptions?: RequestInit;
     };
-    loadSpriteAtlases(resolvedStyle.sprite, {
-      baseUrl: typeof style === 'string' ? style : options.baseUrl,
-      fetch: options.fetch,
-      fetchOptions: options.fetchOptions,
-      pixelRatio: typeof devicePixelRatio === 'number' ? devicePixelRatio : 1
-    }).then(spriteAtlases => {
-      if (this.state.loadToken === loadToken) {
+    const baseUrl = typeof style === 'string' ? style : options.baseUrl;
+    const pixelRatio = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
+    const spriteKey = JSON.stringify([getSpriteSources(resolvedStyle.sprite, baseUrl), pixelRatio]);
+    if (!sameOptions || spriteKey !== this.state.spriteKey || !this.state.spriteLoad) {
+      this.setState({
+        spriteAtlases: null,
+        spriteKey,
+        spriteLoad: loadSpriteAtlases(resolvedStyle.sprite, {
+          baseUrl,
+          fetch: options.fetch,
+          fetchOptions: options.fetchOptions,
+          pixelRatio
+        })
+      });
+    }
+    this.state.spriteLoad!.then(spriteAtlases => {
+      if (this.state.loadToken === loadToken && this.state.spriteAtlases !== spriteAtlases) {
         this.setState({spriteAtlases});
       }
     });
@@ -545,6 +578,19 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       projected: isProjectedViewport(viewport),
       projectedMaxStretch: this.props.projectedMaxStretch
     });
+  }
+}
+
+/**
+ * Puts the source objects of `previous` back in `resolvedStyle` where the content of a source is
+ * the same (see `getSourceKey`).
+ */
+function reuseSources(resolvedStyle: ResolvedBasemapStyle, previous: ResolvedBasemapStyle): void {
+  const previousSources = new Map(
+    Object.values(previous.sources).map(source => [getSourceKey(source), source])
+  );
+  for (const [sourceId, source] of Object.entries(resolvedStyle.sources)) {
+    resolvedStyle.sources[sourceId] = previousSources.get(getSourceKey(source)) ?? source;
   }
 }
 

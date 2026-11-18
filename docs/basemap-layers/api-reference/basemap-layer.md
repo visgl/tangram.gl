@@ -78,6 +78,12 @@ The style document to render. Pass either:
 - a URL string pointing to a style JSON document
 - an in-memory MapLibre/Mapbox style object
 
+A new style keeps what it shares with the previous style, as MapLibre GL JS's
+`setStyle(style, {diff: true})` keeps it. A source with the same definition keeps its TileJSON,
+its tiles and its decoded data. The sprites and the glyphs keep their loaded images when their
+URLs do not change. A source is decoded again when the style draws a different set of its source
+layers. A new `loadOptions` object loads everything again.
+
 ### `mode`
 
 Type: `'map' | 'globe'`
@@ -240,6 +246,10 @@ Loads and normalizes a style document. This resolves:
   `/VectorTileServer` or `/MapServer` is a directory: `tile/{z}/{y}/{x}.pbf` resolves to
   `.../VectorTileServer/tile/{z}/{y}/{x}.pbf`
 - legacy Mapbox `ref` layer inheritance
+
+With a `sourceCache` map in `loadOptions`, a source whose definition and base URL are in the map
+is not fetched again. Each call replaces the entries of the map with the sources it resolved.
+`BasemapLayer` uses this to keep the TileJSON of a source across styles.
 
 ## Example
 

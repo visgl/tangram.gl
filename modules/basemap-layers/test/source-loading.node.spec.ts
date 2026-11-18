@@ -6,6 +6,8 @@
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {log} from '@deck.gl/core';
 import {getBasemapLayers} from '../src/index.ts';
+import {load} from '@loaders.gl/core';
+import {MapStyleLoader} from '../src/map-style-loader';
 import {resolveBasemapStyle} from '../src/style-resolver';
 
 /** A fetch that serves TileJSON documents by URL and answers 404 for anything else. */
@@ -438,5 +440,49 @@ describe('relative TileJSON tile templates', () => {
     });
     const style = await resolveBasemapStyle(styleUrl, {fetch});
     expect(style.sources.esri.tiles).toEqual([`${serviceUrl}/tile/{z}/{y}/{x}.pbf`]);
+  });
+});
+
+describe('the source cache', () => {
+  const STYLE_URL = 'https://styles.example.com/style.json';
+  const style = (url: string) => ({
+    version: 8,
+    sources: {streets: {type: 'vector', url}},
+    layers: []
+  });
+
+  test('keeps the TileJSON of a source that did not change, and only the last sources', async () => {
+    const otherUrl = 'https://tiles.example.com/other.json';
+    const {fetch, requested} = fakeFetch({[TILEJSON_URL]: TILEJSON, [otherUrl]: TILEJSON});
+    const sourceCache = new Map();
+    await resolveBasemapStyle(style(TILEJSON_URL) as any, {fetch, sourceCache});
+    const second = await resolveBasemapStyle(style(TILEJSON_URL) as any, {fetch, sourceCache});
+    expect(requested).toEqual([TILEJSON_URL]);
+    expect(second.sources.streets.tiles).toEqual(TILEJSON.tiles);
+
+    await resolveBasemapStyle(style(otherUrl) as any, {fetch, sourceCache});
+    await resolveBasemapStyle(style(TILEJSON_URL) as any, {fetch, sourceCache});
+    expect(requested).toEqual([TILEJSON_URL, otherUrl, TILEJSON_URL]);
+    expect(sourceCache.size).toBe(1);
+  });
+
+  test('keeps no source that failed to load', async () => {
+    const {fetch, requested} = fakeFetch({});
+    const sourceCache = new Map();
+    vi.spyOn(log, 'warn').mockReturnValue(() => {});
+    await resolveBasemapStyle(style(TILEJSON_URL) as any, {fetch, sourceCache});
+    await resolveBasemapStyle(style(TILEJSON_URL) as any, {fetch, sourceCache});
+    expect(requested).toEqual([TILEJSON_URL, TILEJSON_URL]);
+  });
+
+  test('passes through the map style loader for a style URL', async () => {
+    const {fetch, requested} = fakeFetch({[TILEJSON_URL]: TILEJSON});
+    vi.spyOn(globalThis, 'fetch').mockImplementation(
+      async () => new Response(JSON.stringify(style(TILEJSON_URL)))
+    );
+    const sourceCache = new Map();
+    await load(STYLE_URL, MapStyleLoader, {mapStyle: {fetch, sourceCache}});
+    await load(STYLE_URL, MapStyleLoader, {mapStyle: {fetch, sourceCache}});
+    expect(requested.filter(url => url === TILEJSON_URL)).toEqual([TILEJSON_URL]);
   });
 });

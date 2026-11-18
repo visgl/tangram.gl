@@ -1,0 +1,288 @@
+// tangram-layers
+// SPDX-License-Identifier: MIT
+// Copyright (c) vis.gl contributors
+
+import {Deck, MapView} from '@deck.gl/core';
+import {webgl2Adapter} from '@luma.gl/core/webgl';
+import {afterEach, describe, expect, test} from 'vitest';
+import {BasemapLayer} from '../src/basemap-layer';
+
+// A new style object keeps the TileJSON, the sprite and the tiles of the sources it shares with
+// the previous style, as MapLibre GL JS's `setStyle(style, {diff: true})` keeps them.
+
+const WIDTH = 256;
+const HEIGHT = 128;
+
+let deck: Deck<any> | null = null;
+let parent: HTMLDivElement | null = null;
+let onFrame: ((image: ImageData) => void) | null = null;
+
+afterEach(() => {
+  deck?.finalize();
+  deck = null;
+  parent?.remove();
+  parent = null;
+  onFrame = null;
+});
+
+/** The requests of one test: TileJSON and sprite requests, and tile requests. */
+type Requests = {resources: string[]; tiles: string[]};
+
+/** A 1 x 1 PNG for the sprite image. */
+async function getPng(): Promise<Blob> {
+  const canvas = new OffscreenCanvas(1, 1);
+  canvas.getContext('2d')!.fillRect(0, 0, 1, 1);
+  return await canvas.convertToBlob({type: 'image/png'});
+}
+
+/** `loadOptions.fetch`: serves the TileJSON of each host and a sprite, and counts the requests. */
+function createResourceFetch(requests: Requests): typeof fetch {
+  return (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    requests.resources.push(url);
+    if (url.endsWith('/tiles.json')) {
+      const host = new URL(url).host;
+      return new Response(JSON.stringify({tiles: [`https://${host}/{z}/{x}/{y}.mvt`]}));
+    }
+    if (url.endsWith('/sprite.json')) {
+      return new Response(
+        JSON.stringify({
+          dot: {x: 0, y: 0, width: 1, height: 1, pixelRatio: 1}
+        })
+      );
+    }
+    if (url.endsWith('/sprite.png')) {
+      return new Response(await getPng());
+    }
+    return new Response('', {status: 404});
+  }) as typeof fetch;
+}
+
+/** The square of a tile from x0 to x1, in tile-local coordinates. */
+function halfTile(x0: number, x1: number): number[][][] {
+  return [
+    [
+      [x0, 0],
+      [x1, 0],
+      [x1, 1],
+      [x0, 1],
+      [x0, 0]
+    ]
+  ];
+}
+
+/**
+ * The `fetch` of the tiles: the left half of each tile is water and the right half is land. As
+ * the MVT loader does, it decodes only the source layers of `loadOptions.mvt.layers`.
+ */
+function createTileFetch(requests: Requests) {
+  return async (url: string, {loadOptions}: {loadOptions?: any}) => {
+    requests.tiles.push(url);
+    const layers: string[] | undefined = loadOptions?.mvt?.layers;
+    return [
+      {layerName: 'water', coordinates: halfTile(0, 0.5)},
+      {layerName: 'land', coordinates: halfTile(0.5, 1)}
+    ]
+      .filter(({layerName}) => !layers || layers.includes(layerName))
+      .map(({layerName, coordinates}) => ({
+        type: 'Feature',
+        properties: {layerName},
+        geometry: {type: 'Polygon', coordinates}
+      }));
+  };
+}
+
+/** A style of one source at `host`, a white background, and the water in `water`. */
+function createStyle({
+  host = 'tiles.example.com',
+  water = '#ff0000',
+  land
+}: {host?: string; water?: string; land?: string} = {}): any {
+  return {
+    version: 8,
+    sprite: 'https://assets.example.com/sprite',
+    glyphs: 'https://assets.example.com/fonts/{fontstack}/{range}.pbf',
+    sources: {
+      tiles: {type: 'vector', url: `https://${host}/tiles.json`}
+    },
+    layers: [
+      {
+        id: 'background',
+        type: 'background',
+        paint: {'background-color': '#ffffff'}
+      },
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'tiles',
+        'source-layer': 'water',
+        paint: {'fill-color': water}
+      },
+      ...(land
+        ? [
+            {
+              id: 'land',
+              type: 'fill',
+              source: 'tiles',
+              'source-layer': 'land',
+              paint: {'fill-color': land}
+            }
+          ]
+        : [])
+    ]
+  };
+}
+
+const VIEW = {longitude: 0, latitude: 0, zoom: 1, pitch: 0, bearing: 0};
+
+/** The props of one test's layers: the same `loadOptions` and `fetch` for each style. */
+function createProps(requests: Requests) {
+  return {
+    loadOptions: {fetch: createResourceFetch(requests)},
+    fetch: createTileFetch(requests)
+  };
+}
+
+function createLayer(style: unknown, props: ReturnType<typeof createProps>): BasemapLayer {
+  return new BasemapLayer({id: 'basemap', style, ...props} as any);
+}
+
+function createDeck(layer: BasemapLayer): void {
+  parent = document.createElement('div');
+  document.body.append(parent);
+  deck = new Deck({
+    parent,
+    width: WIDTH,
+    height: HEIGHT,
+    useDevicePixels: false,
+    deviceProps: {adapters: [webgl2Adapter]},
+    views: new MapView({id: 'map'}),
+    viewState: VIEW as any,
+    layers: [layer],
+    onAfterRender: () => {
+      const all = (deck as any)?.layerManager?.getLayers() || [];
+      // The basemap draws sublayers once its style resolves.
+      if (!onFrame || all.length < 3 || all.some((sublayer: any) => !sublayer.isLoaded)) {
+        return;
+      }
+      const copy = document.createElement('canvas');
+      copy.width = WIDTH;
+      copy.height = HEIGHT;
+      const context = copy.getContext('2d')!;
+      context.drawImage(deck!.getCanvas()!, 0, 0);
+      onFrame(context.getImageData(0, 0, WIDTH, HEIGHT));
+    },
+    onError: error => {
+      throw error;
+    }
+  });
+}
+
+function nextFrame(): Promise<ImageData> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
+    onFrame = image => {
+      onFrame = null;
+      window.clearTimeout(timeout);
+      resolve(image);
+    };
+  });
+}
+
+/** The frame drawn once it has stopped changing: the style and the tiles load over frames. */
+async function settledFrame(): Promise<ImageData> {
+  let previous: ImageData | null = null;
+  for (let same = 0; same < 5;) {
+    window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
+    const image = await nextFrame();
+    same = previous && image.data.every((value, i) => value === previous!.data[i]) ? same + 1 : 0;
+    previous = image;
+  }
+  return previous!;
+}
+
+/** The number of pixels of each pure colour. */
+function countColors(image: ImageData): {
+  red: number;
+  blue: number;
+  green: number;
+} {
+  const counts = {red: 0, blue: 0, green: 0};
+  for (let i = 0; i < image.data.length; i += 4) {
+    const [r, g, b] = [image.data[i], image.data[i + 1], image.data[i + 2]];
+    if (r > 200 && g < 50 && b < 50) counts.red++;
+    if (b > 200 && g < 50 && r < 50) counts.blue++;
+    if (g > 100 && r < 50 && b < 50) counts.green++;
+  }
+  return counts;
+}
+
+/** The internal state of the deck's BasemapLayer. */
+function getBasemapState(): any {
+  return (deck as any).layerManager.getLayers().find((layer: any) => layer.id === 'basemap').state;
+}
+
+describe('a new style object', () => {
+  test('that changes only paint loads no TileJSON, sprite or tile again', async () => {
+    const requests: Requests = {resources: [], tiles: []};
+    const props = createProps(requests);
+    createDeck(createLayer(createStyle(), props));
+    expect(countColors(await settledFrame()).red).toBeGreaterThan(1000);
+    expect(requests.resources.some(url => url.endsWith('/tiles.json'))).toBe(true);
+    expect(requests.resources.some(url => url.endsWith('/sprite.png'))).toBe(true);
+    expect(requests.tiles.length).toBeGreaterThan(0);
+    const {glyphs, spriteAtlases} = getBasemapState();
+    expect(glyphs).toBeTruthy();
+    const resources = requests.resources.length;
+    const tiles = requests.tiles.length;
+
+    deck!.setProps({
+      layers: [createLayer(createStyle({water: '#0000ff'}), props)]
+    });
+    const colors = countColors(await settledFrame());
+    expect(colors.blue).toBeGreaterThan(1000);
+    expect(colors.red).toBe(0);
+    expect(requests.resources.slice(resources)).toEqual([]);
+    expect(requests.tiles.slice(tiles)).toEqual([]);
+    expect(getBasemapState().spriteAtlases).toBe(spriteAtlases);
+    expect(getBasemapState().glyphs).toBe(glyphs);
+  }, 60_000);
+
+  test('with a new source URL loads that TileJSON and its tiles', async () => {
+    const requests: Requests = {resources: [], tiles: []};
+    const props = createProps(requests);
+    createDeck(createLayer(createStyle(), props));
+    await settledFrame();
+    const resources = requests.resources.length;
+    const tiles = requests.tiles.length;
+
+    const style = createStyle({
+      host: 'other.example.com',
+      water: '#0000ff'
+    });
+    deck!.setProps({layers: [createLayer(style, props)]});
+    expect(countColors(await settledFrame()).blue).toBeGreaterThan(1000);
+    expect(requests.resources.slice(resources)).toEqual(['https://other.example.com/tiles.json']);
+    const newTiles = requests.tiles.slice(tiles);
+    expect(newTiles.length).toBeGreaterThan(0);
+    expect(newTiles.every(url => url.startsWith('https://other.example.com/'))).toBe(true);
+  }, 60_000);
+
+  test('that draws one more source layer decodes the tiles again, and draws that layer', async () => {
+    const requests: Requests = {resources: [], tiles: []};
+    const props = createProps(requests);
+    createDeck(createLayer(createStyle(), props));
+    expect(countColors(await settledFrame()).green).toBe(0);
+    const resources = requests.resources.length;
+    const tiles = requests.tiles.length;
+
+    const style = createStyle({land: '#00a000'});
+    deck!.setProps({layers: [createLayer(style, props)]});
+    const colors = countColors(await settledFrame());
+    expect(colors.green).toBeGreaterThan(1000);
+    expect(colors.red).toBeGreaterThan(1000);
+    // The source and the sprite are the same: only the tiles load again.
+    expect(requests.resources.slice(resources)).toEqual([]);
+    expect(requests.tiles.length).toBeGreaterThan(tiles);
+  }, 60_000);
+});
