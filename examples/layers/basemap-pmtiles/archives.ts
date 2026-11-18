@@ -4,6 +4,8 @@
 
 import type {BasemapStyle} from '@tangram.gl/basemap-layers/map-style';
 
+import type {LngLatBounds} from './view-bounds';
+
 /** One PMTiles archive, the style that draws it, and the view that shows it. */
 export type ArchiveOption = {
   id: 'vector' | 'raster';
@@ -15,7 +17,16 @@ export type ArchiveOption = {
   /** What the archive holds, for the info panel. */
   description: string;
   attributionHtml: string;
-  view: {longitude: number; latitude: number; zoom: number};
+  /**
+   * The first view. The map does not zoom out past `minZoom`. A zoom above the highest zoom of
+   * the archive enlarges its tiles.
+   */
+  view: {longitude: number; latitude: number; zoom: number; minZoom: number; maxZoom?: number};
+  /**
+   * The area that the tiles of the archive cover. The example keeps the view inside it, so that
+   * the map shows no empty area. A span of 360 degrees of longitude limits only the latitude.
+   */
+  bounds: LngLatBounds;
   style: BasemapStyle;
 };
 
@@ -30,6 +41,17 @@ export const VECTOR_ARCHIVE_URL = 'https://pmtiles.io/protomaps(vector)ODbL_fire
  * Map tiles by Stamen Design, CC BY 4.0. Data © OpenStreetMap contributors, ODbL.
  */
 export const RASTER_ARCHIVE_URL = 'https://pmtiles.io/stamen_toner(raster)CC-BY+ODbL_z3.pmtiles';
+
+/**
+ * The area that the tiles of the Florence archive cover at zoom 13 to 15, from the archive
+ * directories: zoom 15 tiles x 17405 to 17411 and y 11941 to 11947. This is the smallest area of
+ * these zooms. The bounds in the archive header, 11.2211,43.7451 to 11.2875,43.7893, are inside
+ * it.
+ */
+const VECTOR_ARCHIVE_BOUNDS: LngLatBounds = [11.21704, 43.73935, 11.29395, 43.79489];
+
+/** The Web Mercator world: the latitude limit of the raster archive. */
+const WORLD_BOUNDS: LngLatBounds = [-180, -85.0511287798066, 180, 85.0511287798066];
 
 /** The glyphs of the Protomaps basemaps, Noto Sans, under the SIL Open Font License. */
 const GLYPHS_URL = 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf';
@@ -208,12 +230,15 @@ export const ARCHIVE_OPTIONS: ArchiveOption[] = [
     label: 'Vector, Florence',
     url: VECTOR_ARCHIVE_URL,
     size: 6601156,
-    description: 'A Protomaps basemap extract of Florence: MVT tiles, zoom 0 to 15.',
+    description:
+      'A Protomaps basemap extract of central Florence, about 5 x 5 km: MVT tiles, zoom 0 to 15. ' +
+      'The map stays inside the area of the archive.',
     attributionHtml: [
       '<a href="https://protomaps.com" target="_blank" rel="noopener">Protomaps</a>',
       OSM_ATTRIBUTION
     ].join(' '),
-    view: {longitude: 11.2543, latitude: 43.7672, zoom: 14},
+    view: {longitude: 11.2543, latitude: 43.7672, zoom: 14, minZoom: 13},
+    bounds: VECTOR_ARCHIVE_BOUNDS,
     style: getVectorStyle(VECTOR_ARCHIVE_URL)
   },
   {
@@ -221,13 +246,16 @@ export const ARCHIVE_OPTIONS: ArchiveOption[] = [
     label: 'Raster, world',
     url: RASTER_ARCHIVE_URL,
     size: 716052,
-    description: 'Stamen Toner for the world: 256 pixel PNG tiles, zoom 0 to 3.',
+    description:
+      'Stamen Toner for the world: 256 pixel PNG tiles, zoom 0 to 3. Above zoom 3 the map ' +
+      'enlarges the zoom 3 tiles, to zoom 6.',
     attributionHtml: [
       'Map tiles by <a href="https://stamen.com" target="_blank" rel="noopener">Stamen Design</a>,',
       'under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>.',
       OSM_ATTRIBUTION
     ].join(' '),
-    view: {longitude: 10, latitude: 30, zoom: 1.5},
+    view: {longitude: 10, latitude: 30, zoom: 1.5, minZoom: 0, maxZoom: 6},
+    bounds: WORLD_BOUNDS,
     style: getRasterStyle(RASTER_ARCHIVE_URL)
   }
 ];

@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {WebMercatorViewport} from '@deck.gl/core';
 import {validateStyleMin} from '@maplibre/maplibre-gl-style-spec';
 import {describe, expect, test} from 'vitest';
 
 import {ARCHIVE_OPTIONS} from '../examples/layers/basemap-pmtiles/archives';
+import {fitViewState} from '../examples/layers/basemap-pmtiles/view-bounds';
 import {
   createRangeReadFetch,
   formatBytes,
@@ -31,6 +33,53 @@ describe('PMTiles example: archives', () => {
       expect(sources[0].type).toBe(option.id);
     }
   );
+});
+
+/**
+ * The area that the tiles of each archive cover, from the archive directories. Florence: zoom 15
+ * tiles x 17405 to 17411, y 11941 to 11947, the smallest area of zoom 13 to 15. The world archive
+ * repeats in longitude, so only its latitude is limited.
+ */
+const TILE_COVERAGE = {
+  vector: {west: 11.21704, south: 43.73935, east: 11.29395, north: 43.79489},
+  raster: {west: -Infinity, south: -85.05113, east: Infinity, north: 85.05113}
+};
+
+const SCREENS = [
+  [1920, 1080],
+  [2560, 1440]
+] as const;
+
+describe('PMTiles example: the view stays inside the archive', () => {
+  const cases = ARCHIVE_OPTIONS.flatMap(option =>
+    SCREENS.flatMap(([width, height]) =>
+      (['initial', 'minimum'] as const).map(zoomCase => [option.id, width, height, zoomCase, option] as const)
+    )
+  );
+  test.each(cases)('%s at %ix%i at the %s zoom', (id, width, height, zoomCase, option) => {
+    const zoom = zoomCase === 'initial' ? option.view.zoom : option.view.minZoom;
+    const viewState = fitViewState({...option.view, zoom}, option.bounds, width, height);
+    expect(viewState.zoom).toBeGreaterThanOrEqual(option.view.minZoom);
+    const [west, south, east, north] = new WebMercatorViewport({
+      ...viewState,
+      width,
+      height
+    }).getBounds();
+    const coverage = TILE_COVERAGE[id];
+    const epsilon = 1e-6;
+    expect(west).toBeGreaterThanOrEqual(coverage.west - epsilon);
+    expect(east).toBeLessThanOrEqual(coverage.east + epsilon);
+    expect(south).toBeGreaterThanOrEqual(coverage.south - epsilon);
+    expect(north).toBeLessThanOrEqual(coverage.north + epsilon);
+  });
+
+  test('a pan past the edge stops at the edge, and the zoom does not change', () => {
+    const option = ARCHIVE_OPTIONS[0];
+    const viewState = fitViewState({...option.view, longitude: 20, zoom: 16}, option.bounds, 1280, 800);
+    expect(viewState.zoom).toBe(16);
+    const [, , east] = new WebMercatorViewport({...viewState, width: 1280, height: 800}).getBounds();
+    expect(east).toBeCloseTo(option.bounds[2], 6);
+  });
 });
 
 describe('PMTiles example: range reads', () => {

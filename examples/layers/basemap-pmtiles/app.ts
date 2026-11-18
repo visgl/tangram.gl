@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {EXAMPLE_PANEL_STYLE} from '../../utils/panel-theme';
-import {Deck, MapView} from '@deck.gl/core';
+import {Deck, MapView, type MapViewState} from '@deck.gl/core';
 import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import {
   ColumnPanel,
@@ -17,6 +17,7 @@ import {BoxPanelWidget} from '@deck.gl-community/widgets';
 
 import {ARCHIVE_OPTIONS, type ArchiveOption} from './archives';
 import {createRangeReadFetch, getReadsText, type ArchiveReads} from './range-reads';
+import {fitViewState} from './view-bounds';
 
 import '@deck.gl/widgets/stylesheet.css';
 
@@ -74,11 +75,19 @@ export function mountBasemapPMTilesExample(container: HTMLElement): () => void {
   });
 
   const archive = getArchive(settings);
+  // Each view state is moved inside the area of the archive (see `view-bounds.ts`).
+  let size = {width: rootElement.clientWidth, height: rootElement.clientHeight};
+  let viewState: MapViewState = fitView(getViewState(archive), archive);
   const deck = new Deck({
     parent: rootElement,
     views: new MapView({repeat: true}),
-    controller: true,
-    initialViewState: getViewState(archive),
+    controller: {dragRotate: false},
+    initialViewState: viewState,
+    onViewStateChange: ({viewState: next}) => (viewState = fitView(next, getArchive(settings))),
+    onResize: nextSize => {
+      size = nextSize;
+      showView(fitView(viewState, getArchive(settings)));
+    },
     layers: getLayers(archive),
     widgets: [infoWidget]
   });
@@ -93,6 +102,18 @@ export function mountBasemapPMTilesExample(container: HTMLElement): () => void {
     rootElement.remove();
     container.replaceChildren();
   };
+
+  function fitView<ViewStateT extends MapViewState>(next: ViewStateT, option: ArchiveOption) {
+    const flat = {...next, pitch: 0, bearing: 0};
+    return size.width > 0 && size.height > 0
+      ? fitViewState(flat, option.bounds, size.width, size.height)
+      : flat;
+  }
+
+  function showView(next: MapViewState) {
+    viewState = next;
+    deck.setProps({initialViewState: viewState});
+  }
 
   function getLayers(option: ArchiveOption) {
     return [new BasemapLayer({id: `basemap-${option.id}`, style: option.style, loadOptions})];
@@ -136,7 +157,8 @@ export function mountBasemapPMTilesExample(container: HTMLElement): () => void {
               );
               if (next && next.id !== settings.archive.id) {
                 settings.archive.id = next.id;
-                deck.setProps({initialViewState: getViewState(next), layers: getLayers(next)});
+                showView(fitView(getViewState(next), next));
+                deck.setProps({layers: getLayers(next)});
                 syncAttribution(next);
                 syncInfoWidget();
               }
@@ -152,8 +174,9 @@ function getArchive(settings: ExampleSettings): ArchiveOption {
   return ARCHIVE_OPTIONS.find(option => option.id === settings.archive.id) || ARCHIVE_OPTIONS[0];
 }
 
+/** The view has no pitch and no bearing: the area that it shows is then a simple rectangle. */
 function getViewState(option: ArchiveOption) {
-  return {...option.view, pitch: 0, bearing: 0};
+  return {...option.view, pitch: 0, bearing: 0, maxPitch: 0};
 }
 
 function createRoot(container: HTMLElement): HTMLDivElement {

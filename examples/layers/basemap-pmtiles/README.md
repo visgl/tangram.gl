@@ -29,6 +29,15 @@ range requests to the file URL alone.
   PNG tiles into a `raster` source.
 - The panel shows an error when the file does not load, for example when the server refuses
   the range request.
+- The map stays inside the area of the archive. The Florence archive covers only about
+  5 x 5 km of central Florence. When you pan to its edge, the map stops. When you zoom out, the
+  map stops at the zoom where the archive fills the window. On a large window, this zoom is
+  more than the first zoom. The world archive ends at zoom 3. Above zoom 3 the map enlarges the
+  zoom 3 tiles, to zoom 6.
+
+deck.gl `MapView` has no `maxBounds`. The example moves each view state inside the area of the
+archive in `onViewStateChange` and when the window changes size (see `view-bounds.ts`). The view
+has no pitch and no rotation, so the area in the window is a simple rectangle.
 
 The example gives `loadOptions` a `fetch` that counts the range requests and passes them on
 (see `range-reads.ts`). Without it, `BasemapLayer` uses the global `fetch`. Keep one `fetch`
@@ -42,10 +51,11 @@ No API key is required. All sources need network access.
 - Vector: `protomaps(vector)ODbL_firenze.pmtiles`, an extract of the
   [Protomaps basemap](https://protomaps.com) for Florence, Italy, hosted on pmtiles.io. MVT
   tiles, zoom 0 to 15. The PMTiles repository and the MapLibre GL JS PMTiles example use this
-  file. Data © OpenStreetMap contributors, under the
+  file. It covers about 5 x 5 km of central Florence (bounds 11.2211,43.7451 to
+  11.2875,43.7893). Data © OpenStreetMap contributors, under the
   [Open Database License](https://www.openstreetmap.org/copyright).
 - Raster: `stamen_toner(raster)CC-BY+ODbL_z3.pmtiles`, Stamen Toner for the world, hosted on
-  pmtiles.io. 256 pixel PNG tiles, zoom 0 to 3. Map tiles by Stamen Design, under
+  pmtiles.io. 256 pixel PNG tiles, zoom 0 to 3. Above zoom 3 the tiles are enlarged. Map tiles by Stamen Design, under
   [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Data © OpenStreetMap
   contributors, under the Open Database License. The OpenLayers PMTiles example uses this file.
 - Glyphs: Noto Sans from [protomaps/basemaps-assets](https://github.com/protomaps/basemaps-assets),
