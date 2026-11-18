@@ -723,6 +723,30 @@ describe('MVTLabelLayer placement symbols', () => {
     ]);
   });
 
+  test('text-rotate: the box around the turned, padded text box, as MapLibre', () => {
+    const box = (layout: Record<string, unknown>) => {
+      const layer = labelLayer({'text-field': ['get', 'name'], 'text-size': 10, ...layout}, [
+        {properties: {name: 'abcd', turn: 90}, x: 100}
+      ]);
+      const out: PlacementSymbol[] = [];
+      layer.getPlacementSymbols(VIEWPORT, 0, out);
+      const p = PLACEMENT_VIEWPORT_PADDING;
+      return out[0].text!.box!.map(v => Math.round((v - p - 100) * 100) / 100 || 0);
+    };
+    // The 20 x 12 px box, padded by 2 px, stands on its end.
+    expect(box({'text-rotate': 90})).toEqual([-8, -12, 8, 12]);
+    expect(box({'text-rotate': ['get', 'turn']})).toEqual([-8, -12, 8, 12]);
+    // Turned about the anchor, with the offset: left-anchored text turned clockwise hangs below it.
+    expect(box({'text-rotate': 90, 'text-anchor': 'left', 'text-padding': 0})).toEqual([
+      -6, 0, 6, 20
+    ]);
+    // At 45 degrees the padding is turned too: (24 + 16) / sqrt(2) on each side.
+    const diagonal = 40 / Math.SQRT2 / 2;
+    expect(box({'text-rotate': 45})).toEqual(
+      [-diagonal, -diagonal, diagonal, diagonal].map(v => Math.round(v * 100) / 100)
+    );
+  });
+
   test('a text-size that changes with zoom collides at its size at the next integer zoom, as MapLibre', () => {
     // MapLibre lays a point label's box out at `text-size` at the tile's zoom + 1: at z8.5, a size
     // of 10 at z8 and 20 at z9 is drawn at 15 and collides at 20 ('abcd' is 2 ems by 1.2 ems).

@@ -34,11 +34,20 @@ import {
   type FillPatternGroup,
   getFeaturesWithoutPattern,
   getFillPatternGroups,
+  getPatternRuns,
+  getLinePatternProps,
   getFillPatternProps
 } from './fill-pattern';
 import {FillPatternExtension, FillTranslateExtension} from './fill-style-extensions';
 import {FillOutlineExtension} from './fill-outline-extension';
 import {LineBlurExtension, getBlurredLineWidth} from './line-blur-extension';
+import {
+  LineGradientExtension,
+  type LineGradientRamp,
+  getLineClip,
+  getLineGradientRamp
+} from './line-gradient-extension';
+import {LinePatternExtension} from './line-pattern-extension';
 import {
   HillshadeTileLayer,
   createSharedDemTileset,
@@ -256,6 +265,10 @@ const DASH_OFFSET_EXTENSION = new PathStyleExtension({dash: true, dashMode: 'pat
 /** `line-blur`, shared for the same reason: by layer, and per feature. */
 const LINE_BLUR_EXTENSION = new LineBlurExtension();
 const LINE_BLUR_PER_FEATURE_EXTENSION = new LineBlurExtension({perFeature: true});
+/** `line-gradient`, shared by every line that draws one. */
+const LINE_GRADIENT_EXTENSION = new LineGradientExtension();
+const LINE_PATTERN_EXTENSION = new LinePatternExtension();
+const warnedGradientLayers = new Set<string>();
 /** A fill's outline, drawn as a line; shared for the same reason. */
 const FILL_OUTLINE_EXTENSION = new FillOutlineExtension();
 
@@ -1628,7 +1641,8 @@ function createStyledVectorSubLayer({
   glyphs,
   labelPlacement,
   light,
-  featureState
+  featureState,
+  lineMetrics
 }: {
   idPrefix: string;
   sourceId: string;
@@ -1652,6 +1666,8 @@ function createStyledVectorSubLayer({
   light?: FillExtrusionLight;
   /** The feature states the style layer's paint reads, if it reads any. */
   featureState?: FeatureStateLookup;
+  /** Whether the source is a GeoJSON source with `lineMetrics`, which `line-gradient` needs. */
+  lineMetrics?: boolean;
 }) {
   if (features.length === 0) {
     return null;
@@ -1710,7 +1726,9 @@ function createStyledVectorSubLayer({
       mode,
       zoom,
       depthTested,
-      featureState
+      featureState,
+      lineMetrics,
+      spriteAtlases
     });
   }
 
@@ -2038,7 +2056,8 @@ function createVectorLayerGroup({
             glyphs,
             labelPlacement,
             light: getFillExtrusionLight(styleDefinition, zoom),
-            featureState: featureStates[styleLayerIndex]
+            featureState: featureStates[styleLayerIndex],
+            lineMetrics: source.type === 'geojson' && Boolean(source.lineMetrics)
           })
         );
       });
@@ -2359,7 +2378,9 @@ function createLineSubLayers({
   mode,
   zoom,
   depthTested,
-  featureState
+  featureState,
+  lineMetrics,
+  spriteAtlases
 }: {
   props: any;
   styleLayer: BasemapStyleLayer;
@@ -2368,44 +2389,53 @@ function createLineSubLayers({
   zoom: number;
   depthTested?: boolean;
   featureState?: FeatureStateLookup;
+  lineMetrics?: boolean;
+  spriteAtlases?: SpriteAtlas[] | null;
 }) {
   const lineShape = getLineShapeAccessor(styleLayer, zoom);
-  if (typeof lineShape.value !== 'function') {
-    return createGeometrySubLayer({
-      props,
-      styles: [
-        getGeometryStyle({
-          styleLayer,
-          features,
-          mode,
-          zoom,
-          depthTested,
-          lineShape: lineShape.value,
-          featureState
-        })
-      ],
-      mode
-    });
-  }
+  const draw = (lineFeatures: any[], pattern: FillPatternGroup | undefined, idSuffix: string) => {
+    const getStyle = (styleFeatures: any[], shape: LineShape) =>
+      getGeometryStyle({
+        styleLayer,
+        features: styleFeatures,
+        mode,
+        zoom,
+        depthTested,
+        lineShape: shape,
+        lineMetrics,
+        pattern,
+        featureState
+      });
+    if (typeof lineShape.value !== 'function') {
+      return createGeometrySubLayer({
+        props,
+        styles: [getStyle(lineFeatures, lineShape.value)],
+        mode,
+        idSuffix
+      });
+    }
+    return getLineShapeGroups(lineFeatures, styleLayer, lineShape).map(group =>
+      createGeometrySubLayer({
+        props,
+        styles: [getStyle(group.features, group.shape)],
+        mode,
+        idSuffix: `${idSuffix}-${group.key}`
+      })
+    );
+  };
 
-  return getLineShapeGroups(features, styleLayer, lineShape).map(group =>
-    createGeometrySubLayer({
-      props,
-      styles: [
-        getGeometryStyle({
-          styleLayer,
-          features: group.features,
-          mode,
-          zoom,
-          depthTested,
-          lineShape: group.shape,
-          featureState
-        })
-      ],
-      mode,
-      idSuffix: `-${group.key}`
-    })
-  );
+  // A patterned line draws a sublayer per run of consecutive lines whose images are in one sprite
+  // atlas, so that the runs keep the lines' order (`line-sort-key`) across atlases. Lines whose
+  // image is in no loaded sprite draw nothing, as in MapLibre GL JS, and so do all of them while
+  // the sprites load.
+  if (styleLayer.paint?.['line-pattern'] !== undefined) {
+    const groups = getFillPatternGroups(features, styleLayer, zoom, spriteAtlases, 'line-pattern');
+    const runs = getPatternRuns(features, groups);
+    return runs.flatMap(run =>
+      draw(run.features, run.group, runs.length > 1 ? `-pattern-${run.key}` : '')
+    );
+  }
+  return draw(features, undefined, '');
 }
 
 function getLineShapeAccessor(styleLayer: BasemapStyleLayer, zoom: number) {
@@ -2435,7 +2465,13 @@ function getBatchableGeometryStyle(
       ? null
       : getGeometryStyle({styleLayer, features, mode, zoom, depthTested, featureState});
   }
-  if (styleLayer.type !== 'line') {
+  // A gradient takes its source's `lineMetrics`, which `createStyledVectorSubLayer` checks, and a
+  // pattern its sprites.
+  if (
+    styleLayer.type !== 'line' ||
+    styleLayer.paint?.['line-gradient'] !== undefined ||
+    styleLayer.paint?.['line-pattern'] !== undefined
+  ) {
     return null;
   }
   const lineShape = getLineShapeAccessor(styleLayer, zoom);
@@ -2569,6 +2605,15 @@ type GeometryStyle = {
   lineShape?: LineShape;
   /** The features' `fill-pattern` images; without it, a patterned fill draws no fill. */
   pattern?: FillPatternGroup;
+  /** The line's `line-gradient` ramp, which replaces `line-color`. */
+  lineGradient: LineGradientRamp | null;
+  /** A gradient line's `line-color`, which it draws where the ramp shader does not run. */
+  lineGradientFallbackColor: StyleAccessor<number[]> | null;
+  /**
+   * A patterned line's `line-width` at the integer zoom, which its image's height is drawn at
+   * along the line, as in MapLibre GL JS.
+   */
+  linePatternWidth: StyleAccessor<number> | null;
   /** Whether the style layer draws after an extrusion (see `getTileParameters`). */
   depthTested?: boolean;
 };
@@ -2677,7 +2722,8 @@ function getGeometryStyle({
   depthTested,
   lineShape,
   pattern,
-  featureState
+  featureState,
+  lineMetrics
 }: {
   styleLayer: BasemapStyleLayer;
   features: any[];
@@ -2688,17 +2734,41 @@ function getGeometryStyle({
   pattern?: FillPatternGroup;
   /** The feature states the style layer's paint reads, if it reads any. */
   featureState?: FeatureStateLookup;
+  lineMetrics?: boolean;
 }): GeometryStyle {
   const isLine = styleLayer.type === 'line';
   const isFill = styleLayer.type === 'fill';
 
   const paint = getGeometryPaint(styleLayer, mode, zoom, pattern, featureState);
-  const {fillColor, lineColor, hasOutline} = paint;
-  const hasDashArray = isLine && styleLayer.paint?.['line-dasharray'] !== undefined;
+  const {fillColor, hasOutline} = paint;
   const hasOffset =
     isLine &&
     (styleLayer.paint?.['line-offset'] !== undefined ||
       styleLayer.paint?.['line-gap-width'] !== undefined);
+  // As in MapLibre GL JS, a pattern replaces a gradient, and both replace `line-color`: the image
+  // or the ramp gives the colors, `line-opacity` the opacity.
+  const linePattern = isLine ? pattern : undefined;
+  const lineGradient =
+    isLine && !linePattern ? getLineGradient(styleLayer, lineMetrics) : null;
+  const lineColor =
+    lineGradient || linePattern
+    ? getStyleAccessor(
+        styleLayer,
+        ['line-opacity'],
+        zoom,
+        ([opacity]) => withOpacity([255, 255, 255, 1], opacity ?? 1),
+        featureState
+      )
+    : paint.lineColor;
+  // Dashes, offsets, a gradient, a pattern and a per-feature blur each take vertex attributes, of
+  // which WebGL2 guarantees room for three besides PathLayer's own (see
+  // `createSegmentAttributeUpdate`): dashes and a pattern take two, the others one. A gradient
+  // with an offset draws without dashes. A pattern draws without dashes, as in MapLibre.
+  const hasDashArray =
+    isLine &&
+    styleLayer.paint?.['line-dasharray'] !== undefined &&
+    !linePattern &&
+    !(lineGradient && hasOffset);
   const styleBlur =
     isLine && styleLayer.paint?.['line-blur'] !== undefined
       ? getStyleAccessor(
@@ -2709,10 +2779,13 @@ function getGeometryStyle({
           featureState
         )
       : null;
-  // A per-feature blur takes a vertex attribute, which a path with dashes and offsets has no room
-  // for (see LineBlurExtension): such lines draw sharp.
+  // A per-feature blur takes a vertex attribute, which a path with dashes and an offset or a
+  // gradient, or with a pattern and an offset, has no room for (see LineBlurExtension): such lines
+  // draw sharp.
   const lineBlur =
-    styleBlur && (typeof styleBlur.value !== 'function' || !(hasDashArray && hasOffset))
+    styleBlur &&
+    (typeof styleBlur.value !== 'function' ||
+      !((hasDashArray && (hasOffset || lineGradient)) || (linePattern && hasOffset)))
       ? styleBlur
       : null;
   const hasBlur = lineBlur !== null;
@@ -2820,8 +2893,44 @@ function getGeometryStyle({
     hasFillStyle,
     lineShape,
     pattern,
+    lineGradient,
+    lineGradientFallbackColor: lineGradient ? paint.lineColor : null,
+    linePatternWidth: linePattern
+      ? getStyleAccessor(
+          styleLayer,
+          ['line-width'],
+          Math.floor(zoom),
+          ([width]) => Math.max(0, Number(width ?? 1)),
+          featureState
+        )
+      : null,
     depthTested
   };
+}
+
+/**
+ * The ramp of a line's `line-gradient`, or null without one. As in MapLibre GL JS, a gradient
+ * needs a GeoJSON source with `lineMetrics`: MapLibre rejects the style otherwise, and here the
+ * line draws in its `line-color`, with a warning.
+ */
+function getLineGradient(
+  styleLayer: BasemapStyleLayer,
+  lineMetrics: boolean | undefined
+): LineGradientRamp | null {
+  if (styleLayer.paint?.['line-gradient'] === undefined) {
+    return null;
+  }
+  if (!lineMetrics) {
+    if (!warnedGradientLayers.has(styleLayer.id)) {
+      warnedGradientLayers.add(styleLayer.id);
+      log.warn(
+        `[BasemapLayer] layer "${styleLayer.id}" sets line-gradient, which needs a GeoJSON ` +
+          'source with lineMetrics; drawn in line-color'
+      )();
+    }
+    return null;
+  }
+  return getLineGradientRamp(styleLayer);
 }
 
 /**
@@ -2838,7 +2947,13 @@ function getBatchKey(style: GeometryStyle): string | null {
   if (style.isFill) {
     return style.drawsLines || style.hasFillStyle ? null : 'fill';
   }
-  if (style.lineOffset || style.lineBlur || !style.lineShape) {
+  if (
+    style.lineOffset ||
+    style.lineBlur ||
+    style.lineGradient ||
+    style.pattern ||
+    !style.lineShape
+  ) {
     return null;
   }
   const {lineCapRounded, lineJointRounded, lineMiterLimit} = style.lineShape;
@@ -2983,6 +3098,8 @@ function createGeometrySubLayer({
     !list[0].lineOffset &&
     !list[0].lineBlur &&
     !list[0].hasFillStyle &&
+    !list[0].lineGradient &&
+    !list[0].pattern &&
     list.length <= MAX_ZOOM_PAINT_PARTS;
   // Lines kept at width 0 (see `renderSubLayers`) draw nothing because the texture gives them
   // that width. Without the texture their width would be in attributes, so they are left out, as
@@ -3010,8 +3127,12 @@ function createGeometrySubLayer({
     isBlurredGap,
     hasFillStyle,
     pattern,
+    lineGradient,
+    lineGradientFallbackColor,
+    linePatternWidth,
     zoom
   } = first;
+  const linePattern = isFill ? undefined : pattern;
   if (!drawsFill && !drawsLines) {
     return null;
   }
@@ -3087,7 +3208,9 @@ function createGeometrySubLayer({
                   : LINE_BLUR_EXTENSION
               ]
             : []),
-          ...(drawsOutline ? [FILL_OUTLINE_EXTENSION] : [])
+          ...(drawsOutline ? [FILL_OUTLINE_EXTENSION] : []),
+          ...(lineGradient ? [LINE_GRADIENT_EXTENSION] : []),
+          ...(linePattern ? [LINE_PATTERN_EXTENSION] : [])
         ]
       : null;
   // `fill-pattern` and `fill-translate` add their extensions to these, so an outlined fill keeps
@@ -3131,6 +3254,20 @@ function createGeometrySubLayer({
     ...(fadesLines ? {getBlur: lineBlur ? lineBlur.value : 0} : {}),
     ...getBlurGap(1),
     ...fillStyleProps,
+    ...(lineGradient
+      ? {
+          lineGradientImage: lineGradient.image,
+          textureParameters: lineGradient.textureParameters,
+          getLineClip,
+          getLineGradientFallbackColor: lineGradientFallbackColor?.value
+        }
+      : {}),
+    ...(linePattern && linePatternWidth
+      ? {
+          ...getLinePatternProps(linePattern, zoom),
+          getLinePatternWidth: linePatternWidth.value
+        }
+      : {}),
     ...(offsetValue ? {getOffset: getOffset(1)} : {}),
     ...(lineDashArray
       ? {
@@ -3146,7 +3283,10 @@ function createGeometrySubLayer({
       getLineWidth: lineWidth.updateTrigger,
       getDashArray: lineDashArray?.updateTrigger,
       getOffset: typeof offsetValue === 'function' ? lineOffset?.updateTrigger : offsetValue,
-      getBlur: lineBlur?.updateTrigger
+      getBlur: lineBlur?.updateTrigger,
+      getLinePattern: linePattern ? Math.floor(zoom) : undefined,
+      getLinePatternWidth: linePatternWidth?.updateTrigger,
+      getLineGradientFallbackColor: lineGradientFallbackColor?.updateTrigger
     },
     lineWidthUnits: 'pixels',
     lineWidthMinPixels: 0,
