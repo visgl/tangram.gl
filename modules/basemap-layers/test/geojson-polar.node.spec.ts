@@ -183,3 +183,38 @@ test('with lineMetrics, the parts of a cut line keep their line-progress along t
   expect(ranges[0][1] + ranges[1][0]).toBeCloseTo(1, 6);
   expect(parts.every(({properties}) => !('tangram_line_part_start' in properties))).toBe(true);
 });
+
+test('a line along the limit stays, up to where it leaves it', async () => {
+  vi.spyOn(log, 'warn').mockReturnValue(() => {});
+  const limit = Math.atan(Math.sinh(Math.PI)) / D;
+  const line = feature('line', {type: 'LineString', coordinates: [[-60, limit], [60, limit], [60, 89]]});
+  const [kept] = (await getGeoJsonTileFeatures(source([line]), {x: 0, y: 0, z: 0}, {clipToMercatorRange: true})) as any[];
+  expect(kept.geometry.coordinates).toHaveLength(2);
+  expect(Math.abs(kept.geometry.coordinates[0][0] - mercatorX(-60))).toBeLessThanOrEqual(UNIT);
+  expect(Math.abs(kept.geometry.coordinates[1][0] - mercatorX(60))).toBeLessThanOrEqual(UNIT);
+});
+
+test('every geometry type and data form is cut at the limit', async () => {
+  vi.spyOn(log, 'warn').mockReturnValue(() => {});
+  const square = (south: number, north: number) => [[[0, south], [10, south], [10, north], [0, north], [0, south]]];
+  const tile = (data: unknown) =>
+    getGeoJsonTileFeatures({type: 'geojson', data}, {x: 0, y: 0, z: 0}, {clipToMercatorRange: true}) as Promise<any[]>;
+  const types = async (data: unknown) => (await tile(data)).map(item => item.geometry.type);
+  // A segment from past the north edge to past the south edge keeps its middle, between the two.
+  const [across] = await tile({type: 'LineString', coordinates: [[0, 89], [10, -89]]});
+  expect(across.geometry.coordinates.map(([, y]: number[]) => y)).toEqual([0, 1]);
+  // A hole past the limit goes; the polygon stays.
+  const [polygon] = await tile({type: 'Polygon', coordinates: [...square(-80, -70), ...square(-89, -87)]});
+  expect(polygon.geometry.coordinates).toHaveLength(1);
+  expect(await types({type: 'MultiPoint', coordinates: [[0, -83], [0, -89], [10, -83]]})).toEqual(['MultiPoint']);
+  expect(await types({type: 'MultiPolygon', coordinates: [square(-80, -70), square(-89, -87)]})).toEqual(['Polygon']);
+  expect(
+    await types(feature('collection', {type: 'GeometryCollection', geometries: [
+      {type: 'Point', coordinates: [0, -83]},
+      {type: 'Point', coordinates: [0, -89]},
+      {type: 'LineString', coordinates: [[0, -80], [0, -89]]}
+    ]}))
+  ).toEqual(['Point', 'LineString']);
+  expect(await types(feature('past', {type: 'GeometryCollection', geometries: [{type: 'Point', coordinates: [0, -89]}]}))).toEqual([]);
+  expect(await types(feature('past', {type: 'Point', coordinates: [0, -89]}))).toEqual([]);
+});

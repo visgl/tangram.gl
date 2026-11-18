@@ -81,6 +81,12 @@ function getMercatorY(latitude: number): number {
 
 type Position = number[];
 
+/** How far past an edge of the world, in Web Mercator y, a position on the edge can round to. */
+const EDGE_TOLERANCE = 1e-12;
+
+/** Whether a Web Mercator y is in the world, or on its edge within rounding. */
+const isInsideY = (y: number) => y >= -EDGE_TOLERANCE && y <= 1 + EDGE_TOLERANCE;
+
 /** Whether a position is in the Web Mercator world, where geojson-vt does not move it. */
 function isInside(position: Position): boolean {
   return Math.abs(position[1]) <= MERCATOR_LATITUDE;
@@ -131,7 +137,7 @@ function clipLine(line: Position[]): LinePart[] {
   for (let i = 0; i < points.length; i++) {
     // A segment is inside when its middle is: its ends are inside or on an edge.
     const middle = i < points.length - 1 ? (ys[i] + ys[i + 1]) / 2 : NaN;
-    const inside = middle >= 0 && middle <= 1;
+    const inside = isInsideY(middle);
     if (inside && first < 0) {
       first = i;
     } else if (!inside && first >= 0) {
@@ -149,7 +155,8 @@ function clipLine(line: Position[]): LinePart[] {
 function clipRing(ring: Position[]): Position[] | null {
   let points = ring;
   for (const edge of [0, 1]) {
-    const inside = (y: number) => (edge === 0 ? y >= 0 : y <= 1);
+    const inside = (y: number) =>
+      edge === 0 ? y >= -EDGE_TOLERANCE : y <= 1 + EDGE_TOLERANCE;
     const clipped: Position[] = [];
     for (let i = 0; i < points.length; i++) {
       const a = points[i];
