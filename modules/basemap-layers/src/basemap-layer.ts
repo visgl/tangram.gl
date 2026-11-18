@@ -13,6 +13,10 @@ import {
   CompositeLayer,
   log,
   type DefaultProps,
+  type GetPickingInfoParams,
+  type Layer,
+  type LayersList,
+  type PickingInfo,
   type UpdateParameters,
   type Viewport
 } from '@deck.gl/core';
@@ -20,6 +24,7 @@ import {load} from '@loaders.gl/core';
 import {
   createDemTileset,
   getBasemapLayers,
+  getInsertionError,
   getSourceLoadOptions,
   getStyleDefinitionZoomLimits,
   getStyleSourceLayers,
@@ -80,6 +85,20 @@ export type BasemapGlobeConfig = {
 };
 
 /**
+ * deck.gl layers that {@link BasemapLayer} draws inside the style order (see
+ * `BasemapLayerProps.insertLayers`).
+ */
+export type BasemapInsertion = {
+  /**
+   * The id of the style layer to draw `layers` before, as the `beforeId` of MapLibre GL JS's
+   * `addLayer`. Omit it to draw `layers` over the whole basemap.
+   */
+  beforeId?: string | null;
+  /** The deck.gl layers to draw. */
+  layers: LayersList;
+};
+
+/**
  * Props accepted by {@link BasemapLayer}.
  */
 export type BasemapLayerProps = {
@@ -135,6 +154,15 @@ export type BasemapLayerProps = {
    * function: raster tiles reload when it changes. See `createRasterTileFingerprintFilter`.
    */
   rejectRasterTile?: RejectRasterTile | null;
+  /**
+   * deck.gl layers drawn inside the style order, as MapLibre GL JS's `addLayer(layer, beforeId)`:
+   * each insertion's `layers` draw before the style layer `beforeId`, and over the whole basemap
+   * without one. Insertions before the same style layer draw in the order of this list. The layers
+   * are sublayers of the basemap, and are picked as if they were top-level layers: their own
+   * `onHover` and `onClick` receive the events, and `info.layer` is the inserted layer. A `beforeId`
+   * that names no layer of the style raises an error to `onError`, and its layers are not drawn.
+   */
+  insertLayers?: BasemapInsertion[] | null;
 };
 
 const fractionalZoomLimitsCache = new WeakMap<ResolvedBasemapStyle, number[]>();
@@ -190,6 +218,10 @@ type BasemapLayerState = {
   tileMaxStretch: number | null;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
+  /** The layers of `insertLayers` in the current sublayers, picked as top-level layers. */
+  insertedLayers: Set<Layer>;
+  /** The style and unknown `beforeId`s that errors were last raised for, to raise them once. */
+  insertionError: {style: ResolvedBasemapStyle; beforeIds: string} | null;
 };
 
 /**
@@ -222,6 +254,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     loadOptions: null,
     fontFamily: null,
     rejectRasterTile: null,
+    insertLayers: {type: 'object', value: null, compare: false},
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
     separateLabelPlacement: false,
     projectedMaxStretch: DEFAULT_MAX_STRETCH
@@ -245,7 +278,9 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       tileMaxStretch: null,
       tileFetch: null,
       spriteAtlases: null,
-      glyphs: null
+      glyphs: null,
+      insertedLayers: new Set(),
+      insertionError: null
     };
   }
 
@@ -517,7 +552,11 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
   renderLayers() {
     const {resolvedStyle} = this.state;
     if (!resolvedStyle) {
-      return [];
+      // Until the style resolves, or when it fails, `beforeId` cannot be placed: the inserted
+      // layers draw in the order of `insertLayers`.
+      const insertLayers = this.props.insertLayers || [];
+      this.setInsertedLayers(insertLayers);
+      return insertLayers.map(insertion => insertion.layers);
     }
 
     this.updateSourceTilesets(resolvedStyle);
@@ -527,7 +566,9 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     // Recorded without setState: this only tracks what the current sublayers were built from.
     this.state.zoomKey = this.getZoomKey(resolvedStyle, viewport);
 
-    return getBasemapLayers({
+    const insertLayers = this.getValidInsertions(resolvedStyle);
+    const layers = getBasemapLayers({
+      insertLayers,
       idPrefix: this.props.id,
       mode: this.getDrawMode(viewport),
       globe: this.props.globe,
@@ -545,6 +586,60 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       projected: isProjectedViewport(viewport),
       projectedMaxStretch: this.props.projectedMaxStretch
     });
+    this.setInsertedLayers(insertLayers);
+    return layers;
+  }
+
+  /** Records the drawn layers of `insertions`, which picking reads (see `getPickingInfo`). */
+  private setInsertedLayers(insertions: BasemapInsertion[]): void {
+    // Recorded without setState, as `zoomKey`: it only tracks what the current sublayers are.
+    this.state.insertedLayers = new Set(
+      ([insertions.map(insertion => insertion.layers as unknown)].flat(Infinity) as unknown[]).filter(
+        (layer): layer is Layer => Boolean(layer)
+      )
+    );
+  }
+
+  /**
+   * The insertions of `insertLayers` whose `beforeId` names a layer of `resolvedStyle`. Each one
+   * that does not raises an error to `onError`, once for each style and `insertLayers`, as
+   * MapLibre GL JS's `addLayer` fires an `error` event for an unknown `beforeId`.
+   */
+  private getValidInsertions(resolvedStyle: ResolvedBasemapStyle): BasemapInsertion[] {
+    const {insertLayers} = this.props;
+    if (!insertLayers?.length) {
+      return [];
+    }
+    const styleLayerIds = new Set((resolvedStyle.layers || []).map(layer => layer.id));
+    const isKnown = ({beforeId}: BasemapInsertion) =>
+      beforeId === undefined || beforeId === null || styleLayerIds.has(beforeId);
+    const unknownIds = insertLayers
+      .filter(insertion => !isKnown(insertion))
+      .map(insertion => insertion.beforeId as string);
+    // Apps pass a new `insertLayers` on every render: an error is raised again only when the style
+    // or the unknown ids change.
+    const beforeIds = JSON.stringify(unknownIds);
+    const reported = this.state.insertionError;
+    if (unknownIds.length && (reported?.style !== resolvedStyle || reported.beforeIds !== beforeIds)) {
+      for (const beforeId of unknownIds) {
+        this.raiseError(getInsertionError(beforeId), '');
+      }
+    }
+    this.state.insertionError = unknownIds.length ? {style: resolvedStyle, beforeIds} : null;
+    return insertLayers.filter(isKnown);
+  }
+
+  /**
+   * Picks an inserted layer as a top-level layer: `info.layer` is the inserted layer, so that deck
+   * calls its `onHover` and `onClick`, and not those of the basemap.
+   */
+  getPickingInfo(params: GetPickingInfoParams): PickingInfo {
+    const info = super.getPickingInfo(params);
+    const {sourceLayer} = params;
+    if (sourceLayer && this.state.insertedLayers.has(sourceLayer)) {
+      info.layer = sourceLayer;
+    }
+    return info;
   }
 }
 

@@ -504,3 +504,121 @@ describe('globe draw order', () => {
     }
   });
 });
+
+describe('insertLayers', () => {
+  const LAYERS = [
+    {id: 'background', type: 'background', paint: {'background-color': '#fff'}},
+    {id: 'water', type: 'fill', source: 'tiles', 'source-layer': 'water'},
+    {id: 'roads', type: 'line', source: 'tiles', 'source-layer': 'road'},
+    {id: 'places', type: 'symbol', source: 'tiles', 'source-layer': 'place', layout: {}}
+  ];
+  const data = (id: string) => ({id}) as any;
+  const getIds = (insertLayers: unknown, layers: unknown[] = LAYERS, mode = 'map') =>
+    getBasemapLayers({
+      idPrefix: 'test',
+      mode: mode as any,
+      zoom: 4,
+      styleDefinition: {version: 8, sources: SOURCES, layers} as any,
+      insertLayers: insertLayers as any
+    }).map((layer: any) => layer.id);
+
+  test('a beforeId inside a vector run splits the run around the inserted layers', () => {
+    expect(getIds([{beforeId: 'roads', layers: [data('data')]}])).toEqual([
+      'test-background',
+      'test-tiles',
+      'data',
+      'test-tiles-"roads"'
+    ]);
+    expect(getIds(null)).toEqual(['test-background', 'test-tiles']);
+  });
+
+  test('a beforeId at the start of a run draws before it, and without one on top', () => {
+    expect(
+      getIds([
+        {layers: [data('top')]},
+        {beforeId: 'water', layers: [data('under-water')]},
+        {beforeId: 'background', layers: [data('first')]}
+      ])
+    ).toEqual(['first', 'test-background', 'under-water', 'test-tiles', 'top']);
+  });
+
+  test('insertions before one style layer draw in list order, nested and empty lists too', () => {
+    expect(
+      getIds([
+        {beforeId: 'places', layers: [data('a'), [null, data('b')]]},
+        {beforeId: 'places', layers: [false, data('c')]}
+      ])
+    ).toEqual(['test-background', 'test-tiles', 'a', 'b', 'c', 'test-tiles-"places"']);
+  });
+
+  test('labels before the cut draw in the first run, labels after it in the second', () => {
+    const runs = getStyleLayerRuns(
+      LAYERS as any,
+      {version: 8, sources: SOURCES, layers: LAYERS} as any,
+      undefined,
+      new Set([LAYERS[3] as any])
+    );
+    expect(runs.map(run => run.styleLayers.map(layer => layer.id))).toEqual([
+      ['background'],
+      ['water', 'roads'],
+      ['places']
+    ]);
+  });
+
+  test('a beforeId that draws nothing places the layers before the next layer that draws', () => {
+    const layers = [
+      LAYERS[1],
+      // No tiles: this layer draws nothing.
+      {id: 'untiled', type: 'fill', source: 'missing', 'source-layer': 'x'},
+      // Not a supported type.
+      {id: 'unknown-type', type: 'model', source: 'tiles'},
+      LAYERS[2]
+    ];
+    expect(getIds([{beforeId: 'untiled', layers: [data('data')]}], layers)).toEqual([
+      'test-tiles',
+      'data',
+      'test-tiles-"roads"'
+    ]);
+    expect(getIds([{beforeId: 'unknown-type', layers: [data('data')]}], layers)).toEqual([
+      'test-tiles',
+      'data',
+      'test-tiles-"roads"'
+    ]);
+    // After the last layer that draws, the layers draw after the style.
+    expect(getIds([{beforeId: 'unknown-type', layers: [data('data')]}], layers.slice(0, 3))).toEqual(
+      ['test-tiles', 'data']
+    );
+  });
+
+  test('a beforeId in a layer out of its zoom range keeps its place', () => {
+    const layers = [LAYERS[1], {...LAYERS[2], minzoom: 10}, LAYERS[3]];
+    expect(getIds([{beforeId: 'roads', layers: [data('data')]}], layers)).toEqual([
+      'test-tiles',
+      'data',
+      'test-tiles-"roads"'
+    ]);
+  });
+
+  test('moving the beforeId keeps the ids of the runs it does not cut', () => {
+    expect(getIds([{beforeId: 'roads', layers: [data('data')]}])[1]).toBe('test-tiles');
+    expect(getIds([{beforeId: 'places', layers: [data('data')]}])).toEqual([
+      'test-background',
+      'test-tiles',
+      'data',
+      'test-tiles-"places"'
+    ]);
+  });
+
+  test('on a globe, layers without a beforeId draw over the atmosphere and the pole', () => {
+    const ids = getIds([{layers: [data('top')]}, {beforeId: 'roads', layers: [data('mid')]}], LAYERS, 'globe');
+    expect(ids[ids.length - 1]).toBe('top');
+    expect(ids.indexOf('mid')).toBe(ids.indexOf('test-tiles-"roads"') - 1);
+    expect(ids.indexOf('test-background-north-pole')).toBeLessThan(ids.indexOf('top'));
+  });
+
+  test('an unknown beforeId throws, as MapLibre GL JS reports an error', () => {
+    expect(() => getIds([{beforeId: 'nope', layers: [data('data')]}])).toThrow(
+      'Cannot insert layers before non-existing style layer "nope"'
+    );
+  });
+});

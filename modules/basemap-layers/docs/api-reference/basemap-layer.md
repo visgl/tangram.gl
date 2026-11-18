@@ -97,6 +97,28 @@ const rejectRasterTile = createRasterTileFingerprintFilter([placeholderFingerpri
 new BasemapLayer({style, rejectRasterTile});
 ```
 
+### `insertLayers`
+
+Type: `BasemapInsertion[] | null`, where `BasemapInsertion` is `{beforeId?: string | null; layers: LayersList}`
+
+Draws deck.gl layers between the layers of the style, as MapLibre GL JS's [`addLayer(layer, beforeId)`](https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#addlayer) does. Use it to draw a data layer above the water and below the roads, or below the labels.
+
+- The `layers` of an insertion draw before the style layer `beforeId`. Without a `beforeId`, they draw over the whole basemap.
+- Insertions before the same style layer draw in the order of the list.
+- If `beforeId` names a style layer that draws nothing, such as a layer out of its zoom range or a layer type that is not drawn, the layers keep that place in the style order.
+- One basemap draws both parts of the style. A source's tiles load once and are shared by the tile layers on both sides of an insertion.
+- Each layer draws with its own `parameters`, so its depth test does not change the style order: the style layers after it still draw over it.
+- The inserted layers are picked as top-level layers. `info.layer` is the inserted layer, and its own `onHover` and `onClick` receive the events. The basemap's sublayers are picked as before.
+- A `beforeId` that names no layer of the style raises an `Error` to the layer's `onError` prop and then to the `onError` of the `Deck`, as `addLayer` fires an `error` event. Its layers are not drawn. The error is raised once for each style and set of unknown ids, not on every render.
+- Until the style resolves, and when it fails to load, the inserted layers draw in the order of the list.
+
+```ts
+new BasemapLayer({
+  style,
+  insertLayers: [{beforeId: 'road_minor', layers: [new GeoJsonLayer({id: 'parcels', data})]}]
+});
+```
+
 ### `globe`
 
 Type: `{config?: BasemapGlobeConfig}`
@@ -188,6 +210,8 @@ Returns the zoom at which a Web Mercator map has the scale of a projected viewpo
 Generates the deck.gl sublayers for an already-resolved style definition. Use this when you want the sublayers without creating a `BasemapLayer` instance.
 
 `BasemapLayer` keeps each source's tiles in a shared tileset across renders. A direct caller that calls `getBasemapLayers` on every render keeps them by passing its own `tilesets` map, keyed by source, and finalizes those tilesets when done.
+
+`getBasemapLayers` accepts the same `insertLayers` option. There, an unknown `beforeId` throws an `Error`.
 
 ### `createRasterTileFingerprintFilter(fingerprints)`
 
