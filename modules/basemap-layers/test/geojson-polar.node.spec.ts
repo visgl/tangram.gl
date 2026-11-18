@@ -149,3 +149,37 @@ test('projected and globe basemaps cut GeoJSON at the limit; a Web Mercator one 
   expect(await getNames({mode: 'map', projected: true})).toEqual(['inside']);
   expect(await getNames({mode: 'globe'})).toEqual(['inside']);
 });
+
+test('generated ids are the same in every view: a feature dropped before another does not move its id', async () => {
+  vi.spyOn(log, 'warn').mockReturnValue(() => {});
+  const data = {type: 'FeatureCollection', features: [POINTS[1], POINTS[0], LINE]};
+  const ids = async (clipToMercatorRange: boolean) =>
+    Object.fromEntries(
+      (await getGeoJsonTileFeatures({type: 'geojson', data, generateId: true}, {x: 0, y: 0, z: 0}, {clipToMercatorRange}))
+        .map((item: any) => [item.properties.name, item.id])
+    );
+  expect(await ids(false)).toEqual({past: 0, inside: 1, line: 2});
+  expect(await ids(true)).toEqual({inside: 1, line: 2});
+});
+
+test('with lineMetrics, the parts of a cut line keep their line-progress along the whole line', async () => {
+  vi.spyOn(log, 'warn').mockReturnValue(() => {});
+  // Out past the limit and back: two parts, at the ends of the line.
+  const line = feature('line', {type: 'LineString', coordinates: [[-20, -80], [0, -89], [20, -80]]});
+  const parts = (await getGeoJsonTileFeatures(
+    {type: 'geojson', data: {type: 'FeatureCollection', features: [line]}, lineMetrics: true},
+    {x: 0, y: 0, z: 0},
+    {clipToMercatorRange: true}
+  )) as any[];
+  const ranges = parts
+    .map(({properties}) => [properties.geojsonvt_clip_start, properties.geojsonvt_clip_end])
+    .sort((a, b) => a[0] - b[0]);
+  expect(ranges).toHaveLength(2);
+  expect(ranges[0][0]).toBe(0);
+  expect(ranges[1][1]).toBe(1);
+  // Each part is a part of the line, symmetric about its middle, not a whole 0 to 1 line.
+  expect(ranges[0][1]).toBeGreaterThan(0.1);
+  expect(ranges[0][1]).toBeLessThan(0.5);
+  expect(ranges[0][1] + ranges[1][0]).toBeCloseTo(1, 6);
+  expect(parts.every(({properties}) => !('tangram_line_part_start' in properties))).toBe(true);
+});

@@ -58,8 +58,13 @@ export function createTileIndex(
   options: GeoJSONVTOptions,
   clipToMercatorRange = false
 ): {index: GeoJSONVT; outside: number} {
-  const clipped = clipToMercatorRange ? clipFeaturesToMercatorRange(data) : {data, outside: 0};
-  return {index: new GeoJSONVT(clipped.data as GeoJSON.GeoJSON, options), outside: clipped.outside};
+  const clipped = clipToMercatorRange
+    ? clipFeaturesToMercatorRange(data, options)
+    : {data, outside: 0};
+  // Cut data carries the ids that `generateId` gave the features of the data as it was.
+  const indexOptions =
+    clipped.data !== data && options.generateId ? {...options, generateId: false} : options;
+  return {index: new GeoJSONVT(clipped.data as GeoJSON.GeoJSON, indexOptions), outside: clipped.outside};
 }
 
 /** The latitude of the north edge of the Web Mercator world, 85.0511287798 degrees. */
@@ -89,51 +94,51 @@ function interpolate(a: Position, b: Position, t: number, edge: number): Positio
   return [a[0] + t * (b[0] - a[0]), edge === 0 ? MERCATOR_LATITUDE : -MERCATOR_LATITUDE];
 }
 
+/** A part of a cut line, and where it starts and ends along the whole line, from 0 to 1. */
+type LinePart = {line: Position[]; start: number; end: number};
+
 /**
  * The parts of a line inside the Web Mercator world. A segment that crosses an edge of the world
- * ends where it crosses it, as geojson-vt cuts lines at tile edges.
+ * ends where it crosses it, as geojson-vt cuts lines at tile edges. Each part keeps where it lies
+ * along the whole line, measured as geojson-vt measures `line-progress`: in the Web Mercator
+ * world square with latitudes clamped to it, here with the points where the line is cut.
  */
-function clipLine(line: Position[]): Position[][] {
-  const parts: Position[][] = [];
-  let part: Position[] = [];
-  for (let i = 0; i < line.length - 1; i++) {
-    const a = line[i];
-    const b = line[i + 1];
-    const ya = getMercatorY(a[1]);
-    const dy = getMercatorY(b[1]) - ya;
-    // The part of the segment with 0 <= y <= 1, as parameters from a (0) to b (1).
-    let t0 = 0;
-    let t1 = 1;
-    let edge0 = -1;
-    let edge1 = -1;
-    for (const edge of [0, 1]) {
-      if (dy === 0) {
-        continue;
-      }
-      const t = (edge - ya) / dy;
-      // Entering the world through this edge, or leaving it.
-      if ((edge === 0) === dy > 0) {
-        if (t > t0) [t0, edge0] = [t, edge];
-      } else if (t < t1) {
-        [t1, edge1] = [t, edge];
-      }
+function clipLine(line: Position[]): LinePart[] {
+  const points: Position[] = [];
+  for (let i = 0; i < line.length; i++) {
+    if (i > 0) {
+      const a = line[i - 1];
+      const ya = getMercatorY(a[1]);
+      const dy = getMercatorY(line[i][1]) - ya;
+      const crossings = [0, 1]
+        .map(edge => ({edge, t: (edge - ya) / dy}))
+        .filter(({t}) => t > 0 && t < 1)
+        .sort((p, q) => p.t - q.t);
+      for (const {edge, t} of crossings) points.push(interpolate(a, line[i], t, edge));
     }
-    if (dy === 0 ? !isInside(a) : t0 > t1) {
-      continue;
-    }
-    if (part.length === 0 || edge0 >= 0) {
-      if (part.length > 1) parts.push(part);
-      part = [edge0 >= 0 ? interpolate(a, b, t0, edge0) : a];
-    }
-    if (edge1 >= 0) {
-      part.push(interpolate(a, b, t1, edge1));
-      parts.push(part);
-      part = [];
-    } else {
-      part.push(b);
+    points.push(line[i]);
+  }
+  const ys = points.map(point => getMercatorY(point[1]));
+  const distances = [0];
+  for (let i = 1; i < points.length; i++) {
+    const dx = (points[i][0] - points[i - 1][0]) / 360;
+    const dy = Math.min(1, Math.max(0, ys[i])) - Math.min(1, Math.max(0, ys[i - 1]));
+    distances.push(distances[i - 1] + Math.hypot(dx, dy));
+  }
+  const length = distances[distances.length - 1] || 1;
+  const parts: LinePart[] = [];
+  let first = -1;
+  for (let i = 0; i < points.length; i++) {
+    // A segment is inside when its middle is: its ends are inside or on an edge.
+    const middle = i < points.length - 1 ? (ys[i] + ys[i + 1]) / 2 : NaN;
+    const inside = middle >= 0 && middle <= 1;
+    if (inside && first < 0) {
+      first = i;
+    } else if (!inside && first >= 0) {
+      parts.push({line: points.slice(first, i + 1), start: distances[first] / length, end: distances[i] / length});
+      first = -1;
     }
   }
-  if (part.length > 1) parts.push(part);
   return parts;
 }
 
@@ -184,6 +189,19 @@ function isGeometryInside(geometry: Geometry): boolean {
   return visit(geometry.coordinates);
 }
 
+const getLines = (parts: LinePart[]) => parts.map(part => part.line);
+
+/**
+ * The properties that carry where a part of a cut line lies along the whole line, from 0 to 1,
+ * for `line-progress` (see `cutTile`).
+ */
+const LINE_PART_START = 'tangram_line_part_start';
+const LINE_PART_END = 'tangram_line_part_end';
+
+/** The `line-progress` tags of geojson-vt, along the line it was given. */
+const LINE_CLIP_START = 'geojsonvt_clip_start';
+const LINE_CLIP_END = 'geojsonvt_clip_end';
+
 /** A geometry cut at the edges of the Web Mercator world, or `null` if none of it is left. */
 function clipGeometry(geometry: Geometry): Geometry | null {
   const {type, coordinates} = geometry;
@@ -199,9 +217,9 @@ function clipGeometry(geometry: Geometry): Geometry | null {
     case 'MultiPoint':
       return multi('MultiPoint', coordinates.filter(isInside), 'Point');
     case 'LineString':
-      return multi('MultiLineString', clipLine(coordinates), 'LineString');
+      return multi('MultiLineString', getLines(clipLine(coordinates)), 'LineString');
     case 'MultiLineString':
-      return multi('MultiLineString', coordinates.flatMap(clipLine), 'LineString');
+      return multi('MultiLineString', getLines(coordinates.flatMap(clipLine)), 'LineString');
     case 'Polygon':
       return multi('MultiPolygon', [clipPolygon(coordinates)].filter(Boolean), 'Polygon');
     case 'MultiPolygon':
@@ -224,34 +242,56 @@ function clipGeometry(geometry: Geometry): Geometry | null {
  * apart. Here points past them are dropped, and lines and polygons end where they cross them, as
  * straight lines in Web Mercator, as geojson-vt draws them. Features all inside are kept as they
  * are, and data all inside is returned as it is.
+ *
+ * With `generateId`, each feature of cut data carries the id that geojson-vt gives it in the data
+ * as it was, its index: index the cut data without `generateId`. With `lineMetrics`, each part of a
+ * cut line is a feature of its own that carries where it lies along the whole line, so that its
+ * `line-progress` goes on along the line (see `cutTile`).
  */
-export function clipFeaturesToMercatorRange(data: unknown): {data: unknown; outside: number} {
+export function clipFeaturesToMercatorRange(
+  data: unknown,
+  {generateId = false, lineMetrics = false}: {generateId?: boolean; lineMetrics?: boolean} = {}
+): {data: unknown; outside: number} {
   let outside = 0;
-  const clipFeature = (feature: any): any => {
+  const clipFeature = (feature: any): any[] => {
     const geometry = feature?.geometry as Geometry | null | undefined;
     if (!geometry || isGeometryInside(geometry)) {
-      return feature;
+      return [feature];
     }
     outside++;
+    const isLine = geometry.type === 'LineString' || geometry.type === 'MultiLineString';
+    if (lineMetrics && isLine) {
+      const lines: Position[][] =
+        geometry.type === 'LineString' ? [geometry.coordinates] : geometry.coordinates;
+      return lines.flatMap(clipLine).map(({line, start, end}) => ({
+        ...feature,
+        geometry: {type: 'LineString', coordinates: line},
+        properties: {...feature.properties, [LINE_PART_START]: start, [LINE_PART_END]: end}
+      }));
+    }
     const clipped = clipGeometry(geometry);
-    return clipped ? {...feature, geometry: clipped} : null;
+    return clipped ? [{...feature, geometry: clipped}] : [];
   };
+  const withIds = (features: any[], index: number) =>
+    generateId ? features.map(feature => feature && {...feature, id: index}) : features;
   const value = data as {type?: string; features?: unknown[]};
   if (value?.type === 'FeatureCollection' && Array.isArray(value.features)) {
     const features = value.features.map(clipFeature);
-    return outside ? {data: {...value, features: features.filter(Boolean)}, outside} : {data, outside};
+    return outside
+      ? {data: {...value, features: features.flatMap(withIds)}, outside}
+      : {data, outside};
   }
   if (value?.type === 'Feature') {
-    const feature = clipFeature(value);
-    return {data: feature ?? {type: 'FeatureCollection', features: []}, outside};
+    const features = clipFeature(value);
+    return outside ? {data: {type: 'FeatureCollection', features: withIds(features, 0)}, outside} : {data, outside};
   }
   if (value && typeof value === 'object' && 'type' in value) {
     const geometry = value as Geometry;
     if (isGeometryInside(geometry)) {
       return {data, outside};
     }
-    const clipped = clipGeometry(geometry);
-    return {data: clipped ?? {type: 'FeatureCollection', features: []}, outside: 1};
+    const features = clipFeature({type: 'Feature', properties: {}, geometry});
+    return {data: {type: 'FeatureCollection', features: withIds(features, 0)}, outside};
   }
   return {data, outside};
 }
@@ -314,6 +354,22 @@ function getGeometry(feature: GeoJSONVTFeature): {type: GeometryType; coordinate
 }
 
 /**
+ * A tile feature's properties. A part of a line cut at the edges of the Web Mercator world (see
+ * `clipFeaturesToMercatorRange`) gets its `line-progress` along the whole line.
+ */
+function getProperties(tags: Record<string, unknown> | null | undefined): Record<string, unknown> {
+  if (!tags || !(LINE_PART_START in tags)) {
+    return tags || {};
+  }
+  const {[LINE_PART_START]: start, [LINE_PART_END]: end, ...properties} = tags as Record<string, any>;
+  if (LINE_CLIP_START in properties) {
+    properties[LINE_CLIP_START] = start + properties[LINE_CLIP_START] * (end - start);
+    properties[LINE_CLIP_END] = start + properties[LINE_CLIP_END] * (end - start);
+  }
+  return properties;
+}
+
+/**
  * Cuts one tile from a tile index, as MapLibre GL JS cuts it, and encodes its features. Its typed
  * arrays' buffers can be transferred.
  */
@@ -339,7 +395,7 @@ export function cutTile(index: GeoJSONVT, z: number, x: number, y: number): Enco
       continue;
     }
     writeCoordinates(geometry.coordinates, GEOMETRY_DEPTHS[geometry.type]);
-    const encoded: EncodedFeature = {type: geometry.type, properties: feature.tags || {}};
+    const encoded: EncodedFeature = {type: geometry.type, properties: getProperties(feature.tags)};
     if (feature.id !== undefined) {
       encoded.id = feature.id;
     }
