@@ -154,11 +154,15 @@ function logBasemapRuntimeError(message: string, error: unknown, details?: unkno
   log.error(`[BasemapLayer] ${message}`, details || '', error)();
 }
 
+/**
+ * Depth parameters are set as luma.gl sets them on both backends: `depthCompare: 'always'` turns
+ * the depth test off. WebGPU has no `depthTest` parameter, and luma.gl logs an error for it.
+ */
 function getBackgroundParameters(mode: BasemapMode) {
   return (
     mode === 'globe'
-      ? {depthTest: true, depthWriteEnabled: true, depthCompare: 'less-equal', cullMode: 'back'}
-      : {depthTest: false, cullMode: 'none'}
+      ? {depthWriteEnabled: true, depthCompare: 'less-equal', cullMode: 'back'}
+      : {depthCompare: 'always', cullMode: 'none'}
   ) as any;
 }
 
@@ -176,10 +180,9 @@ function getBackgroundParameters(mode: BasemapMode) {
  */
 function getTileParameters(mode: BasemapMode, depthTested = false) {
   if (mode === 'globe' && !depthTested) {
-    return {depthTest: false, depthWriteEnabled: false, cullMode: 'back'} as any;
+    return {depthCompare: 'always', depthWriteEnabled: false, cullMode: 'back'} as any;
   }
   return {
-    depthTest: true,
     depthWriteEnabled: false,
     depthCompare: 'less-equal',
     cullMode: mode === 'globe' ? 'back' : 'none'
@@ -267,7 +270,6 @@ const NEAREST_TEXTURE_PARAMETERS = {magFilter: 'nearest'} as const;
 
 /** Extrusions are depth-tested against each other; flat layers draw in style order. */
 const EXTRUSION_PARAMETERS = {
-  depthTest: true,
   depthWriteEnabled: true,
   depthCompare: 'less-equal',
   cullMode: 'none'
@@ -1700,7 +1702,6 @@ function createStyledVectorSubLayer({
       // Circles face the viewer, so back-face culling does not hide those on the far side.
       parameters: {
         ...getTileParameters(mode),
-        depthTest: true,
         depthCompare: 'less-equal',
         depthWriteEnabled: false
       }

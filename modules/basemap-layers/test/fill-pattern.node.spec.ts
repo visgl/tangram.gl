@@ -407,7 +407,6 @@ describe('fill-pattern in the style draw order', () => {
     const patterned = layers.filter(layer => layer.id.includes('"landuse"'));
     for (const layer of patterned) {
       expect(layer.props.parameters).toMatchObject({
-        depthTest: true,
         depthCompare: 'less-equal',
         depthWriteEnabled: false,
         cullMode: 'back'
@@ -427,7 +426,7 @@ describe('fill-pattern in the style draw order', () => {
     const patterned = layers.filter(layer => layer.id.includes('"landuse"'));
     expect(patterned.map(layer => layer.props.styleLayerIndex)).toEqual([1, 1, 1, 1]);
     for (const layer of patterned) {
-      expect(layer.props.parameters).toMatchObject({depthTest: false, depthWriteEnabled: false});
+      expect(layer.props.parameters).toMatchObject({depthCompare: 'always', depthWriteEnabled: false});
     }
   });
 
@@ -457,7 +456,7 @@ describe('fill-pattern in the style draw order', () => {
     for (const layer of outlines) {
       expect(layer.props.data).toEqual([missing]);
       expect(layer.props.styleLayerIndex).toBe(2);
-      expect(layer.props.parameters).toMatchObject({depthTest: true, depthWriteEnabled: false});
+      expect(layer.props.parameters).toMatchObject({depthCompare: 'less-equal', depthWriteEnabled: false});
       // No fill, only the outline.
       expect(layer.props.getFillColor).toEqual([0, 0, 0, 0]);
       expect(layer.props.stroked).toBe(true);
@@ -470,7 +469,7 @@ describe('fill-pattern in the style draw order', () => {
     const patterned = layers.filter(layer => layer.id.includes('"landuse"'));
     expect(patterned).toHaveLength(4);
     for (const layer of patterned) {
-      expect(layer.props.parameters).toMatchObject({depthTest: true, depthWriteEnabled: false});
+      expect(layer.props.parameters).toMatchObject({depthCompare: 'less-equal', depthWriteEnabled: false});
     }
   });
 });

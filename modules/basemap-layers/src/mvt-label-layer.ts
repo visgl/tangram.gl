@@ -306,7 +306,7 @@ export function filterRowsOnDrawnTiles(tiles: LabelTile[], rows: LabelRow[]): La
  * Their screen-space quads wind clockwise, so `GlobeView`'s default `cullMode: 'back'` would cull
  * every one of them; they are drawn with culling off, in every view.
  */
-const LABEL_PARAMETERS = {depthTest: false, cullMode: 'none'} as const;
+const LABEL_PARAMETERS = {depthCompare: 'always', cullMode: 'none'} as const;
 
 /**
  * Without a depth test, labels on the far side of a globe would draw through it. This extension

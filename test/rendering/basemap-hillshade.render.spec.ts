@@ -160,11 +160,8 @@ beforeEach(() => commands.startRenderingDiagnostics());
 afterEach(async () => {
   try {
     expect(errors).toEqual([]);
-    // luma.gl logs the WebGL-only `depthTest` of every basemap tile layer on WebGPU.
-    const diagnostics = await commands.renderingDiagnostics();
-    expect(diagnostics.filter(message => !message.includes('Illegal parameter depthTest'))).toEqual(
-      []
-    );
+    // Also no `Illegal parameter` of luma.gl: the tile layers' parameters are valid on WebGPU.
+    expect(await commands.renderingDiagnostics()).toEqual([]);
   } finally {
     errors = [];
     release();

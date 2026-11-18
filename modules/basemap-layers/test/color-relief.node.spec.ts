@@ -160,15 +160,15 @@ describe('color-relief shader inputs', () => {
     );
     const texels = getColorRampTexels(ramp, TERRARIUM);
     expect(texels.length).toBe(3 * 2 * 4);
-    const row = (y: number) =>
-      Array.from(texels.slice(y * 12, y * 12 + 12), value => Math.round(value * 255));
     // 255 at alpha 128/255 is premultiplied to 128.
-    expect(row(0)).toEqual([128, 0, 0, 128, 10, 200, 30, 255, 0, 0, 0, 0]);
-    expect(Array.from(texels.slice(12)).filter((_, index) => index % 4 === 0)).toEqual([
-      77 / 256,
-      100,
-      2000 + 179 / 256
-    ]);
+    expect(Array.from(texels.slice(0, 12))).toEqual([128, 0, 0, 128, 10, 200, 30, 255, 0, 0, 0, 0]);
+    // The elevations are encoded as the elevation texture encodes them, terrarium in RGB.
+    const elevations = [0, 1, 2].map(stop => {
+      const [r, g, b, a] = texels.slice(12 + stop * 4, 16 + stop * 4);
+      expect(a).toBe(255);
+      return r * 256 + g + b / 256 - 32768;
+    });
+    expect(elevations).toEqual([77 / 256, 100, 2000 + 179 / 256]);
   });
 
   test('the elevation texture is the tile in terrarium, with a one-pixel border', () => {

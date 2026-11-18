@@ -71,7 +71,6 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import {log} from '@deck.gl/core';
 import type {Layer, LayersList, UpdateParameters} from '@deck.gl/core';
 import type {Device, Texture} from '@luma.gl/core';
 import {
@@ -185,22 +184,24 @@ export function quantizeElevation(
 }
 
 /**
- * The texels of a ramp's texture, `colorStops.length` wide and 2 high, RGBA: the first row holds
- * the colors, premultiplied and rounded to 8 bits as MapLibre GL JS uploads them, and the second
- * the elevations, in red, as the shader reads them back from the DEM encoding `unpack`.
+ * The texels of a ramp's texture, `colorStops.length` wide and 2 high, RGBA in 8 bits: the first
+ * row holds the colors, premultiplied and rounded to 8 bits as MapLibre GL JS uploads them, and the
+ * second the elevations, as the shader reads them back from the DEM encoding `unpack`, encoded as
+ * the elevation texture encodes them (see `prepareColorReliefTexture`). WebGPU can bind an 8-bit
+ * texture as a float texture without the `float32-filterable` feature; a 32-bit float one, not.
  */
-export function getColorRampTexels(ramp: ColorRamp, unpack: DemUnpackVector): Float32Array {
+export function getColorRampTexels(ramp: ColorRamp, unpack: DemUnpackVector): Uint8Array {
   const size = ramp.colorStops.length;
-  const texels = new Float32Array(size * 2 * 4);
+  const texels = new Uint8Array(size * 2 * 4);
   ramp.colorStops.forEach(([r, g, b, a], index) => {
     // MapLibre stores the color unpremultiplied in 8 bits, and premultiplies it on upload.
     const alpha = Math.round(a * 255);
     const premultiply = (channel: number) =>
-      a === 0 ? 0 : Math.round((Math.round((channel * 255) / a) * alpha) / 255) / 255;
-    texels.set([premultiply(r), premultiply(g), premultiply(b), alpha / 255], index * 4);
+      a === 0 ? 0 : Math.round((Math.round((channel * 255) / a) * alpha) / 255);
+    texels.set([premultiply(r), premultiply(g), premultiply(b), alpha], index * 4);
   });
   ramp.elevationStops.forEach((elevation, index) => {
-    texels[(size + index) * 4] = quantizeElevation(elevation, unpack);
+    setTextureElevation(texels, (size + index) * 4, quantizeElevation(elevation, unpack));
   });
   return texels;
 }
@@ -216,6 +217,19 @@ function getTextureValue(elevation: number): number {
     Math.max(Math.round((elevation + ELEVATION_SHIFT) * ELEVATION_STEPS), 0),
     MAX_TEXTURE_VALUE
   );
+}
+
+/** Writes an elevation at `index` of RGBA texels, as terrarium in red, green and blue. */
+function setTextureElevation(
+  texels: Uint8Array | Uint8ClampedArray,
+  index: number,
+  elevation: number
+): void {
+  const value = getTextureValue(elevation);
+  texels[index] = Math.floor(value / 65536);
+  texels[index + 1] = Math.floor(value / 256) % 256;
+  texels[index + 2] = value % 256;
+  texels[index + 3] = 255;
 }
 
 /** An elevation as the shader reads it from the elevation texture. */
@@ -238,12 +252,7 @@ export function prepareColorReliefTexture(
   const texture = new Uint8ClampedArray(size * size * 4);
   for (let row = 0; row < size; row++) {
     for (let column = 0; column < size; column++) {
-      const value = getTextureValue(getElevation(column - 1, row - 1));
-      const index = (row * size + column) * 4;
-      texture[index] = Math.floor(value / 65536);
-      texture[index + 1] = Math.floor(value / 256) % 256;
-      texture[index + 2] = value % 256;
-      texture[index + 3] = 255;
+      setTextureElevation(texture, (row * size + column) * 4, getElevation(column - 1, row - 1));
     }
   }
   return texture;
@@ -266,11 +275,12 @@ layout(std140) uniform colorReliefUniforms {
   float rampSize;
 } colorRelief;
 
-// Colors in the first row, elevations in the second.
-uniform highp sampler2D colorReliefRamp;
+// Colors in the first row, elevations in the second, encoded as the DEM texture encodes them.
+uniform sampler2D colorReliefRamp;
 
 float colorRelief_getStop(int stop) {
-  return texelFetch(colorReliefRamp, ivec2(stop, 1), 0).r;
+  vec3 data = floor(texelFetch(colorReliefRamp, ivec2(stop, 1), 0).rgb * 255.0 + 0.5);
+  return dot(data, vec3(256.0, 1.0, 1.0 / 256.0)) - 32768.0;
 }
 
 // MapLibre GL JS's color-relief fragment shader. \`uv\` is the position in the tile.
@@ -314,6 +324,59 @@ vec4 colorRelief_getColor(sampler2D dem, vec2 uv) {
   return color * colorRelief.opacity;
 }
 `,
+  source: /* wgsl */ `\
+struct ColorReliefUniforms {
+  opacity: f32,
+  rampSize: f32,
+};
+
+@group(0) @binding(auto) var<uniform> colorRelief: ColorReliefUniforms;
+// Colors in the first row, elevations in the second, encoded as the DEM texture encodes them.
+@group(0) @binding(auto) var colorReliefRamp: texture_2d<f32>;
+
+// The GLSL functions above, in WGSL.
+fn colorRelief_getStop(stop: i32) -> f32 {
+  let data = floor(textureLoad(colorReliefRamp, vec2<i32>(stop, 1), 0).rgb * 255.0 + 0.5);
+  return dot(data, vec3<f32>(256.0, 1.0, 1.0 / 256.0)) - 32768.0;
+}
+
+// The elevation texture is sampled from its first mip level: it has no others.
+fn colorRelief_getColor(dem: texture_2d<f32>, demSampler: sampler, uv: vec2<f32>) -> vec4<f32> {
+  let size = vec2<f32>(textureDimensions(dem, 0));
+  var data = textureSampleLevel(dem, demSampler, (uv * (size - 2.0) + 1.0) / size, 0.0) * 255.0;
+  data.a = -1.0;
+  let elevation = dot(data, vec4<f32>(256.0, 1.0, 1.0 / 256.0, 32768.0));
+
+  let count = i32(colorRelief.rampSize + 0.5);
+  var r = count - 1;
+  var l = 0;
+  var elevationL = colorRelief_getStop(l);
+  var elevationR = colorRelief_getStop(r);
+  while (r - l > 1) {
+    let m = (r + l) / 2;
+    let elevationM = colorRelief_getStop(m);
+    if (elevation < elevationM) {
+      r = m;
+      elevationR = elevationM;
+    } else {
+      l = m;
+      elevationL = elevationM;
+    }
+  }
+  var t = select(1.0, 0.0, elevation < elevationL);
+  if (elevationR > elevationL) {
+    t = (elevation - elevationL) / (elevationR - elevationL);
+  }
+  let x = clamp(f32(l) + t, 0.0, f32(count - 1));
+  let i = min(i32(x), count - 2);
+  let color = mix(
+    textureLoad(colorReliefRamp, vec2<i32>(i, 0), 0),
+    textureLoad(colorReliefRamp, vec2<i32>(i + 1, 0), 0),
+    x - f32(i)
+  );
+  return color * colorRelief.opacity;
+}
+`,
   uniformTypes: {
     opacity: 'f32',
     rampSize: 'f32'
@@ -328,9 +391,32 @@ type ColorReliefBitmapLayerProps = {
   colorReliefOpacity: number;
 };
 
+const GLSL_INJECTION = {
+  // At the end of main(), where the bitmap's sampler is in scope.
+  'fs:#main-end': /* glsl */ `
+  if (!bool(picking.isActive)) {
+    fragColor = colorRelief_getColor(bitmapTexture, geometry.uv) * layer.opacity;
+  }
+`
+};
+
+const WGSL_INJECTION = {
+  // As in `HillshadeBitmapLayer`: deck.gl's WGSL bitmap shader has no hook after its color, and
+  // premultiplies the filtered color itself, so the premultiplied color is divided by its alpha
+  // here. In picking, the shader returns its own color and ignores this one.
+  'fs:DECKGL_FILTER_COLOR': /* wgsl */ `
+  let colorReliefColor = colorRelief_getColor(bitmapTexture, bitmapTextureSampler, geometry.uv) *
+    layer.opacity;
+  *color = vec4<f32>(
+    select(vec3<f32>(0.0), colorReliefColor.rgb / colorReliefColor.a, colorReliefColor.a > 0.0),
+    colorReliefColor.a
+  );
+`
+};
+
 /**
  * A `BitmapLayer` whose image is a tile's elevation texture (see `prepareColorReliefTexture`),
- * colored by a ramp as MapLibre GL JS colors it. WebGL only.
+ * colored by a ramp as MapLibre GL JS colors it, on WebGL and on WebGPU.
  */
 class ColorReliefBitmapLayer extends ProjectedBitmapLayer<ColorReliefBitmapLayerProps> {
   static layerName = 'ColorReliefBitmapLayer';
@@ -342,12 +428,7 @@ class ColorReliefBitmapLayer extends ProjectedBitmapLayer<ColorReliefBitmapLayer
       modules: [...shaders.modules, colorReliefModule],
       inject: {
         ...shaders.inject,
-        // At the end of main(), where the bitmap's sampler is in scope.
-        'fs:#main-end': /* glsl */ `
-  if (!bool(picking.isActive)) {
-    fragColor = colorRelief_getColor(bitmapTexture, geometry.uv) * layer.opacity;
-  }
-`
+        ...(this.context.device.type === 'webgpu' ? WGSL_INJECTION : GLSL_INJECTION)
       }
     };
   }
@@ -383,8 +464,7 @@ export type ColorReliefTileLayerProps = DemTileLayerProps & {
 
 /**
  * The tiles of a `raster-dem` source, colored by elevation by one `color-relief` style layer (see
- * `DemTileLayer`). The layer owns the texture of its ramp, which its tiles share. Draws nothing on
- * WebGPU: the shader is GLSL.
+ * `DemTileLayer`). The layer owns the texture of its ramp, which its tiles share.
  */
 export class ColorReliefTileLayer extends DemTileLayer<ColorReliefTileLayerProps> {
   static layerName = 'ColorReliefTileLayer';
@@ -395,14 +475,6 @@ export class ColorReliefTileLayer extends DemTileLayer<ColorReliefTileLayerProps
     colorReliefUnpack: {type: 'array', value: [6553.6, 25.6, 0.1, 10000], compare: false},
     colorReliefSubLayerProps: {type: 'object', value: null, compare: false}
   };
-
-  renderLayers(): Layer | null | LayersList {
-    if (this.context.device.type === 'webgpu') {
-      log.once(1, '[BasemapLayer] color-relief layers are not drawn on WebGPU')();
-      return null;
-    }
-    return super.renderLayers();
-  }
 
   declare state: DemTileLayer<ColorReliefTileLayerProps>['state'] & {
     colorRamp?: ColorRampTexture & {key: string; device: Device};
@@ -442,11 +514,11 @@ export class ColorReliefTileLayer extends DemTileLayer<ColorReliefTileLayerProps
     const ramp = createColorRamp(colorReliefColor, device.limits.maxTextureDimension2D);
     const size = ramp.colorStops.length;
     const texture = device.createTexture({
-      format: 'rgba32float',
+      format: 'rgba8unorm',
       width: size,
       height: 2,
       mipLevels: 1,
-      // Float textures cannot be filtered without an extension; the shader reads exact texels.
+      // The shader reads exact texels.
       sampler: {minFilter: 'nearest', magFilter: 'nearest'}
     });
     texture.writeData(getColorRampTexels(ramp, colorReliefUnpack));

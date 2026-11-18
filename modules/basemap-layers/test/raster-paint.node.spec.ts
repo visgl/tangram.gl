@@ -103,7 +103,7 @@ describe('raster color adjustments', () => {
       blendColorDstFactor: 'one-minus-src-alpha',
       blendAlphaSrcFactor: 'one',
       blendAlphaDstFactor: 'one-minus-src-alpha',
-      depthTest: true
+      depthCompare: 'less-equal'
     });
   });
 
