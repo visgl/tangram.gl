@@ -69,6 +69,20 @@ describe('BasemapLayer onError', () => {
     expect(event.cause).toBe(layer.state.loadError);
   });
 
+  test('a style URL loads with the fetch and fetchOptions of loadOptions', async () => {
+    const globalFetch = vi.fn(async () => new Response('{}', {status: 500}));
+    vi.stubGlobal('fetch', globalFetch);
+    const styleUrl = `${TILES_URL}/style.json`;
+    const fetchFn = fakeFetch({[styleUrl]: style({})});
+    const fetchOptions = {headers: {Authorization: 'Bearer token'}};
+    const {layer, onError} = basemap({style: styleUrl, loadOptions: {fetch: fetchFn, fetchOptions}});
+    await settled(layer);
+    expect(onError).not.toHaveBeenCalled();
+    expect(layer.state.resolvedStyle).toBeTruthy();
+    expect(globalFetch).not.toHaveBeenCalled();
+    expect(fetchFn).toHaveBeenCalledWith(styleUrl, expect.objectContaining(fetchOptions));
+  });
+
   test('a source TileJSON that answers 404 calls onError once, with kind source', async () => {
     const tileJsonUrl = `${TILES_URL}/streets.json`;
     const {layer, onError} = basemap({

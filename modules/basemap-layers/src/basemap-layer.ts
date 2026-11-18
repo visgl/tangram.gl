@@ -62,7 +62,15 @@ function getMapStyleLoaderOptions(
   loadOptions: BasemapLayerProps['loadOptions'],
   onError: BasemapLoadErrorHandler
 ): MapStyleLoaderOptions {
+  const {fetch: fetchFn, fetchOptions} = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
   return {
+    // loaders.gl requests a style URL with its top-level `fetch`, not with that of `mapStyle`.
+    ...(fetchFn || fetchOptions
+      ? {
+          fetch: (url: string, init?: RequestInit) =>
+            (fetchFn || fetch)(url, {...init, ...fetchOptions})
+        }
+      : {}),
     mapStyle: {...loadOptions, onError} as NonNullable<MapStyleLoaderOptions['mapStyle']>
   };
 }

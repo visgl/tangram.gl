@@ -9,6 +9,7 @@ Copyright (c) vis.gl contributors
 ## November 2026
 
 - `BasemapLayer` raises each resource of the style that fails to load to deck.gl's `onError` layer prop, and then to the `onError` of the `Deck`, in place of a log message that an application could not read. The error is a `BasemapLoadError`, with the `kind` of resource (`style`, `source`, `tile`, `sprite`, `glyphs` or `image`) and its `sourceId`, `url`, HTTP `status` and tile index where they apply. Each failure is raised once, and a cancelled request is not raised. See [`onError`](./api-reference/basemap-layer.md#onerror).
+- A style URL loads with the `fetch` and `fetchOptions` of `loadOptions`, as its sources, sprites and glyphs do. Before, the style document was requested with the global `fetch`.
 - `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
 - `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
 - `text-rotate` turns point labels clockwise, per feature, as MapLibre GL JS turns them: about the point, with their `text-anchor` and `text-offset`. They collide with the box around the turned text.
