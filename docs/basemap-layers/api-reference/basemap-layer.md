@@ -112,6 +112,38 @@ to a CSS font (see [Label fonts](/docs/modules/basemap-layers#label-fonts)). Def
 `getBasemapLayers` and `getGlobeBaseLayers` accept the same `fontFamily` option, and a `glyphs`
 option, a `GlyphStore` of the style's `glyphs` URL, to draw labels with the style's glyphs.
 
+### `onError`
+
+Type: `((error: Error) => boolean | void) | null`
+
+The `onError` prop of every deck.gl layer. `BasemapLayer` calls it once for each resource of the style that fails to load, with a `BasemapLoadError`. If the function does not return `true`, the `onError` of the `Deck` also receives the error. The default `onError` of the `Deck` logs it. A cancelled request, such as a tile that leaves the view before it loads, is not a failure.
+
+A `BasemapLoadError` is an `Error` with these fields, which match those of the `error` event of MapLibre GL JS:
+
+- `kind`: what failed: `'style'`, `'source'` (a TileJSON or the GeoJSON `data` of a source), `'tile'`, `'sprite'`, `'glyphs'` (one glyph range), or `'image'`, which is kept for `image` sources (this version does not draw them)
+- `sourceId`: the id of the style source, for a `source` or a `tile`
+- `url`: the URL that failed, when it is known
+- `status`: the HTTP status of the response, when the server answered
+- `tile`: the `{x, y, z}` index of the tile, for a `tile`
+- `cause`: the error the load failed with
+
+The layer draws what it can without the failed resource: a source that fails has no layers, a tile that fails is not drawn, and the icons of a sprite that fails are skipped.
+
+```ts
+import {BasemapLayer, BasemapLoadError} from '@tangram.gl/basemap-layers';
+
+new BasemapLayer({
+  style,
+  onError: error => {
+    if (error instanceof BasemapLoadError) {
+      showMessage(`Could not load the ${error.kind} ${error.url ?? ''} (${error.status ?? 'no response'})`);
+      return true;
+    }
+    return false;
+  }
+});
+```
+
 ### `globe`
 
 Type: `{config?: BasemapGlobeConfig}`
@@ -240,6 +272,8 @@ Loads and normalizes a style document. This resolves:
   `/VectorTileServer` or `/MapServer` is a directory: `tile/{z}/{y}/{x}.pbf` resolves to
   `.../VectorTileServer/tile/{z}/{y}/{x}.pbf`
 - legacy Mapbox `ref` layer inheritance
+
+A source that cannot be loaded does not fail the style: a warning is logged, and its layers are skipped unless the source also lists inline `tiles`. Pass `loadOptions.onError` to receive a `BasemapLoadError` of kind `'source'` for each such source in place of the warning.
 
 ## Example
 

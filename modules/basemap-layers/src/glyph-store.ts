@@ -8,6 +8,11 @@
 
 import {GLYPH_RANGE_SIZE, parseGlyphRange} from './glyph-pbf';
 import type {Glyph} from './glyph-pbf';
+import {
+  BasemapFetchError,
+  getBasemapLoadError,
+  type BasemapLoadErrorHandler
+} from './basemap-error';
 
 /** Options for a {@link GlyphStore}. */
 export type GlyphStoreOptions = {
@@ -17,6 +22,8 @@ export type GlyphStoreOptions = {
   baseUrl?: string;
   fetch?: typeof fetch;
   fetchOptions?: RequestInit;
+  /** Called for each range that fails to load, in place of the warning logged without it. */
+  onError?: BasemapLoadErrorHandler;
 };
 
 /** The highest code point of a glyph range, as in MapLibre GL JS. */
@@ -68,6 +75,7 @@ export class GlyphStore {
   readonly url: string;
   private readonly fetch: typeof fetch;
   private readonly fetchOptions?: RequestInit;
+  private readonly onError?: BasemapLoadErrorHandler;
   private readonly stacks = new Map<string, StackEntry>();
   /** The font stacks each consumer retains (see `retain`). */
   private readonly retained = new Map<object, Set<string>>();
@@ -76,10 +84,11 @@ export class GlyphStore {
   /** Called once when a consumer next gives back a font stack (see `onRetainedFreed`). */
   private readonly freedListeners = new Map<object, () => void>();
 
-  constructor({url, baseUrl, fetch: fetchFn, fetchOptions}: GlyphStoreOptions) {
+  constructor({url, baseUrl, fetch: fetchFn, fetchOptions, onError}: GlyphStoreOptions) {
     this.url = resolveGlyphsUrl(url, baseUrl);
     this.fetch = fetchFn || ((...args: Parameters<typeof fetch>) => fetch(...args));
     this.fetchOptions = fetchOptions;
+    this.onError = onError;
   }
 
   /**
@@ -242,9 +251,10 @@ export class GlyphStore {
   private async loadRange(fontStack: string, range: number): Promise<Map<number, Glyph>> {
     const glyphs = new Map<number, Glyph>();
     try {
-      const response = await this.fetch(this.getRangeUrl(fontStack, range), this.fetchOptions);
+      const url = this.getRangeUrl(fontStack, range);
+      const response = await this.fetch(url, this.fetchOptions);
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+        throw new BasemapFetchError(`HTTP ${response.status}`, url, response.status);
       }
       for (const glyph of parseGlyphRange(await response.arrayBuffer())) {
         if (getGlyphRange(glyph.id) === range) {
@@ -252,8 +262,14 @@ export class GlyphStore {
         }
       }
     } catch (error) {
-      // biome-ignore lint/suspicious/noConsole: a missing range leaves its characters undrawn.
-      console.warn(`Failed to load glyphs ${this.getRangeUrl(fontStack, range)}`, error);
+      if (this.onError) {
+        this.onError(
+          getBasemapLoadError('glyphs', error, {url: this.getRangeUrl(fontStack, range)})
+        );
+      } else {
+        // biome-ignore lint/suspicious/noConsole: a missing range leaves its characters undrawn.
+        console.warn(`Failed to load glyphs ${this.getRangeUrl(fontStack, range)}`, error);
+      }
     }
     return glyphs;
   }

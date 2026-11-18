@@ -4,6 +4,8 @@
 
 /** Runtime exports for `@deck.gl-community/basemap-layers`. */
 export {BasemapLayer} from './basemap-layer';
+export {BasemapLoadError} from './basemap-error';
+export type {BasemapLoadErrorDetails, BasemapLoadErrorKind} from './basemap-error';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';
 export {

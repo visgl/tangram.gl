@@ -3,6 +3,11 @@
 // Copyright (c) vis.gl contributors
 
 import {log} from '@deck.gl/core';
+import {
+  BasemapFetchError,
+  getBasemapLoadError,
+  type BasemapLoadErrorHandler
+} from './basemap-error';
 import {derefLayers} from '@maplibre/maplibre-gl-style-spec';
 import {
   BasemapSourceSchema,
@@ -101,6 +106,11 @@ export type BasemapLoadOptions = {
   fetch?: typeof fetch;
   /** Optional init object passed to the selected fetch implementation. */
   fetchOptions?: RequestInit;
+  /**
+   * Called for each source whose TileJSON or GeoJSON data cannot be loaded, in place of the
+   * warning that is logged without it.
+   */
+  onError?: BasemapLoadErrorHandler;
   /** Additional loader options are accepted for forward compatibility. */
   [key: string]: unknown;
 } | null;
@@ -153,7 +163,11 @@ async function fetchJson(url: string, loadOptions?: BasemapLoadOptions) {
   const response = await fetchFn(url, loadOptions?.fetchOptions);
 
   if (!response.ok) {
-    throw new Error(`Failed to load basemap resource: ${url} (${response.status})`);
+    throw new BasemapFetchError(
+      `Failed to load basemap resource: ${url} (${response.status})`,
+      url,
+      response.status
+    );
   }
 
   return await response.json();
@@ -305,11 +319,18 @@ export async function resolveBasemapStyle(
         const inlineTiles = source?.tiles?.length
           ? normalizeTiles(source.tiles, baseUrl)
           : undefined;
-        log.warn(
-          `[BasemapLayer] Source "${sourceId}" could not be loaded; ${
-            inlineTiles ? 'using its inline tiles' : 'its layers are skipped'
-          }: ${String((error as Error)?.message ?? error)}`
-        )();
+        if (loadOptions?.onError) {
+          const url = typeof source?.data === 'string' ? source.data : source?.url;
+          loadOptions.onError(
+            getBasemapLoadError('source', error, {sourceId, url: normalizeUrl(url, baseUrl)})
+          );
+        } else {
+          log.warn(
+            `[BasemapLayer] Source "${sourceId}" could not be loaded; ${
+              inlineTiles ? 'using its inline tiles' : 'its layers are skipped'
+            }: ${String((error as Error)?.message ?? error)}`
+          )();
+        }
         resolvedSources[sourceId] =
           source?.type === 'geojson'
             ? {...source, data: undefined}

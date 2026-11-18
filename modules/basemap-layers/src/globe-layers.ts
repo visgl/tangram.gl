@@ -4,6 +4,7 @@
 
 import type {GlyphStore} from './glyph-store';
 import {SharedMVTLayer, SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {_getURLFromTemplate as getURLFromTemplate} from '@deck.gl/geo-layers';
 import {isGeographicViewport, isProjectedViewport} from './projected-viewport';
 import {getTileFeaturesInLngLat} from './projected-tile-data';
 import {getBasemapTilesetAdapter, ProjectedTileLayer} from './projected-tileset';
@@ -86,6 +87,7 @@ import {
 } from './zoom-paint-extension';
 import type {BasemapGlobeConfig, BasemapLayerProps} from './basemap-layer';
 import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
+import {type BasemapLoadErrorHandler, getBasemapLoadError} from './basemap-error';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {
@@ -114,6 +116,8 @@ type BasemapLayerGroup = {
   fetch?: LayerProps['fetch'];
   /** Matches the raster tiles that have no data (see `BasemapLayerProps.rejectRasterTile`). */
   rejectRasterTile?: RejectRasterTile | null;
+  /** Receives the tiles that fail to load, in place of the log (see `BasemapLoadError`). */
+  onError?: BasemapLoadErrorHandler | null;
   /**
    * Sprites loaded for the style; symbol layers draw `icon-image` from them. `null` means the
    * sprites are still loading: no icons are drawn, and labels are placed as if each symbol had its
@@ -159,6 +163,38 @@ function logBasemapRuntimeEvent(message: string, details?: unknown): void {
 
 function logBasemapRuntimeError(message: string, error: unknown, details?: unknown): void {
   log.error(`[BasemapLayer] ${message}`, details || '', error)();
+}
+
+/**
+ * Gives a tile that failed to load to `onError`, with its URL and index, or logs it without one.
+ */
+function reportTileError(
+  onError: BasemapLoadErrorHandler | null | undefined,
+  error: unknown,
+  tile: {index?: unknown} | undefined,
+  {source, sourceId, message, details}: {
+    source: BasemapSource;
+    sourceId?: string;
+    message: string;
+    details: Record<string, unknown>;
+  }
+): void {
+  if (!onError) {
+    logBasemapRuntimeError(message, error, details);
+    return;
+  }
+  const index = tile?.index as {x: number; y: number; z: number} | undefined;
+  const url =
+    index && source.tiles
+      ? getURLFromTemplate(source.tiles, {index, id: `${index.x}-${index.y}-${index.z}`})
+      : null;
+  onError(
+    getBasemapLoadError('tile', error, {
+      sourceId,
+      ...(url ? {url} : {}),
+      ...(index ? {tile: {x: index.x, y: index.y, z: index.z}} : {})
+    })
+  );
 }
 
 function getBackgroundParameters(mode: BasemapMode) {
@@ -814,6 +850,7 @@ function createRasterLayer({
   loadOptions,
   fetch,
   rejectRasterTile,
+  onError,
   depthTested,
   projectedMaxStretch
 }: {
@@ -825,6 +862,7 @@ function createRasterLayer({
   loadOptions?: BasemapLoadOptions;
   fetch?: LayerProps['fetch'];
   rejectRasterTile?: RejectRasterTile | null;
+  onError?: BasemapLoadErrorHandler | null;
   /** Drawn after an extrusion, see `getTileParameters`. */
   depthTested?: boolean;
   projectedMaxStretch?: number;
@@ -894,10 +932,12 @@ function createRasterLayer({
           : getTileParameters(mode, depthTested)
       } as any);
     },
-    onTileError: error => {
-      logBasemapRuntimeError('Raster tile failed to load', error, {
-        layerId: layer.id,
-        sourceId: layer.source
+    onTileError: (error, tile) => {
+      reportTileError(onError, error, tile, {
+        source,
+        sourceId: layer.source,
+        message: 'Raster tile failed to load',
+        details: {layerId: layer.id, sourceId: layer.source}
       });
     },
     parameters: getTileParameters(mode, depthTested)
@@ -917,10 +957,12 @@ function createHillshadeLayer({
   source,
   zoom,
   mode,
-  depthTested
+  depthTested,
+  onError
 }: {
   idPrefix: string;
   layer: BasemapStyleLayer;
+  onError?: BasemapLoadErrorHandler | null;
   /** The source's decoded tiles (see `createDemTileset`). */
   tileset: SharedTileset2D;
   /** Set when the layer shares a tileset that no `BasemapLayer` owns. */
@@ -948,10 +990,12 @@ function createHillshadeLayer({
       textureParameters: {minFilter: filter, magFilter: filter, mipmapFilter: 'none'},
       parameters: getTileParameters(mode, depthTested)
     },
-    onTileError: error => {
-      logBasemapRuntimeError('DEM tile failed to load', error, {
-        layerId: layer.id,
-        sourceId: layer.source
+    onTileError: (error, tile) => {
+      reportTileError(onError, error, tile, {
+        source,
+        sourceId: layer.source,
+        message: 'DEM tile failed to load',
+        details: {layerId: layer.id, sourceId: layer.source}
       });
     },
     parameters: getTileParameters(mode, depthTested)
@@ -1742,11 +1786,13 @@ function createVectorLayerGroup({
   spriteAtlases,
   fontFamily,
   glyphs,
-  labelPlacement
+  labelPlacement,
+  onError
 }: {
   idPrefix: string;
   id: string;
   sourceId: string;
+  onError?: BasemapLoadErrorHandler | null;
   source: BasemapSource;
   /** Shared with the source's other runs, if it has any. */
   tileset?: SharedTileset2D | null;
@@ -1791,9 +1837,12 @@ function createVectorLayerGroup({
         shape: 'geojson-table'
       }
     },
-    onTileError: (error: unknown) => {
-      logBasemapRuntimeError('Vector tile layer failed', error, {
-        sourceId
+    onTileError: (error: unknown, tile?: {index?: unknown}) => {
+      reportTileError(onError, error, tile, {
+        source,
+        sourceId,
+        message: 'Vector tile layer failed',
+        details: {sourceId}
       });
     },
     onTileLoad: (tile: Parameters<NonNullable<SharedMVTLayer['props']['onTileLoad']>>[0]) => {
@@ -2015,6 +2064,7 @@ export function getBasemapLayers({
   loadOptions,
   fetch,
   rejectRasterTile,
+  onError,
   spriteAtlases,
   fontFamily,
   glyphs,
@@ -2047,6 +2097,7 @@ export function getBasemapLayers({
         loadOptions,
         fetch,
         rejectRasterTile,
+        onError,
         mode,
         spriteAtlases,
         fontFamily,
@@ -3560,6 +3611,7 @@ function getStyleLayers({
   loadOptions,
   fetch,
   rejectRasterTile,
+  onError,
   mode,
   spriteAtlases,
   fontFamily,
@@ -3579,6 +3631,7 @@ function getStyleLayers({
   loadOptions?: BasemapLoadOptions;
   fetch?: LayerProps['fetch'];
   rejectRasterTile?: RejectRasterTile | null;
+  onError?: BasemapLoadErrorHandler | null;
   mode: BasemapMode;
   spriteAtlases?: SpriteAtlas[] | null;
   fontFamily?: LabelFontFamily | null;
@@ -3623,6 +3676,7 @@ function getStyleLayers({
         loadOptions,
         fetch,
         rejectRasterTile,
+        onError,
         depthTested: depthTested.has(layer),
         projectedMaxStretch
       });
@@ -3650,7 +3704,8 @@ function getStyleLayers({
         source: run.source!,
         zoom,
         mode,
-        depthTested: depthTested.has(layer)
+        depthTested: depthTested.has(layer),
+        onError
       });
     }
     let tileset = tilesets?.get(run.source!);
@@ -3695,7 +3750,8 @@ function getStyleLayers({
       spriteAtlases,
       fontFamily,
       glyphs,
-      labelPlacement
+      labelPlacement,
+      onError
     });
   });
 }
