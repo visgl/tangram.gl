@@ -8,6 +8,7 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
+- `BasemapLayer` reports its loading as deck.gl's `TileLayer` does. `isLoaded` is `false` while the style resolves, while its sprites load and while the tiles of the viewport load. Before, it was `true` for an empty map while the style loaded. The new `onStyleLoad`, `onTileLoad` and `onViewportLoad` props report the resolved style, each loaded tile and the loaded viewport. The new `onAttributionChange` prop reports the attribution of the sources that the style draws, as `TangramLayer` does.
 - `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
 - `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
 - `text-rotate` turns point labels clockwise, per feature, as MapLibre GL JS turns them: about the point, with their `text-anchor` and `text-offset`. They collide with the box around the turned text.
