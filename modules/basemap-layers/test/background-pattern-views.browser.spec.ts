@@ -29,12 +29,15 @@ const IMAGE = {name: 'us-highway_3', width: 21, height: 17};
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
 
-afterEach(() => {
+/** Releases the deck of the latest render. A test can render more than once. */
+function release(): void {
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
-});
+}
+
+afterEach(release);
 
 /** The gray levels of the view, and the zoom its style was evaluated at, once the sprite loaded. */
 async function render(
@@ -53,7 +56,7 @@ async function render(
   };
   parent = document.createElement('div');
   document.body.append(parent);
-  return new Promise((resolve, reject) => {
+  const result = await new Promise<{gray: Float64Array; styleZoom: number}>((resolve, reject) => {
     let settled = 0;
     deck = new Deck({
       parent: parent!,
@@ -94,6 +97,8 @@ async function render(
       onError: reject
     });
   });
+  release();
+  return result;
 }
 
 /**
