@@ -1021,14 +1021,11 @@ export default class Scene {
                 this.render_count_changed = true;
                 this.logFirstFrame();
 
+                // Diagnostic only: a worker destroyed before it replies rejects the request.
                 this.getFeatureSelectionMapSize().then(size => {
                     this.selection_feature_count = size;
                     log('info', `Scene: rendered ${this.render_count} primitives (${size} features in selection map)`);
-                }, error => {
-                    // This diagnostic count is informational. A replaced or destroyed
-                    // scene terminates its workers while this query can still be pending.
-                    log('debug', 'Scene: feature selection map size is unavailable:', error);
-                });
+                }, error => log('debug', 'Scene: feature selection map size is unavailable:', error));
             }
             this.last_render_count = this.render_count;
         }
@@ -2365,12 +2362,15 @@ export default class Scene {
                 : Promise.all(this.activeWorkers.map((worker, index) => threads[index]
                     ? threads[index]!.getFeatureSelectionMapSize()
                     : WorkerBroker.postMessage<number>(worker, 'self.getFeatureSelectionMapSize')));
-            // Release the shared request on failure too, so that a later call can retry.
             this.fetching_selection_map = sizes
-                .finally(() => {
+                .then(sizes => {
                     this.fetching_selection_map = null;
-                })
-                .then(sizes => sizes.reduce((a, b) => a + b));
+                    return sizes.reduce((a, b) => a + b);
+                }, error => {
+                    // Do not keep a failed request; the next frame must ask again.
+                    this.fetching_selection_map = null;
+                    throw error;
+                });
         }
         return this.fetching_selection_map;
     }

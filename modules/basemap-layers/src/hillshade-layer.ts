@@ -184,19 +184,23 @@ export function getBorderedElevations(
  * neighbor is missing, from the tile's nearest edge pixel, as MapLibre fills them.
  *
  * `zoom` is the tile's zoom, also where it is scaled up past its source's `maxzoom`. MapLibre
- * scales the slopes by it, and exaggerates them below zoom 15.
+ * scales the slopes by it, and exaggerates them below zoom 15. `bodyRadius` is the radius, in
+ * meters, of the body the tile covers (see `getBodyRadius`): a tile pixel spans less ground on a
+ * smaller body, so the same elevations make steeper slopes. The default is the Earth's, as MapLibre.
  */
 export function prepareHillshadeTexture(
   dem: DemTile,
   zoom: number,
-  getNeighbor: DemNeighbors = () => null
+  getNeighbor: DemNeighbors = () => null,
+  bodyRadius: number = EARTH_RADIUS
 ): Uint8ClampedArray<ArrayBuffer> {
   const {dim} = dem;
   const getElevation = getBorderedElevations(dem, getNeighbor);
 
   const exaggerationFactor = zoom < 2 ? 0.4 : zoom < 4.5 ? 0.35 : 0.3;
   const exaggeration = zoom < 15 ? (zoom - 15) * exaggerationFactor : 0;
-  const scale = dim / 2 ** (exaggeration + (28.2562 - zoom)) / 8;
+  // 28.2562 is 3 plus log2 of the Earth's circumference in meters, the ground a zoom 0 tile spans.
+  const scale = ((dim / 2 ** (exaggeration + (28.2562 - zoom)) / 8) * EARTH_RADIUS) / bodyRadius;
   const flat = 128 / 255;
 
   const size = dim + 2;
@@ -227,6 +231,20 @@ export function prepareHillshadeTexture(
     }
   }
   return texture;
+}
+
+/** The radius, in meters, of the Earth that MapLibre's slope scale assumes. */
+const EARTH_RADIUS = 6378137;
+
+/**
+ * The radius, in meters, of the body a viewport draws: in a projected view the semi-major axis of
+ * its CRS, which can be the Moon or Mars, and otherwise the Earth's.
+ */
+export function getBodyRadius(viewport: unknown): number {
+  const radius = isProjectedViewport(viewport)
+    ? (viewport as {crs?: {ellipsoid?: {semiMajorAxis?: number}}}).crs?.ellipsoid?.semiMajorAxis
+    : undefined;
+  return typeof radius === 'number' && radius > 0 ? radius : EARTH_RADIUS;
 }
 
 /** `hillshade-method`, as the shader's `method` uniform. */
@@ -759,7 +777,7 @@ export async function loadDemTile(
   }
 }
 
-/** The slope texture of a DEM tile, with the neighbors it was prepared with. */
+/** The slope texture of a DEM tile, with the neighbors and the body radius it was prepared with. */
 const preparedTextures = new WeakMap<DemTile, {key: string; image: ImageData}>();
 
 type TileIndex = {x: number; y: number; z: number};
@@ -942,12 +960,15 @@ export class HillshadeTileLayer extends DemTileLayer<HillshadeTileLayerProps> {
     if (!dem || typeof ImageData === 'undefined') {
       return null;
     }
-    const {getNeighbor, key} = this.getDemNeighbors(tile);
+    const {getNeighbor, key: neighborKey} = this.getDemNeighbors(tile);
+    // The body decides how steep the slopes are: a view can change it.
+    const bodyRadius = getBodyRadius(this.context.viewport);
+    const key = `${neighborKey}:${bodyRadius}`;
     // Kept with the decoded tile, so the source's hillshade layers prepare its slopes once.
     let prepared = preparedTextures.get(dem);
     if (prepared?.key !== key) {
       const size = dem.dim + 2;
-      const pixels = prepareHillshadeTexture(dem, tile.index.z, getNeighbor);
+      const pixels = prepareHillshadeTexture(dem, tile.index.z, getNeighbor, bodyRadius);
       prepared = {key, image: new ImageData(pixels, size, size)};
       preparedTextures.set(dem, prepared);
     }
