@@ -10,7 +10,9 @@ const EXAMPLES = {
   split: () => import('../../../examples/basemap-layers/split-view/app')
     .then(module => module.mountBasemapSplitViewExample),
   'custom-projection': () => import('../../../examples/layers/basemap-layer-custom-projection/app')
-    .then(module => module.mountBasemapCustomProjectionExample)
+    .then(module => module.mountBasemapCustomProjectionExample),
+  'masked-by-data': () => import('../../../examples/layers/basemap-masked-by-data/app')
+    .then(module => module.mountBasemapMaskedByDataExample)
 };
 
 /** Mount the copied basemap examples directly in the documentation page. */

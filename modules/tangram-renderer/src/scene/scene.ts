@@ -1021,10 +1021,11 @@ export default class Scene {
                 this.render_count_changed = true;
                 this.logFirstFrame();
 
+                // Diagnostic only: a worker destroyed before it replies rejects the request.
                 this.getFeatureSelectionMapSize().then(size => {
                     this.selection_feature_count = size;
                     log('info', `Scene: rendered ${this.render_count} primitives (${size} features in selection map)`);
-                });
+                }, error => log('debug', 'Scene: feature selection map size is unavailable:', error));
             }
             this.last_render_count = this.render_count;
         }
@@ -2365,6 +2366,10 @@ export default class Scene {
                 .then(sizes => {
                     this.fetching_selection_map = null;
                     return sizes.reduce((a, b) => a + b);
+                }, error => {
+                    // Do not keep a failed request; the next frame must ask again.
+                    this.fetching_selection_map = null;
+                    throw error;
                 });
         }
         return this.fetching_selection_map;
