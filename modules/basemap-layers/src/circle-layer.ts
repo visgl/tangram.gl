@@ -9,6 +9,7 @@
 import {LayerExtension} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
 import {ScatterplotLayer} from '@deck.gl/layers';
+import type {ShaderPlugin} from '@luma.gl/shaders';
 import {sortFeaturesByKey} from './sort-key';
 import type {FeatureStateLookup} from './feature-state';
 import {getStyleAccessor, withOpacity} from './style-accessor';
@@ -24,18 +25,42 @@ const DEFAULT_STROKE_OPACITY = getStylePropertyDefault('circle-stroke-opacity') 
 const DEFAULT_BLUR = getStylePropertyDefault('circle-blur') as number;
 
 /**
+ * The WGSL of `CircleBlurExtension`: the same fade as its GLSL, with the blur passed from the
+ * vertex to the fragment stage by luma.gl's shader plugin interface.
+ */
+const circleBlurPluginWGSL: ShaderPlugin = {
+  name: 'circleBlur',
+  vertexInputs: {instanceCircleBlur: 'f32'},
+  interStageVariables: {circleBlur_blur: {type: 'f32', interpolation: 'flat'}},
+  injections: [
+    {
+      stage: 'vertex',
+      target: 'DECKGL_FILTER_GL_POSITION',
+      wgsl: /* wgsl */ `
+  circleBlur_blur = instanceCircleBlur;
+`
+    },
+    {
+      stage: 'fragment',
+      target: 'DECKGL_FILTER_COLOR',
+      wgsl: /* wgsl */ `
+  if (circleBlur_blur > 0.0) {
+    (*color).a *= 1.0 - smoothstep(1.0 - circleBlur_blur, 1.0, length(geometry.uv));
+  }
+`
+    }
+  ]
+};
+
+/**
  * Adds `getBlur` to a `ScatterplotLayer`: per circle, the outer fraction of the circle (stroke
- * included) that fades out, as MapLibre GL JS draws `circle-blur`. WebGL only; on WebGPU circles
- * draw without blur.
+ * included) that fades out, as MapLibre GL JS draws `circle-blur`, on WebGL and WebGPU.
  */
 export class CircleBlurExtension extends LayerExtension {
   static extensionName = 'CircleBlurExtension';
   static defaultProps = {getBlur: {type: 'accessor', value: 0}};
 
   initializeState(this: Layer) {
-    if (this.context.device.type === 'webgpu') {
-      return;
-    }
     this.getAttributeManager()?.addInstanced({
       instanceCircleBlur: {size: 1, accessor: 'getBlur', defaultValue: 0}
     });
@@ -43,7 +68,7 @@ export class CircleBlurExtension extends LayerExtension {
 
   getShaders(this: Layer) {
     if (this.context.device.type === 'webgpu') {
-      return {};
+      return {plugins: [circleBlurPluginWGSL]};
     }
     // deck.gl appends these to the layer's and other extensions' code for the same hooks.
     return {

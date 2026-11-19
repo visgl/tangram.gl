@@ -702,8 +702,26 @@ function getSubLayerBaseProps(props: any) {
     highlightedObjectIndex,
     highlightColor,
     parameters,
-    wrapLongitude
+    wrapLongitude,
+    ...getExtensionProps(props)
   };
+}
+
+/**
+ * The props of a tile layer's `extensions`, which the tile layer got from the `BasemapLayer`: an
+ * extension reads them from the layer it draws, such as the `maskId` of `MaskExtension`. They are
+ * the props that the extension declares in its `defaultProps`.
+ */
+function getExtensionProps(props: any): Record<string, unknown> {
+  const extensionProps: Record<string, unknown> = {};
+  for (const extension of props.extensions || []) {
+    for (const name in extension.constructor?.defaultProps) {
+      if (name in props) {
+        extensionProps[name] = props[name];
+      }
+    }
+  }
+  return extensionProps;
 }
 
 function getGlobeFillColor(color: [number, number, number, number], mode: BasemapMode) {
@@ -2162,7 +2180,9 @@ export function getGlobeBaseLayers({
   spriteAtlases,
   fontFamily,
   glyphs,
-  labelPlacement
+  labelPlacement,
+  featureState,
+  pickable
 }: Omit<BasemapLayerGroup, 'mode'>) {
   return getBasemapLayers({
     idPrefix,
@@ -2174,7 +2194,9 @@ export function getGlobeBaseLayers({
     spriteAtlases,
     fontFamily,
     glyphs,
-    labelPlacement
+    labelPlacement,
+    featureState,
+    pickable
   });
 }
 

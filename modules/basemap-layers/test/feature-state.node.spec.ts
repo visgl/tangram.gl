@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, test} from 'vitest';
-import {getBasemapLayers} from '../src/index.ts';
+import {getBasemapLayers, getGlobeBaseLayers} from '../src/index.ts';
 import {
   type BasemapFeatureState,
   getFeatureStateId,
@@ -197,6 +197,30 @@ describe('a change of feature state', () => {
     const b = getTileLayer({tiles: {building: {1: {hover: true}}}}, styleLayers).props
       .updateTriggers.renderSubLayers;
     expect(b).toEqual(a);
+  });
+});
+
+describe('the globe helper', () => {
+  function getGlobeTileLayer(featureState: BasemapFeatureState | null, pickable?: boolean): any {
+    return getGlobeBaseLayers({
+      idPrefix: 'globe',
+      zoom: 8.1,
+      featureState,
+      pickable,
+      styleDefinition: {
+        version: 8,
+        sources: {tiles: {type: 'vector', tiles: ['https://tiles.example.com/{z}/{x}/{y}.mvt']}},
+        layers: STYLE_LAYERS
+      } as any,
+      globe: {config: {atmosphere: false, basemap: true, labels: true}}
+    } as any).find((layer: any) => layer.id === 'globe-tiles');
+  }
+
+  test('forwards the feature states and pickable', () => {
+    const trigger = (featureState: BasemapFeatureState | null) =>
+      getGlobeTileLayer(featureState).props.updateTriggers.renderSubLayers;
+    expect(trigger({tiles: {building: {1: {hover: true}}}})).not.toEqual(trigger(null));
+    expect(getGlobeTileLayer(null, true).props.pickable).toBe(true);
   });
 });
 
