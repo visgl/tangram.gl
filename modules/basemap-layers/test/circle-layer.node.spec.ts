@@ -298,10 +298,16 @@ describe('circle layers', () => {
     }
   });
 
-  test('the blur extension adds no shader code on WebGPU', () => {
+  test('the blur extension adds a WGSL plugin on WebGPU', () => {
     const extension = new CircleBlurExtension();
     const layer: any = {context: {device: {type: 'webgpu'}}};
-    expect(extension.getShaders.call(layer)).toEqual({});
+    const [plugin]: any[] = extension.getShaders.call(layer).plugins ?? [];
+    expect(plugin.vertexInputs).toEqual({instanceCircleBlur: 'f32'});
+    expect(Object.keys(plugin.interStageVariables)).toEqual(['circleBlur_blur']);
+    expect(plugin.injections.map((injection: any) => [injection.stage, injection.target])).toEqual([
+      ['vertex', 'DECKGL_FILTER_GL_POSITION'],
+      ['fragment', 'DECKGL_FILTER_COLOR']
+    ]);
   });
 
   test.each([
