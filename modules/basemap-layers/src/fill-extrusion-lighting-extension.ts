@@ -8,6 +8,7 @@
 
 import {LayerExtension} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
+import type {ShaderPlugin} from '@luma.gl/shaders';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /** A style's `light`, evaluated at one zoom. */
@@ -147,6 +148,119 @@ float fillExtrusionLighting_height;
 });
 
 /**
+ * The WGSL of `fillExtrusionLighting`. deck.gl's WGSL extrusions have no vertex color hook, so the
+ * color is shaded in the fragment stage, with MapLibre's per-vertex result: the vertex stage passes
+ * the light's angle to the face and the wall gradient at the bottom and top of the wall, and the
+ * fragment stage shades the color at both and interpolates between them by the height up the wall,
+ * as the vertex colors of a wall are interpolated. A face has one color and one normal.
+ */
+const fillExtrusionLightingWGSL: ShaderPlugin = {
+  name: 'fillExtrusionLighting',
+  module: {
+    name: 'fillExtrusionLighting',
+    source: /* wgsl */ `\
+struct FillExtrusionLightingUniforms {
+  lightDirectionIntensity: vec4<f32>,
+  lightColorGradient: vec4<f32>,
+};
+
+@group(0) @binding(auto) var<uniform> fillExtrusionLighting: FillExtrusionLightingUniforms;
+
+var<private> fillExtrusionLighting_isWall: bool;
+var<private> fillExtrusionLighting_base: f32;
+var<private> fillExtrusionLighting_height: f32;
+
+// The vertical gradient factor of the GLSL shade function, at a height t up the wall.
+fn fillExtrusionLighting_gradient(t: f32) -> f32 {
+  let intensity = fillExtrusionLighting.lightDirectionIntensity.w;
+  let verticalGradient = fillExtrusionLighting.lightColorGradient.a;
+  let gradient = clamp(
+    (t + max(0.0, fillExtrusionLighting_base)) * pow(max(0.0, fillExtrusionLighting_height) / 150.0, 0.5),
+    mix(0.7, 0.98, 1.0 - intensity),
+    1.0
+  );
+  return (1.0 - verticalGradient) + verticalGradient * gradient;
+}
+
+// The GLSL shade function, for the light's angle to the face and a gradient factor.
+fn fillExtrusionLighting_shade(color: vec3<f32>, directionalAngle: f32, gradient: f32) -> vec3<f32> {
+  let intensity = fillExtrusionLighting.lightDirectionIntensity.w;
+  let lightColor = fillExtrusionLighting.lightColorGradient.rgb;
+  let colorValue = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+  var directional = mix(1.0 - intensity, max(1.0 - colorValue + intensity, 1.0), directionalAngle);
+  directional *= gradient;
+  return clamp(
+    (color + vec3<f32>(0.03)) * directional * lightColor,
+    mix(vec3<f32>(0.0), vec3<f32>(0.3), 1.0 - lightColor),
+    vec3<f32>(1.0)
+  );
+}
+`,
+    uniformTypes: {lightDirectionIntensity: 'vec4<f32>', lightColorGradient: 'vec4<f32>'}
+  },
+  interStageVariables: {
+    // The light's angle to the face: clamp(dot(normal, light direction), 0, 1).
+    fillExtrusionLighting_directional: {type: 'f32'},
+    // The gradient factors at the bottom (x) and top (y) of the face, and the height up it (z).
+    fillExtrusionLighting_gradients: {type: 'vec3<f32>'}
+  },
+  injections: [
+    {
+      stage: 'vertex',
+      target: '#main-start',
+      // The attributes are the entry point's, as in the GLSL injection.
+      wgsl: /* wgsl */ `
+#ifdef NON_INSTANCED_MODEL
+  fillExtrusionLighting_isWall = false;
+  fillExtrusionLighting_gradients = vec3<f32>(1.0, 1.0, 1.0);
+#else
+  fillExtrusionLighting_isWall = true;
+  fillExtrusionLighting_gradients.z = attributes.positions.y;
+#endif
+  // Polygons are raised to fill-extrusion-base, and extruded from there by the rest of the height.
+  fillExtrusionLighting_base = attributes.vertexPositions.z;
+  fillExtrusionLighting_height = attributes.vertexPositions.z + attributes.elevations;
+`
+    },
+    {
+      stage: 'vertex',
+      target: 'DECKGL_FILTER_GL_POSITION',
+      wgsl: /* wgsl */ `
+  // As in the GLSL injection: on a globe, a roof faces up.
+  var fillExtrusionLighting_normal = geometry.normal;
+  if (project.projectionMode == PROJECTION_MODE_GLOBE && !fillExtrusionLighting_isWall) {
+    fillExtrusionLighting_normal = vec3<f32>(0.0, 0.0, 1.0);
+  }
+  fillExtrusionLighting_directional = clamp(
+    dot(fillExtrusionLighting_normal, fillExtrusionLighting.lightDirectionIntensity.xyz),
+    0.0,
+    1.0
+  );
+  if (fillExtrusionLighting_isWall) {
+    fillExtrusionLighting_gradients.x = fillExtrusionLighting_gradient(0.0);
+    fillExtrusionLighting_gradients.y = fillExtrusionLighting_gradient(1.0);
+  }
+`
+    },
+    {
+      stage: 'fragment',
+      target: 'DECKGL_FILTER_COLOR',
+      // The layer is drawn unlit (see `draw`), so color is the extrusion's own.
+      wgsl: /* wgsl */ `
+  *color = vec4<f32>(
+    mix(
+      fillExtrusionLighting_shade((*color).rgb, fillExtrusionLighting_directional, fillExtrusionLighting_gradients.x),
+      fillExtrusionLighting_shade((*color).rgb, fillExtrusionLighting_directional, fillExtrusionLighting_gradients.y),
+      fillExtrusionLighting_gradients.z
+    ),
+    (*color).a
+  );
+`
+    }
+  ]
+};
+
+/**
  * The material the extension draws with: deck.gl's lighting leaves the color as it is, for the
  * extension to shade.
  */
@@ -154,10 +268,7 @@ const UNLIT_MATERIAL = {unlit: true};
 
 function isExtrudedPolygonLayer(layer: Layer): boolean {
   const state = layer.state as Record<string, unknown> | undefined;
-  return (
-    layer.context.device.type !== 'webgpu' &&
-    Boolean(state && 'polygonTesselator' in state && (layer.props as any).extruded)
-  );
+  return Boolean(state && 'polygonTesselator' in state && (layer.props as any).extruded);
 }
 
 /**
@@ -167,8 +278,7 @@ function isExtrudedPolygonLayer(layer: Layer): boolean {
  * layer at every draw. A light anchored to the viewport turns with the viewport's bearing, which is
  * read at every draw. On a globe, the light is placed relative to
  * the ground under each building. Polygons must lie at `fill-extrusion-base` and be extruded by
- * the rest of the height. WebGL only: on WebGPU the extension adds no shader code, and buildings
- * keep deck.gl's lights.
+ * the rest of the height. On WebGL and WebGPU.
  */
 export class FillExtrusionLightingExtension extends LayerExtension {
   static extensionName = 'FillExtrusionLightingExtension';
@@ -182,7 +292,14 @@ export class FillExtrusionLightingExtension extends LayerExtension {
   }
 
   getShaders(this: Layer, extension: this): any {
-    return extension.isEnabled(this) ? {plugins: [fillExtrusionLighting]} : null;
+    if (!extension.isEnabled(this)) {
+      return null;
+    }
+    return {
+      plugins: [
+        this.context.device.type === 'webgpu' ? fillExtrusionLightingWGSL : fillExtrusionLighting
+      ]
+    };
   }
 
   draw(this: Layer<any>, params: any, extension: this) {
