@@ -16,14 +16,22 @@ import type {SpriteAtlas} from '../src/sprite';
 const SIZE = 64;
 const SPRITE_URL = 'https://sprites.test/sprite?token=secret';
 
-/** A one-image sprite: `fallback`, a solid red 16x16 square. */
+/**
+ * A two-image sprite: `fallback`, a solid red 16x16 square, and `translucent`, a 16x16 white
+ * square at half opacity, as the soft white rims of many sprite icons.
+ */
 async function createSpriteFiles(): Promise<{json: object; png: Blob}> {
-  const canvas = new OffscreenCanvas(16, 16);
+  const canvas = new OffscreenCanvas(32, 16);
   const context = canvas.getContext('2d')!;
   context.fillStyle = 'rgb(255, 0, 0)';
   context.fillRect(0, 0, 16, 16);
+  context.fillStyle = 'rgba(255, 255, 255, 0.5)';
+  context.fillRect(16, 0, 16, 16);
   return {
-    json: {fallback: {x: 0, y: 0, width: 16, height: 16, pixelRatio: 1}},
+    json: {
+      fallback: {x: 0, y: 0, width: 16, height: 16, pixelRatio: 1},
+      translucent: {x: 16, y: 0, width: 16, height: 16, pixelRatio: 1}
+    },
     png: await canvas.convertToBlob({type: 'image/png'})
   };
 }
@@ -124,6 +132,20 @@ describe('sprite icons in the browser', () => {
       atlases
     );
     expect({red, green, blue, alpha}).toEqual({red: 255, green: 0, blue: 0, alpha: 255});
+  });
+
+  test('draws a translucent image in its own color, not darkened', async () => {
+    const {fetchFn} = await createSpriteFetch();
+    const atlases = await loadSpriteAtlases(SPRITE_URL, {fetch: fetchFn, pixelRatio: 1});
+    const [red, green, blue, alpha] = await renderCenterPixel(
+      {'icon-image': 'translucent', 'icon-size': 2},
+      atlases
+    );
+    // White at half opacity reads back white. A premultiplied image, blended with its alpha
+    // again, reads back half as bright.
+    expect(alpha).toBeGreaterThan(110);
+    expect(alpha).toBeLessThan(145);
+    expect(Math.min(red, green, blue)).toBeGreaterThan(240);
   });
 
   test('draws nothing for an image the sprite does not hold', async () => {
