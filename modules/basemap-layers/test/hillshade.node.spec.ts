@@ -4,7 +4,11 @@
 
 /* eslint-disable import/no-extraneous-dependencies */
 import {describe, expect, test, vi} from 'vitest';
-import {WebMercatorViewport} from '@deck.gl/core';
+import {
+  _CustomProjectionViewport as CustomProjectionViewport,
+  WebMercatorViewport
+} from '@deck.gl/core';
+import {projectionEngine} from '@math.gl/geospatial/projection';
 import {SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {BasemapLayer} from '../src/basemap-layer';
 import {createDemTileset} from '../src';
@@ -13,6 +17,7 @@ import {
   type DemTile,
   HillshadeTileLayer,
   decodeDemTile,
+  getBodyRadius,
   getDemUnpackVector,
   getHillshadeParameters,
   getHillshadeUniforms,
@@ -166,6 +171,40 @@ describe('hillshade slopes', () => {
     expect(prepareHillshadeTexture(dem, ZOOM, () => other)).toEqual(
       prepareHillshadeTexture(dem, ZOOM)
     );
+  });
+
+  test('on a smaller body a tile pixel spans less ground: the slopes are steeper', () => {
+    // A gentle ramp, so that neither slope is clamped.
+    const dem = demOf(8, x => (x * STEP) / 8);
+    // The Earth is the default.
+    expect(prepareHillshadeTexture(dem, ZOOM, undefined, 6378137)).toEqual(
+      prepareHillshadeTexture(dem, ZOOM)
+    );
+    // The Moon: 1737400 meters in radius, so the scale is 6378137 / 1737400 times the Earth's.
+    const moon = prepareHillshadeTexture(dem, ZOOM, undefined, 1737400);
+    const sum = STEP;
+    const expected = Math.round(
+      Math.min(Math.max((sum * scale(8, ZOOM) * 6378137) / 1737400 + 128 / 255, 0), 1) * 255
+    );
+    expect(expected).toBeLessThan(255);
+    expect(expected).toBeGreaterThan(slopeAt(prepareHillshadeTexture(dem, ZOOM), 10, 4, 4)[0]);
+    expect(slopeAt(moon, 10, 4, 4)).toEqual([expected, 128]);
+  });
+
+  test('the body radius is the semi-major axis of the CRS of a projected view', async () => {
+    const viewport = (crs: string) =>
+      projectionEngine
+        .getCRS(crs)
+        .then(
+          resolved =>
+            new CustomProjectionViewport({crs: resolved, center: [0, 0, 0], zoom: 6, width: 800, height: 600})
+        );
+    expect(getBodyRadius(await viewport('+proj=eqc +R=1737400 +units=m +no_defs'))).toBe(1737400);
+    expect(getBodyRadius(await viewport('+proj=eqc +R=3396190 +units=m +no_defs'))).toBe(3396190);
+    expect(getBodyRadius(await viewport('EPSG:32632'))).toBe(6378137);
+    // A map, a viewport without a CRS, and no viewport draw the Earth, as MapLibre.
+    const map = new WebMercatorViewport({longitude: 0, latitude: 0, zoom: 6, width: 800, height: 600});
+    expect([map, {projectionMode: 3}, null].map(getBodyRadius)).toEqual([6378137, 6378137, 6378137]);
   });
 });
 
@@ -475,5 +514,41 @@ describe('hillshade layers share the decoded tiles of their source', () => {
     }
     shadow.finalizeState();
     highlight.finalizeState();
+  });
+
+  test('a decoded tile drawn in views of two bodies gets the slopes of each body', async () => {
+    // Node has no ImageData: a stand-in that keeps the pixels.
+    vi.stubGlobal(
+      'ImageData',
+      class {
+        constructor(
+          public data: Uint8ClampedArray,
+          public width: number,
+          public height: number
+        ) {}
+      }
+    );
+    try {
+      const [shadow, highlight]: any[] = getBasemapLayers({styleDefinition: style});
+      const dem = demOf(4, x => x * 250);
+      const tile = {id: '0-0-6', index: {x: 0, y: 0, z: 6}, bbox: {west: 0, south: 0, east: 1, north: 1}};
+      const moonCrs = await projectionEngine.getCRS('+proj=eqc +R=1737400 +units=m +no_defs');
+      const moon = new CustomProjectionViewport({crs: moonCrs, center: [0, 0, 0], zoom: 8, width: 800, height: 600});
+      const earth = new WebMercatorViewport({width: 512, height: 512, zoom: 6});
+      const draw = (layer: any, viewport: unknown) => {
+        layer.context = {viewport} as any;
+        layer.state = {tileset: {tiles: []}};
+        return [...layer.renderSubLayers({id: 'tile', data: dem, tile}).props.image.data];
+      };
+      const earthSlopes = [...prepareHillshadeTexture(dem, 6)];
+      const moonSlopes = [...prepareHillshadeTexture(dem, 6, undefined, 1737400)];
+      expect(moonSlopes).not.toEqual(earthSlopes);
+      // Both layers draw the one decoded tile, first on the Earth, then on the Moon, then back.
+      expect(draw(shadow, earth)).toEqual(earthSlopes);
+      expect(draw(highlight, moon)).toEqual(moonSlopes);
+      expect(draw(shadow, earth)).toEqual(earthSlopes);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -337,10 +337,28 @@ describe('circle layers', () => {
     }
   });
 
-  test('the blur extension adds no shader code on WebGPU', () => {
+  test.each(['webgl', 'webgpu'] as const)(
+    'the translate extension adds the globe module only to GLSL plugins on %s',
+    deviceType => {
+      const extension = new CircleTranslateExtension();
+      const layer: any = {context: {device: {type: deviceType}}};
+      const plugins: any[] = extension.getShaders.call(layer).plugins ?? [];
+      const names = plugins.map(plugin => plugin.name);
+      expect(names.includes('circleTranslateGlobe')).toBe(deviceType === 'webgl');
+      expect(plugins).toHaveLength(deviceType === 'webgl' ? 2 : 1);
+    }
+  );
+
+  test('the blur extension adds a WGSL plugin on WebGPU', () => {
     const extension = new CircleBlurExtension();
     const layer: any = {context: {device: {type: 'webgpu'}}};
-    expect(extension.getShaders.call(layer)).toEqual({});
+    const [plugin]: any[] = extension.getShaders.call(layer).plugins ?? [];
+    expect(plugin.vertexInputs).toEqual({instanceCircleBlur: 'f32'});
+    expect(Object.keys(plugin.interStageVariables)).toEqual(['circleBlur_blur']);
+    expect(plugin.injections.map((injection: any) => [injection.stage, injection.target])).toEqual([
+      ['vertex', 'DECKGL_FILTER_GL_POSITION'],
+      ['fragment', 'DECKGL_FILTER_COLOR']
+    ]);
   });
 
   test.each([
