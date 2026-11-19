@@ -8,6 +8,7 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
+- The new `@tangram.gl/basemap-layers/bodies` entry holds basemaps of other worlds: `BODY_BASEMAPS`, a frozen registry of open map sources for the Moon, Mars, Mercury, Venus and the Earth. Each entry gives the CRS code, the radius in metres, raster tiles, the vector map source, and the credit and licence of each source. See [`bodies` Export](./api-reference/bodies.md).
 - `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
 - `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
 - `text-rotate` turns point labels clockwise, per feature, as MapLibre GL JS turns them: about the point, with their `text-anchor` and `text-offset`. They collide with the box around the turned text.
