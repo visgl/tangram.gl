@@ -49,6 +49,7 @@ import {
   BODIES,
   EARTH_STYLE_URL,
   getBodyStyle,
+  getVectorTexture,
   surfaceCredit,
   type BasemapStyle,
   type Body,
@@ -422,21 +423,45 @@ function skyLayers() {
   ];
 }
 
-const textures: Partial<Record<BodyId, ImageBitmap>> = {};
+/**
+ * Overview textures of each surface mode. 'imagery': the raster mosaics; 'vector': the vector
+ * map drawn in plate carree (bodies/textures.ts). A body with no vector map, or one whose vector
+ * texture is still loading, shows its imagery texture.
+ */
+const textures: Record<SurfaceMode, Partial<Record<BodyId, ImageBitmap>>> = {imagery: {}, vector: {}};
+const texturesRequested = new Set<string>();
 const textureErrors: string[] = [];
-let texturesPending = BODY_IDS.length;
-for (const id of BODY_IDS) {
-  getEquirectTexture(BODIES[id])
-    .then(image => {
-      textures[id] = image;
-    })
-    .catch(error => textureErrors.push(`${id}: ${error}`))
-    .finally(() => {
-      texturesPending--;
-      if (state.mode !== 'compare') render();
-      if (texturesPending === 0) setTimeout(warmUp, 0);
-    });
+let texturesPending = 0;
+let warmUpScheduled = false;
+function loadOverviewTextures(surface: SurfaceMode) {
+  for (const id of BODY_IDS) {
+    const key = `${surface}:${id}`;
+    if (texturesRequested.has(key)) continue;
+    texturesRequested.add(key);
+    texturesPending++;
+    const load = surface === 'vector' ? getVectorTexture(id) : getEquirectTexture(BODIES[id]);
+    load
+      .then(image => {
+        if (image) textures[surface][id] = image;
+      })
+      .catch(error => textureErrors.push(`${key}: ${error}`))
+      .finally(() => {
+        texturesPending--;
+        if (state.mode !== 'compare' && !flightPhase) render();
+        if (texturesPending === 0 && !warmUpScheduled) {
+          warmUpScheduled = true;
+          setTimeout(warmUp, 0);
+        }
+      });
+  }
 }
+/** The overview texture of a body in the current surface mode, and its mode. */
+function textureOf(id: BodyId): {image?: ImageBitmap; surface: SurfaceMode} {
+  const image = textures[state.surface][id];
+  return image ? {image, surface: state.surface} : {image: textures.imagery[id], surface: 'imagery'};
+}
+loadOverviewTextures('imagery');
+if (state.surface === 'vector') loadOverviewTextures('vector');
 
 const makeLighting = () =>
   new LightingEffect({
@@ -470,10 +495,10 @@ function overviewLayers(scene: Scene, part: Part = {mode: 'all'}) {
   const meshLayers = ids.map(
     id =>
       new SimpleMeshLayer({
-        id: textures[id] ? `mesh-${id}-textured` : `mesh-${id}`,
+        id: textureOf(id).image ? `mesh-${id}-${textureOf(id).surface}` : `mesh-${id}`,
         data: [{id}],
         mesh: SPHERE as never,
-        ...((textures[id] ? {texture: textures[id]} : {}) as object),
+        ...((textureOf(id).image ? {texture: textureOf(id).image} : {}) as object),
         getPosition: () => scene.pos[id],
         getColor: [...BODIES[id].color, 255] as [number, number, number, number],
         getTransformMatrix: () => scene.matrix[id],
@@ -1022,7 +1047,7 @@ let bodyCache: unknown[] = [];
 /** Opacity of the globe canvas (cross-fade), and whether the globe takes pointer events. */
 let globeOpacity = 0;
 /** 'in' or 'out' while a flight runs: the user cannot steer then. */
-let flightPhase: '' | 'fly-in' | 'wait' | 'fade-in' | 'fade-out' | 'fly-out' = '';
+let flightPhase: '' | 'fly-in' | 'travel' | 'wait' | 'fade-in' | 'fade-out' | 'fly-out' = '';
 /** Focus body and opacity of the orbits and the focus label during a flight. */
 let flightFocus: BodyId | undefined;
 let flightFade = 1;
@@ -1082,7 +1107,7 @@ async function mountGlobe(id: BodyId) {
     layers: [basemap, ...bodyNightLayers(id)],
     // During the fly-in the globe deck updates its layers (selects and loads tiles) but does not
     // draw: each draw of the hidden globe would cost a fly-in frame. It draws from the wait on.
-    _customRender: flightPhase === 'fly-in' ? () => {} : null
+    _customRender: flightPhase === 'fly-in' || flightPhase === 'travel' ? () => {} : null
   });
   globeMounted = id;
   globeFrames = 0;
@@ -1191,7 +1216,12 @@ function flyTo(id: BodyId) {
   if (params.get('prefetch') !== 'off') mountGlobe(id);
   const start = clock();
   let mounted = params.get('prefetch') !== 'off';
-  let readySince = 0;
+  const handoff = makeHandoff(() => {
+    if (!mounted) {
+      mounted = true;
+      mountGlobe(id);
+    }
+  });
   frameLoop(now => {
     if (token !== flight) return false;
     if (flightPhase === 'fly-in') {
@@ -1211,15 +1241,33 @@ function flyTo(id: BodyId) {
         flightPhase = 'wait';
         globeDeck.setProps({_customRender: null});
         globeFrames = 0;
-        readySince = performance.now();
       }
       renderViewState();
       return true;
     }
+    return handoff(now);
+  });
+}
+
+/**
+ * The end of a flight to a body: wait (up to READY_TIMEOUT_MS) until the hidden globe has its
+ * tiles, then switch the decks to globe mode at the same camera and fade the globe in.
+ */
+function makeHandoff(mountIfNeeded: () => void) {
+  let readySince = 0;
+  return (now: number): boolean => {
     if (flightPhase === 'wait') {
-      if (!mounted) {
-        mounted = true;
-        mountGlobe(id);
+      if (!readySince) readySince = performance.now();
+      mountIfNeeded();
+      if (state.playing) {
+        // The clock runs: the overview camera moves with the body, and the hidden globe keeps the
+        // face that the overview shows (the body turns under the camera).
+        scene = computeScene();
+        state.overviewView = {...state.overviewView, target: scene.pos[state.body]};
+        state.globeViews = {globe: globeStateFromOverview(state.body, orbitViewport(state.overviewView))};
+        globeDeck.setProps({viewState: {globe: state.globeViews.globe}});
+        overviewCache = overviewLayers(scene, {mode: 'all', focus: flightFocus, fade: flightFade});
+        renderViewState();
       }
       // Draw the hidden globe (uploads tiles to textures) even when no tile arrives.
       if (globeFrames < 3) globeDeck.redraw('hand-off');
@@ -1244,7 +1292,7 @@ function flyTo(id: BodyId) {
       return a < 1;
     }
     return false;
-  });
+  };
 }
 let fadeStart = 0;
 
@@ -1360,17 +1408,130 @@ function flyOut() {
 }
 /** A body to fly to when the fly-out ends. */
 let pendingTravel: BodyId | null = null;
-/** Flies to a body from any mode: from a globe it flies out to the system first, then in. */
+/** Flies to a body from any mode: from a globe it flies directly to the other globe. */
 function travelTo(id: BodyId) {
   if (flightPhase) return;
   if (state.mode === 'globe') {
-    if (id === state.body) return;
-    pendingTravel = id;
-    flyOut();
+    if (id !== state.body) flyBetween(id);
     return;
   }
   if (state.mode === 'compare' || state.camera) enterOverview();
   flyTo(id);
+}
+
+/** Longest direct flight between two globes, ms. */
+const TRAVEL_MAX_MS = 4000;
+const ECLIPTIC_NORTH: V3 = [0, 0, 1];
+
+/**
+ * A direct flight from the globe of the current body A to the globe of body B. The globe of A
+ * fades out over the overview at the same camera; then one camera path runs in the overview:
+ * - the target moves from A to B (the bodies keep moving when the clock plays),
+ * - the camera distance follows log space from A's size to B's size, with a rise in the middle
+ *   that shows both bodies for a far pair (a short arc for a near pair),
+ * - the view turns from A's view to look along the line from A to B, then turns to face B.
+ * The path ends at the hand-off camera of B, so the globe of B fades in as after a fly-in.
+ */
+function flyBetween(id: BodyId) {
+  const from = state.body;
+  const token = ++flight;
+  flightPhase = 'fade-out';
+  flightFocus = from;
+  flightFade = 0;
+  setDecks();
+  const fadeOut = clock();
+  let start = 0;
+  let duration = 0;
+  let cam0: Camera;
+  let fromPos0: V3;
+  let rise = 0;
+  /** The hand-off view of B in the current scene. */
+  const handoffView = () => ({...state.overviewView, target: scene.pos[id], zoom: handoffOverviewZoom(id), rotationX: 15});
+  let mounted = false;
+  let lastLabel = 0;
+  const handoff = makeHandoff(() => {});
+  frameLoop(now => {
+    if (token !== flight) return false;
+    if (flightPhase === 'fade-out') {
+      const a = Math.min(1, (now - fadeOut) / FADE_MS);
+      globeOpacity = 1 - smooth(a);
+      setDecks();
+      if (a < 1) return true;
+      // The overview takes over at the globe's camera.
+      cam0 = {...(state.camera as Camera)};
+      fromPos0 = scene.pos[from];
+      const to = handoffView();
+      const cam1 = cameraOf(orbitViewport(to), to.target);
+      const d0 = norm(subV(cam0.eye, cam0.target));
+      const d1 = norm(subV(cam1.eye, cam1.target));
+      const gap = norm(subV(cam1.target, cam0.target));
+      // Distance from which the gap fills half of the view height.
+      const see = gap / Math.tan((overviewFovy * DEG) / 2);
+      rise = Math.max(0, Math.log(see) - (Math.log(d0) + Math.log(d1)) / 2);
+      duration = Math.min(TRAVEL_MAX_MS, 1500 + 450 * (rise + 0.5 * Math.abs(Math.log(d1 / d0))));
+      state.mode = 'overview';
+      state.body = id;
+      state.clicked = null;
+      flightPhase = 'travel';
+      hidden.clear();
+      start = now;
+      render();
+      return true;
+    }
+    if (flightPhase === 'travel') {
+      if (state.playing) {
+        scene = computeScene();
+        if (now - lastLabel > 250) {
+          lastLabel = now;
+          $('date-label').textContent = `${scene.date.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+        }
+      }
+      const t = Math.min(1, (now - start) / duration);
+      const e = ease(t);
+      const to = handoffView();
+      const cam1 = cameraOf(orbitViewport(to), to.target);
+      // A's centre moves with A; the path ends at B's hand-off camera.
+      const a = addV(cam0.target, subV(scene.pos[from], fromPos0));
+      const target = a.map((v, k) => v + (cam1.target[k] - v) * e) as V3;
+      const v0 = unit(subV(cam0.eye, cam0.target));
+      const v1 = unit(subV(cam1.eye, cam1.target));
+      const along = subV(cam1.target, a);
+      const vLine = norm(along) > 0 ? unit(addV(scaleV(unit(along), -1), scaleV(ECLIPTIC_NORTH, 0.6))) : v1;
+      const v = t < 0.5 ? slerp(v0, vLine, smooth(2 * t)) : slerp(vLine, v1, smooth(2 * t - 1));
+      let up = t < 0.5 ? slerp(cam0.up, ECLIPTIC_NORTH, smooth(2 * t)) : slerp(ECLIPTIC_NORTH, cam1.up, smooth(2 * t - 1));
+      up = subV(up, scaleV(v, dot(up, v)));
+      up = norm(up) > 1e-6 ? unit(up) : cam1.up;
+      const d0 = norm(subV(cam0.eye, cam0.target));
+      const d1 = norm(subV(cam1.eye, cam1.target));
+      const logD = Math.log(d0) + (Math.log(d1) - Math.log(d0)) * e + rise * Math.sin(Math.PI * e);
+      state.camera = {eye: addV(target, scaleV(v, Math.exp(logD))), target, up};
+      // The orbits and labels fade in around A, then fade out around B.
+      flightFocus = t < 0.5 ? from : id;
+      flightFade = t < 0.5 ? smooth(2 * t) : 1 - smooth(2 * t - 1);
+      if (!mounted && t > 0.5) {
+        // Prefetch: the hidden globe of B loads its tiles during the second half.
+        mounted = true;
+        state.globeViews = {globe: globeStateFromOverview(id, orbitViewport(to))};
+        mountGlobe(id);
+      }
+      overviewCache = overviewLayers(scene, {mode: 'all', focus: flightFocus, fade: flightFade});
+      if (t >= 1) {
+        state.camera = null;
+        state.overviewView = to;
+        state.globeViews = {globe: globeStateFromOverview(id, orbitViewport(to))};
+        globeDeck.setProps({viewState: {globe: state.globeViews.globe}, _customRender: null});
+        globeFrames = 0;
+        flightPhase = 'wait';
+        if (state.playing) syncTimeInputs();
+        // The overview changes from the flight camera to the OrbitView at the same camera.
+        render();
+        return true;
+      }
+      renderViewState();
+      return true;
+    }
+    return handoff(now);
+  });
 }
 
 function slerp(a: V3, b: V3, t: number): V3 {
@@ -1489,9 +1650,9 @@ panel.innerHTML = `
   <div class="row wrap" id="fly"></div>
   <div id="globe-controls">
     <div class="row"><button id="back">Back to system</button><b id="globe-title"></b></div>
-    <label class="row">Surface <select id="surface"><option value="vector">Vector map</option><option value="imagery">Imagery</option></select></label>
     <label class="row" id="link-row"><input id="linked" type="checkbox"> Linked rotation</label>
   </div>
+  <label class="row">Surface <select id="surface"><option value="vector">Vector map</option><option value="imagery">Imagery</option></select></label>
   <label class="row"><input id="night" type="checkbox"> Night side</label>
   <div id="gravity" class="note"></div>
   <div id="sky" class="note"></div>
@@ -1514,13 +1675,15 @@ $<HTMLInputElement>('readable').onchange = event => {
 $<HTMLSelectElement>('surface').value = state.surface;
 $<HTMLSelectElement>('surface').onchange = event => {
   state.surface = (event.target as HTMLSelectElement).value as SurfaceMode;
+  loadOverviewTextures(state.surface);
   if (state.mode === 'globe' && !flightPhase) {
     const limits = globeZoomLimits(state.body);
     const view = state.globeViews.globe;
     state.globeViews = {...state.globeViews, globe: {...view, ...limits, zoom: Math.min(limits.maxZoom, Math.max(limits.minZoom, view.zoom))}};
     mountGlobe(state.body);
-  }
-  else if (state.mode === 'compare') enterCompare();
+    render();
+  } else if (state.mode === 'compare') enterCompare();
+  else if (!flightPhase) render();
 };
 $<HTMLInputElement>('night').checked = state.night;
 $<HTMLInputElement>('night').onchange = event => {
@@ -1633,7 +1796,9 @@ function renderPanel() {
 
 function creditText(ids: BodyId[]) {
   if (state.mode === 'overview') {
-    return 'Textures: NASA GIBS Blue Marble (Earth); NASA Trek (Moon LROC WAC, Mars Viking MDIM 2.1, Mercury MESSENGER MDIS). Others: plain colour.';
+    return state.surface === 'vector'
+      ? 'Vector textures: Earth: OpenFreeMap "liberty", © OpenMapTiles, data © OpenStreetMap contributors (ODbL); Moon: USGS Unified Geologic Map of the Moon (CC0); Mars: USGS SIM 3292 (public domain); Mercury: USGS MESSENGER DEM contours (public domain); names and crater rims: IAU/USGS Gazetteer (public domain). Others: plain colour.'
+      : 'Textures: NASA GIBS Blue Marble (Earth); NASA Trek (Moon LROC WAC, Mars Viking MDIM 2.1, Mercury MESSENGER MDIS). Others: plain colour.';
   }
   return ids.map(id => `${BODIES[id].label}: ${surfaceCredit(BODIES[id], state.surface)}`).join(' · ');
 }
@@ -1680,6 +1845,11 @@ Object.assign(window, {
     travelTo,
     setPlaying,
     phase: () => flightPhase,
+    /** The camera of the overview deck (the view under the globe), for flight checks. */
+    camera: () => {
+      const cam = state.camera ?? cameraOf(orbitViewport(state.overviewView), state.overviewView.target);
+      return {eye: [...cam.eye], target: [...cam.target]};
+    },
     scene: () => scene,
     setGlobeView: (view: Partial<(typeof state.globeViews)[string]>) => {
       state.globeViews.globe = {...state.globeViews.globe, ...view};

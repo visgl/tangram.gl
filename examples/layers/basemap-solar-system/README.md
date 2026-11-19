@@ -27,7 +27,15 @@ after `yarn build:modules`.
   common edge, so there is no seam. Toward the poles the worker reads one zoom level more.
 - **The hand-off.** The fly-in ends at a camera whose view of the overview sphere matches the
   first frame of the globe, then the globe fades in. The way back is the same in reverse.
-  From a globe, a body button flies out to the system and in to the other body.
+- **Direct flights.** From a globe, a body button flies straight to the other body: the globe
+  fades out, one camera path runs in the overview, and the other globe fades in. The camera
+  distance follows log space from one body size to the other, with a rise for a far pair. The
+  view looks along the line between the bodies, then turns to face the new body. No flight takes
+  more than 4 s, and the clock keeps running.
+- **Vector maps in the overview.** With **Surface** set to vector map, the overview spheres use
+  a plate carree texture of the same vector map (`bodies/textures.ts`): the GeoJSON of the Moon,
+  Mars, Mercury and Venus, and the OpenFreeMap zoom 2 tiles of the Earth with the "liberty"
+  colours. So the sphere and the globe look the same at the hand-off.
 - **Time.** **Play** runs the clock at the selected speed, from **1× (real time)** to one year
   per second. **Now** goes to the current time. The night side of each body, the Earth's
   terminator (math.gl `getSunTerminator`), the positions, the Galilean moons and the poles
@@ -44,7 +52,7 @@ move to a library without changes to the others.
 | Folder | What it holds | Imports | Later home |
 | --- | --- | --- | --- |
 | `celestial/` | Physical constants, time (TT), frames, body axes (IAU WGCCRE), positions of the planets, the Moon and the Galilean moons, the Earth's terminator, normal gravity. Pure functions and frozen data. | Astronomy Engine, math.gl | math.gl, beside `@math.gl/earth/sun` |
-| `bodies/` | The map of each body: CRS, raster tile source, vector data (`bodies/data/`), `BasemapLayer` styles, credits. | `celestial/` | tangram.gl, basemaps of other worlds |
+| `bodies/` | The map of each body: CRS, raster tile source, vector data (`bodies/data/`), `BasemapLayer` styles, plate carree textures of the vector maps, credits. | `celestial/` | tangram.gl, basemaps of other worlds |
 | `scene/` | deck.gl views, navigation between bodies, the playback clock, the tile workers and the UI. | `celestial/`, `bodies/` | stays an example |
 
 - `scene/app.ts`: three stacked decks. The back deck draws the sky and the focus body, the

@@ -20,8 +20,8 @@ import {BODIES, SHIM_HOST, rasterCredit, type Body} from './registry';
 
 export type BasemapStyle = ConstructorParameters<typeof BasemapLayer>[0]['style'];
 export type SurfaceMode = 'vector' | 'imagery';
-type StyleLayer = {id: string; type: string; minzoom?: number; maxzoom?: number; paint?: Record<string, unknown>; [k: string]: unknown};
-type Style = {version: 8; name?: string; sources: Record<string, unknown>; layers: StyleLayer[]; [k: string]: unknown};
+export type StyleLayer = {id: string; type: string; minzoom?: number; maxzoom?: number; paint?: Record<string, unknown>; [k: string]: unknown};
+export type Style = {version: 8; name?: string; sources: Record<string, unknown>; layers: StyleLayer[]; [k: string]: unknown};
 
 /** Zoom at which the Earth imagery gives way to the vector map, and the names of other bodies show. */
 export const DETAIL_FROM = 4.5;
@@ -43,7 +43,7 @@ const poleLayer = (color: string, opacity: number): StyleLayer => ({
 
 // ---------- Earth ----------
 
-async function getLiberty(): Promise<Style> {
+export async function getLiberty(): Promise<Style> {
   const response = await fetch(EARTH_STYLE_URL);
   if (!response.ok) throw new Error(`${EARTH_STYLE_URL}: ${response.status}`);
   return (await response.json()) as Style;
@@ -84,8 +84,8 @@ export async function getEarthStyle(mode: SurfaceMode): Promise<BasemapStyle> {
 // ---------- Other bodies ----------
 
 /** Vector map colours of the bodies with vector data. */
-type Look = {land: string; dark: string; rim: string; grid: string; text: string; units?: Record<string, string>};
-const VECTOR_LOOK: Readonly<Partial<Record<BodyId, Look>>> = Object.freeze({
+export type Look = {land: string; dark: string; rim: string; grid: string; text: string; units?: Record<string, string>};
+export const VECTOR_LOOK: Readonly<Partial<Record<BodyId, Look>>> = Object.freeze({
   moon: {land: '#b9b6ae', dark: '#6f6d68', rim: '#4b4944', grid: '#8c8a84', text: '#1d1c1a', units: {mare: '#77746d'}},
   mars: {
     land: '#c98a5f', dark: '#8a5236', rim: '#5d3320', grid: '#a96f4c', text: '#2a1408',
@@ -95,7 +95,7 @@ const VECTOR_LOOK: Readonly<Partial<Record<BodyId, Look>>> = Object.freeze({
   venus: {land: '#d9c38f', dark: '#b39a64', rim: '#7d6838', grid: '#c2ab76', text: '#2d220c'}
 });
 
-const dataUrl = (file: string) => new URL(`./data/${file}`, import.meta.url).href;
+export const dataUrl = (file: string) => new URL(`./data/${file}`, import.meta.url).href;
 
 /** A graticule, 10 deg apart (|lat| <= 80), as GeoJSON lines. */
 function graticule() {
