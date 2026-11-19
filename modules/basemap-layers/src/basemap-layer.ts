@@ -146,10 +146,10 @@ export type BasemapLayerProps = {
    * style, as MapLibre GL JS's `GeoJSONSource.setData`. Each entry is compared by identity: when
    * one changes, only that source is indexed again and its tiles cut again. The style is not
    * loaded again, and the other sources keep their tiles. A URL is fetched with the `fetch` and
-   * `fetchOptions` of `loadOptions`, relative to the style URL or `loadOptions.baseUrl`; the source
-   * keeps its previous data until it loads. An entry that is removed, `null` or `undefined` gives
-   * the source its data in the style again. An id that is not a `geojson` source of the style is
-   * ignored with a warning.
+   * `fetchOptions` of `loadOptions`, relative to the style URL or `loadOptions.baseUrl`, and again
+   * when the style URL or `loadOptions` change; the source keeps its previous data until it
+   * loads. An entry that is removed, `null` or `undefined` gives the source its data in the style
+   * again. An id that is not a `geojson` source of the style is ignored with a warning.
    */
   sourceData?: Record<string, BasemapSourceData | null | undefined> | null;
 };
@@ -160,6 +160,8 @@ type SourceDataEntry = {
   input: BasemapSourceData;
   /** Its GeoJSON object, or the previous entry's until a URL loads, or null. */
   data: object | null;
+  /** For a URL, the URL that it resolves against and the `loadOptions` that it loads with. */
+  context?: {baseUrl: string | undefined; loadOptions: BasemapLayerProps['loadOptions']};
 };
 
 /** A `geojson` source of the resolved style with the data of its `sourceData` entry. */
@@ -339,52 +341,62 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     ) {
       this.loadStyle(props.style, props.loadOptions);
     }
-    if (props.sourceData !== oldProps.sourceData) {
+    if (
+      props.sourceData !== oldProps.sourceData ||
+      props.style !== oldProps.style ||
+      props.loadOptions !== oldProps.loadOptions
+    ) {
       this.updateSourceData(props);
     }
   }
 
   /**
    * Takes the entries of the `sourceData` prop. An entry that is the same as before keeps its data;
-   * a GeoJSON object is used as it is, and a URL is fetched.
+   * a GeoJSON object is used as it is, and a URL is fetched. A URL is fetched again when the URL
+   * that it resolves against or the `loadOptions` change.
    */
   private updateSourceData({sourceData, style, loadOptions}: BasemapLayerProps): void {
     const previous = this.state.sourceData;
     const entries = new Map<string, SourceDataEntry>();
+    const baseUrl =
+      typeof style === 'string' ? style : ((loadOptions || {}) as {baseUrl?: string}).baseUrl;
     for (const [sourceId, input] of Object.entries(sourceData || {})) {
       if (input === null || input === undefined) {
         continue;
       }
       const previousEntry = previous.get(sourceId);
-      if (previousEntry?.input === input) {
+      if (
+        previousEntry?.input === input &&
+        (typeof input !== 'string' ||
+          (previousEntry.context?.baseUrl === baseUrl &&
+            previousEntry.context?.loadOptions === loadOptions))
+      ) {
         entries.set(sourceId, previousEntry);
       } else if (typeof input !== 'string') {
         entries.set(sourceId, {input, data: input});
       } else {
         // As MapLibre's `setData`, the source keeps the data it has until the new data loads.
-        const entry: SourceDataEntry = {input, data: previousEntry?.data ?? null};
+        const entry: SourceDataEntry = {
+          input,
+          data: previousEntry?.data ?? null,
+          context: {baseUrl, loadOptions}
+        };
         entries.set(sourceId, entry);
-        this.loadSourceData(sourceId, entry, style, loadOptions);
+        this.loadSourceData(sourceId, entry);
       }
     }
     this.setState({sourceData: entries});
   }
 
   /** Fetches the GeoJSON of a `sourceData` URL, unless the entry has changed by then. */
-  private loadSourceData(
-    sourceId: string,
-    entry: SourceDataEntry,
-    style: BasemapLayerProps['style'],
-    loadOptions: BasemapLayerProps['loadOptions']
-  ): void {
-    const options = (loadOptions || {}) as {baseUrl?: string};
-    const baseUrl = typeof style === 'string' ? style : options.baseUrl;
+  private loadSourceData(sourceId: string, entry: SourceDataEntry): void {
+    const {baseUrl, loadOptions} = entry.context!;
     const isCurrent = () => this.state.sourceData.get(sourceId) === entry;
     loadGeoJsonData(entry.input as string, baseUrl, loadOptions)
       .then(data => {
         if (isCurrent()) {
           const entries = new Map(this.state.sourceData);
-          entries.set(sourceId, {input: entry.input, data});
+          entries.set(sourceId, {...entry, data});
           this.setState({sourceData: entries});
         }
       })

@@ -164,6 +164,54 @@ describe('BasemapLayer sourceData', () => {
     next.finalizeState();
   });
 
+  test('a URL loads again, relative to the new style URL, when the style URL changes', async () => {
+    const fetch = createFetch({
+      'https://a.example.com/data.json': points('a'),
+      'https://b.example.com/data.json': points('b')
+    });
+    const loadOptions = {fetch};
+    const sourceData = {places: 'data.json'};
+    const loadStyle = vi.spyOn(BasemapLayer.prototype, 'loadStyle').mockImplementation(() => {});
+    try {
+      const basemap = createBasemap({style: 'https://a.example.com/style.json', loadOptions, sourceData});
+      await vi.waitFor(() => expect(basemap.state.sourceData.get('places').data).not.toBeNull());
+      expect(await getTileNames(renderTilesets(basemap).places.source)).toEqual(['a']);
+
+      const next = update(basemap, {style: 'https://b.example.com/style.json', loadOptions, sourceData});
+      await vi.waitFor(() =>
+        expect(fetch).toHaveBeenCalledWith('https://b.example.com/data.json', undefined)
+      );
+      await vi.waitFor(async () =>
+        expect(await getTileNames(renderTilesets(next).places.source)).toEqual(['b'])
+      );
+      next.finalizeState();
+    } finally {
+      loadStyle.mockRestore();
+    }
+  });
+
+  test('a URL loads again with the new loadOptions when they change', async () => {
+    const fetchA = createFetch({'https://x.test/data.json': points('a')});
+    const fetchB = createFetch({'https://x.test/data.json': points('b')});
+    const sourceData = {places: 'https://x.test/data.json'};
+    const loadStyle = vi.spyOn(BasemapLayer.prototype, 'loadStyle').mockImplementation(() => {});
+    try {
+      const basemap = createBasemap({loadOptions: {fetch: fetchA}, sourceData});
+      await vi.waitFor(() => expect(basemap.state.sourceData.get('places').data).not.toBeNull());
+      expect(await getTileNames(renderTilesets(basemap).places.source)).toEqual(['a']);
+
+      const next = update(basemap, {loadOptions: {fetch: fetchB}, sourceData});
+      await vi.waitFor(() => expect(fetchB).toHaveBeenCalledTimes(1));
+      await vi.waitFor(async () =>
+        expect(await getTileNames(renderTilesets(next).places.source)).toEqual(['b'])
+      );
+      expect(fetchA).toHaveBeenCalledTimes(1);
+      next.finalizeState();
+    } finally {
+      loadStyle.mockRestore();
+    }
+  });
+
   test('a URL with no previous entry draws the data of the style until it loads', async () => {
     const fetch = createFetch({'https://data.example.com/a.json': points('fetched')});
     const basemap = createBasemap({loadOptions: {fetch}, sourceData: {places: 'https://data.example.com/a.json'}});

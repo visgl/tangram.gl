@@ -123,7 +123,7 @@ The data of `geojson` sources of the style, by source id, in place of their `dat
 
 Each entry is compared by identity. When one changes, only that source is indexed again and its tiles cut again. The style is not loaded again, and the other sources keep their tiles. A new object with the same entries changes nothing.
 
-- A URL is fetched with the `fetch` and `fetchOptions` of `loadOptions`, relative to the style URL or `loadOptions.baseUrl`. As with `setData`, the source draws its previous data until the new data loads. If the fetch fails, an error is logged and the source keeps its previous data.
+- A URL is fetched with the `fetch` and `fetchOptions` of `loadOptions`, relative to the style URL or `loadOptions.baseUrl`. A URL is fetched again when the style URL, `loadOptions.baseUrl` or `loadOptions` change. As with `setData`, the source draws its previous data until the new data loads. If the fetch fails, an error is logged and the source keeps its previous data.
 - An entry that is removed, `null` or `undefined` gives the source its `data` in the style again.
 - An id that is not a `geojson` source of the style is ignored with a warning.
 - The entries also apply to a style that loads later.
