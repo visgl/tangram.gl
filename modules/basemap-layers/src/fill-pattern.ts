@@ -159,7 +159,9 @@ export function getFillPatternGroups(
   return result;
 }
 
-const PATTERN_TEXTURE_PARAMETERS = {mipmapFilter: 'none'} as const;
+// luma.gl's WebGPU sampler leaves `mipmapFilter: 'none'` out, which samples the nearest mipmap
+// level: the level of detail is clamped to the full-size image instead.
+const PATTERN_TEXTURE_PARAMETERS = {mipmapFilter: 'none', lodMaxClamp: 0} as const;
 
 type PatternAtlas = {
   image: SpriteAtlas['image'] | OffscreenCanvas | HTMLCanvasElement | ImageData;
