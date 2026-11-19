@@ -160,6 +160,8 @@ async function drawEarth(ctx: Ctx, width: number, height: number) {
   const water = String(paintOf(layerById(style, 'water'), 'fill-color') ?? '#9ebdff');
   const ice = layerById(style, 'landcover_ice');
   const relief = layerById(style, 'natural_earth');
+  const countries = layerById(style, 'boundary_2');
+  const disputed = layerById(style, 'boundary_disputed');
   const sources = style.sources as Record<string, {url?: string; tiles?: string[]}>;
   const rasterTemplate = relief ? sources[String(relief.source)]?.tiles?.[0] : undefined;
   const vectorSource = sources.openmaptiles;
@@ -205,13 +207,31 @@ async function drawEarth(ctx: Ctx, width: number, height: number) {
     m.beginPath();
     m.rect(x * size, y * size, size, size);
     m.clip();
-    const features = decodeMVT(data, ['water', 'landcover']).filter(f => f.type === 3);
+    const all = decodeMVT(data, ['water', 'landcover', 'boundary']);
+    const features = all.filter(f => f.type === 3);
     m.globalAlpha = numberAt(paintOf(ice, 'fill-opacity'), zoom, 0.8);
     m.fillStyle = String(paintOf(ice, 'fill-color') ?? '#e0ecec');
     fill(features.filter(f => f.layer === 'landcover' && f.properties.class === 'ice'), x, y);
     m.globalAlpha = 1;
     m.fillStyle = water;
     fill(features.filter(f => f.layer === 'water' && f.properties.brunnel !== 'tunnel'), x, y);
+    // Country boundaries on land, as the style's boundary_2 and boundary_disputed layers draw them.
+    const lines = all.filter(f => f.layer === 'boundary' && f.type === 2 && f.properties.admin_level === 2 && f.properties.maritime !== 1 && !('claimed_by' in f.properties));
+    m.lineWidth = 0.4;
+    m.lineJoin = 'round';
+    for (const [layer, dash, isDisputed] of [[countries, [], false], [disputed, [1.5, 3], true]] as const) {
+      m.strokeStyle = String(paintOf(layer, 'line-color') ?? '#696969');
+      m.globalAlpha = 0.75 * numberAt(paintOf(layer, 'line-opacity'), zoom, 1);
+      m.setLineDash([...dash]);
+      m.beginPath();
+      for (const f of lines.filter(l => (l.properties.disputed === 1) === isDisputed)) {
+        const s = size / f.extent;
+        for (const part of f.geometry) part.forEach(([px, py], j) => (j === 0 ? m.moveTo : m.lineTo).call(m, x * size + px * s, y * size + py * s));
+      }
+      m.stroke();
+    }
+    m.setLineDash([]);
+    m.globalAlpha = 1;
     m.restore();
   });
 

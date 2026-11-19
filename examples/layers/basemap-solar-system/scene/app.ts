@@ -77,6 +77,8 @@ const state = {
   speed: Number(params.get('speed') ?? 86400),
   surface: (params.get('surface') === 'imagery' ? 'imagery' : 'vector') as SurfaceMode,
   night: params.get('night') !== 'off',
+  /** The globe camera turns with the body; off (default), it keeps its orientation in space. */
+  corotate: params.get('rotate') === 'on',
   overviewView: {target: [0, 0, 0] as V3, zoom: 0, rotationOrbit: 30, rotationX: 35, minZoom: -12, maxZoom: 30},
   globeViews: {} as Record<string, {longitude: number; latitude: number; zoom: number; bearing?: number; pitch?: number; minZoom?: number; maxZoom?: number}>,
   clicked: null as null | {body: BodyId; lat: number; lon: number},
@@ -237,10 +239,38 @@ function computeScene(): Scene {
   for (const id of PLANET_IDS) night[id] = unit(helio[id]);
   night.earth = earthNight;
   night.moon = moonNight;
+  // Floating origin: every position goes to the GPU relative to `origin`, subtracted here in
+  // double precision, so float32 keeps its precision near the body in view.
+  const rel = (p: V3): V3 => [p[0] - origin[0], p[1] - origin[1], p[2] - origin[2]];
+  for (const id of BODY_IDS) pos[id] = rel(pos[id]);
+  for (const orbit of orbits) orbit.path = orbit.path.map(rel);
+  for (const g of galilean) g.position = rel(g.position);
+  for (const sun of sunLights) sun.position = pos.sun;
   return {
     date, pos, radius, matrix, orbits, earthNight, moonNight, sunFixed, earthLightErrorDeg,
-    moonSceneFraction, galilean, galileanOrbits, saturnAxes: axes.saturn, night
+    moonSceneFraction, galilean, galileanOrbits: galileanOrbits.map(path => path.map(rel)), saturnAxes: axes.saturn, night
   };
+}
+
+/**
+ * The floating origin, in absolute scene units (Sun at 0), kept in double precision. Between
+ * flights it follows the body or the point in view (rebaseOrigin); during a flight it stays put,
+ * because the flight keeps camera positions relative to it.
+ */
+let origin: V3 = [0, 0, 0];
+/** Moves the floating origin to an absolute point, and shifts the cameras with it. */
+function rebaseOrigin(next: V3) {
+  const d: V3 = [next[0] - origin[0], next[1] - origin[1], next[2] - origin[2]];
+  if (d[0] === 0 && d[1] === 0 && d[2] === 0) return;
+  origin = next;
+  const shift = (p: V3): V3 => [p[0] - d[0], p[1] - d[1], p[2] - d[2]];
+  state.overviewView = {...state.overviewView, target: shift(state.overviewView.target)};
+  if (state.camera) state.camera = {...state.camera, eye: shift(state.camera.eye), target: shift(state.camera.target)};
+}
+/** The absolute point that the floating origin follows: the globe body, or the overview target. */
+function originTarget(): V3 {
+  const p = state.mode === 'globe' ? scene.pos[state.body] : (state.camera?.target ?? state.overviewView.target);
+  return [p[0] + origin[0], p[1] + origin[1], p[2] + origin[2]];
 }
 
 // ---------- Overview layers ----------
@@ -463,11 +493,13 @@ function textureOf(id: BodyId): {image?: ImageBitmap; surface: SurfaceMode} {
 loadOverviewTextures('imagery');
 if (state.surface === 'vector') loadOverviewTextures('vector');
 
-const makeLighting = () =>
-  new LightingEffect({
-    ambient: new AmbientLight({color: [255, 255, 255], intensity: 1}),
-    sun: new PointLight({color: [255, 250, 240], intensity: 1.8, position: [0, 0, 0]})
-  });
+/** The Sun lights of the two overview decks: they move with the floating origin. */
+const sunLights: PointLight[] = [];
+const makeLighting = () => {
+  const sun = new PointLight({color: [255, 250, 240], intensity: 1.8, position: [0, 0, 0]});
+  sunLights.push(sun);
+  return new LightingEffect({ambient: new AmbientLight({color: [255, 255, 255], intensity: 1}), sun});
+};
 const lighting = makeLighting();
 const frontLighting = makeLighting();
 const SUN_MATERIAL = {ambient: 1, diffuse: 0, shininess: 1, specularColor: [0, 0, 0] as [number, number, number]};
@@ -963,6 +995,30 @@ function cameraFromGlobe(id: BodyId, viewport: AnyViewport = globeViewport()): C
   return {eye, target: addV(eye, scaleV(forward, distance)), up: fromFixed(id, frame.toFixed(up))};
 }
 
+/**
+ * The globe view in space: its target direction and heading, in the overview frame. The Carbon
+ * engine advances the world on a tick and moves the camera with the reference point; the camera
+ * keeps its orientation. Here the globe camera follows the body centre but not its spin, so at
+ * 1 day/s the stars stay still and the surface turns under the camera.
+ */
+function globeInertial(id: BodyId) {
+  const {longitude: lon, latitude: lat, bearing = 0} = state.globeViews.globe;
+  const north: V3 = [-Math.sin(lat * DEG) * Math.cos(lon * DEG), -Math.sin(lat * DEG) * Math.sin(lon * DEG), Math.cos(lat * DEG)];
+  const east: V3 = [-Math.sin(lon * DEG), Math.cos(lon * DEG), 0];
+  const b = bearing * DEG;
+  const heading = addV(scaleV(north, Math.cos(b)), scaleV(east, Math.sin(b)));
+  return {target: fromFixed(id, fixedOf(lon, lat)), heading: fromFixed(id, heading)};
+}
+function applyGlobeInertial(id: BodyId, inertial: ReturnType<typeof globeInertial>) {
+  const {lon, lat} = lonLatOf(toFixed(id, inertial.target));
+  const h = toFixed(id, inertial.heading);
+  const north = [-Math.sin(lat * DEG) * Math.cos(lon * DEG), -Math.sin(lat * DEG) * Math.sin(lon * DEG), Math.cos(lat * DEG)];
+  const east = [-Math.sin(lon * DEG), Math.cos(lon * DEG), 0];
+  const bearing = Math.atan2(dot(h, east), dot(h, north)) / DEG;
+  state.globeViews.globe = {...state.globeViews.globe, longitude: lon, latitude: lat, bearing};
+  globeDeck.setProps({viewState: {globe: state.globeViews.globe}});
+}
+
 // ---------- Decks ----------
 
 const errors = new Set<string>();
@@ -1080,15 +1136,18 @@ function renderViewState() {
 }
 
 /**
- * The rest of the system in front of the globe. A body nearer to the camera than the centre of
- * the focus body is left out: in readable scale the Moon's neighbour Earth (or a planet next to its
- * moons) would otherwise fill the view from some sides of the globe.
+ * The rest of the system in front of the globe. In readable scale a body nearer to the camera than
+ * the centre of the focus body is left out: the Moon's neighbour Earth (or a planet next to its
+ * moons) would otherwise fill the view from some sides of the globe. This is the geometry of the
+ * readable scale, not depth precision: in true scale nothing is left out.
  */
 let frontExcluded = '';
 function updateFrontLayers(force = false) {
   const eye = (state.camera as Camera).eye;
   const focusDistance = norm(subV(eye, scene.pos[state.body]));
-  const exclude = new Set(BODY_IDS.filter(id => id !== state.body && norm(subV(eye, scene.pos[id])) < focusDistance));
+  const exclude = new Set(
+    state.scale === 'true' ? [] : BODY_IDS.filter(id => id !== state.body && norm(subV(eye, scene.pos[id])) < focusDistance)
+  );
   const key = [...exclude].join(',');
   if (!force && key === frontExcluded) return;
   frontExcluded = key;
@@ -1133,6 +1192,7 @@ function globeReady() {
 }
 
 function render() {
+  if (!flightPhase && state.mode !== 'compare' && scene) rebaseOrigin(originTarget());
   setDecks();
   if (state.mode === 'overview') {
     scene = computeScene();
@@ -1144,7 +1204,9 @@ function render() {
     });
     renderViewState();
   } else if (state.mode === 'globe') {
+    const inertial = state.corotate || !scene ? null : globeInertial(state.body);
     scene = computeScene();
+    if (inertial) applyGlobeInertial(state.body, inertial);
     bodyCache = overviewLayers(scene, {mode: 'body', focus: state.body});
     state.camera = cameraFromGlobe(state.body);
     const viewState = {overview: state.camera};
@@ -1354,7 +1416,7 @@ function flyOut() {
   const fadeOut = clock();
   let start = 0;
   let cam0: Camera, cam1: Camera, zoom0 = 0, zoom1 = 0;
-  const end = {...state.overviewView, target: [0, 0, 0] as V3, zoom: fitZoom(state.scale), rotationX: 35};
+  const end = {...state.overviewView, target: scene.pos.sun, zoom: fitZoom(state.scale), rotationX: 35};
   frameLoop(now => {
     if (token !== flight) return false;
     if (flightPhase === 'fade-out') {
@@ -1595,7 +1657,8 @@ function enterOverview() {
   unmountGlobe();
   setOverviewFovy(50);
   hidden.clear();
-  state.overviewView = {...state.overviewView, target: [0, 0, 0], zoom: fitZoom(state.scale), rotationX: 35};
+  scene = computeScene();
+  state.overviewView = {...state.overviewView, target: scene.pos.sun, zoom: fitZoom(state.scale), rotationX: 35};
   render();
 }
 /** Overview centred on a body, wide enough for its moons or rings (`?focus=`). */
@@ -1654,6 +1717,7 @@ panel.innerHTML = `
   </div>
   <label class="row">Surface <select id="surface"><option value="vector">Vector map</option><option value="imagery">Imagery</option></select></label>
   <label class="row"><input id="night" type="checkbox"> Night side</label>
+  <label class="row"><input id="corotate" type="checkbox"> Rotate with body</label>
   <div id="gravity" class="note"></div>
   <div id="sky" class="note"></div>
   <details id="notes-box"><summary>Notes</summary><div class="note" id="notes"></div></details>
@@ -1684,6 +1748,10 @@ $<HTMLSelectElement>('surface').onchange = event => {
     render();
   } else if (state.mode === 'compare') enterCompare();
   else if (!flightPhase) render();
+};
+$<HTMLInputElement>('corotate').checked = state.corotate;
+$<HTMLInputElement>('corotate').onchange = event => {
+  state.corotate = (event.target as HTMLInputElement).checked;
 };
 $<HTMLInputElement>('night').checked = state.night;
 $<HTMLInputElement>('night').onchange = event => {

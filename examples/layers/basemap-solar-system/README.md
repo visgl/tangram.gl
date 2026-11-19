@@ -59,6 +59,12 @@ move to a library without changes to the others.
   middle deck the `GlobeView` with the `BasemapLayer`, and the front deck the rest of the
   system, with the focus body as a depth-only occluder. One deck cannot do this: a `GlobeView`
   and an `OrbitView` over the same pixels cannot depth-test against each other.
+- Floating origin: the scene keeps positions in double precision and subtracts an origin that
+  follows the body or the point in view before it sends them to the GPU. With the Sun at the
+  origin, float32 moves a true-scale Neptune by up to 145 km (2 px on its limb); with the
+  floating origin the error is below 0.001 px.
+- Globe camera: it follows the body centre but keeps its orientation in space, so the stars stay
+  still while the clock runs. "Rotate with body" makes it turn with the surface.
 - `scene/tiles.ts`, `scene/tile-worker.ts`: the geographic-to-Web-Mercator tile workers.
 - `celestial/ephemeris.ts`: positions from Astronomy Engine (MIT). Astronomy Engine was already
   a dependency for the poles and prime meridians, it covers the planets, the Moon and the
@@ -100,5 +106,7 @@ Bodies with no vector map:
 - `GlobeView` draws every body on a sphere of the Earth's radius, so heights and distances read
   as Earth units.
 - Web Mercator tiles stop at ±85.05°. At the poles the overview sphere shows through.
+- A flight between two globes goes through the overview and fades at each end. One continuous
+  flight needs the globe of a body inside the system view, which `GlobeView` does not support.
 - The planetary vector data is simplified, so the globe zoom stops at tile zoom 8 on the
   vector map. The imagery goes deeper.
