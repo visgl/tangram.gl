@@ -59,7 +59,36 @@ function render(mode: 'map' | 'globe'): Promise<Uint8ClampedArray> {
   document.body.append(parent);
   return new Promise((resolve, reject) => {
     let settled = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
+    let redrawPending = false;
+    const isLoaded = () => {
+      const layers = (deck as any)?.layerManager?.getLayers() || [];
+      const tileLayers = layers.filter((layer: any) => layer.state?.tileset);
+      return (
+        tileLayers.length > 0 &&
+        tileLayers.every((layer: any) => layer.state.tileset.selectedTiles) &&
+        layers.every((layer: any) => layer.isLoaded)
+      );
+    };
+    // Draws in a later browser frame, once every layer has loaded: until then each frame only
+    // checks again, so that the wait adds no draws while the tiles load. At most one such frame
+    // is pending, so that each settle frame is one browser frame. The test timeout is the only
+    // limit: on a busy CI runner one render can take more than 30 s.
+    const redrawWhenLoaded = (reason: string) => {
+      if (redrawPending) {
+        return;
+      }
+      redrawPending = true;
+      const check = () =>
+        window.requestAnimationFrame(() => {
+          if (deck && !isLoaded()) {
+            check();
+            return;
+          }
+          redrawPending = false;
+          deck?.redraw(reason);
+        });
+      check();
+    };
     deck = new Deck({
       parent: parent!,
       width: SIZE,
@@ -70,20 +99,15 @@ function render(mode: 'map' | 'globe'): Promise<Uint8ClampedArray> {
       viewState: VIEW_STATE as any,
       layers: [new BasemapLayer({id: 'basemap', mode, style: structuredClone(STYLE) as any})],
       onAfterRender: () => {
-        const layers = (deck as any)?.layerManager?.getLayers() || [];
-        const tileLayers = layers.filter((layer: any) => layer.state?.tileset);
-        if (
-          tileLayers.length === 0 ||
-          !tileLayers.every((layer: any) => layer.state.tileset.selectedTiles) ||
-          layers.some((layer: any) => !layer.isLoaded)
-        ) {
+        if (!isLoaded()) {
+          // Deck does not always draw again by itself when the last tile loads.
+          redrawWhenLoaded('load');
           return;
         }
         if (settled++ < 2) {
-          window.requestAnimationFrame(() => deck?.redraw('settle'));
+          redrawWhenLoaded('settle');
           return;
         }
-        window.clearTimeout(timeout);
         const copy = document.createElement('canvas');
         copy.width = SIZE;
         copy.height = SIZE;
