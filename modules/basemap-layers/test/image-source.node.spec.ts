@@ -251,7 +251,7 @@ describe('image source layers', () => {
     expect(getImageLayer().props.opacity).toBe(1);
   });
 
-  test('takes the raster color adjustments, with premultiplied blending on WebGL only', () => {
+  test('takes the raster color adjustments, with premultiplied blending on both backends', () => {
     const plain = getImageLayer();
     expect(plain.props.extensions).toEqual([]);
     expect(renderImage(plain).props.parameters).not.toMatchObject(RASTER_COLOR_BLEND_PARAMETERS);
@@ -275,7 +275,7 @@ describe('image source layers', () => {
       hueRotate: 90
     });
     expect(renderImage(adjusted).props.parameters).toMatchObject(RASTER_COLOR_BLEND_PARAMETERS);
-    expect(renderImage(adjusted, 'webgpu').props.parameters).not.toMatchObject(
+    expect(renderImage(adjusted, 'webgpu').props.parameters).toMatchObject(
       RASTER_COLOR_BLEND_PARAMETERS
     );
   });
