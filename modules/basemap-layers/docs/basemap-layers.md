@@ -57,6 +57,11 @@ From `@tangram.gl/basemap-layers/map-style`:
   <img src="https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square" alt="from v9.3" />
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 
+From `@tangram.gl/basemap-layers/bodies`:
+
+- `BODY_BASEMAPS`, and the `BodyBasemap`, `BodyBasemapId`, `BodyRasterSource`, `BodyVectorSource` and `BodyDataset` types. See [`bodies` Export](./api-reference/bodies.md).
+  <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
+
 ## Runtime Model
 
 `BasemapLayer` accepts a style URL or a parsed style object. At runtime it:

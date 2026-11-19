@@ -16,7 +16,8 @@
     "jsx": "react-jsx",
     "paths": {
       "@tangram.gl/basemap-layers": ["./modules/basemap-layers/src/index.ts"],
-      "@tangram.gl/basemap-layers/map-style": ["./modules/basemap-layers/src/map-style.ts"]
+      "@tangram.gl/basemap-layers/map-style": ["./modules/basemap-layers/src/map-style.ts"],
+      "@tangram.gl/basemap-layers/bodies": ["./modules/basemap-layers/src/bodies.ts"]
     }
   },
   "include": [
