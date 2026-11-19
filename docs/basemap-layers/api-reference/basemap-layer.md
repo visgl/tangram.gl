@@ -112,6 +112,39 @@ to a CSS font (see [Label fonts](/docs/modules/basemap-layers#label-fonts)). Def
 `getBasemapLayers` and `getGlobeBaseLayers` accept the same `fontFamily` option, and a `glyphs`
 option, a `GlyphStore` of the style's `glyphs` URL, to draw labels with the style's glyphs.
 
+### `extensions`
+
+Type: `LayerExtension[]`
+
+The layers that draw the basemap are deck.gl layers. `BasemapLayer` gives its `extensions`, and the props of those extensions, to each of them: the background, the raster tiles, and the fills, lines, circles, extrusions and labels of the vector tiles. A layer of the basemap runs its own extensions first.
+
+```ts
+import {MaskExtension, type MaskExtensionProps} from '@deck.gl/extensions';
+import {SolidPolygonLayer} from '@deck.gl/layers';
+import {BasemapLayer} from '@tangram.gl/basemap-layers';
+
+const layers = [
+  // Draws the area into the mask of deck.gl, not on the screen.
+  new SolidPolygonLayer({id: 'area', data: [area], getPolygon: polygon => polygon, operation: 'mask'}),
+  // Draws the basemap in the area only.
+  new BasemapLayer<MaskExtensionProps>({
+    id: 'basemap',
+    style,
+    extensions: [new MaskExtension()],
+    maskId: 'area'
+  })
+];
+```
+
+The [Basemap masked by data example](/examples/basemap-layers/masked-by-data) masks, filters and restyles the basemap with a survey track.
+
+Limits:
+
+- The props of an extension are the props in its `defaultProps`. Inside a vector tile, the `updateTriggers` of an accessor prop are not passed on.
+- An accessor prop, such as the `getFilterValue` of `DataFilterExtension`, gets the features of the basemap, not the data of the application.
+- `MaskExtension` masks a label by its anchor.
+- In deck.gl 10.0.0-alpha.1, `MaskExtension` draws its mask in Web Mercator. It does not mask a basemap in a `_CustomProjectionView`.
+
 ### `globe`
 
 Type: `{config?: BasemapGlobeConfig}`
