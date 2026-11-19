@@ -138,9 +138,23 @@ describe('FillExtrusionLightingExtension', () => {
     props: {extruded}
   });
 
-  test('shades extruded polygons on WebGL only, leaving deck.gl lights on WebGPU', () => {
+  test('shades extruded polygons on WebGL and WebGPU', () => {
     expect(extension.isEnabled(layerOn('webgl'))).toBe(true);
-    expect(extension.isEnabled(layerOn('webgpu'))).toBe(false);
+    expect(extension.isEnabled(layerOn('webgpu'))).toBe(true);
     expect(extension.isEnabled(layerOn('webgl', false))).toBe(false);
+  });
+
+  test('adds GLSL on WebGL and WGSL on WebGPU', () => {
+    const [webgl] = extension.getShaders.call(layerOn('webgl'), extension).plugins;
+    const [webgpu] = extension.getShaders.call(layerOn('webgpu'), extension).plugins;
+    expect(webgl.injections.map((injection: any) => injection.glsl).join('')).toContain(
+      'fillExtrusionLighting_shade'
+    );
+    expect(webgpu.module.source).toContain('fn fillExtrusionLighting_shade');
+    expect(webgpu.injections.map((injection: any) => injection.target)).toEqual([
+      '#main-start',
+      'DECKGL_FILTER_GL_POSITION',
+      'DECKGL_FILTER_COLOR'
+    ]);
   });
 });
