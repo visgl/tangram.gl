@@ -100,7 +100,9 @@ export function getSpriteIconMapping(
 
 /**
  * Decodes the atlas PNG once, so the per-tile icon layers share one image instead of each
- * requesting it. Without `createImageBitmap` (e.g. in Node), returns the URL.
+ * requesting it. Without `createImageBitmap` (e.g. in Node), returns the URL. The image is decoded
+ * unpremultiplied, as deck.gl decodes the images it loads itself: the icon layers blend its
+ * colors with their alpha, so premultiplied colors would darken every translucent pixel twice.
  */
 async function loadSpriteImage(
   url: string,
@@ -114,7 +116,7 @@ async function loadSpriteImage(
   if (!response.ok) {
     throw new Error(`Failed to load sprite image: ${url} (${response.status})`);
   }
-  return await createImageBitmap(await response.blob());
+  return await createImageBitmap(await response.blob(), {premultiplyAlpha: 'none'});
 }
 
 /** Appends a suffix and extension to a sprite URL's path, keeping its query string and hash. */
