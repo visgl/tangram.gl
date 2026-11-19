@@ -131,6 +131,31 @@ describe('scheme in the layers', () => {
     expect(expand(loader.options.tiles, index)).toBe(`https://r.example.com/3/5/${flipped}.png`);
   });
 
+  test('with rejectRasterTile, a raster tile and its ancestors load from the flipped rows', async () => {
+    const urls: string[] = [];
+    const fetchTile = vi.fn(async (url: string | URL | Request) => {
+      urls.push(String(url));
+      return new Response(new Uint8Array([1]));
+    });
+    const layers = getBasemapLayers({
+      idPrefix: 't',
+      mode: 'map',
+      zoom: 3,
+      styleDefinition: TMS_STYLE,
+      loadOptions: {fetch: fetchTile as typeof fetch},
+      // Every tile is a placeholder, so the loader requests each ancestor up to zoom 0.
+      rejectRasterTile: () => true
+    });
+    const raster: any = layers.find(layer => layer.id === 't-imagery');
+    expect(await raster.props.getTileData({index, id: '5-2-3'})).toBeNull();
+    expect(urls).toEqual([
+      `https://r.example.com/3/5/${flipped}.png`,
+      `https://r.example.com/2/2/${tmsRow(1, 2)}.png`,
+      `https://r.example.com/1/1/${tmsRow(0, 1)}.png`,
+      `https://r.example.com/0/0/${tmsRow(0, 0)}.png`
+    ]);
+  });
+
   test('a raster-dem source loads its tiles from the flipped row', async () => {
     const urls: string[] = [];
     const fetchTile = vi.fn(async (url: string | URL | Request) => {
