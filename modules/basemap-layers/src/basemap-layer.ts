@@ -215,8 +215,12 @@ type BasemapLayerState = {
 /**
  * A deck.gl {@link CompositeLayer} that loads a style document and renders the
  * corresponding basemap sublayers.
+ *
+ * @typeParam ExtraPropsT The props of the layer's `extensions`, such as `MaskExtensionProps`.
  */
-export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
+export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
+  ExtraPropsT & Required<BasemapLayerProps>
+> {
   /** Query a caller-owned displayed terrain surface through the selected deck viewport. */
   getTerrainAt(viewport: Viewport, pixel: readonly [number, number], surface: TerrainSurface,
     commonToSurface: Readonly<ArrayLike<number>>): TerrainSurfaceHit | null {
@@ -564,7 +568,7 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
     // Recorded without setState: this only tracks what the current sublayers were built from.
     this.state.zoomKey = this.getZoomKey(resolvedStyle, viewport);
 
-    return getBasemapLayers({
+    const layers = getBasemapLayers({
       idPrefix: this.props.id,
       mode: this.getDrawMode(viewport),
       globe: this.props.globe,
@@ -582,6 +586,25 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       projected: isProjectedViewport(viewport),
       projectedMaxStretch: this.props.projectedMaxStretch,
       styleLayerProps: this.getStyleLayerPropsMap(resolvedStyle)
+    });
+    const {extensions} = this.props;
+    if (extensions.length === 0) {
+      return layers;
+    }
+    // The sublayers are not made with `getSubLayerProps`: give them the extensions of this layer
+    // and the props of those extensions, as `getSubLayerProps` does. A sublayer keeps its own
+    // extensions, and runs them first.
+    return layers.map(layer => {
+      const props: Record<string, any> = {
+        extensions: [...(layer.props.extensions || []), ...extensions],
+        updateTriggers: {...layer.props.updateTriggers}
+      };
+      for (const extension of extensions) {
+        const {updateTriggers, ...extensionProps} = extension.getSubLayerProps.call(this, extension);
+        Object.assign(props, extensionProps);
+        Object.assign(props.updateTriggers, updateTriggers);
+      }
+      return layer.clone(props);
     });
   }
 }
