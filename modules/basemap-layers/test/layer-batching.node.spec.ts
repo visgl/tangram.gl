@@ -94,10 +94,11 @@ function valuesOf(layer: any, accessor: string): unknown[] {
   );
 }
 
+/** A fill without its antialiasing outline, which draws a fill alone. */
 const fill = (id: string, color: string, extra: Record<string, unknown> = {}) => ({
   id,
   type: 'fill',
-  paint: {'fill-color': color},
+  paint: {'fill-color': color, 'fill-antialias': false},
   ...extra
 });
 const line = (
@@ -189,6 +190,46 @@ describe('consecutive style layers share a sublayer', () => {
       [1, 8],
       [0, 0]
     ]);
+  });
+
+  test('fills with their antialiasing outline draw alone, each fill before its outline', () => {
+    // Land, then a river over it. MapLibre draws the land's fill, the land's outline, the river's
+    // fill and the river's outline. A river narrower than a pixel draws only as its outline, which
+    // must draw over the land.
+    const antialiased = (id: string, color: string) => ({
+      id,
+      type: 'fill',
+      paint: {'fill-color': color}
+    });
+    const layers = renderTile(
+      [antialiased('land', '#ff0000'), antialiased('river', '#0000ff')],
+      [feature('Polygon')]
+    );
+    // Each sublayer draws its fill and then its outline (see the fill-antialias render test).
+    expect(idsOf(layers)).toEqual(['land', 'river']);
+    expect(layers.map((layer: any) => [layer.props.filled, layer.props.stroked])).toEqual([
+      [true, true],
+      [true, true]
+    ]);
+  });
+
+  test('a fill without antialiasing does not share a sublayer with a fill that has it', () => {
+    const layers = renderTile(
+      [fill('a', '#ff0000'), {...fill('b', '#0000ff'), paint: {'fill-color': '#0000ff'}}],
+      [feature('Polygon')]
+    );
+    expect(idsOf(layers)).toEqual(['a', 'b']);
+  });
+
+  test('a fill with fill-outline-color draws alone', () => {
+    const layers = renderTile(
+      [
+        fill('a', '#ff0000'),
+        {...fill('b', '#0000ff'), paint: {'fill-color': '#0000ff', 'fill-outline-color': '#000000'}}
+      ],
+      [feature('Polygon')]
+    );
+    expect(idsOf(layers)).toEqual(['a', 'b']);
   });
 
   test('a fill or line without features in the tile does not separate its neighbours', () => {

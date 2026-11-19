@@ -197,8 +197,12 @@ describe('fills and lines take zoom-dependent paint from a texture', () => {
 
   test('a fill color that is per feature keeps the attribute', () => {
     const styleLayers = [
-      fill('a', {'fill-color': ['match', ['get', 'k'], 'x', '#ff0000', '#0000ff']}),
-      fill('b', {'fill-color': '#00ff00'})
+      // Without antialiasing outlines, which draw a fill alone.
+      fill('a', {
+        'fill-color': ['match', ['get', 'k'], 'x', '#ff0000', '#0000ff'],
+        'fill-antialias': false
+      }),
+      fill('b', {'fill-color': '#00ff00', 'fill-antialias': false})
     ];
     const [layer] = renderTile(styleLayers, [feature('Polygon', {k: 'x'})], 12);
     expect(valuesOf(layer, 'getFillColor')).toEqual([

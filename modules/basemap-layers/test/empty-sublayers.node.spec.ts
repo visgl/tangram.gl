@@ -47,9 +47,18 @@ function drawnKinds(layer: any): string[] {
 }
 
 describe('sublayers that draw nothing', () => {
-  test('a fill draws polygons only', () => {
-    const [layer] = renderTile({id: 'land', type: 'fill', paint: {'fill-color': '#f00'}});
+  test('a fill without antialiasing draws polygons only', () => {
+    const [layer] = renderTile({
+      id: 'land',
+      type: 'fill',
+      paint: {'fill-color': '#f00', 'fill-antialias': false}
+    });
     expect(drawnKinds(layer)).toEqual(['polygons-fill']);
+  });
+
+  test('a fill draws polygons, their antialiasing outlines and line strings', () => {
+    const [layer] = renderTile({id: 'land', type: 'fill', paint: {'fill-color': '#f00'}});
+    expect(drawnKinds(layer)).toEqual(['polygons-fill', 'polygons-stroke', 'linestrings']);
   });
 
   test('a fill with an outline draws polygons, their outlines and line strings', () => {

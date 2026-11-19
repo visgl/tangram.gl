@@ -31,15 +31,52 @@ type ViewState = {
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
 let onFrame: ((image: ImageData) => void) | null = null;
+let onFailure: ((error: unknown) => void) | null = null;
+let redrawPending = false;
 
 function cleanup() {
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
+  onFrame = null;
+  onFailure = null;
 }
 
 afterEach(cleanup);
+
+/** Whether the basemap has resolved its style, and every layer has loaded. */
+function isLoaded(): boolean {
+  const layers = (deck as any)?.layerManager?.getLayers() || [];
+  // A basemap draws no sublayers until its style resolves.
+  return layers.length >= 2 && layers.every((layer: any) => layer.isLoaded);
+}
+
+/**
+ * Draws in a later browser frame, once every layer has loaded: `redraw` draws at once. Until then
+ * each frame only checks again, so that the wait adds no draws while the tiles load. At most one
+ * such frame is pending, so that a wait counts each frame that the browser draws once.
+ */
+function redrawWhenLoaded(reason: string, delay = 0) {
+  if (redrawPending) {
+    return;
+  }
+  redrawPending = true;
+  const check = () =>
+    window.requestAnimationFrame(() => {
+      if (deck && !isLoaded()) {
+        check();
+        return;
+      }
+      redrawPending = false;
+      deck?.redraw(reason);
+    });
+  if (delay) {
+    window.setTimeout(check, delay);
+  } else {
+    check();
+  }
+}
 
 /** A square footprint around the view center, sized to look the same at every zoom. */
 function footprint(zoom: number): number[][] {
@@ -135,22 +172,30 @@ function measure(image: ImageData): Extent {
   return {top, bottom, count};
 }
 
-/** Resolves with a frame drawn a few frames after every sublayer has loaded. */
+/**
+ * Resolves with a frame drawn a few frames after every sublayer has loaded.
+ *
+ * The test timeout bounds the wait. Concurrent browser test files share one GPU process, so a
+ * shorter limit here times out on a busy CI runner while the tiles still load.
+ */
 function nextFrame(): Promise<Extent> {
   return new Promise((resolve, reject) => {
     let frames = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 20_000);
+    onFailure = error => {
+      onFrame = null;
+      onFailure = null;
+      reject(error);
+    };
     onFrame = image => {
       if (++frames < 5) {
-        // `redraw` draws at once, so wait for the browser's next frame first.
-        window.requestAnimationFrame(() => deck?.redraw('settle'));
+        redrawWhenLoaded('settle');
         return;
       }
       onFrame = null;
-      window.clearTimeout(timeout);
+      onFailure = null;
       resolve(measure(image));
     };
-    window.requestAnimationFrame(() => deck?.redraw('frame'));
+    redrawWhenLoaded('frame');
   });
 }
 
@@ -168,9 +213,13 @@ function createDeck(layers: unknown[], viewState: ViewState): Promise<Extent> {
     viewState: viewState as any,
     layers: layers as any,
     onAfterRender: () => {
-      const loaded = (deck as any)?.layerManager?.getLayers() || [];
-      // A basemap draws no sublayers until its style resolves.
-      if (!onFrame || loaded.length < 2 || loaded.some((layer: any) => !layer.isLoaded)) {
+      if (!onFrame) {
+        return;
+      }
+      if (!isLoaded()) {
+        // Draw again once the layers load, so that the wait never depends on a frame that deck
+        // draws by itself.
+        redrawWhenLoaded('load');
         return;
       }
       // Read the frame back in the render callback, before the drawing buffer is cleared.
@@ -184,7 +233,11 @@ function createDeck(layers: unknown[], viewState: ViewState): Promise<Extent> {
       onFrame(context.getImageData(0, 0, SIZE, SIZE));
     },
     onError: error => {
-      throw error;
+      if (!onFailure) {
+        throw error;
+      }
+      // Fail the wait at once, not at the test timeout.
+      onFailure(error);
     }
   });
   return frame;
@@ -213,7 +266,7 @@ describe('a globe basemap above zoom 12', () => {
     const actual = await createDeck([basemap(ring, FILL, 15)], viewState);
     const expected = await renderReference(ring, false, viewState);
     expectSameExtent(actual, expected);
-  }, 30_000);
+  });
 
   test('draws a fill-extrusion under pitch, in front of the background', async () => {
     const ring = footprint(15);
@@ -221,7 +274,7 @@ describe('a globe basemap above zoom 12', () => {
     const actual = await createDeck([basemap(ring, EXTRUSION, 15)], viewState);
     const expected = await renderReference(ring, true, viewState);
     expectSameExtent(actual, expected);
-  }, 30_000);
+  });
 
   for (const [name, styleLayer, pitch] of [
     ['a fill', FILL, 0],
