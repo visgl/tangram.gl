@@ -1,0 +1,39 @@
+<!doctype html>
+<!--
+tangram-layers
+SPDX-License-Identifier: MIT
+Copyright (c) vis.gl contributors
+-->
+
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BasemapLayer solar system</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #e8ecf4; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #map, #globe, #front { position: absolute; inset: 0; }
+  #globe { z-index: 1; opacity: 0; visibility: hidden; pointer-events: none; }
+  #front { z-index: 1; visibility: hidden; pointer-events: none; }
+  #panel { position: absolute; top: 8px; left: 8px; z-index: 2; background: rgba(4,6,12,.82); padding: 8px 10px; max-width: 400px; border-radius: 6px; border: 1px solid #223; }
+  #panel h1 { font-size: 14px; margin: 0 0 6px; }
+  .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+  .wrap { flex-wrap: wrap; }
+  button { background: #1b2233; color: #e8ecf4; border: 1px solid #34405c; border-radius: 4px; padding: 3px 7px; cursor: pointer; font: inherit; }
+  button:hover { background: #26304a; }
+  .note { margin-top: 6px; font-size: 12px; color: #b8c0d4; }
+  .dim { color: #8890a4; }
+  details summary { cursor: pointer; margin-top: 6px; color: #9cf; }
+  .error { color: #f88; white-space: pre-wrap; font-size: 11px; }
+  #credit { position: absolute; right: 0; bottom: 0; z-index: 2; background: rgba(0,0,0,.7); padding: 2px 6px; font-size: 11px; max-width: 70%; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="globe"></div>
+<div id="front"></div>
+<div id="panel"></div>
+<div id="credit"></div>
+<script type="module" src="./index.ts"></script>
+</body>
+</html>
