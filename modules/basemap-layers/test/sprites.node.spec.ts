@@ -182,6 +182,20 @@ describe('sprite image', () => {
     ]);
     expect(atlas.image).toBe(bitmap);
   });
+
+  test('is decoded unpremultiplied, as the icon layers blend it', async () => {
+    const decode = vi.fn(async () => ({width: 17, height: 17}));
+    vi.stubGlobal('createImageBitmap', decode);
+    const fetchFn = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => SPRITE_INDEX,
+      blob: async () => ({})
+    })) as unknown as typeof fetch;
+    await loadSpriteAtlases('https://example.com/sprite', {fetch: fetchFn});
+    vi.unstubAllGlobals();
+    expect(decode).toHaveBeenCalledWith(expect.anything(), {premultiplyAlpha: 'none'});
+  });
 });
 
 describe('sprite mapping', () => {
