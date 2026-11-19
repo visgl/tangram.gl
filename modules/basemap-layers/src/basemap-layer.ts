@@ -227,8 +227,12 @@ type BasemapLayerState = {
 /**
  * A deck.gl {@link CompositeLayer} that loads a style document and renders the
  * corresponding basemap sublayers.
+ *
+ * @typeParam ExtraPropsT The props of the layer's `extensions`, such as `MaskExtensionProps`.
  */
-export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
+export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
+  ExtraPropsT & Required<BasemapLayerProps>
+> {
   /** Query a caller-owned displayed terrain surface through the selected deck viewport. */
   getTerrainAt(viewport: Viewport, pixel: readonly [number, number], surface: TerrainSurface,
     commonToSurface: Readonly<ArrayLike<number>>): TerrainSurfaceHit | null {
@@ -587,7 +591,33 @@ export class BasemapLayer extends CompositeLayer<Required<BasemapLayerProps>> {
       projectedMaxStretch: this.props.projectedMaxStretch
     });
     this.setInsertedLayers(insertLayers);
-    return layers;
+    const {extensions} = this.props;
+    if (extensions.length === 0) {
+      return layers;
+    }
+    // The inserted layers are the app's: they do not take the extensions of the basemap, and stay
+    // the same objects, which picking finds (see `getPickingInfo`).
+    const inserted = new Set<unknown>(insertLayers.map(insertion => insertion.layers));
+    return layers.map(layer => (inserted.has(layer) ? layer : this.addExtensions(layer)));
+  }
+
+  /**
+   * A basemap sublayer with the extensions of this layer and the props of those extensions, as
+   * `getSubLayerProps` gives them: the sublayers are not made with `getSubLayerProps`. A sublayer
+   * keeps its own extensions, and runs them first.
+   */
+  private addExtensions(layer: Layer): Layer {
+    const {extensions} = this.props;
+    const props: Record<string, any> = {
+      extensions: [...(layer.props.extensions || []), ...extensions],
+      updateTriggers: {...layer.props.updateTriggers}
+    };
+    for (const extension of extensions) {
+      const {updateTriggers, ...extensionProps} = extension.getSubLayerProps.call(this, extension);
+      Object.assign(props, extensionProps);
+      Object.assign(props.updateTriggers, updateTriggers);
+    }
+    return layer.clone(props);
   }
 
   /** Records the drawn layers of `insertions`, which picking reads (see `getPickingInfo`). */

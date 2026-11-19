@@ -126,6 +126,7 @@ Draws deck.gl layers between the layers of the style, as MapLibre GL JS's [`addL
 - The inserted layers are picked as top-level layers. `info.layer` is the inserted layer, and its own `onHover` and `onClick` receive the events. The basemap's sublayers are picked as before.
 - A `beforeId` that names no layer of the style raises an `Error` to the layer's `onError` prop and then to the `onError` of the `Deck`, as `addLayer` fires an `error` event. Its layers are not drawn. The error is raised once for each style and set of unknown ids, not on every render.
 - Until the style resolves, and when it fails to load, the inserted layers draw in the order of the list.
+- The inserted layers are drawn as they are given. They do not take the [`extensions`](#extensions) of the basemap.
 
 ```ts
 new BasemapLayer({
@@ -133,6 +134,39 @@ new BasemapLayer({
   insertLayers: [{beforeId: 'road_minor', layers: [new GeoJsonLayer({id: 'parcels', data})]}]
 });
 ```
+
+### `extensions`
+
+Type: `LayerExtension[]`
+
+The layers that draw the basemap are deck.gl layers. `BasemapLayer` gives its `extensions`, and the props of those extensions, to each of them: the background, the raster tiles, and the fills, lines, circles, extrusions and labels of the vector tiles. A layer of the basemap runs its own extensions first.
+
+```ts
+import {MaskExtension, type MaskExtensionProps} from '@deck.gl/extensions';
+import {SolidPolygonLayer} from '@deck.gl/layers';
+import {BasemapLayer} from '@tangram.gl/basemap-layers';
+
+const layers = [
+  // Draws the area into the mask of deck.gl, not on the screen.
+  new SolidPolygonLayer({id: 'area', data: [area], getPolygon: polygon => polygon, operation: 'mask'}),
+  // Draws the basemap in the area only.
+  new BasemapLayer<MaskExtensionProps>({
+    id: 'basemap',
+    style,
+    extensions: [new MaskExtension()],
+    maskId: 'area'
+  })
+];
+```
+
+The [Basemap masked by data example](/examples/basemap-layers/masked-by-data) masks, filters and restyles the basemap with a survey track.
+
+Limits:
+
+- The props of an extension are the props in its `defaultProps`. Inside a vector tile, the `updateTriggers` of an accessor prop are not passed on.
+- An accessor prop, such as the `getFilterValue` of `DataFilterExtension`, gets the features of the basemap, not the data of the application.
+- `MaskExtension` masks a label by its anchor.
+- In deck.gl 10.0.0-alpha.1, `MaskExtension` draws its mask in Web Mercator. It does not mask a basemap in a `_CustomProjectionView`.
 
 ### `globe`
 
@@ -167,6 +201,7 @@ In a projected view:
 - Tiles are still the Web Mercator tiles of the style's sources. They are selected for the area that the screen shows, through the projection (see `getProjectedTileIndices`).
 - Vector geometry is drawn from longitude/latitude positions. deck.gl converts each vertex to the coordinate reference system of the view. Lines and fills are not drawn as tile images. Long edges, such as the edges of a polygon cut at the side of a tile, get more vertices, so that they follow the projection.
 - Raster and hillshade tile images are drawn on a mesh that follows the projection. The mesh is refined with math.gl `subdivideTriangleMesh` until the sampled error is less than half a texel.
+- Hillshade slopes are scaled by the radius of the body that the coordinate reference system is on, its semi-major axis, so that a CRS on the Moon or Mars shades a slope as steep as the same slope on the Earth. Maps and globes use the radius of the Earth, as MapLibre GL JS.
 - Labels at points stay upright on the screen. Labels along lines turn to the line as the view draws it.
 - Styles are evaluated, and tiles are selected, at the zoom of the Web Mercator map that has the same scale at the view center (see `getMercatorZoom`). The zoom of the view itself counts pixels per unit of the coordinate reference system. At latitude 60, the two differ by one zoom level.
 - A `background` layer fills the screen, also outside the bounds of the projection.
