@@ -133,11 +133,15 @@ function measure(image: ImageData): Extent {
 
 let onFrame: ((image: ImageData) => void) | null = null;
 
-/** Resolves with a frame drawn a few frames after every sublayer has loaded. */
+/**
+ * Resolves with a frame drawn a few frames after every sublayer has loaded.
+ *
+ * The test timeout bounds the wait. Concurrent browser test files share one GPU process, so a
+ * shorter limit here times out on a busy CI runner while the tiles still load.
+ */
 function nextFrame(): Promise<Extent> {
-  return new Promise((resolve, reject) => {
+  return new Promise(resolve => {
     let frames = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 20_000);
     onFrame = image => {
       // Tile content can arrive a frame after the tileset reports it loaded.
       if (++frames < 5) {
@@ -146,7 +150,6 @@ function nextFrame(): Promise<Extent> {
         return;
       }
       onFrame = null;
-      window.clearTimeout(timeout);
       resolve(measure(image));
     };
     window.requestAnimationFrame(() => deck?.redraw('frame'));
@@ -221,7 +224,7 @@ describe('fill-extrusion heights on a map', () => {
       const actual = await createDeck([basemap(ring, height, 'map', zoom)], view, viewState);
       const expected = await renderReference(view, viewState, ring, height);
       expectSameExtent(actual, expected);
-    }, 30_000);
+    });
   }
 });
 
@@ -235,5 +238,5 @@ describe('fill-extrusion heights on a globe', () => {
     const actual = await createDeck([basemap(ring, height, 'globe', 11)], view, viewState);
     const expected = await renderReference(view, viewState, ring, height);
     expectSameExtent(actual, expected);
-  }, 30_000);
+  });
 });

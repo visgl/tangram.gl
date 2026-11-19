@@ -11,6 +11,8 @@ const EXAMPLES = {
     .then(module => module.mountBasemapSplitViewExample),
   'custom-projection': () => import('../../../examples/layers/basemap-layer-custom-projection/app')
     .then(module => module.mountBasemapCustomProjectionExample),
+  'masked-by-data': () => import('../../../examples/layers/basemap-masked-by-data/app')
+    .then(module => module.mountBasemapMaskedByDataExample),
   'native-crs-raster': () => import('../../../examples/layers/basemap-native-crs-raster/app')
     .then(module => module.mountBasemapNativeCrsRasterExample)
 };

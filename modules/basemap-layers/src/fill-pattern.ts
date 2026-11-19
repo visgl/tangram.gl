@@ -39,10 +39,11 @@ export type FillPatternGroup = {
 
 const warnedMissingPatterns = new Set<string>();
 
-function warnMissingPattern(name: string): void {
-  if (!warnedMissingPatterns.has(name)) {
-    warnedMissingPatterns.add(name);
-    log.warn(`[BasemapLayer] fill-pattern "${name}" is not in the style's sprite; skipped`)();
+function warnMissingPattern(propertyName: string, name: string): void {
+  const key = `${propertyName}:${name}`;
+  if (!warnedMissingPatterns.has(key)) {
+    warnedMissingPatterns.add(key);
+    log.warn(`[BasemapLayer] ${propertyName} "${name}" is not in the style's sprite; skipped`)();
   }
 }
 
@@ -60,15 +61,17 @@ const patternGroupCache = new WeakMap<
  * Returns no groups while the sprites load (`null`) or when the layer has no `fill-pattern`. A
  * pattern that does not depend on feature data keeps the tile's feature array, so deck.gl does not
  * re-tessellate the features at a new zoom step; per-feature groups are cached per tile, style
- * layer, sprite list and zoom.
+ * layer, sprite list and zoom. `propertyName` is `line-pattern` for a patterned line, which is
+ * grouped the same way.
  */
 export function getFillPatternGroups(
   features: any[],
   styleLayer: StyleLayerLike,
   zoom: number,
-  spriteAtlases: SpriteAtlas[] | null | undefined
+  spriteAtlases: SpriteAtlas[] | null | undefined,
+  propertyName: 'fill-pattern' | 'line-pattern' = 'fill-pattern'
 ): FillPatternGroup[] {
-  const property = getCompiledStyleProperty(styleLayer, 'fill-pattern');
+  const property = getCompiledStyleProperty(styleLayer, propertyName);
   if (!property || !spriteAtlases?.length) {
     return [];
   }
@@ -82,7 +85,7 @@ export function getFillPatternGroups(
     }
     const icon = resolveSpriteIcon(spriteAtlases, name);
     if (!icon) {
-      warnMissingPattern(name);
+      warnMissingPattern(propertyName, name);
     }
     return icon;
   };
@@ -155,7 +158,9 @@ export function getFillPatternGroups(
   return result;
 }
 
-const PATTERN_TEXTURE_PARAMETERS = {mipmapFilter: 'none'} as const;
+// luma.gl's WebGPU sampler leaves `mipmapFilter: 'none'` out, which samples the nearest mipmap
+// level: the level of detail is clamped to the full-size image instead.
+const PATTERN_TEXTURE_PARAMETERS = {mipmapFilter: 'none', lodMaxClamp: 0} as const;
 
 type PatternAtlas = {
   image: SpriteAtlas['image'] | OffscreenCanvas | HTMLCanvasElement | ImageData;
@@ -350,6 +355,61 @@ export function bleedIntoTransparentPixels(
   }
 }
 
+/** Consecutive features, in draw order, whose images are in one group's atlas. */
+export type PatternRun = {
+  group: FillPatternGroup;
+  features: any[];
+  /** Unique among the runs of one list of groups, and the same while the groups are reused. */
+  key: string;
+};
+
+/** The runs per list of groups. */
+const patternRunCache = new WeakMap<FillPatternGroup[], PatternRun[]>();
+
+/**
+ * Splits groups into runs of consecutive `features` with the same atlas, so that sublayers drawn
+ * run after run keep the features' draw order, such as `line-sort-key`'s, across atlases. A group
+ * whose features are consecutive stays one run. The runs of a group share its pattern atlas.
+ * Cached per list of groups, which `getFillPatternGroups` reuses while its inputs are unchanged.
+ */
+export function getPatternRuns(features: any[], groups: FillPatternGroup[]): PatternRun[] {
+  const cached = patternRunCache.get(groups);
+  if (cached) {
+    return cached;
+  }
+  const groupOf = new Map<any, FillPatternGroup>();
+  for (const group of groups) {
+    for (const feature of group.features) {
+      groupOf.set(feature, group);
+    }
+  }
+  const result: PatternRun[] = [];
+  const runCounts = new Map<FillPatternGroup, number>();
+  for (const feature of features) {
+    const group = groupOf.get(feature);
+    if (!group) {
+      continue;
+    }
+    let run = result[result.length - 1];
+    if (run?.group !== group) {
+      const count = runCounts.get(group) ?? 0;
+      runCounts.set(group, count + 1);
+      const key = count ? `${group.atlasIndex}-${count}` : `${group.atlasIndex}`;
+      run = {group, features: [], key};
+      result.push(run);
+    }
+    run.features.push(feature);
+  }
+  // A group of one run keeps its feature array, so deck.gl does not re-tessellate its features.
+  for (const run of result) {
+    if (runCounts.get(run.group) === 1) {
+      run.features = run.group.features;
+    }
+  }
+  patternRunCache.set(groups, result);
+  return result;
+}
+
 /** The features without an image per list of groups. */
 const unpatternedCache = new WeakMap<FillPatternGroup[], any[]>();
 
@@ -396,5 +456,22 @@ export function getFillPatternProps(group: FillPatternGroup, zoom: number) {
       typeof getPixelRatio === 'function'
         ? (feature: StyleFeature) => unitScale / getPixelRatio(feature)
         : unitScale / getPixelRatio
+  };
+}
+
+/**
+ * `LinePatternExtension` props for a group of patterned lines: the pattern atlas, which its
+ * shader reads as MapLibre GL JS's does, and pixels per common unit at the integer zoom, which
+ * the pattern's repeats are measured in.
+ */
+export function getLinePatternProps(group: FillPatternGroup, zoom: number) {
+  group.patternAtlas ??= getPatternAtlas(group.atlas, group.names);
+  const {image, mapping} = group.patternAtlas;
+  return {
+    linePatternAtlas: image,
+    linePatternMapping: mapping,
+    linePatternPixelsPerUnit: 2 ** Math.floor(zoom),
+    textureParameters: PATTERN_TEXTURE_PARAMETERS,
+    getLinePattern: group.getFillPattern
   };
 }
