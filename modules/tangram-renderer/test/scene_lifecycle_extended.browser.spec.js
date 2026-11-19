@@ -484,6 +484,42 @@ describe('Scene public helpers', () => {
         expect(scene.stopVideoCapture()).toBe('video');
     });
 
+    test('handles a selection-map request that a destroyed worker rejects', async () => {
+        const scene = createScene();
+        scene.workers = [{}];
+        const destroyed = new Error('Scene worker was destroyed');
+        vi.spyOn(WorkerBroker, 'postMessage').mockRejectedValueOnce(destroyed).mockResolvedValue([4]);
+        await expect(Scene.prototype.getFeatureSelectionMapSize.call(scene)).rejects.toBe(destroyed);
+        // A failed request must not pin the rejected promise for later frames.
+        expect(scene.fetching_selection_map).toBeNull();
+        await expect(Scene.prototype.getFeatureSelectionMapSize.call(scene)).resolves.toBe(4);
+    });
+
+    test('a frame does not leave an unhandled selection-map rejection when its worker is destroyed', async () => {
+        const scene = createScene();
+        const destroyed = new Error('Scene worker was destroyed');
+        scene.getFeatureSelectionMapSize = vi.fn(() => Promise.reject(destroyed));
+        scene.renderPass = vi.fn(() => 3);
+        scene.updateBackground = vi.fn();
+        scene.logFirstFrame = vi.fn();
+        const unhandled = [];
+        const onUnhandled = event => {
+            unhandled.push(event.reason);
+            event.preventDefault();
+        };
+        window.addEventListener('unhandledrejection', onUnhandled);
+        try {
+            Scene.prototype.render.call(scene, {main: true, selection: false});
+            expect(scene.getFeatureSelectionMapSize).toHaveBeenCalledOnce();
+            // Unhandled-rejection events dispatch after the microtask queue drains.
+            await new Promise(resolve => setTimeout(resolve, 50));
+        } finally {
+            window.removeEventListener('unhandledrejection', onUnhandled);
+        }
+        expect(unhandled).toEqual([]);
+        expect(scene.render_count).toBe(3);
+    });
+
     test('emits view completion once tiles are ready', () => {
         const scene = createScene();
         scene.render_count_changed = true;
