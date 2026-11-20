@@ -9,8 +9,11 @@ import {Body, GeoVector, SearchGlobalSolarEclipse, SearchLunarEclipse} from 'ast
 import {expect, test} from 'vitest';
 import {
   SPEED_OF_LIGHT_KM_S,
+  LUNAR_UMBRA_TINT,
   discVisibleFraction,
   geodeticNormal,
+  lightAt,
+  surfacePoint,
   getShadowGeometry,
   ringTransmission,
   sphereVisibility,
@@ -129,6 +132,11 @@ test('total solar eclipse of 2024-04-08: central point at maximum against Astron
   const partial = visibleFractionAt(g, geodeticNormal(point.lat + 10, point.lon));
   expect(partial).toBeGreaterThan(0);
   expect(partial).toBeLessThan(1);
+  // The light factor on the map: the umbra keeps the tint; the penumbra is gamma-encoded.
+  expect(lightAt(g, surfacePoint(geodeticNormal(point.lat, point.lon), g.e2))).toEqual(g.occluders[0].tint);
+  const n = surfacePoint(geodeticNormal(point.lat + 10, point.lon), g.e2);
+  const tint = g.occluders[0].tint[0];
+  expect(lightAt(g, n)[0]).toBeCloseTo(tint + (1 - tint) * partial ** (1 / 2.2), 12);
   console.log(`solar 2024-04-08: model ${point.lat.toFixed(3)}, ${point.lon.toFixed(3)}; Astronomy Engine ${eclipse.latitude?.toFixed(3)}, ${eclipse.longitude?.toFixed(3)}`);
 });
 
@@ -167,6 +175,8 @@ test('total lunar eclipse of 2025-03-14: umbra and penumbra contacts against Ast
   const at = (t: number) => moonLimb(new Date(t));
   expect(at(peak).max).toBe(0);
   expect(at(peak).centre).toBe(0);
+  const peakGeometry = getShadowGeometry('moon', eclipse.peak.date, RINGS) as ShadowGeometry;
+  expect(lightAt(peakGeometry, unitV(peakGeometry.sun))).toEqual(LUNAR_UMBRA_TINT);
   const minute = 60000;
   // Penumbral contact (P1), umbral contact (U1), start of totality (U2).
   const p1 = bisect(peak - 240 * minute, peak, t => at(t).min < 1);

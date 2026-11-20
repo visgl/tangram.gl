@@ -153,15 +153,18 @@ export const geodeticNormal = (latDeg: number, lonDeg: number): V3 => [
   Math.sin(latDeg * DEG)
 ];
 
-/** Light at a point: per channel, the product of every occluder and the ring. */
+/**
+ * Light at a point, as a factor on sRGB map colours: per channel, the product of every occluder
+ * and the ring. The visible fraction is linear light, so it is encoded with the sRGB gamma.
+ */
 export function lightAt(geometry: ShadowGeometry, p: V3): V3 {
   const light: V3 = [1, 1, 1];
   for (const occ of geometry.occluders) {
-    const v = sphereVisibility(p, geometry.sun, geometry.sunRadius, occ);
+    const v = sphereVisibility(p, geometry.sun, geometry.sunRadius, occ) ** (1 / SRGB_GAMMA);
     for (let c = 0; c < 3; c++) light[c] *= occ.tint[c] + (1 - occ.tint[c]) * v;
   }
   if (geometry.ring) {
-    const t = ringTransmission(p, geometry.sun, geometry.ring);
+    const t = ringTransmission(p, geometry.sun, geometry.ring) ** (1 / SRGB_GAMMA);
     for (let c = 0; c < 3; c++) light[c] *= RING_SHADOW_FLOOR + (1 - RING_SHADOW_FLOOR) * t;
   }
   return light;
@@ -181,6 +184,8 @@ export const UMBRA_TINT: V3 = [0.04, 0.04, 0.05];
 /** The Earth's umbra on the Moon: sunlight refracted by the Earth's atmosphere is red. */
 export const LUNAR_UMBRA_TINT: V3 = [0.32, 0.1, 0.04];
 export const RING_SHADOW_FLOOR = 0.06;
+/** Approximate sRGB gamma: a linear light factor k scales an sRGB colour by about k^(1 / 2.2). */
+export const SRGB_GAMMA = 2.2;
 
 // ---------- Sources and frames ----------
 
