@@ -119,13 +119,7 @@ new Deck({
     new BasemapLayer({
       id: 'earth',
       style: styleJson,
-      globe: {
-        config: {
-          atmosphere: false,
-          basemap: true,
-          labels: false
-        }
-      }
+      labels: false
     })
   ]
 });

@@ -10,6 +10,7 @@ import {
   type Viewport
 } from '@deck.gl/core';
 import {SolidPolygonLayer} from '@deck.gl/layers';
+import {MAX_MERCATOR_LATITUDE, getStyleZoom} from './projected-viewport';
 
 /** How many times the longer side of the screen the background reaches from the view center. */
 const BACKGROUND_REACH = 4;
@@ -71,6 +72,19 @@ export function getBackgroundSquare(
 export type ProjectedBackgroundLayerProps = {
   /** The fill color, `[r, g, b, a]`. */
   getFillColor?: Color;
+  /**
+   * Whether the view is a Web Mercator map rather than a projected view: the square is then in
+   * longitude and latitude, cut at the latitudes of the Web Mercator world. A patterned background
+   * of a map draws such a square rather than the whole world, which leaves too little precision to
+   * place the pattern at high zoom.
+   */
+  geographic?: boolean;
+  /**
+   * `FillPatternExtension`'s pattern scale, in Web Mercator common units per image pixel. In a
+   * projected view the layer converts it to the view's common units, so that the pattern has the
+   * size it has on the Web Mercator map of the same scale.
+   */
+  getFillPatternScale?: number;
 };
 
 /**
@@ -78,18 +92,25 @@ export type ProjectedBackgroundLayerProps = {
  * of the screen. In a Web Mercator view the background is a polygon of the world. A projected
  * view has no outline of the world in longitude and latitude, so this layer fills a square
  * around the view, in the units of the view's coordinate reference system, and moves it with the
- * view (see `getBackgroundSquare`).
+ * view (see `getBackgroundSquare`). A patterned background of a map draws such a square too, in
+ * longitude and latitude (see `geographic`).
  */
 export class ProjectedBackgroundLayer extends CompositeLayer<ProjectedBackgroundLayerProps> {
   static layerName = 'ProjectedBackgroundLayer';
   static defaultProps: DefaultProps<ProjectedBackgroundLayerProps> = {
-    getFillColor: {type: 'color', value: [0, 0, 0, 255]}
+    getFillColor: {type: 'color', value: [0, 0, 0, 255]},
+    geographic: false
   };
 
-  declare state: {square: BackgroundSquare | null; polygons: number[][][]};
+  declare state: {
+    square: BackgroundSquare | null;
+    polygons: number[][][];
+    /** The view's common units per Web Mercator common unit, where the square was made. */
+    commonScale: number;
+  };
 
   initializeState(): void {
-    this.state = {square: null, polygons: []};
+    this.state = {square: null, polygons: [], commonScale: 1};
   }
 
   /** Also when the view leaves the square the background fills. */
@@ -106,31 +127,43 @@ export class ProjectedBackgroundLayer extends CompositeLayer<ProjectedBackground
   updateState(): void {
     const square = getBackgroundSquare(this.context.viewport, this.state.square);
     if (square !== this.state.square) {
+      const [x, y] = square?.center ?? [0, 0];
+      const reach = square?.reach ?? 0;
+      const limit = this.props.geographic ? MAX_MERCATOR_LATITUDE : Infinity;
+      const bottom = Math.max(y - reach, -limit);
+      const top = Math.min(y + reach, limit);
       const polygons = square
         ? [
             [
-              [square.center[0] - square.reach, square.center[1] - square.reach],
-              [square.center[0] + square.reach, square.center[1] - square.reach],
-              [square.center[0] + square.reach, square.center[1] + square.reach],
-              [square.center[0] - square.reach, square.center[1] + square.reach]
+              [x - reach, bottom],
+              [x + reach, bottom],
+              [x + reach, top],
+              [x - reach, top]
             ]
           ]
         : [];
-      this.setState({square, polygons});
+      // 1 in a Web Mercator view. It changes slowly across a view, so it is kept with the square.
+      const {viewport} = this.context;
+      const commonScale = 2 ** getStyleZoom(viewport) / viewport.scale;
+      this.setState({square, polygons, commonScale});
     }
   }
 
   renderLayers() {
-    return new SolidPolygonLayer(
-      this.getSubLayerProps({
-        id: 'fill',
-        data: this.state.polygons,
-        // The units of the view's coordinate reference system.
-        coordinateSystem: 'cartesian',
-        getPolygon: (polygon: number[][]) => polygon,
-        getFillColor: this.props.getFillColor,
-        updateTriggers: {getFillColor: this.props.getFillColor}
-      })
-    );
+    const {getFillPatternScale} = this.props;
+    const props = this.getSubLayerProps({
+      id: 'fill',
+      data: this.state.polygons,
+      // The units of the view's coordinate reference system, or longitude and latitude.
+      coordinateSystem: this.props.geographic ? 'lnglat' : 'cartesian',
+      getPolygon: (polygon: number[][]) => polygon,
+      getFillColor: this.props.getFillColor,
+      updateTriggers: {getFillColor: this.props.getFillColor}
+    });
+    // After the extension's props, which pass the scale through unchanged.
+    if (getFillPatternScale !== undefined) {
+      props.getFillPatternScale = getFillPatternScale * this.state.commonScale;
+    }
+    return new SolidPolygonLayer(props);
   }
 }

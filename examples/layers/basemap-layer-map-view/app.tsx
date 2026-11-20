@@ -358,13 +358,6 @@ function createBasemapLayer(
   return new BasemapLayer({
     id: 'map-basemap',
     style: styleOption.style,
-    globe: {
-      config: {
-        atmosphere: false,
-        basemap: true,
-        labels: true
-      }
-    },
     loadOptions: {
       fetch: trackedFetch,
       core: {
