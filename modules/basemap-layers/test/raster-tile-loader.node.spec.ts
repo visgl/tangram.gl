@@ -5,6 +5,7 @@
 import {TileLayer} from '@deck.gl/geo-layers';
 import {describe, expect, test, vi} from 'vitest';
 import {getBasemapLayers} from '../src/index';
+import {getBasemapLayerFetch} from '../src/basemap-protocol';
 import type {RasterTileResponse} from '../src/index';
 import {
   type ImageCrop,
@@ -241,11 +242,15 @@ describe('raster style layers', () => {
       layer => layer.id === 'test-imagery'
     );
 
-  test('load with the fetch and loadOptions of the basemap', () => {
-    const fetchTile = async () => null;
+  test('load with the fetch and loadOptions of the basemap', async () => {
+    const fetchTile = vi.fn(async () => null);
     const loadOptions = {fetch: globalThis.fetch};
     const layer = getRasterLayer({fetch: fetchTile, loadOptions});
-    expect(layer.props.fetch).toBe(fetchTile);
+    // URLs without a registered protocol scheme load with the basemap's fetch.
+    expect(layer.props.fetch).toBe(getBasemapLayerFetch(fetchTile, 'image'));
+    const context = {propName: 'data', layer};
+    await layer.props.fetch('https://tiles.test/3/1/2.png', context);
+    expect(fetchTile).toHaveBeenCalledWith('https://tiles.test/3/1/2.png', context);
     expect(layer.props.loadOptions).toBe(loadOptions);
     expect(layer.props.getTileData).toBeNull();
     expect(layer.props.updateTriggers.getTileData).toBeNull();
@@ -253,7 +258,9 @@ describe('raster style layers', () => {
 
   test('keep the default loading without options', () => {
     const layer = getRasterLayer({});
-    expect(layer.props.fetch).toBe(new TileLayer({id: 'default'}).props.fetch);
+    expect(layer.props.fetch).toBe(
+      getBasemapLayerFetch(new TileLayer({id: 'default'}).props.fetch, 'image')
+    );
     expect(layer.props.loadOptions).toBeNull();
     expect(layer.props.getTileData).toBeNull();
   });

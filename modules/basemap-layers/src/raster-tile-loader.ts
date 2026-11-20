@@ -5,6 +5,7 @@
 import {_getURLFromTemplate as getURLFromTemplate} from '@deck.gl/geo-layers';
 import type {_TileLoadProps as TileLoadProps} from '@deck.gl/geo-layers';
 import {parse} from '@loaders.gl/core';
+import {getBasemapFetch} from './basemap-protocol';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 import {getSourceTileTemplates} from './source-tiles';
 
@@ -142,7 +143,7 @@ export class RasterTileLoader {
     if (!url) {
       return null;
     }
-    const fetchFn = loadOptions?.fetch || fetch;
+    const fetchFn = getBasemapFetch(loadOptions?.fetch, 'image');
     const response = await fetchFn(url, {...loadOptions?.fetchOptions, signal});
     if (!response.ok) {
       throw new Error(`Failed to load raster tile: ${url} (${response.status})`);
