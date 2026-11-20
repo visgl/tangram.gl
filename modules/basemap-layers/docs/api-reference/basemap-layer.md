@@ -236,6 +236,8 @@ new Deck({
 
 The [CustomProjectionView example](/examples/basemap-layers/custom-projection) draws the OpenFreeMap Liberty style in UTM zone 32N, Conus Albers and a south polar stereographic projection.
 
+The [native CRS raster example](/examples/basemap-layers/native-crs-raster) draws the style together with a Cloud Optimized GeoTIFF in the coordinate reference system of the GeoTIFF: a Sentinel-2 image in UTM zone 32N, and a hillshade in Antarctic polar stereographic. The raster is a deck.gl `BitmapLayer` between the fills and the labels of the style.
+
 In a projected view:
 
 - Tiles are still the Web Mercator tiles of the style's sources. They are selected for the area that the screen shows, through the projection (see `getProjectedTileIndices`).
