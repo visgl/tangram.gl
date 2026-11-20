@@ -16,3 +16,9 @@ export type {StarPoint} from './sun';
 export {SATURN_RINGS, STAR_SOURCE, checkTerminator, getMoonPhase, getStarPoints, getTerminator} from './sun';
 export type {NormalGravity} from './gravity';
 export {getNormalGravity} from './gravity';
+export type {CometElements, OrbitState} from './comet';
+export {
+  GAUSS_K, NEOWISE, NEOWISE_PERIHELION, cometActivity, cometOrbit, cometState, dustTail, ionTailDirection,
+  julianTT, solveKepler
+} from './comet';
+export {baumbachDensity, kelsallDensity} from './gas';
