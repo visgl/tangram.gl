@@ -22,6 +22,12 @@ import {ProjectedBackgroundLayer} from './projected-background-layer';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
 import {getGlobeAtmosphereLayer, getGlobeAtmosphereSkyLayer} from './atmosphere-layer';
 import {createCircleSubLayer} from './circle-layer';
+import {
+  type BasemapFeatureState,
+  type FeatureStateLookup,
+  getFeatureStateLookup,
+  getPickedFeature
+} from './feature-state';
 import {sortFeaturesByKey} from './sort-key';
 import {getGeoJsonMaxZoom, getGeoJsonTileFeatures, isGeoJsonSource} from './geojson-source';
 import {
@@ -126,6 +132,10 @@ type BasemapLayerGroup = {
   glyphs?: GlyphStore | null;
   /** The label placement shared by the map's label layers (see `LabelPlacement`). */
   labelPlacement?: LabelPlacement | null;
+  /** The states that `["feature-state", ...]` reads (see `BasemapLayerProps.featureState`). */
+  featureState?: BasemapFeatureState | null;
+  /** Makes the features of vector and GeoJSON sources pickable (see `BasemapPickedFeature`). */
+  pickable?: LayerProps['pickable'];
   /** Externally owned source caches; BasemapLayer supplies and finalizes these. */
   tilesets?: Map<BasemapSource, SharedTileset2D>;
   /**
@@ -458,6 +468,13 @@ function getTileFeatures(data: unknown): any[] {
 
 /** The prop that records which style layer of its run a tile sublayer draws. */
 const STYLE_LAYER_INDEX = 'styleLayerIndex';
+/** The prop that records the ids of the style layers a tile sublayer draws, for picking. */
+const STYLE_LAYER_IDS = 'styleLayerIds';
+/**
+ * The prop that records, per feature of a sublayer that draws several style layers, the index of
+ * its style layer in `STYLE_LAYER_IDS`.
+ */
+const STYLE_LAYER_PARTS = 'styleLayerParts';
 /** The view each label layer draws in, or `null` for every view (see `renderLabelLayers`). */
 const labelLayerViews = new WeakMap<Layer, string | null>();
 
@@ -1017,6 +1034,20 @@ type SharedTile = {
   content?: unknown;
 };
 
+/**
+ * The id of the style layer a tile or label sublayer drew its feature `index` with: the sublayer's
+ * one style layer, or, in a sublayer of several, the style layer of that feature.
+ */
+function getPickedStyleLayerId(
+  props: Record<string, any> | undefined,
+  index: number
+): string | undefined {
+  const ids: string[] | undefined =
+    props?.[STYLE_LAYER_IDS] ?? (props?.styleLayer ? [props.styleLayer.id] : undefined);
+  const parts: ArrayLike<number> | null | undefined = props?.[STYLE_LAYER_PARTS];
+  return ids?.[parts ? parts[index] : 0];
+}
+
 class StyledMVTLayer extends SharedMVTLayer {
   declare state: SharedMVTLayer['state'] & {
     sourceTilesetOwner?: SourceTilesetOwner;
@@ -1314,18 +1345,35 @@ class StyledMVTLayer extends SharedMVTLayer {
    */
   getPickingInfo(params: any): any {
     const {sourceLayer} = params;
+    // The index of the picked feature in the sublayer's data.
+    const index: number = params.info.index;
+    let info: any;
     if (sourceLayer && !sourceLayer.props.tile) {
       const coordinateSystem = isGeographicViewport(this.context.viewport)
         ? 'lnglat'
         : 'cartesian';
-      const info = super.getPickingInfo({
+      info = super.getPickingInfo({
         ...params,
         sourceLayer: {props: {tile: params.info.tile, coordinateSystem}}
       });
       info.sourceTileSubLayer = sourceLayer;
-      return info;
+    } else {
+      info = super.getPickingInfo(params);
     }
-    return super.getPickingInfo(params);
+    const styleLayerId = getPickedStyleLayerId(sourceLayer?.props, index);
+    if (info.object && styleLayerId !== undefined) {
+      const {styleSourceId, styleSource} = this.props as {
+        styleSourceId?: string;
+        styleSource?: BasemapSource;
+      };
+      info.basemapFeature = getPickedFeature(
+        info.object,
+        styleSourceId ?? '',
+        styleSource,
+        styleLayerId
+      );
+    }
+    return info;
   }
 
   /**
@@ -1611,6 +1659,7 @@ function createStyledVectorSubLayer({
   glyphs,
   labelPlacement,
   light,
+  featureState,
   lineMetrics
 }: {
   idPrefix: string;
@@ -1633,6 +1682,8 @@ function createStyledVectorSubLayer({
   labelPlacement?: LabelPlacement | null;
   /** The style's `light`, which shades `fill-extrusion` layers. */
   light?: FillExtrusionLight;
+  /** The feature states the style layer's paint reads, if it reads any. */
+  featureState?: FeatureStateLookup;
   /** Whether the source is a GeoJSON source with `lineMetrics`, which `line-gradient` needs. */
   lineMetrics?: boolean;
 }) {
@@ -1662,11 +1713,12 @@ function createStyledVectorSubLayer({
 
   if (styleLayer.type === 'circle') {
     return createCircleSubLayer({
-      baseProps: getSubLayerBaseProps(props),
+      baseProps: {...getSubLayerBaseProps(props), [STYLE_LAYER_IDS]: [styleLayer.id]},
       id: getStyleSubLayerId(props.id, styleLayer.id),
       styleLayer,
       features,
       zoom,
+      featureState,
       globe: mode === 'globe',
       // Depth-tested against the globe without writing depth: a circle's quad, blur and
       // antialiased edge included, would otherwise cut holes in the circles drawn after it.
@@ -1681,7 +1733,7 @@ function createStyledVectorSubLayer({
   }
 
   if (styleLayer.type === 'fill-extrusion') {
-    return createExtrusionSubLayer({props, styleLayer, features, zoom, light});
+    return createExtrusionSubLayer({props, styleLayer, features, zoom, light, featureState});
   }
 
   if (styleLayer.type === 'line') {
@@ -1692,6 +1744,7 @@ function createStyledVectorSubLayer({
       mode,
       zoom,
       depthTested,
+      featureState,
       lineMetrics,
       spriteAtlases
     });
@@ -1710,7 +1763,8 @@ function createStyledVectorSubLayer({
               mode,
               zoom,
               depthTested,
-              pattern
+              pattern,
+              featureState
             })
           ],
           mode,
@@ -1724,7 +1778,14 @@ function createStyledVectorSubLayer({
           createGeometrySubLayer({
             props,
             styles: [
-              getGeometryStyle({styleLayer, features: unpatterned, mode, zoom, depthTested})
+              getGeometryStyle({
+                styleLayer,
+                features: unpatterned,
+                mode,
+                zoom,
+                depthTested,
+                featureState
+              })
             ],
             mode,
             idSuffix: '-missing-pattern'
@@ -1737,7 +1798,7 @@ function createStyledVectorSubLayer({
 
   return createGeometrySubLayer({
     props,
-    styles: [getGeometryStyle({styleLayer, features, mode, zoom, depthTested})],
+    styles: [getGeometryStyle({styleLayer, features, mode, zoom, depthTested, featureState})],
     mode
   });
 }
@@ -1760,7 +1821,9 @@ function createVectorLayerGroup({
   spriteAtlases,
   fontFamily,
   glyphs,
-  labelPlacement
+  labelPlacement,
+  featureState,
+  pickable
 }: {
   idPrefix: string;
   id: string;
@@ -1787,13 +1850,25 @@ function createVectorLayerGroup({
   glyphs?: GlyphStore | null;
   /** The label placement shared by the map's label layers (see `LabelPlacement`). */
   labelPlacement?: LabelPlacement | null;
+  /** The states that `["feature-state", ...]` reads; tiles regenerate when those read change. */
+  featureState?: BasemapFeatureState | null;
+  /** Makes the features pickable (see `BasemapPickedFeature`). */
+  pickable?: LayerProps['pickable'];
 }) {
   const filterSnapshots = new FilterSnapshots();
+  // The feature states each style layer's paint reads, by style layer index.
+  const featureStates = styleLayers.map(styleLayer =>
+    getFeatureStateLookup(featureState, sourceId, source, styleLayer)
+  );
 
   return new StyledMVTLayer({
     id: `${idPrefix}-${id}`,
     data: tileset || source.tiles,
     ...{sourceTilesetOwner},
+    ...(pickable ? {pickable} : {}),
+    // Name the source of picked features (see `getPickingInfo`).
+    styleSourceId: sourceId,
+    styleSource: source,
     // The tile pyramid's range; style layers are gated by their own range in renderSubLayers.
     ...getTilePyramidProps(source),
     // The zoom at which `renderSubLayers` evaluates paint, which `ZoomPaintExtension` also uses.
@@ -1837,7 +1912,9 @@ function createVectorLayerGroup({
         spriteAtlases,
         fontFamily,
         glyphs,
-        labelPlacement
+        labelPlacement,
+        // The states read by the run's paint: only the paint attributes that read them change.
+        featureStates.map(lookup => lookup?.token ?? -1).join(',')
       ]
     },
     renderLabelLayers: ((tilesByStyleLayer, getSubLayerProps, hidden) =>
@@ -1938,7 +2015,14 @@ function createVectorLayerGroup({
           styleLayer.type === 'line'
             ? sortFeaturesByKey(filteredData, styleLayer, 'line-sort-key', zoom)
             : filteredData;
-        const style = getBatchableGeometryStyle(styleLayer, layerFeatures, mode, zoom, depthTested);
+        const style = getBatchableGeometryStyle(
+          styleLayer,
+          layerFeatures,
+          mode,
+          zoom,
+          depthTested,
+          featureStates[styleLayerIndex]
+        );
         if (style) {
           // A style layer that draws nothing in this tile does not separate its neighbours. A line
           // that draws nothing only because its width is 0 at this zoom step, and takes its width
@@ -1990,6 +2074,7 @@ function createVectorLayerGroup({
             glyphs,
             labelPlacement,
             light: getFillExtrusionLight(styleDefinition, zoom),
+            featureState: featureStates[styleLayerIndex],
             lineMetrics: source.type === 'geojson' && Boolean(source.lineMetrics)
           })
         );
@@ -2037,6 +2122,8 @@ export function getBasemapLayers({
   fontFamily,
   glyphs,
   labelPlacement,
+  featureState,
+  pickable,
   tilesets,
   projected,
   projectedMaxStretch
@@ -2070,6 +2157,8 @@ export function getBasemapLayers({
         fontFamily,
         glyphs,
         labelPlacement,
+        featureState,
+        pickable,
         tilesets,
         projected,
         projectedMaxStretch
@@ -2091,7 +2180,9 @@ export function getGlobeBaseLayers({
   spriteAtlases,
   fontFamily,
   glyphs,
-  labelPlacement
+  labelPlacement,
+  featureState,
+  pickable
 }: Omit<BasemapLayerGroup, 'mode'>) {
   return getBasemapLayers({
     idPrefix,
@@ -2103,7 +2194,9 @@ export function getGlobeBaseLayers({
     spriteAtlases,
     fontFamily,
     glyphs,
-    labelPlacement
+    labelPlacement,
+    featureState,
+    pickable
   });
 }
 
@@ -2307,6 +2400,7 @@ function createLineSubLayers({
   mode,
   zoom,
   depthTested,
+  featureState,
   lineMetrics,
   spriteAtlases
 }: {
@@ -2316,6 +2410,7 @@ function createLineSubLayers({
   mode: BasemapMode;
   zoom: number;
   depthTested?: boolean;
+  featureState?: FeatureStateLookup;
   lineMetrics?: boolean;
   spriteAtlases?: SpriteAtlas[] | null;
 }) {
@@ -2330,7 +2425,8 @@ function createLineSubLayers({
         depthTested,
         lineShape: shape,
         lineMetrics,
-        pattern
+        pattern,
+        featureState
       });
     if (typeof lineShape.value !== 'function') {
       return createGeometrySubLayer({
@@ -2382,13 +2478,14 @@ function getBatchableGeometryStyle(
   features: any[],
   mode: BasemapMode,
   zoom: number,
-  depthTested: boolean
+  depthTested: boolean,
+  featureState?: FeatureStateLookup
 ): GeometryStyle | null {
   if (styleLayer.type === 'fill') {
     // A patterned fill draws a sublayer per sprite atlas of its images (see `getFillPatternGroups`).
     return styleLayer.paint?.['fill-pattern'] !== undefined
       ? null
-      : getGeometryStyle({styleLayer, features, mode, zoom, depthTested});
+      : getGeometryStyle({styleLayer, features, mode, zoom, depthTested, featureState});
   }
   // A gradient takes its source's `lineMetrics`, which `createStyledVectorSubLayer` checks, and a
   // pattern its sprites.
@@ -2402,7 +2499,15 @@ function getBatchableGeometryStyle(
   const lineShape = getLineShapeAccessor(styleLayer, zoom);
   return typeof lineShape.value === 'function'
     ? null
-    : getGeometryStyle({styleLayer, features, mode, zoom, depthTested, lineShape: lineShape.value});
+    : getGeometryStyle({
+        styleLayer,
+        features,
+        mode,
+        zoom,
+        depthTested,
+        lineShape: lineShape.value,
+        featureState
+      });
 }
 
 type LineShapeGroup = {key: string; shape: LineShape; features: any[]};
@@ -2553,7 +2658,8 @@ function getGeometryPaint(
   styleLayer: BasemapStyleLayer,
   mode: BasemapMode,
   zoom: number,
-  pattern?: FillPatternGroup
+  pattern?: FillPatternGroup,
+  featureState?: FeatureStateLookup
 ): GeometryPaint {
   const isLine = styleLayer.type === 'line';
   const isFill = styleLayer.type === 'fill';
@@ -2564,15 +2670,24 @@ function getGeometryPaint(
   const hasFillPattern = isFill && styleLayer.paint?.['fill-pattern'] !== undefined;
   const fillColor = hasFillPattern
     ? pattern
-      ? getStyleAccessor(styleLayer, ['fill-opacity'], zoom, ([opacity]) =>
-          withOpacity([255, 255, 255, 1], opacity ?? 1)
+      ? getStyleAccessor(
+          styleLayer,
+          ['fill-opacity'],
+          zoom,
+          ([opacity]) => withOpacity([255, 255, 255, 1], opacity ?? 1),
+          featureState
         )
       : {value: TRANSPARENT_COLOR}
-    : getStyleAccessor(styleLayer, ['fill-color', 'fill-opacity'], zoom, ([color, opacity]) =>
-        getGlobeFillColor(
-          withOpacity(color ?? getStylePropertyDefault('fill-color'), opacity ?? 1),
-          mode
-        )
+    : getStyleAccessor(
+        styleLayer,
+        ['fill-color', 'fill-opacity'],
+        zoom,
+        ([color, opacity]) =>
+          getGlobeFillColor(
+            withOpacity(color ?? getStylePropertyDefault('fill-color'), opacity ?? 1),
+            mode
+          ),
+        featureState
       );
   // MapLibre draws a fill's outline only with `fill-antialias`, in `fill-outline-color` or, without
   // it, in `fill-color`. That outline is more than antialiasing: it closes the cracks between
@@ -2585,23 +2700,37 @@ function getGeometryPaint(
     (hasOwnOutlineColor || (!hasFillPattern && mode !== 'globe')) &&
     getPaint(styleLayer, zoom)['fill-antialias'] !== false;
   const lineColor = isLine
-    ? getStyleAccessor(styleLayer, ['line-color', 'line-opacity'], zoom, ([color, opacity]) =>
-        withOpacity(color ?? DEFAULT_COLOR, opacity ?? 1)
+    ? getStyleAccessor(
+        styleLayer,
+        ['line-color', 'line-opacity'],
+        zoom,
+        ([color, opacity]) => withOpacity(color ?? DEFAULT_COLOR, opacity ?? 1),
+        featureState
       )
     : hasOwnOutlineColor
       ? getStyleAccessor(
           styleLayer,
           ['fill-outline-color', 'fill-opacity'],
           zoom,
-          ([color, opacity]) => withOpacity(color, opacity ?? 1)
+          ([color, opacity]) => withOpacity(color, opacity ?? 1),
+          featureState
         )
-      : getStyleAccessor(styleLayer, ['fill-color', 'fill-opacity'], zoom, ([color, opacity]) =>
-          withOpacity(color ?? getStylePropertyDefault('fill-color'), opacity ?? 1)
+      : getStyleAccessor(
+          styleLayer,
+          ['fill-color', 'fill-opacity'],
+          zoom,
+          ([color, opacity]) =>
+            withOpacity(color ?? getStylePropertyDefault('fill-color'), opacity ?? 1),
+          featureState
         );
   // A fill's outline is MapLibre's 1 pixel antialiasing line.
   const lineWidth: StyleAccessor<number> = isLine
-    ? getStyleAccessor(styleLayer, ['line-width'], zoom, ([width]) =>
-        Math.max(0, Number(width ?? 1))
+    ? getStyleAccessor(
+        styleLayer,
+        ['line-width'],
+        zoom,
+        ([width]) => Math.max(0, Number(width ?? 1)),
+        featureState
       )
     : {value: hasOutline ? 1 : 0};
   return {fillColor, lineColor, lineWidth, hasOutline};
@@ -2615,6 +2744,7 @@ function getGeometryStyle({
   depthTested,
   lineShape,
   pattern,
+  featureState,
   lineMetrics
 }: {
   styleLayer: BasemapStyleLayer;
@@ -2624,12 +2754,14 @@ function getGeometryStyle({
   depthTested?: boolean;
   lineShape?: LineShape;
   pattern?: FillPatternGroup;
+  /** The feature states the style layer's paint reads, if it reads any. */
+  featureState?: FeatureStateLookup;
   lineMetrics?: boolean;
 }): GeometryStyle {
   const isLine = styleLayer.type === 'line';
   const isFill = styleLayer.type === 'fill';
 
-  const paint = getGeometryPaint(styleLayer, mode, zoom, pattern);
+  const paint = getGeometryPaint(styleLayer, mode, zoom, pattern, featureState);
   const {fillColor, hasOutline} = paint;
   const hasOffset =
     isLine &&
@@ -2642,8 +2774,12 @@ function getGeometryStyle({
     isLine && !linePattern ? getLineGradient(styleLayer, lineMetrics) : null;
   const lineColor =
     lineGradient || linePattern
-    ? getStyleAccessor(styleLayer, ['line-opacity'], zoom, ([opacity]) =>
-        withOpacity([255, 255, 255, 1], opacity ?? 1)
+    ? getStyleAccessor(
+        styleLayer,
+        ['line-opacity'],
+        zoom,
+        ([opacity]) => withOpacity([255, 255, 255, 1], opacity ?? 1),
+        featureState
       )
     : paint.lineColor;
   // Dashes, offsets, a gradient, a pattern and a per-feature blur each take vertex attributes, of
@@ -2657,8 +2793,12 @@ function getGeometryStyle({
     !(lineGradient && hasOffset);
   const styleBlur =
     isLine && styleLayer.paint?.['line-blur'] !== undefined
-      ? getStyleAccessor(styleLayer, ['line-blur'], zoom, ([blur]) =>
-          Math.max(0, Number(blur) || 0)
+      ? getStyleAccessor(
+          styleLayer,
+          ['line-blur'],
+          zoom,
+          ([blur]) => Math.max(0, Number(blur) || 0),
+          featureState
         )
       : null;
   // A per-feature blur takes a vertex attribute, which a path with dashes and an offset or a
@@ -2683,13 +2823,18 @@ function getGeometryStyle({
             Math.max(0, Number(width ?? 1)),
             Number(gap ?? 0),
             Math.max(0, Number(blur) || 0)
-          )
+          ),
+        featureState
       )
     : paint.lineWidth;
   // The style spec evaluates zoom in `line-dasharray` at integer zooms only.
   const dashArray: StyleAccessor<[number, number]> | null = hasDashArray
-    ? getStyleAccessor(styleLayer, ['line-dasharray'], Math.floor(zoom), ([dasharray]) =>
-        getDashArray(dasharray)
+    ? getStyleAccessor(
+        styleLayer,
+        ['line-dasharray'],
+        Math.floor(zoom),
+        ([dasharray]) => getDashArray(dasharray),
+        featureState
       )
     : null;
   const lineOffset = hasOffset
@@ -2702,16 +2847,29 @@ function getGeometryStyle({
           Math.max(0, Number(gap ?? 0)),
           Math.max(0, Number(width ?? 1)),
           hasBlur ? Math.max(0, Number(blur) || 0) : 0
-        ]
+        ],
+        featureState
       )
     : null;
   // Where a wide blur makes a gap's two lines overlap, each draws only its side of the gap's
   // center. That takes the center's `line-offset` for the whole layer.
   const gapOffset = isBlurredGap
-    ? getStyleAccessor(styleLayer, ['line-offset'], zoom, ([offset]) => Number(offset ?? 0))
+    ? getStyleAccessor(
+        styleLayer,
+        ['line-offset'],
+        zoom,
+        ([offset]) => Number(offset ?? 0),
+        featureState
+      )
     : null;
   const gapWidth = hasOffset
-    ? getStyleAccessor(styleLayer, ['line-gap-width'], zoom, ([gap]) => Number(gap ?? 0))
+    ? getStyleAccessor(
+        styleLayer,
+        ['line-gap-width'],
+        zoom,
+        ([gap]) => Number(gap ?? 0),
+        featureState
+      )
     : null;
   const hasFillStyle =
     isFill &&
@@ -2760,8 +2918,12 @@ function getGeometryStyle({
     lineGradient,
     lineGradientFallbackColor: lineGradient ? paint.lineColor : null,
     linePatternWidth: linePattern
-      ? getStyleAccessor(styleLayer, ['line-width'], Math.floor(zoom), ([width]) =>
-          Math.max(0, Number(width ?? 1))
+      ? getStyleAccessor(
+          styleLayer,
+          ['line-width'],
+          Math.floor(zoom),
+          ([width]) => Math.max(0, Number(width ?? 1)),
+          featureState
         )
       : null,
     depthTested
@@ -3090,6 +3252,8 @@ function createGeometrySubLayer({
     // Not drawn, picked or highlighted while all of its lines are kept at width 0.
     ...(isHidden ? {visible: false, pickable: false} : {}),
     id: `${getStyleSubLayerId(props.id, styleLayerIds)}${idSuffix}`,
+    [STYLE_LAYER_IDS]: styles.map(style => style.styleLayer.id),
+    [STYLE_LAYER_PARTS]: styles.length === 1 ? null : partIndices,
     data,
     stroked: drawsLines,
     filled: drawsFill,
@@ -3270,23 +3434,31 @@ function createExtrusionSubLayer({
   styleLayer,
   features,
   zoom,
-  light = DEFAULT_FILL_EXTRUSION_LIGHT
+  light = DEFAULT_FILL_EXTRUSION_LIGHT,
+  featureState
 }: {
   props: any;
   styleLayer: BasemapStyleLayer;
   features: any[];
   zoom: number;
   light?: FillExtrusionLight;
+  /** The feature states the style layer's paint reads, if it reads any. */
+  featureState?: FeatureStateLookup;
 }) {
   const paint = getPaint(styleLayer, zoom);
-  const color = getStyleAccessor(styleLayer, ['fill-extrusion-color'], zoom, ([value]) =>
-    withOpacity([...(value ?? DEFAULT_COLOR).slice(0, 3), 1])
+  const color = getStyleAccessor(
+    styleLayer,
+    ['fill-extrusion-color'],
+    zoom,
+    ([value]) => withOpacity([...(value ?? DEFAULT_COLOR).slice(0, 3), 1]),
+    featureState
   );
   const base = getStyleAccessor(
     styleLayer,
     ['fill-extrusion-height', 'fill-extrusion-base'],
     zoom,
-    ([height, baseValue]) => getExtrusionBounds(height, baseValue)[0]
+    ([height, baseValue]) => getExtrusionBounds(height, baseValue)[0],
+    featureState
   );
   const elevation = getStyleAccessor(
     styleLayer,
@@ -3295,13 +3467,15 @@ function createExtrusionSubLayer({
     ([height, baseValue]) => {
       const [bottom, top] = getExtrusionBounds(height, baseValue);
       return top - bottom;
-    }
+    },
+    featureState
   );
   const baseProps = getSubLayerBaseProps(props);
 
   return getTileGeoJsonLayer(props, {
     ...baseProps,
     id: getStyleSubLayerId(props.id, styleLayer.id),
+    [STYLE_LAYER_IDS]: [styleLayer.id],
     data: getRaisedFeatures(features, styleLayer, base),
     opacity: (baseProps.opacity ?? 1) * (paint['fill-extrusion-opacity'] ?? 1),
     extruded: true,
@@ -3583,10 +3757,14 @@ function getStyleLayers({
   fontFamily,
   glyphs,
   labelPlacement,
+  featureState,
+  pickable,
   tilesets,
   projected,
   projectedMaxStretch
 }: {
+  featureState?: BasemapFeatureState | null;
+  pickable?: LayerProps['pickable'];
   projected?: boolean;
   projectedMaxStretch?: number;
   idPrefix: string;
@@ -3713,7 +3891,9 @@ function getStyleLayers({
       spriteAtlases,
       fontFamily,
       glyphs,
-      labelPlacement
+      labelPlacement,
+      featureState,
+      pickable
     });
   });
 }

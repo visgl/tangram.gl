@@ -9,6 +9,7 @@ import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
 import type {BasemapSource} from './style-resolver';
+import type {BasemapFeatureState} from './feature-state';
 import {
   CompositeLayer,
   log,
@@ -91,6 +92,13 @@ export type BasemapLayerProps = {
   loadOptions?: Record<string, unknown> | null;
   /** Selects whether deck layers are generated for a flat map or a globe. */
   mode?: 'map' | 'globe';
+  /**
+   * The state of features, which `["feature-state", key]` reads in paint properties, as MapLibre
+   * GL JS's `setFeatureState` sets it: by source id, then, for a `vector` source, by source layer,
+   * then by feature id. Pass a new object to change a state; a change computes again only the paint
+   * attributes of the style layers that read the changed states, and keeps their geometry.
+   */
+  featureState?: BasemapFeatureState | null;
   /** Optional globe-specific configuration used when `mode` is `'globe'`. */
   globe?: {
     /** Rendering toggles for globe-specific basemap behavior. */
@@ -212,6 +220,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   /** Default props for {@link BasemapLayer}. */
   static defaultProps: DefaultProps<BasemapLayerProps> = {
     mode: 'map',
+    featureState: null,
     globe: {
       type: 'object',
       value: {
@@ -533,6 +542,8 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
     const layers = getBasemapLayers({
       idPrefix: this.props.id,
+      featureState: this.props.featureState,
+      pickable: this.props.pickable,
       mode: this.getDrawMode(viewport),
       globe: this.props.globe,
       styleDefinition: resolvedStyle,
