@@ -8,7 +8,6 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
-- `registerBasemapProtocol(scheme, handler)` loads the URLs `<scheme>://...` of a basemap from memory, an archive or any other store, with a handler of the shape of MapLibre GL JS's `addProtocol`: the style, TileJSON, vector, raster and raster-dem tiles, sprites, glyphs and GeoJSON data. A tile that deck.gl cancels aborts the handler's `AbortController`. A URL with an unknown scheme fails with an error that names the scheme. `unregisterBasemapProtocol(scheme)` removes a handler. See [Custom protocols](./api-reference/basemap-layer.md#custom-protocols).
 - In a `_CustomProjectionView` whose coordinate reference system is on another body, such as the Moon (`+proj=eqc +R=1737400`) or Mars, `hillshade` layers shade slopes by the radius of that body: the semi-major axis of the CRS. Before, they used the size of the Earth, and slopes on the Moon were drawn 3.67 times too flat. Maps, globes and projected views on the Earth draw as before.
 - `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
 - `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
