@@ -97,6 +97,21 @@ test('sphere occluder: a point on the axis behind the Moon is in the umbra, a fa
     last = v;
   }
   expect(last).toBe(1);
+  // An occluder beyond the Sun casts nothing, even when its disc is centred on the Sun's.
+  const beyond = {...moon, center: [2 * sun[0], 0, 0] as V3, radius: 11};
+  expect(sphereVisibility([1, 0, 0], sun, rs, beyond)).toBe(1);
+});
+
+test('surface point at a geodetic direction lies on the ellipsoid, with that normal', () => {
+  const e2 = (1 / 298.257223563) * (2 - 1 / 298.257223563);
+  for (const lat of [-80, -33, 0, 25.3, 61, 89]) {
+    const n = geodeticNormal(lat, 40);
+    const p = surfacePoint(n, e2);
+    expect(p[0] ** 2 + p[1] ** 2 + p[2] ** 2 / (1 - e2)).toBeCloseTo(1, 12);
+    // The ellipsoid normal (gradient) is parallel to n.
+    const g = unitV([p[0], p[1], p[2] / (1 - e2)]);
+    expect(dot(g, n)).toBeCloseTo(1, 12);
+  }
 });
 
 /**
@@ -177,6 +192,9 @@ test('total lunar eclipse of 2025-03-14: umbra and penumbra contacts against Ast
   expect(at(peak).centre).toBe(0);
   const peakGeometry = getShadowGeometry('moon', eclipse.peak.date, RINGS) as ShadowGeometry;
   expect(lightAt(peakGeometry, unitV(peakGeometry.sun))).toEqual(LUNAR_UMBRA_TINT);
+  // The Earth's umbra on the Moon is red: refracted light keeps more red than blue.
+  expect(LUNAR_UMBRA_TINT[0]).toBeGreaterThan(2 * LUNAR_UMBRA_TINT[1]);
+  expect(LUNAR_UMBRA_TINT[0]).toBeGreaterThan(2 * LUNAR_UMBRA_TINT[2]);
   const minute = 60000;
   // Penumbral contact (P1), umbral contact (U1), start of totality (U2).
   const p1 = bisect(peak - 240 * minute, peak, t => at(t).min < 1);
