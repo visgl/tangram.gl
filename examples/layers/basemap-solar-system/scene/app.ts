@@ -161,8 +161,22 @@ function place(pAU: V3): V3 {
   const r = norm(pAU);
   return r === 0 ? [0, 0, 0] : scaleV(pAU, READABLE_DIST(r) / r);
 }
+/**
+ * The Moon in readable scale, as the Galilean moons: a moon, not a twin planet. It keeps its true
+ * size against the Earth (27 %), with a floor so that it stays a disc in the system view.
+ */
+const MOON_READABLE_MIN_RADIUS = 1.2;
+/**
+ * Readable orbit of the Moon, Earth radii (centre to centre). 1.8 is the largest value that keeps
+ * the Moon clear of the disc of Mars at every date from 2000 to 2100. No value does that for Venus:
+ * at an inferior conjunction the discs of Venus and the Earth are 3.1 units apart.
+ */
+const MOON_READABLE_ORBIT = 1.8;
 function radiusOf(body: Body) {
-  return state.scale === 'true' ? body.radiusKm / TRUE_UNIT_KM : READABLE_RADIUS(body.radiusKm);
+  if (state.scale === 'true') return body.radiusKm / TRUE_UNIT_KM;
+  if (body.id !== 'moon') return READABLE_RADIUS(body.radiusKm);
+  const ratio = body.radiusKm / BODIES.earth.radiusKm;
+  return Math.max(ratio * READABLE_RADIUS(BODIES.earth.radiusKm), MOON_READABLE_MIN_RADIUS);
 }
 
 type Scene = {
@@ -244,7 +258,7 @@ function computeScene(): Scene {
   const moonGeo = moonGeocentric(date);
   const moonDir = scaleV(moonGeo, 1 / norm(moonGeo));
   const moonDist =
-    state.scale === 'true' ? (norm(moonGeo) * KM_PER_AU) / TRUE_UNIT_KM : radius.earth + 2.2 + radius.moon;
+    state.scale === 'true' ? (norm(moonGeo) * KM_PER_AU) / TRUE_UNIT_KM : MOON_READABLE_ORBIT * radius.earth;
   pos.moon = addV(pos.earth, scaleV(moonDir, moonDist));
 
   // Pole and prime meridian of every body: IAU WGCCRE models from Astronomy Engine.
@@ -2470,7 +2484,7 @@ function renderPanel() {
       '<span class="dim">Click the globe for the value at a latitude.</span>'
     : '';
   $('notes').innerHTML = overview
-    ? `${state.scale === 'true' ? 'True scale: 1 unit = 10⁶ km; the bodies are at true size (zoom in to see them).' : 'Readable scale: distance = 40·log₂(1 + r/0.2 AU); radius = 1.2 + 1.6·log₂(1 + R/1000 km). The Moon is beside the Earth, in its true direction.'}<br>
+    ? `${state.scale === 'true' ? 'True scale: 1 unit = 10⁶ km; the bodies are at true size (zoom in to see them).' : 'Readable scale: distance = 40·log₂(1 + r/0.2 AU); radius = 1.2 + 1.6·log₂(1 + R/1000 km). The Moon has its true size against the Earth, on an orbit of 1.8 Earth radii, in its true direction.'}<br>
        Positions of the planets, the Moon and the Galilean moons: Astronomy Engine (MIT). Poles and prime meridians of all bodies: Astronomy Engine RotationAxis (IAU WGCCRE). Night sides: math.gl getSunTerminator (Earth) and the true heliocentric directions, not the point light.`
     : `GlobeView draws every body on a sphere of the Earth's radius: heights and distances read as Earth units.
        Web Mercator tiles stop at ±85.05°: at the poles the overview sphere shows through.`;
