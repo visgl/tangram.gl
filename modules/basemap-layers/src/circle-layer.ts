@@ -11,6 +11,7 @@ import type {Layer} from '@deck.gl/core';
 import {ScatterplotLayer} from '@deck.gl/layers';
 import type {ShaderPlugin} from '@luma.gl/shaders';
 import {sortFeaturesByKey} from './sort-key';
+import type {FeatureStateLookup} from './feature-state';
 import {getStyleAccessor, withOpacity} from './style-accessor';
 import {getStylePropertyDefault} from './style-expression';
 import type {ResolvedBasemapStyleLayer as BasemapStyleLayer} from './style-resolver';
@@ -123,6 +124,7 @@ export function createCircleSubLayer({
   styleLayer,
   features,
   zoom,
+  featureState,
   globe,
   parameters
 }: {
@@ -131,6 +133,8 @@ export function createCircleSubLayer({
   styleLayer: BasemapStyleLayer;
   features: any[];
   zoom: number;
+  /** The feature states the style layer's paint reads, if it reads any. */
+  featureState?: FeatureStateLookup;
   /**
    * On a globe, circles always face the viewer: `circle-pitch-alignment: map` is not verified
    * there.
@@ -148,26 +152,37 @@ export function createCircleSubLayer({
     zoom,
     ([value, width]) =>
       Math.max(0, Number(value ?? DEFAULT_RADIUS)) +
-      Math.max(0, Number(width ?? DEFAULT_STROKE_WIDTH)) / 2
+      Math.max(0, Number(width ?? DEFAULT_STROKE_WIDTH)) / 2,
+    featureState
   );
-  const lineWidth = getStyleAccessor(styleLayer, ['circle-stroke-width'], zoom, ([width]) =>
-    Math.max(0, Number(width ?? DEFAULT_STROKE_WIDTH))
+  const lineWidth = getStyleAccessor(
+    styleLayer,
+    ['circle-stroke-width'],
+    zoom,
+    ([width]) => Math.max(0, Number(width ?? DEFAULT_STROKE_WIDTH)),
+    featureState
   );
   const fillColor = getStyleAccessor(
     styleLayer,
     ['circle-color', 'circle-opacity'],
     zoom,
-    ([color, opacity]) => withOpacity(color ?? DEFAULT_COLOR, opacity ?? DEFAULT_OPACITY)
+    ([color, opacity]) => withOpacity(color ?? DEFAULT_COLOR, opacity ?? DEFAULT_OPACITY),
+    featureState
   );
   const lineColor = getStyleAccessor(
     styleLayer,
     ['circle-stroke-color', 'circle-stroke-opacity'],
     zoom,
     ([color, opacity]) =>
-      withOpacity(color ?? DEFAULT_STROKE_COLOR, opacity ?? DEFAULT_STROKE_OPACITY)
+      withOpacity(color ?? DEFAULT_STROKE_COLOR, opacity ?? DEFAULT_STROKE_OPACITY),
+    featureState
   );
-  const blur = getStyleAccessor(styleLayer, ['circle-blur'], zoom, ([value]) =>
-    Math.min(1, Math.max(0, Number(value ?? DEFAULT_BLUR) || 0))
+  const blur = getStyleAccessor(
+    styleLayer,
+    ['circle-blur'],
+    zoom,
+    ([value]) => Math.min(1, Math.max(0, Number(value ?? DEFAULT_BLUR) || 0)),
+    featureState
   );
   const pixelOffset = getStyleAccessor<[number, number]>(
     styleLayer,
@@ -177,7 +192,8 @@ export function createCircleSubLayer({
       const [x, y] = value ?? [0, 0];
       // Scatterplot adds offsets in clip space (billboard) or common space (map), both y-up.
       return [x, y === 0 ? 0 : -y];
-    }
+    },
+    featureState
   );
   const alignment = getStyleAccessor(styleLayer, ['circle-pitch-alignment'], zoom, ([v]) => v);
 
