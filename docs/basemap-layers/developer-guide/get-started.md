@@ -32,20 +32,14 @@ new Deck({
 });
 ```
 
-For globe rendering, switch `mode` to `'globe'` and pass optional globe config:
+For globe rendering, switch `mode` to `'globe'`. The `labels` prop turns the labels off in any mode:
 
 ```ts
 new BasemapLayer({
   id: 'earth',
   mode: 'globe',
   style: styleJson,
-  globe: {
-    config: {
-      atmosphere: false,
-      basemap: true,
-      labels: false
-    }
-  }
+  labels: false
 });
 ```
 

@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {LayerProps} from '@deck.gl/core';
+import {getBasemapFetch, getBasemapLayerFetch as getProtocolLayerFetch, type BasemapRequestType} from './basemap-protocol';
 
 /**
  * The kind of resource a request is for, with the names of MapLibre GL JS's `ResourceType`:
@@ -176,5 +177,30 @@ function getRequestLoadOptions(context: LayerFetchContext, requestInit: RequestI
       ...(signal ? {signal} : {})
     });
   };
-  return {...loadOptions, fetch: requestFetch};
+  const fetchOptions = {...loadOptions?.fetchOptions, ...requestInit};
+  const headers = new Headers(loadOptions?.fetchOptions?.headers);
+  new Headers(requestInit.headers).forEach((value, name) => headers.set(name, value));
+  fetchOptions.headers = headers;
+  return {...loadOptions, fetchOptions, fetch: requestFetch};
+}
+
+/** Applies the request transformation before protocol dispatch for a resource. */
+export function getBasemapResourceFetch(
+  resourceType: BasemapResourceType,
+  type: BasemapRequestType,
+  options: {fetch?: typeof fetch; transformRequest?: BasemapTransformRequest | null} = {}
+): typeof fetch {
+  return getBasemapRequestFetch(resourceType, {
+    fetch: getBasemapFetch(options.fetch, type),
+    transformRequest: options.transformRequest
+  });
+}
+
+/** Applies the request transformation before protocol dispatch for a tile. */
+export function getBasemapTileFetch(
+  nextFetch: LayerFetch,
+  type: BasemapRequestType,
+  transformRequest: BasemapTransformRequest | null | undefined
+): LayerFetch {
+  return getBasemapLayerFetch(getProtocolLayerFetch(nextFetch, type), transformRequest);
 }

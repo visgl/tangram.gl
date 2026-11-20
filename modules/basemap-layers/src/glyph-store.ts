@@ -6,7 +6,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {getBasemapRequestFetch, type BasemapTransformRequest} from './basemap-request';
+import {getBasemapResourceFetch, type BasemapTransformRequest} from './basemap-request';
 import {GLYPH_RANGE_SIZE, parseGlyphRange} from './glyph-pbf';
 import type {Glyph} from './glyph-pbf';
 
@@ -81,7 +81,7 @@ export class GlyphStore {
 
   constructor({url, baseUrl, fetch: fetchFn, fetchOptions, transformRequest}: GlyphStoreOptions) {
     this.url = resolveGlyphsUrl(url, baseUrl);
-    this.fetch = getBasemapRequestFetch('Glyphs', {fetch: fetchFn, transformRequest});
+    this.fetch = getBasemapResourceFetch('Glyphs', 'arrayBuffer', {fetch: fetchFn, transformRequest});
     this.fetchOptions = fetchOptions;
   }
 
