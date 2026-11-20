@@ -2,9 +2,16 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {
+  SharedMVTLayer,
+  SharedTileset2D,
+  type SharedTile2DHeader,
+  type SharedTileset2DAdapter
+} from '@deck.gl-community/geo-layers';
+import type {RequestScheduler} from '@loaders.gl/core/loader-utils';
 import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from './terrain-query';
 import {isGlobeViewport} from './is-globe-viewport';
+import {ZoomLoadGate} from './zoom-load-gate';
 import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
@@ -151,6 +158,16 @@ export type BasemapLayerProps = {
    */
   separateLabelPlacement?: boolean;
   /**
+   * Milliseconds that vector tile loads wait after the last zoom change of a view (default 0: no
+   * wait). In a zoom gesture the view passes through several tile zooms; each tile loaded at one
+   * of them is decoded and triangulated, and is drawn for a fraction of a second. With a wait, a
+   * tile that a loaded ancestor tile draws, enlarged, waits until the zoom comes to rest, and is
+   * not loaded if no view selects it then. A tile without a loaded ancestor, such as the new
+   * tiles at the edges of a zoom out, loads at once. A pan does not change the zoom, and its
+   * loads do not wait.
+   */
+  zoomLoadDelay?: number;
+  /**
    * The stretch limit of the tile selection in a projected view (deck.gl's
    * `_CustomProjectionView`), see `ProjectedTileSelectionOptions.maxStretch`. The default, 4, suits
    * most projections. A projection whose scale grows steeply toward the edge of its area of use,
@@ -222,6 +239,8 @@ type BasemapLayerState = {
   tileMaxStretch: number | null;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
+  /** Holds the vector tile loads while a view zooms (see `zoomLoadDelay`). */
+  zoomLoadGate: ZoomLoadGate;
   /** The config `getStyleConfig` last returned, kept while its inputs do not change. */
   styleConfig: {
     labels: unknown;
@@ -261,6 +280,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     rejectRasterTile: null,
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
     separateLabelPlacement: false,
+    zoomLoadDelay: 0,
     projectedMaxStretch: DEFAULT_MAX_STRETCH
   };
 
@@ -283,6 +303,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       tileFetch: null,
       spriteAtlases: null,
       glyphs: null,
+      zoomLoadGate: new ZoomLoadGate(),
       styleConfig: null
     };
   }
@@ -607,14 +628,17 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
           loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
         });
         loader.context = this.context;
-        const tileset = new SharedTileset2D({
+        const gate = this.state.zoomLoadGate;
+        const loadTile = getVectorTileLoader(source, loader, geoJson);
+        const tileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
-          adapter: getBasemapTilesetAdapter(this.props.projectedMaxStretch),
+          adapter: getZoomGatedAdapter(gate, getBasemapTilesetAdapter(this.props.projectedMaxStretch)),
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
-          getTileData: getVectorTileLoader(source, loader, geoJson)
+          getTileData: tile => (tile.signal?.aborted ? null : loadTile(tile))
         });
+        holdBeforeRequestSlot(tileset, gate);
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
       }
@@ -644,6 +668,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       return [];
     }
 
+    this.state.zoomLoadGate.delay = Math.max(0, Number(this.props.zoomLoadDelay) || 0);
     this.updateSourceTilesets(resolvedStyle);
     const {viewport} = this.context;
     // In a projected view, the zoom of the Web Mercator map of the same scale.
@@ -691,6 +716,87 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       return layer.clone(props);
     });
   }
+}
+
+/**
+ * The most tile zooms between a held tile and the loaded ancestor that draws in its place. A much
+ * coarser tile, such as one loaded for the first view of the map, has too little detail to draw
+ * in place of a tile 8 times as fine.
+ */
+const MAX_PLACEHOLDER_ZOOMS = 3;
+
+/** Whether a tileset has loaded content for a near ancestor of a tile, which draws in its place. */
+function hasLoadedAncestor(
+  tileset: SharedTileset2D,
+  index: {x: number; y: number; z: number}
+): boolean {
+  for (let parent = index; parent.z > Math.max(0, index.z - MAX_PLACEHOLDER_ZOOMS); ) {
+    parent = tileset.getParentIndex(parent);
+    const ancestor = tileset.getTile(parent);
+    if (ancestor?.isLoaded && ancestor.content) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A request token that does not take a slot, for a held load that a newer load replaced. */
+const NO_SLOT = {done: () => {}};
+
+/**
+ * Holds the vector tile loads of `tileset` in `gate` before they take a request slot, so that held
+ * tiles do not keep a tile with no placeholder from loading. Only a tile that a loaded ancestor
+ * draws, enlarged, meanwhile is held: in a zoom out the new tiles cover more than the old, and
+ * load at once. `SharedTileset2D` has no option for its request scheduler, so this wraps its own.
+ */
+function holdBeforeRequestSlot(tileset: SharedTileset2D, gate: ZoomLoadGate): void {
+  const internals = tileset as unknown as {_requestScheduler: RequestScheduler};
+  const scheduler = internals._requestScheduler;
+  if (!scheduler) {
+    throw new Error('SharedTileset2D has no request scheduler to hold zoom loads before.');
+  }
+  const requests = new WeakMap<SharedTile2DHeader, number>();
+  internals._requestScheduler = {
+    async scheduleRequest(tile: SharedTile2DHeader, getPriority?: () => number) {
+      const request = (requests.get(tile) ?? 0) + 1;
+      requests.set(tile, request);
+      const isCurrent = () => requests.get(tile) === request;
+      if (
+        gate.delay > 0 &&
+        (await gate.wait(null, () => isCurrent() && hasLoadedAncestor(tileset, tile.index)))
+      ) {
+        if (!isCurrent()) {
+          // A newer load of the tile replaced this one, and aborted its signal: it fetches nothing.
+          return NO_SLOT;
+        }
+        // The view has come to rest: a tile that no view shows or selects now is not loaded.
+        // Cancelled, it loads again if a view selects it later.
+        if (!tile.isLoading || !tileset.visibleTiles.includes(tile)) {
+          return null;
+        }
+      }
+      return scheduler.scheduleRequest(tile, getPriority);
+    }
+  } as RequestScheduler;
+}
+
+/**
+ * The basemap tile traversal `adapter`, which also records each view's zoom in `gate` at each tile
+ * selection. This is the view's own zoom: in a projected view the Web Mercator zoom of the same
+ * scale changes with the latitude, so a pan would hold loads as a zoom does.
+ */
+function getZoomGatedAdapter(
+  gate: ZoomLoadGate,
+  adapter: ReturnType<typeof getBasemapTilesetAdapter>
+): SharedTileset2DAdapter<unknown> {
+  return {
+    getTileIndices(context) {
+      const viewport = context.viewState as Viewport;
+      gate.noteZoom(viewport.id, viewport.zoom);
+      return adapter.getTileIndices(context);
+    },
+    getTileBoundingBox: (context, index) => adapter.getTileBoundingBox(context, index)
+  };
 }
 
 /**
