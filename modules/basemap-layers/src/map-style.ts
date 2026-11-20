@@ -13,6 +13,7 @@ export {
 export {MapStyleLoader} from './map-style-loader';
 export type {MapStyleLoaderOptions} from './map-style-loader';
 export {
+  isResolvedBasemapStyle,
   resolveBasemapStyle,
   type BasemapLoadOptions,
   type BasemapSource,

@@ -78,6 +78,7 @@ import type {SharedTile2DLayerProps, SharedTileset2DProps} from '@deck.gl-commun
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
 import {basemapTilesetAdapter} from './projected-tileset';
 import {isProjectedViewport} from './projected-viewport';
+import {getBasemapFetch} from './basemap-protocol';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 import {BasemapFetchError} from './basemap-error';
 
@@ -588,7 +589,7 @@ export async function loadDemTile(
   unpack: DemUnpackVector,
   {signal, loadOptions}: {signal?: AbortSignal; loadOptions?: BasemapLoadOptions} = {}
 ): Promise<DemTile | null> {
-  const fetchFn = loadOptions?.fetch || fetch;
+  const fetchFn = getBasemapFetch(loadOptions?.fetch, 'image');
   const response = await fetchFn(url, {...loadOptions?.fetchOptions, signal});
   if (!response.ok) {
     throw new BasemapFetchError(
