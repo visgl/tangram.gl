@@ -78,14 +78,14 @@ after `yarn build:modules`.
     JD 2459036.5 TDB), on a two-body Kepler orbit (`celestial/comet.ts`). The ion tail points
     straight away from the Sun; the dust tail is a syndyne (radiation-pressure ratio 0.6, 12
     days of dust) integrated under reduced solar gravity, so it curves behind the comet. Both
-    grow with the activity, (q / r)^4. **Comet at perihelion** (or `?comet=perihelion`) sets the
-    clock to 2020-07-03 16:16 UTC and looks at the comet.
+    grow with the activity, (q / r)^4. The scene **Comet at perihelion** (or `?comet=perihelion`)
+    sets the clock to 2020-07-03 16:16 UTC and looks at the comet.
   - *Zodiacal dust*: the smooth cloud of Kelsall et al. (1998), its brightness scaled to taste.
   - *Gas clouds*: **artistic**. One density volume, baked offline (`scene/data/bake-cloud.mjs`:
     fractal noise advected through a curl-noise field, 96³ R8, 885 KB), ray-marched with a
     colour ramp, self-shadowing toward the Sun and an emissive term. Three clouds come from it
     by rotation, scale, flip and ramp, as EVE Online gets many clouds from a few bases.
-    **Fly into the Ember cloud** flies the camera inside one. `?cloud=procedural` evaluates
+    The scene **Into the Ember cloud** flies the camera inside one. `?cloud=procedural` evaluates
     the same shape from noise in the shader instead of the baked volume.
   - *Dust*: seeded points around the camera, for a sense of speed (after Carbon's seeded
     particle fills). The field repeats in cubes whose size follows the camera distance, with a
@@ -97,14 +97,55 @@ after `yarn build:modules`.
   screen resolution (the **Quality** control: 35 %, 50 % or 75 %, with 20, 36 or 64 steps) and
   is upsampled with a small blur.
 
+## Controls
+
+The controls are plain DOM (`scene/panel.ts`, styles in `index.html`). They take pointer events
+only inside their own boxes, so the map takes every gesture elsewhere.
+
+- **Time dock** (bottom): play or pause, the speed, the date and time in UTC, and **Now**. A
+  click on the date opens the date and time fields. The time bar shows a window around its base
+  date (±30 days to ±200 years) and follows the clock during playback. Marks on the bar show
+  the solar and lunar eclipses and the perihelion of the comet; a click on a mark sets the clock
+  to that event, and the button beside the bar goes to the next event. The marks come from the
+  same shadow geometry that draws the eclipses (`celestial/events.ts`): every eclipse on a
+  window of up to one year, the total and annular ones up to ten years.
+- **Icon rail** (left; a bar at the bottom on a narrow screen), with one card open at a time:
+  - **Navigate**: the system view, the compare view, and the bodies. In a globe, **Back**
+    returns to the system.
+  - **Layers**: the surface, the night side, the eclipse shadows, **Rotate with body**, the
+    clouds and the atmosphere, **Readable scale** (system view), and **Quality**. A control that
+    does not apply to the body or the view is disabled, with the reason beside it.
+  - **Space**: the five space volumes and the gas-cloud source.
+  - **Info**: gravity, sky data, notes, tile counts and errors. A badge on the icon shows the
+    number of errors.
+- **Scenes** (on the rail): one-click states. Each scene with a URL opens exactly as the page
+  does from that URL, without a reload:
+  - Total solar eclipse, 2024: `?mode=globe&body=earth&date=2024-04-08T18:17Z&lon=-100&lat=28`
+  - Ring shadow of Saturn: `?focus=saturn&date=2017-06-01&orbit=120&tilt=35`
+  - Total lunar eclipse, 2025: `?focus=moon&date=2025-03-14T06:58Z`
+  - Comet at perihelion: `?comet=perihelion`
+  - Into the Ember cloud: a flight from the camera in use (no URL)
+  - Clouds of the Earth: `?mode=globe&body=earth&view=sun`
+- **Quality** (Low, Medium, High) sets the cloud ray-march steps (6, 12, 24) and the
+  space-volume quality together.
+- **Status readout** (top right): the view, the scale and the frame rate, with a switch.
+- **Keys**: `Space` plays or pauses; `[` and `]` change the speed; `1` to `4` open or close a
+  card; `Esc` closes a menu, or goes back to the system, or closes the card; `?` lists the keys.
+  No key acts while a field has the focus.
+- The credits at the bottom show on one line; a click shows all of them.
+
+## URL parameters
+
 The page URL can set the start state, for example
 `?mode=globe&body=mars&surface=imagery&date=2026-06-21&speed=3600&night=off`. `date` takes a day
 (UTC midnight) or an ISO time. In globe mode `lon`, `lat` and `zoom` set the camera, and
 `view=sun` faces the sub-solar point. With `focus=<body>`, `orbit`, `tilt` and `extent` set the
-overview camera. `shadows=off` turns the eclipse shadows off. `clouds=off`, `atmosphere=off`
-and `cloudQuality=6|12|24` (ray-march steps) set the cloud controls.
+overview camera. `shadows=off` turns the eclipse shadows off. `clouds=off` and `atmosphere=off`
+set the cloud controls. `quality=low|medium|high` sets the quality of the clouds and of the
+space volumes; `cloudQuality=<steps>` (1 to 32) then sets the cloud ray-march steps alone.
 The space volumes take `looks`, `corona`, `comet`, `gas` and `dust` (`off` turns one off),
-`quality=low|medium|high`, `cloud=procedural` and `comet=perihelion`.
+`cloud=procedural` and `comet=perihelion`. `card=navigate|layers|space|info|none` sets the open
+card, and `hud=off` hides the status readout.
 
 ## Clouds and atmospheres
 

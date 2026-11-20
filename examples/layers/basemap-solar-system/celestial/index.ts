@@ -49,3 +49,5 @@ export {
   julianTT, solveKepler
 } from './comet';
 export {baumbachDensity, kelsallDensity} from './gas';
+export type {SkyEvent, SkyEventKind} from './events';
+export {COMET_PERIHELION_DATE, findEclipses, findSkyEvents} from './events';

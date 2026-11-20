@@ -46,6 +46,8 @@ import {
   getTerminator,
   moonGeocentric,
   getShadowGeometry,
+  COMET_PERIHELION_DATE,
+  findEclipses,
   planetOrbit,
   planetPosition,
   unit,
@@ -53,6 +55,7 @@ import {
   type BodyId,
   type PlanetId,
   type ShadowGeometry,
+  type SkyEvent,
   type V3
 } from '../celestial';
 import {
@@ -76,24 +79,32 @@ import {MULTIPLY_PARAMETERS, ShadowExtension, shadowUniforms} from './shadow-ext
 import {DEFAULT_LOOK, blendLook, exposureGain, type LookBlend} from './look-volumes';
 import {CLOUDS, cloudPlacement, cometAt, lookVolumes, volumeFrame, type SpaceScene, type SpaceToggles} from './space';
 import {QUALITY, createSpaceVolumes, type Quality, type SpaceVolumes} from './space-volumes';
+import {CARD_IDS, createPanel, type CardId} from './panel';
 type Mode = 'overview' | 'globe' | 'compare';
 
 const params = new URLSearchParams(location.search);
 /** `?comet=perihelion`: the clock starts at the comet's perihelion and the view shows the comet. */
 const COMET_PERIHELION = params.get('comet') === 'perihelion';
-const PERIHELION_DATE = new Date(Date.UTC(2000, 0, 1, 12) + (NEOWISE.tp - 2451545) * 86400000 - 69184);
 const COMPARE_IDS: BodyId[] = ['earth', 'moon', 'mars'];
-/** Compare globes start below the panel. */
-const COMPARE_TOP = 300;
+/** Compare globes stay clear of the status readout (top) and the time dock (bottom). */
+const COMPARE_TOP = 48;
+const COMPARE_BOTTOM = 96;
+/** Rotation of the overview at the start, deg. */
+const START_ORBIT = 30;
+/** `?quality=`: one level for the cloud steps and the space volumes. */
+const START_QUALITY = (['low', 'medium', 'high'].includes(params.get('quality') ?? '') ? params.get('quality') : 'medium') as Quality;
+/** Ray-march steps through the cloud shell at each quality level. */
+const QUALITY_CLOUD_STEPS: Record<Quality, number> = {low: 6, medium: 12, high: 24};
 const state = {
   mode: (['overview', 'globe', 'compare'].includes(params.get('mode') ?? '') ? params.get('mode') : 'overview') as Mode,
   body: (params.get('body') ?? 'earth') in BODIES ? (params.get('body') as BodyId) : ('earth' as BodyId),
   scale: (params.get('scale') === 'true' ? 'true' : 'readable') as 'readable' | 'true',
-  /** Start of the time slider: the comet's perihelion (`comet=perihelion`), the `date` parameter (a
+  /** Centre of the time bar: the comet's perihelion (`comet=perihelion`), the `date` parameter (a
    * day at UTC midnight, or an ISO time), or now. */
-  baseDate: COMET_PERIHELION ? PERIHELION_DATE : parseDate(params.get('date')),
+  baseDate: COMET_PERIHELION ? COMET_PERIHELION_DATE : parseDate(params.get('date')),
   offsetDays: Number(params.get('offset') ?? 0),
-  sliderUnit: 'days' as 'days' | 'years',
+  /** Half-width of the time bar, days. */
+  spanDays: 365,
   linked: params.get('linked') !== 'off',
   playing: false,
   /** Playback speed, simulated seconds per real second. */
@@ -106,11 +117,11 @@ const state = {
   corotate: params.get('rotate') === 'on',
   /** The Earth's clouds (and the cloud deck of Venus). */
   clouds: params.get('clouds') !== 'off',
-  /** Ray-march steps through the cloud shell: 6 (low), 12 (medium), 24 (high). */
-  cloudSteps: Math.min(32, Math.max(1, Math.round(Number(params.get('cloudQuality') ?? 12)) || 12)),
+  /** Ray-march steps through the cloud shell: the quality level, or `?cloudQuality=` (1 to 32). */
+  cloudSteps: Math.min(32, Math.max(1, Math.round(Number(params.get('cloudQuality') ?? 0)) || QUALITY_CLOUD_STEPS[START_QUALITY])),
   /** Single-scattering atmospheres of the Earth, Mars and Venus. */
   atmosphere: params.get('atmosphere') !== 'off',
-  overviewView: {target: [0, 0, 0] as V3, zoom: 0, rotationOrbit: 30, rotationX: 35, minZoom: -12, maxZoom: 30},
+  overviewView: {target: [0, 0, 0] as V3, zoom: 0, rotationOrbit: START_ORBIT, rotationX: 35, minZoom: -12, maxZoom: 30},
   globeViews: {} as Record<string, {longitude: number; latitude: number; zoom: number; bearing?: number; pitch?: number; minZoom?: number; maxZoom?: number}>,
   clicked: null as null | {body: BodyId; lat: number; lon: number},
   /** Space volumes: look volumes, corona, comet, gas clouds, dust; and their quality. */
@@ -121,7 +132,7 @@ const state = {
     gas: params.get('gas') !== 'off',
     dust: params.get('dust') !== 'off',
     cloudMode: params.get('cloud') === 'procedural' ? 'procedural' : 'baked',
-    quality: (['low', 'medium', 'high'].includes(params.get('quality') ?? '') ? params.get('quality') : 'medium') as Quality
+    quality: START_QUALITY
   } as SpaceToggles,
   /** Overview camera when it is not an OrbitView state: globe mode and the fly-out. */
   camera: null as null | Camera
@@ -1024,7 +1035,7 @@ function bodyShadowLayers(id: BodyId) {
 function defaultGlobeView(single: boolean, id?: BodyId) {
   const w = single ? innerWidth : innerWidth / 3;
   // GlobeView: at zoom 0 the globe is 512 px around, about 163 px across.
-  const h = single ? innerHeight : innerHeight - COMPARE_TOP;
+  const h = single ? innerHeight : innerHeight - COMPARE_TOP - COMPARE_BOTTOM;
   // Saturn: fit the rings (outer edge 2.27 radii) instead of the planet.
   const fit = id === 'saturn' ? SATURN_RINGS.outerKm / SATURN_KM + 0.05 : 1;
   const zoom = Math.log2((Math.min(w, h) * 0.85) / 163 / fit);
@@ -1510,7 +1521,7 @@ function render() {
     deck.setProps({
       views: COMPARE_IDS.map(
         (id, i) =>
-          new GlobeView({id, resolution: GLOBE_RESOLUTION, x: `${(i * 100) / 3}%`, width: `${100 / 3}%`, y: COMPARE_TOP, height: innerHeight - COMPARE_TOP, controller: CONTROLLER})
+          new GlobeView({id, resolution: GLOBE_RESOLUTION, x: `${(i * 100) / 3}%`, width: `${100 / 3}%`, y: COMPARE_TOP, height: innerHeight - COMPARE_TOP - COMPARE_BOTTOM, controller: CONTROLLER})
       ),
       viewState: {...state.globeViews},
       layers: [
@@ -1905,7 +1916,7 @@ function slerp(a: V3, b: V3, t: number): V3 {
 }
 
 /** Globe mode without a fly-in (`?mode=globe`): longitude 0, latitude 15 (or `lon`, `lat`, `zoom`), north up. */
-function enterGlobe(id: BodyId) {
+function enterGlobe(id: BodyId, query: URLSearchParams = params) {
   ++flight;
   flightPhase = '';
   flightFocus = undefined;
@@ -1918,12 +1929,12 @@ function enterGlobe(id: BodyId) {
   state.clicked = null;
   // `view=sun`: face the sub-solar point of the body (where its eclipse shadows fall).
   const subSolar = lonLatOf(toFixed(id, scaleV(scene.night[id], -1)));
-  const facing = params.get('view') === 'sun' && id !== 'sun';
-  const latitude = Number(params.get('lat') ?? (facing ? subSolar.lat : id === 'saturn' ? 20 : 15));
-  const longitude = Number(params.get('lon') ?? (facing ? subSolar.lon : 0));
+  const facing = query.get('view') === 'sun' && id !== 'sun';
+  const latitude = Number(query.get('lat') ?? (facing ? subSolar.lat : id === 'saturn' ? 20 : 15));
+  const longitude = Number(query.get('lon') ?? (facing ? subSolar.lon : 0));
   const limits = globeZoomLimits(id);
   const fit = Math.log2((globeRadiusForLimb(handoffLimbPx(id)) * innerHeight) / 256) + zoomAdjustAt(latitude);
-  const zoom = Math.min(limits.maxZoom, Math.max(limits.minZoom, Number(params.get('zoom') ?? fit)));
+  const zoom = Math.min(limits.maxZoom, Math.max(limits.minZoom, Number(query.get('zoom') ?? fit)));
   state.globeViews = {globe: {longitude, latitude, zoom, bearing: 0, pitch: 0, ...limits}};
   globeOpacity = 1;
   mountGlobe(id);
@@ -1964,7 +1975,8 @@ function enterOverview() {
 }
 /** Overview centred on a body, wide enough for its moons or rings (`?focus=`; `orbit`, `tilt` and `extent` set the camera). */
 const FOCUS_EXTENT: Partial<Record<BodyId, number>> = {jupiter: 4, saturn: 2.6};
-function focusOn(id: BodyId, extent = Number(params.get('extent') ?? FOCUS_EXTENT[id] ?? 1.5)) {
+function focusOn(id: BodyId, query: URLSearchParams = params) {
+  const extent = Number(query.get('extent') ?? FOCUS_EXTENT[id] ?? 1.5);
   state.mode = 'overview';
   state.camera = null;
   globeOpacity = 0;
@@ -1974,8 +1986,8 @@ function focusOn(id: BodyId, extent = Number(params.get('extent') ?? FOCUS_EXTEN
     ...state.overviewView,
     target: scene.pos[id],
     zoom: Math.log2((Math.min(innerWidth, innerHeight) * 0.42) / radius),
-    rotationOrbit: Number(params.get('orbit') ?? state.overviewView.rotationOrbit),
-    rotationX: Number(params.get('tilt') ?? 25)
+    rotationOrbit: Number(query.get('orbit') ?? state.overviewView.rotationOrbit),
+    rotationX: Number(query.get('tilt') ?? 25)
   };
   render();
 }
@@ -1993,59 +2005,58 @@ const SPEEDS: [number, string][] = [
   [30 * 86400, '30 days per second'],
   [365.25 * 86400, '1 year per second']
 ];
-const panel = $('panel');
-panel.innerHTML = `
-  <h1>Solar system</h1>
-  <div class="row">
-    <button id="to-system">System</button>
-    <button id="to-compare">Compare Earth, Moon, Mars</button>
-  </div>
-  <div class="row"><button id="play">Play</button>
-    <select id="speed" title="Playback speed">${SPEEDS.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}</select>
-    <button id="now" title="Go to the current time">Now</button></div>
-  <div class="row"><span id="date-label"></span></div>
-  <div id="time-controls">
-    <label class="row">Date <input id="date" type="date"></label>
-    <label class="row">Offset <input id="offset" type="range" min="-365" max="365" step="1">
-      <select id="unit"><option value="days">days</option><option value="years">years</option></select></label>
-  </div>
-  <div id="overview-controls">
-    <label class="row"><input id="readable" type="checkbox"> Readable scale (log distances, enlarged bodies)</label>
-  </div>
-  <div class="row wrap" id="fly"></div>
-  <div id="globe-controls">
-    <div class="row"><button id="back">Back to system</button><b id="globe-title"></b></div>
-    <label class="row" id="link-row"><input id="linked" type="checkbox"> Linked rotation</label>
-  </div>
-  <label class="row">Surface <select id="surface"><option value="vector">Vector map</option><option value="imagery">Imagery</option></select></label>
-  <label class="row"><input id="night" type="checkbox"> Night side</label>
-  <label class="row"><input id="shadows" type="checkbox"> Eclipse shadows</label>
-  <label class="row"><input id="corotate" type="checkbox"> Rotate with body</label>
-  <label class="row"><input id="clouds" type="checkbox"> Clouds
-    <select id="cloud-quality" title="Cloud quality: ray-march steps"><option value="6">Low (6 steps)</option><option value="12">Medium (12 steps)</option><option value="24">High (24 steps)</option></select></label>
-  <label class="row"><input id="atmosphere" type="checkbox"> Atmosphere (Earth, Mars, Venus)</label>
-  <details id="space-box" open><summary>Space volumes</summary>
-    <div class="row wrap">
-      <label><input id="sp-looks" type="checkbox"> Look volumes</label>
-      <label><input id="sp-corona" type="checkbox"> Corona</label>
-      <label><input id="sp-comet" type="checkbox"> Comet</label>
-      <label><input id="sp-gas" type="checkbox"> Gas clouds</label>
-      <label><input id="sp-dust" type="checkbox"> Dust</label>
-    </div>
-    <div class="row">Quality <select id="sp-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
-      Cloud <select id="sp-cloud"><option value="baked">Baked 96³</option><option value="procedural">Procedural noise</option></select></div>
-    <div class="row wrap"><button id="sp-perihelion">Comet at perihelion</button><button id="sp-into-cloud">Fly into the Ember cloud</button></div>
-    <div class="note dim">Artistic: the three coloured gas clouds and the corona streamers. Measured models: corona density (Baumbach 1937), zodiacal dust profile (Kelsall et al. 1998, brightness scaled), comet orbit (JPL SBDB, two-body).</div>
-    <div class="note" id="space-look"></div>
-  </details>
-  <div id="gravity" class="note"></div>
-  <div id="sky" class="note"></div>
-  <details id="notes-box"><summary>Notes</summary><div class="note" id="notes"></div></details>
-  <div class="note" id="stats"></div>
-  <div class="error" id="errors"></div>`;
-$('fly').innerHTML = BODY_IDS.map(id => `<button data-body="${id}">${BODIES[id].label}</button>`).join('');
+/** Half-widths of the time bar, days. */
+const SPANS: [number, string][] = [[30, '±30 days'], [365, '±1 year'], [3652.5, '±10 years'], [73050, '±200 years']];
+/** The time bar marks every eclipse on a window of up to a year, and the major ones up to ten years. */
+const ALL_MARKS_SPAN = 365;
+const MAJOR_MARKS_SPAN = 3652.5;
+/** The next-event button looks this far ahead, days. */
+const NEXT_EVENT_DAYS = 400;
+
+/**
+ * One-click states. A scene with a `query` opens as the page does from that URL query; `on` names
+ * the layers that it shows, which it turns on.
+ */
+type SceneSpec = {id: string; label: string; hint: string; query?: string; on?: ('shadows' | 'clouds')[]; run?: () => void};
+const SCENES: SceneSpec[] = [
+  {id: 'solar-eclipse', label: 'Total solar eclipse, 2024', hint: 'The shadow of the Moon on the Earth', query: 'mode=globe&body=earth&date=2024-04-08T18:17Z&lon=-100&lat=28', on: ['shadows']},
+  {id: 'ring-shadow', label: 'Ring shadow of Saturn', hint: 'Saturn and its rings shade each other, 2017', query: 'focus=saturn&date=2017-06-01&orbit=120&tilt=35', on: ['shadows']},
+  {id: 'lunar-eclipse', label: 'Total lunar eclipse, 2025', hint: 'The shadow of the Earth on the Moon', query: 'focus=moon&date=2025-03-14T06:58Z', on: ['shadows']},
+  {id: 'comet', label: 'Comet at perihelion', hint: `${NEOWISE.name}, 2020-07-03`, query: 'comet=perihelion'},
+  {id: 'ember', label: 'Into the Ember cloud', hint: 'A flight into a gas cloud (artistic)', run: () => flyIntoCloud()},
+  {id: 'clouds', label: 'Clouds of the Earth', hint: 'The day side, from above the sub-solar point', query: 'mode=globe&body=earth&view=sun', on: ['clouds']}
+];
+const START_CARD = params.get('card');
+const panel = createPanel($('panel'), {
+  speeds: SPEEDS,
+  spans: SPANS,
+  bodyGroups: [
+    {label: 'Sun and planets', bodies: BODY_IDS.filter(id => id !== 'moon').map(id => ({id, label: BODIES[id].label, color: BODIES[id].color}))},
+    {label: 'Moons', bodies: [{id: 'moon', label: BODIES.moon.label, color: BODIES.moon.color}]}
+  ],
+  scenes: SCENES,
+  // A wide window starts with the Navigate card; a narrow one starts with the view clear.
+  card: CARD_IDS.includes(START_CARD as CardId) ? (START_CARD as CardId) : START_CARD === 'none' || innerWidth <= 640 ? null : 'navigate',
+  hud: params.get('hud') !== 'off',
+  onScene: id => openScene(id),
+  onMark: index => jumpTo(marked[index]),
+  onPlayPause: () => setPlaying(!state.playing),
+  onSpeedStep: direction => {
+    // From a speed that the list does not have (`?speed=`): the nearest listed speed in that direction.
+    const next = direction > 0 ? SPEEDS.find(([v]) => v > state.speed) : [...SPEEDS].reverse().find(([v]) => v < state.speed);
+    if (!next) return;
+    state.speed = next[0];
+    syncSpeed();
+  },
+  onBack: () => {
+    if (state.mode === 'overview') return false;
+    if (state.mode === 'globe') flyOut();
+    else enterOverview();
+    return true;
+  }
+});
 $('fly').addEventListener('click', event => {
-  const id = (event.target as HTMLElement).dataset.body as BodyId | undefined;
+  const id = (event.target as HTMLElement).closest<HTMLElement>('[data-body]')?.dataset.body as BodyId | undefined;
   if (id) travelTo(id);
 });
 $('to-system').onclick = () => (state.mode === 'globe' ? flyOut() : enterOverview());
@@ -2083,14 +2094,28 @@ $<HTMLInputElement>('clouds').onchange = event => {
   state.clouds = (event.target as HTMLInputElement).checked;
   if (state.mode !== 'compare' && !flightPhase) render();
 };
-const qualitySelect = $<HTMLSelectElement>('cloud-quality');
-if (![...qualitySelect.options].some(option => option.value === String(state.cloudSteps))) {
-  qualitySelect.add(new Option(`${state.cloudSteps} steps`, String(state.cloudSteps)));
+/**
+ * One quality level sets the cloud steps and the space-volume quality. `?cloudQuality=` can set
+ * steps that no level has: the list then shows that as its own entry until a level is chosen.
+ */
+const qualitySelect = $<HTMLSelectElement>('quality');
+function syncQuality() {
+  qualitySelect.querySelector('[value="custom"]')?.remove();
+  const custom = state.cloudSteps !== QUALITY_CLOUD_STEPS[state.space.quality];
+  if (custom) {
+    const level = state.space.quality;
+    qualitySelect.add(new Option(`${level[0].toUpperCase()}${level.slice(1)}, clouds ${state.cloudSteps} steps`, 'custom'));
+  }
+  qualitySelect.value = custom ? 'custom' : state.space.quality;
 }
-qualitySelect.value = String(state.cloudSteps);
+syncQuality();
 qualitySelect.onchange = () => {
-  state.cloudSteps = Number(qualitySelect.value);
+  if (qualitySelect.value === 'custom') return;
+  state.space.quality = qualitySelect.value as Quality;
+  state.cloudSteps = QUALITY_CLOUD_STEPS[state.space.quality];
+  syncQuality();
   if (state.mode !== 'compare' && !flightPhase) render();
+  else deck.redraw('space');
 };
 $<HTMLInputElement>('atmosphere').checked = state.atmosphere;
 $<HTMLInputElement>('atmosphere').onchange = event => {
@@ -2102,43 +2127,151 @@ $<HTMLInputElement>('night').onchange = event => {
   state.night = (event.target as HTMLInputElement).checked;
   render();
 };
+
+// The time bar: the clock is `baseDate + offsetDays`; the bar shows the offset on a window of
+// `spanDays` each side of the base date.
 const dateInput = $<HTMLInputElement>('date');
+const timeInput = $<HTMLInputElement>('time');
 const offsetInput = $<HTMLInputElement>('offset');
-const unitScale = () => (state.sliderUnit === 'years' ? 365.25 : 1);
+const clockTime = () => state.baseDate.getTime() + state.offsetDays * 86400000;
 function syncTimeInputs() {
-  dateInput.value = state.baseDate.toISOString().slice(0, 10);
-  offsetInput.min = state.sliderUnit === 'years' ? '-200' : '-365';
-  offsetInput.max = state.sliderUnit === 'years' ? '200' : '365';
-  offsetInput.step = state.sliderUnit === 'years' ? '0.1' : '1';
-  offsetInput.value = String(state.offsetDays / unitScale());
+  // The clock left the window (playback): the window moves to it.
+  if (Math.abs(state.offsetDays) > state.spanDays) {
+    state.baseDate = new Date(clockTime());
+    state.offsetDays = 0;
+  }
+  const iso = new Date(clockTime()).toISOString();
+  if (document.activeElement !== dateInput) dateInput.value = iso.slice(0, 10);
+  if (document.activeElement !== timeInput) timeInput.value = iso.slice(11, 16);
+  offsetInput.min = String(-state.spanDays);
+  offsetInput.max = String(state.spanDays);
+  offsetInput.value = String(state.offsetDays);
+  syncMarks();
 }
-syncTimeInputs();
-dateInput.onchange = () => {
-  if (!dateInput.value) return;
-  state.baseDate = new Date(`${dateInput.value}T00:00:00Z`);
+/** Sets the clock; the window of the time bar moves to it. */
+function setClock(date: Date) {
+  state.baseDate = date;
   state.offsetDays = 0;
   syncTimeInputs();
+}
+/** A new day starts at UTC midnight, as `?date=` does; the time field then sets the time of day. */
+dateInput.onchange = () => {
+  if (!dateInput.value) return;
+  timeInput.value = '00:00';
+  setClock(new Date(`${dateInput.value}T00:00:00Z`));
+  render();
+};
+timeInput.onchange = () => {
+  const date = new Date(`${dateInput.value}T${timeInput.value || '00:00'}:00Z`);
+  if (Number.isNaN(date.getTime())) return;
+  setClock(date);
   render();
 };
 offsetInput.oninput = () => {
-  state.offsetDays = Number(offsetInput.value) * unitScale();
+  state.offsetDays = Number(offsetInput.value);
   render();
 };
-$<HTMLSelectElement>('unit').onchange = event => {
-  state.sliderUnit = (event.target as HTMLSelectElement).value as 'days' | 'years';
+const spanSelect = $<HTMLSelectElement>('span');
+spanSelect.value = String(state.spanDays);
+spanSelect.onchange = () => {
+  state.spanDays = Number(spanSelect.value);
   syncTimeInputs();
 };
-$<HTMLSelectElement>('speed').value = String(state.speed);
-$<HTMLSelectElement>('speed').onchange = event => {
-  state.speed = Number((event.target as HTMLSelectElement).value);
+const speedSelect = $<HTMLSelectElement>('speed');
+function syncSpeed() {
+  speedSelect.querySelector('[data-custom]')?.remove();
+  if (!SPEEDS.some(([v]) => v === state.speed)) {
+    const option = new Option(`${state.speed} s per second`, String(state.speed));
+    option.dataset.custom = '';
+    speedSelect.add(option);
+  }
+  speedSelect.value = String(state.speed);
+}
+syncSpeed();
+speedSelect.onchange = () => {
+  state.speed = Number(speedSelect.value);
+  syncSpeed();
 };
 $('play').onclick = () => setPlaying(!state.playing);
 $('now').onclick = () => {
-  state.baseDate = new Date();
-  state.offsetDays = 0;
-  syncTimeInputs();
+  setClock(new Date());
   render();
 };
+
+/**
+ * Eclipses by UTC year. A search takes about 30 ms per year, so it runs one year per task, and
+ * the marks appear as the years arrive.
+ */
+const eclipseYears = new Map<number, SkyEvent[]>();
+let eclipseTask = 0;
+function eclipsesBetween(from: number, to: number): SkyEvent[] {
+  const found: SkyEvent[] = [];
+  let missing: number | null = null;
+  for (let year = new Date(from).getUTCFullYear(); year <= new Date(to).getUTCFullYear(); year++) {
+    const list = eclipseYears.get(year);
+    if (list) found.push(...list);
+    else missing ??= year;
+  }
+  if (missing !== null && !eclipseTask) {
+    const year = missing;
+    eclipseTask = window.setTimeout(() => {
+      eclipseTask = 0;
+      if (eclipseYears.size > 64) eclipseYears.clear();
+      eclipseYears.set(year, findEclipses(new Date(Date.UTC(year, 0, 1)), new Date(Date.UTC(year + 1, 0, 1) - 1)));
+      syncMarks();
+    }, 0);
+  }
+  return found.filter(e => e.date.getTime() >= from && e.date.getTime() <= to);
+}
+/** The events from the start of the eclipse marks to NEXT_EVENT_DAYS past the clock, in time order. */
+let events: SkyEvent[] = [];
+/** The events that have a mark now, in mark order. */
+let marked: SkyEvent[] = [];
+let marksKey = '';
+function syncMarks() {
+  const base = state.baseDate.getTime();
+  const span = state.spanDays * 86400000;
+  const eclipseSpan = state.spanDays <= MAJOR_MARKS_SPAN ? span : 0;
+  const ahead = NEXT_EVENT_DAYS * 86400000;
+  events = eclipsesBetween(base - eclipseSpan, Math.max(base + eclipseSpan, clockTime() + ahead));
+  const perihelion = COMET_PERIHELION_DATE.getTime();
+  if (Math.abs(perihelion - base) <= Math.max(span, ahead)) {
+    events.push({kind: 'comet-perihelion', date: COMET_PERIHELION_DATE, label: `${NEOWISE.name} at perihelion`, major: true});
+    events.sort((a, b) => a.date.getTime() - b.date.getTime());
+  }
+  const shown = events.filter(
+    e => Math.abs(e.date.getTime() - base) <= span && (e.major || state.spanDays <= ALL_MARKS_SPAN)
+  );
+  const when = (e: SkyEvent) => `${e.date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+  const key = `${base}:${span}:${shown.length}:${shown[0]?.date.getTime()}:${shown[shown.length - 1]?.date.getTime()}`;
+  if (key !== marksKey) {
+    marksKey = key;
+    marked = shown;
+    panel.setMarks(
+      shown.map(e => ({fraction: (e.date.getTime() - base + span) / (2 * span), kind: e.kind, major: e.major, label: `${e.label}, ${when(e)}`}))
+    );
+  }
+  const next = nextEvent();
+  const button = $<HTMLButtonElement>('next-event');
+  const title = next ? `Next: ${next.label}, ${when(next)}` : `No event in the next ${NEXT_EVENT_DAYS} days`;
+  if (button.title !== title) {
+    button.title = title;
+    button.setAttribute('aria-label', title);
+    button.disabled = !next;
+  }
+}
+/** The first event more than a minute after the clock. */
+const nextEvent = () => events.find(e => e.date.getTime() > clockTime() + 60000);
+/** Sets the clock to an event. The window stays, if it has the event. */
+function jumpTo(event: SkyEvent | undefined) {
+  if (!event) return;
+  state.offsetDays = (event.date.getTime() - state.baseDate.getTime()) / 86400000;
+  syncTimeInputs();
+  render();
+}
+$('next-event').onclick = () => jumpTo(nextEvent());
+syncTimeInputs();
+
 for (const key of ['looks', 'corona', 'comet', 'gas', 'dust'] as const) {
   const input = $<HTMLInputElement>(`sp-${key}`);
   input.checked = state.space[key];
@@ -2148,22 +2281,49 @@ for (const key of ['looks', 'corona', 'comet', 'gas', 'dust'] as const) {
     else deck.redraw('space');
   };
 }
-$<HTMLSelectElement>('sp-quality').value = state.space.quality;
-$<HTMLSelectElement>('sp-quality').onchange = event => {
-  state.space.quality = (event.target as HTMLSelectElement).value as Quality;
-  deck.redraw('space');
-};
 $<HTMLSelectElement>('sp-cloud').value = state.space.cloudMode;
 $<HTMLSelectElement>('sp-cloud').onchange = event => {
   state.space.cloudMode = (event.target as HTMLSelectElement).value as SpaceToggles['cloudMode'];
   deck.redraw('space');
 };
-$('sp-perihelion').onclick = () => focusComet(true);
-$('sp-into-cloud').onclick = () => flyIntoCloud();
 $<HTMLInputElement>('linked').checked = state.linked;
 $<HTMLInputElement>('linked').onchange = event => {
   state.linked = (event.target as HTMLInputElement).checked;
 };
+
+/** Opens the view of a URL query: the start state of the page, and the scenes. */
+function openView(query: URLSearchParams) {
+  const mode = query.get('mode');
+  const body = query.get('body') ?? '';
+  const focus = query.get('focus') ?? '';
+  if (mode === 'globe') enterGlobe(body in BODIES ? (body as BodyId) : 'earth', query);
+  else if (mode === 'compare') enterCompare();
+  else if (focus in BODIES) focusOn(focus as BodyId, query);
+  else if (query.get('comet') === 'perihelion') focusComet(true);
+  else enterOverview();
+}
+function openScene(id: string) {
+  const spec = SCENES.find(s => s.id === id);
+  if (!spec) return;
+  for (const key of spec.on ?? []) {
+    state[key] = true;
+    $<HTMLInputElement>(key).checked = true;
+  }
+  if (spec.run) {
+    spec.run();
+    return;
+  }
+  // A scene is one instant: the clock stops there.
+  setPlaying(false);
+  const query = new URLSearchParams(spec.query);
+  if (query.has('date')) setClock(parseDate(query.get('date')));
+  if (query.get('mode') !== 'globe') {
+    // As the page starts: the system view, at the start rotation.
+    enterOverview();
+    state.overviewView = {...state.overviewView, rotationOrbit: START_ORBIT};
+  }
+  openView(query);
+}
 
 /**
  * Playback: the simulated time advances by the real time since the last frame times the speed.
@@ -2175,7 +2335,7 @@ let lastPlayTime = 0;
 let lastPlayRender = 0;
 function setPlaying(playing: boolean) {
   state.playing = playing;
-  $('play').textContent = playing ? 'Pause' : 'Play';
+  panel.setPlaying(playing);
   lastPlayTime = performance.now();
   lastPlayRender = 0;
   if (playing) requestAnimationFrame(playStep);
@@ -2197,9 +2357,7 @@ function playStep(now: number) {
 function focusComet(atPerihelion: boolean) {
   if (state.mode !== 'overview' || flightPhase) enterOverview();
   if (atPerihelion) {
-    state.baseDate = PERIHELION_DATE;
-    state.offsetDays = 0;
-    syncTimeInputs();
+    setClock(COMET_PERIHELION_DATE);
   }
   state.space.comet = true;
   $<HTMLInputElement>('sp-comet').checked = true;
@@ -2260,6 +2418,29 @@ function gravityText(id: BodyId, lat: number | null) {
   return `${body.label}: normal gravity equator ${f(g.surfaceGravity(0))}, pole ${f(g.surfaceGravity(90))} m/s²${at}`;
 }
 
+/** Why a layer control does not apply to the view now (the reason shows beside it), or null. */
+function layerLimits(): Record<'surface' | 'night' | 'shadows' | 'corotate' | 'clouds' | 'atmosphere', string | null> {
+  const globe = state.mode === 'globe';
+  const compare = state.mode === 'compare';
+  const id = state.body;
+  const air = ATMOSPHERE_IDS.includes(id);
+  return {
+    // A body with no vector data shows the same map in both modes.
+    surface: globe && id !== 'earth' && !BODIES[id].vector ? 'no vector map' : null,
+    night: globe && id === 'sun' ? 'no night side' : null,
+    shadows: globe && !SHADOWED_BODIES.has(id) ? 'none on this body' : null,
+    corotate: globe ? null : 'globe view only',
+    // The compare view has no cloud or atmosphere layer.
+    clouds: compare ? 'not in compare' : globe && id !== 'earth' && id !== 'venus' ? 'Earth and Venus only' : null,
+    atmosphere: compare
+      ? 'not in compare'
+      : globe && !air
+        ? id === 'moon' || id === 'mercury' ? 'no atmosphere' : 'Earth, Mars, Venus only'
+        : null
+  };
+}
+
+let panelMode = '';
 function renderPanel() {
   const overview = state.mode === 'overview';
   $('overview-controls').style.display = overview ? '' : 'none';
@@ -2267,9 +2448,21 @@ function renderPanel() {
   $('fly').style.display = state.mode === 'compare' ? 'none' : '';
   $('link-row').style.display = state.mode === 'compare' ? '' : 'none';
   $('back').style.display = state.mode === 'globe' ? '' : 'none';
-  ($('notes-box') as HTMLDetailsElement).open = overview && params.get('notes') !== 'off';
+  $('to-system').setAttribute('aria-pressed', String(overview));
+  $('to-compare').setAttribute('aria-pressed', String(state.mode === 'compare'));
+  for (const button of $('fly').querySelectorAll<HTMLElement>('[data-body]')) {
+    button.setAttribute('aria-pressed', String(state.mode === 'globe' && button.dataset.body === state.body));
+  }
+  // The notes open with the system view; the user can close them until the mode changes.
+  if (panelMode !== state.mode) {
+    panelMode = state.mode;
+    ($('notes-box') as HTMLDetailsElement).open = overview && params.get('notes') !== 'off';
+  }
+  const limits = layerLimits();
+  for (const key of Object.keys(limits) as (keyof typeof limits)[]) panel.setAvailable(key, limits[key]);
   $('globe-title').textContent = state.mode === 'globe' ? BODIES[state.body].label : 'Earth | Moon | Mars';
   $('date-label').textContent = `${scene.date.toISOString().slice(0, 19).replace('T', ' ')} UTC`;
+  renderHud();
   const ids = state.mode === 'globe' ? [state.body] : state.mode === 'compare' ? COMPARE_IDS : [];
   const clicked = state.clicked;
   $('gravity').innerHTML = ids.length
@@ -2282,8 +2475,16 @@ function renderPanel() {
     : `GlobeView draws every body on a sphere of the Earth's radius: heights and distances read as Earth units.
        Web Mercator tiles stop at ±85.05°: at the poles the overview sphere shows through.`;
   const cloudCredit = state.clouds && state.mode !== 'compare' && (state.mode === 'overview' || ids.includes('earth')) ? ` ${EARTH_CLOUD_CREDIT}` : '';
-  $('credit').textContent = `${creditText(ids)}${cloudCredit} ${SKY_CREDIT}`;
+  const credit = `${creditText(ids)}${cloudCredit} ${SKY_CREDIT}`;
+  if ($('credit').textContent !== credit) $('credit').textContent = credit;
   renderSky();
+}
+
+/** The status readout: the view, the scale and the frame rate. */
+let fps = '-';
+function renderHud() {
+  const view = state.mode === 'globe' ? BODIES[state.body].label : state.mode === 'compare' ? 'Compare' : 'System';
+  panel.setHud(`${view} · ${state.scale === 'true' ? 'true scale' : 'readable scale'} · ${fps} fps`);
 }
 
 function creditText(ids: BodyId[]) {
@@ -2328,10 +2529,13 @@ function renderSky() {
 setInterval(() => {
   const m = (state.mode === 'globe' ? globeDeck : deck).metrics as unknown as Record<string, number>;
   const tiles = getTileStats();
+  fps = m.fps?.toFixed(0) ?? '-';
+  renderHud();
   $('stats').textContent =
-    `fps ${m.fps?.toFixed(0) ?? '-'} · tiles ${tiles.served}, source tiles ${tiles.sourceTiles}` +
-    (tiles.sourceMisses ? ` (failed ${tiles.sourceMisses})` : '');
-  $('errors').textContent = [...errors, ...textureErrors].slice(-3).join('\n');
+    `tiles ${tiles.served}, source tiles ${tiles.sourceTiles}` + (tiles.sourceMisses ? ` (failed ${tiles.sourceMisses})` : '');
+  const failures = [...errors, ...textureErrors];
+  $('errors').textContent = failures.slice(-3).join('\n');
+  panel.setErrorCount(failures.length);
   const look = spaceStats.look;
   const shares = look ? look.weights.filter(w => w.share > 0.005).map(w => `${w.id} ${(100 * w.share).toFixed(0)}%`) : [];
   $('space-look').textContent =
@@ -2348,6 +2552,11 @@ Object.assign(window, {
     flyOut,
     travelTo,
     setPlaying,
+    /** A scene of the Scenes menu, by id, and the events of the time bar. */
+    openScene,
+    scenes: () => SCENES.map(({id, query}) => ({id, query})),
+    events: () => events,
+    panel,
     phase: () => flightPhase,
     /** The camera of the overview deck (the view under the globe), for flight checks. */
     camera: () => {
@@ -2385,8 +2594,4 @@ Object.assign(window, {
 
 // ---------- Start ----------
 
-if (state.mode === 'globe') enterGlobe(state.body);
-else if (state.mode === 'compare') enterCompare();
-else if (params.get('focus') && params.get('focus')! in BODIES) focusOn(params.get('focus') as BodyId);
-else if (COMET_PERIHELION) focusComet(true);
-else enterOverview();
+openView(params);

@@ -11,22 +11,109 @@ Copyright (c) vis.gl contributors
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>BasemapLayer solar system</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #000; color: #e8ecf4; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+  :root { color-scheme: dark; --credit-h: 20px; --dock-h: 52px; --rail-h: 49px; --bg: rgba(8,11,20,.94); --line: #2a3550; --text: #e8ecf4; --dim: #aab3c8; --accent: #8ecbff; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--text); font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
   #stage, #map, #globe, #front, #volumes { position: absolute; inset: 0; }
   #volumes { z-index: 1; width: 100%; height: 100%; pointer-events: none; }
   #globe { z-index: 1; opacity: 0; visibility: hidden; pointer-events: none; }
   #front { z-index: 1; visibility: hidden; pointer-events: none; }
-  #panel { position: absolute; top: 8px; left: 8px; z-index: 2; background: rgba(4,6,12,.82); padding: 8px 10px; max-width: 400px; border-radius: 6px; border: 1px solid #223; }
-  #panel h1 { font-size: 14px; margin: 0 0 6px; }
-  .row { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
-  .wrap { flex-wrap: wrap; }
-  button { background: #1b2233; color: #e8ecf4; border: 1px solid #34405c; border-radius: 4px; padding: 3px 7px; cursor: pointer; font: inherit; }
-  button:hover { background: #26304a; }
-  .note { margin-top: 6px; font-size: 12px; color: #b8c0d4; }
-  .dim { color: #8890a4; }
-  details summary { cursor: pointer; margin-top: 6px; color: #9cf; }
-  .error { color: #f88; white-space: pre-wrap; font-size: 11px; }
-  #credit { position: absolute; right: 0; bottom: 0; z-index: 2; background: rgba(0,0,0,.7); padding: 2px 6px; font-size: 11px; max-width: 70%; }
+
+  /* The controls (scene/panel.ts). #panel spans the page and takes no pointer events: only the
+     rail, the open card, the dock and the readout do, so the map takes every gesture elsewhere. */
+  #panel { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+  #rail, .card, #dock, #hud { pointer-events: auto; background: var(--bg); border: 1px solid var(--line); box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  button, select, input[type="date"], input[type="time"] { font: inherit; color: var(--text); background: #1b2233; border: 1px solid #3a4766; border-radius: 6px; padding: 4px 8px; }
+  button { cursor: pointer; }
+  button:hover:not(:disabled) { background: #26304a; }
+  button:disabled { color: #8d96ab; cursor: default; }
+  button[aria-pressed="true"] { background: #24406a; border-color: #5c8fd0; }
+  :focus-visible { outline: 2px solid #9fd0ff; outline-offset: 2px; }
+  input[type="checkbox"] { margin: 0; accent-color: var(--accent); }
+
+  #rail { position: absolute; left: 12px; top: 12px; display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 10px; }
+  .rail-btn { position: relative; width: 36px; height: 36px; display: grid; place-items: center; padding: 0; border: 0; background: transparent; color: var(--dim); border-radius: 7px; font-size: 16px; }
+  .rail-btn:hover:not(:disabled) { color: var(--text); }
+  .rail-btn[aria-expanded="true"] { background: #24406a; color: #fff; }
+  .rail-sep { height: 1px; background: var(--line); margin: 2px 4px; }
+  .badge { position: absolute; top: 1px; right: 1px; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 7px; background: #c62828; color: #fff; font: 700 10px/14px system-ui, sans-serif; }
+
+  /* A card stays left of the centre of the view at any width. */
+  #cards { position: absolute; left: 64px; top: 12px; width: min(300px, calc(50vw - 84px)); }
+  .card { max-height: calc(100vh - var(--credit-h) - var(--dock-h) - 40px); overflow: auto; border-radius: 10px; padding: 10px 12px; }
+  .card h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); margin: 0 0 8px; }
+  .row { display: flex; gap: 8px; align-items: center; margin: 6px 0; min-height: 24px; }
+  .wrap { flex-wrap: wrap; gap: 6px; }
+  .sep { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; }
+  .why { margin-left: auto; font-size: 11px; font-style: italic; color: var(--dim); text-align: right; }
+  .row.disabled { color: #9099ae; }
+  .group-label { font-size: 11px; color: var(--dim); margin: 8px 0 2px; }
+  .body-btn { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid rgba(255,255,255,.4); box-sizing: border-box; }
+  .scene { display: block; width: 100%; text-align: left; margin: 4px 0; padding: 6px 8px; }
+  .scene small { display: block; color: var(--dim); font-size: 11px; }
+  .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; margin: 0; }
+  .keys dd { margin: 0; }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid #3a4766; border-radius: 4px; padding: 1px 5px; background: #141a29; white-space: nowrap; }
+  .note { margin-top: 6px; font-size: 12px; color: #c3cada; }
+  .dim { color: var(--dim); }
+  details summary { cursor: pointer; margin-top: 6px; color: var(--accent); }
+  .error { color: #ff9a9a; white-space: pre-wrap; font-size: 11px; }
+
+  #hud { position: absolute; top: 12px; right: 12px; display: flex; align-items: center; gap: 8px; padding: 4px 5px 4px 10px; border-radius: 14px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  #hud.off { padding: 4px 5px; }
+  #hud.off #hud-text { display: none; }
+  #hud-toggle { position: relative; width: 28px; height: 16px; padding: 0; border: 0; border-radius: 8px; background: #46526e; }
+  #hud-toggle[aria-pressed="true"] { background: #2f6fb7; }
+  #hud-toggle i { position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+  #hud-toggle[aria-pressed="true"] i { left: 14px; }
+
+  #dock { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(var(--credit-h) + 8px); width: min(1040px, calc(100% - 24px)); display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 6px 10px; border-radius: 10px; }
+  .dock-group { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .scrub-group { flex: 1 1 320px; }
+  .icon-btn { width: 32px; height: 30px; padding: 0; display: grid; place-items: center; flex: none; }
+  #date-button { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  #date-pop { position: absolute; left: 10px; bottom: calc(100% + 6px); display: flex; gap: 10px; padding: 8px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); }
+  #date-pop label { display: grid; gap: 3px; font-size: 11px; color: var(--dim); }
+  /* The time bar: the marks sit above the track, at the positions that the thumb centre takes.
+     A lunar eclipse is two weeks from a solar one, so the lunar marks have their own lane. */
+  #scrub { position: relative; flex: 1; min-width: 100px; height: 38px; }
+  #offset { position: absolute; left: 0; bottom: 2px; width: 100%; height: 16px; margin: 0; padding: 0; background: transparent; -webkit-appearance: none; appearance: none; }
+  #offset::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: #46526e; }
+  #offset::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--accent); border: 2px solid #0b0f1a; box-sizing: border-box; }
+  #offset::-moz-range-track { height: 4px; border-radius: 2px; background: #46526e; }
+  #offset::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid #0b0f1a; box-sizing: border-box; }
+  #marks { position: absolute; left: 8px; right: 8px; top: 0; height: 20px; }
+  #marks .mark { position: absolute; left: calc(var(--f) * 100%); top: 0; width: 12px; height: 10px; margin-left: -6px; padding: 0; border: 0; border-radius: 3px; background: transparent; }
+  #marks .mark.lunar-eclipse { top: 10px; }
+  #marks .mark:hover { background: #46526e; }
+  i.mark { display: inline-block; width: 14px; height: 12px; vertical-align: -2px; }
+  .mark::before { content: ""; display: block; margin: auto; width: 6px; height: 6px; border-radius: 50%; box-sizing: border-box; }
+  .mark.major::before { width: 9px; height: 9px; }
+  .mark.solar-eclipse::before { background: #05070d; border: 2px solid #fff0c4; }
+  .mark.lunar-eclipse::before { background: #ff8f7a; }
+  .mark.comet-perihelion::before { width: 7px; height: 7px; border-radius: 1px; background: #8fe3ff; transform: rotate(45deg); }
+
+  /* The credits: one line; a click shows all of them (the dock moves up with --credit-h). */
+  #credit { position: absolute; left: 0; right: 0; bottom: 0; z-index: 2; box-sizing: border-box; background: rgba(0,0,0,.75); color: #d5dbe8; padding: 2px 8px; font-size: 11px; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+  #credit[aria-expanded="true"] { white-space: normal; }
+
+  /* Narrow: the rail is a bar at the bottom, the dock is above it, and a card is a sheet above the dock. */
+  @media (max-width: 640px) {
+    #rail { left: 0; right: 0; top: auto; bottom: var(--credit-h); flex-direction: row; justify-content: space-around; border-radius: 0; border-width: 1px 0 0; padding: 4px 6px; }
+    .rail-btn { width: 44px; height: 40px; }
+    .rail-sep { width: 1px; height: auto; margin: 4px 0; }
+    #dock { left: 6px; right: 6px; width: auto; transform: none; bottom: calc(var(--credit-h) + var(--rail-h) + 6px); }
+    /* One wrapping row: play, speed and date first; Now joins the time bar. */
+    #dock { gap: 6px; }
+    .dock-group { display: contents; }
+    #speed { flex: 1 1 130px; min-width: 130px; }
+    #date-button { font-size: 12px; padding: 4px 6px; }
+    #scrub { flex: 1 1 90px; min-width: 90px; }
+    #cards { left: 6px; right: 6px; top: auto; width: auto; bottom: calc(var(--credit-h) + var(--rail-h) + var(--dock-h) + 12px); }
+    .card { max-height: max(150px, calc(50vh - var(--credit-h) - var(--rail-h) - var(--dock-h) - 40px)); }
+    #hud { top: 8px; right: 8px; }
+  }
 </style>
 </head>
 <body>
