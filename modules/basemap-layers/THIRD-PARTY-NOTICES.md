@@ -16,7 +16,7 @@ built `dist` files.
 
 | Upstream | License | Files in this package |
 | --- | --- | --- |
-| [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) v6.13.0, which contains code from mapbox-gl-js v1.13 and earlier | BSD-3-Clause | Bundled from `map-utils/src/text/bidi.ts` and `map-utils/src/text/arabic-shaping.ts`; also `src/hillshade-layer.ts`, `src/raster-color-extension.ts` |
+| [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) v6.13.0, which contains code from mapbox-gl-js v1.13 and earlier | BSD-3-Clause | Bundled from `map-utils/src/text/bidi.ts` and `map-utils/src/text/arabic-shaping.ts`; also `src/hillshade-layer.ts`, `src/image-source-layer.ts`, `src/raster-color-extension.ts` |
 | [Unicode Character Database](https://www.unicode.org/ucd/) 17.0.0 | Unicode-3.0 | Bundled from `map-utils/src/text/arabic-shaping.ts` |
 
 ## MapLibre GL JS
@@ -29,6 +29,8 @@ Source: <https://github.com/maplibre/maplibre-gl-js/blob/v6.13.0/LICENSE.txt>
 - `src/hillshade-layer.ts` ports `src/shaders/glsl/hillshade.fragment.glsl` and the arithmetic of
   `src/shaders/glsl/hillshade_prepare.fragment.glsl`. The standard hillshade algorithm in that
   shader comes from mapbox-gl-js v1.13 and earlier.
+- `src/image-source-layer.ts` ports the image warp of `src/source/image_source.ts`
+  (`calculateImageWarp`) and the warped position of `src/shaders/glsl/raster.vertex.glsl`.
 - `src/raster-color-extension.ts` ports the color adjustments of
   `src/shaders/glsl/raster.fragment.glsl`, which come from mapbox-gl-js v1.13 and earlier.
 
