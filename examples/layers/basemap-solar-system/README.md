@@ -55,11 +55,52 @@ after `yarn build:modules`.
     `?mode=globe&body=jupiter&date=2015-01-24T06:04Z&view=sun&scale=true`
   - Saturn's shadow on its rings: `?focus=saturn&date=2017-06-01&orbit=120&tilt=35`
 
+- **Clouds and atmospheres.** The Earth gets a cloud shell 2 to 12 km above the surface, and
+  the Earth, Mars and Venus get a single-scattering atmosphere at the limb
+  (`scene/atmosphere-layer.ts`). One fragment shader ray-marches both, on a sphere a little
+  larger than the top of the atmosphere, in the overview and above the globe. See
+  [Clouds and atmospheres](#clouds-and-atmospheres).
+
 The page URL can set the start state, for example
 `?mode=globe&body=mars&surface=imagery&date=2026-06-21&speed=3600&night=off`. `date` takes a day
 (UTC midnight) or an ISO time. In globe mode `lon`, `lat` and `zoom` set the camera, and
 `view=sun` faces the sub-solar point. With `focus=<body>`, `orbit`, `tilt` and `extent` set the
-overview camera. `shadows=off` turns the eclipse shadows off.
+overview camera. `shadows=off` turns the eclipse shadows off. `clouds=off`, `atmosphere=off`
+and `cloudQuality=6|12|24` (ray-march steps) set the cloud controls.
+
+## Clouds and atmospheres
+
+- **Cloud density.** A NASA Blue Marble cloud map (2048 x 1024) gives each column its albedo:
+  the map brightness above a clear-sky floor of 0.1. The two-stream relation for conservative
+  scattering, A = 0.15 tau / (2 + 0.15 tau), gives its optical depth (at most 60). Thicker
+  clouds reach higher in the shell. The clouds turn only with the body; there is no weather.
+- **Cloud light.** math.gl `getCloudLighting` (`@math.gl/earth/sun`) gives the direct and the
+  sky light on a cloud at 7 km for each Sun altitude. A 128 x 2 table holds it
+  (`celestial/atmosphere.ts`), white-balanced to the Sun above the atmosphere. The table makes
+  the night side dark, cuts the beam at the horizon seen from the cloud, and reddens it at the
+  terminator. In the shader, a short march toward the Sun (2 to 4 steps) gives the
+  self-shadowing, a Henyey-Greenstein phase (g = 0.7, as math.gl) the forward lobe, and a
+  diffuse term scaled to the two-stream albedo of the column the rest.
+- **Atmosphere.** Rayleigh and Mie single scattering with exponential density profiles. The
+  optical depth toward the Sun is the Chapman function sqrt(pi r / 2) erfcx(sqrt(r / 2) cos z),
+  with erfcx after Ren & MacKenzie (2007). The body's own sphere shadows it. The parameters
+  and their sources are in `celestial/atmosphere.ts`:
+
+  | Body | Base, top | Scale heights (gas, aerosol) | Sources |
+  | --- | --- | --- | --- |
+  | Earth | 0, 60 km | 8 km, 1.2 km | Bruneton (2017), Precomputed Atmospheric Scattering, demo constants |
+  | Mars | 0, 80 km | 11.1 km, 11.1 km (dust, optical depth 0.5) | NASA Mars Fact Sheet; Lemmon et al. 2015; Wolff et al. 2009 |
+  | Venus | 70 km (cloud tops), 110 km | 4.9 km, 4 km (upper haze, optical depth 0.3) | VIRA (Seiff et al. 1985); Wilquet et al. 2009; NASA Venus Fact Sheet |
+
+  Mars and Venus Rayleigh coefficients are the Earth's, scaled by the number density and by
+  2.5 for CO2. Titan is not in the scene.
+- **Venus's cloud deck.** With **Clouds** on, Venus gets an opaque deck at 70 km with a
+  procedural pattern of streaks. It draws at 80 % so that the map under it stays readable;
+  the real deck is opaque.
+- **Gas giants.** Jupiter and Saturn keep their plain colour bands.
+- **Cost.** **Cloud quality** sets the steps through the cloud shell (6, 12 or 24), and with
+  them the steps toward the Sun (2, 3, 4) and through the air (6, 8, 12). The layer draws on
+  WebGL2 only; on WebGPU it draws nothing.
 
 ## How it works
 
@@ -131,6 +172,7 @@ All data is open. The example credits each source on the page.
 | Mercury | Imagery | MESSENGER MDIS enhanced colour mosaic, NASA/JHUAPL/Carnegie Institution of Washington, via [NASA Mercury Trek](https://trek.nasa.gov/mercury/) | NASA, no restriction |
 | All | Constants | NASA GSFC Planetary Fact Sheets; WGS84 for the Earth | Public domain |
 | Sky | Stars, Milky Way, terminator | math.gl `@math.gl/earth/sun` (Yale Bright Star Catalog) | MIT |
+| Earth | Clouds | NASA [Blue Marble clouds](https://visibleearth.nasa.gov/images/57747/blue-marble-clouds), NASA GSFC, Reto Stöckli; `bodies/data/earth-clouds-2048.jpg`, source and SHA-256 in `bodies/data/provenance.json` | NASA, no restriction |
 
 `bodies/data/build_data.py` makes `bodies/data/<body>.geojson` from the reduced USGS sources
 and the gazetteer. It needs Python 3 and GDAL. It drops geometry beyond 84° latitude and
@@ -145,6 +187,10 @@ Bodies with no vector map:
   polygons cross the poles and the antimeridian. The vector map uses contours instead.
 
 ## Limits
+
+- The atmospheres have their true thickness. At whole-globe zoom the Earth's limb glow is
+  1 to 3 px wide; the haze over the disk shows more. The ray march adds a little per-pixel
+  noise near the limb.
 
 - `GlobeView` draws every body on a sphere of the Earth's radius, so heights and distances read
   as Earth units.

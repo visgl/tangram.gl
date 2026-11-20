@@ -21,8 +21,12 @@ import {Geometry} from '@luma.gl/engine';
 import {Matrix4} from '@math.gl/core';
 import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import {
+  ATMOSPHERE_IDS,
   BODY_IDS,
+  EARTH_CLOUD_BASE_KM,
+  EARTH_CLOUD_TOP_KM,
   GALILEAN,
+  PHYSICAL_CONSTANTS,
   KM_PER_AU,
   PLANET_IDS,
   SATURN_RINGS,
@@ -30,6 +34,7 @@ import {
   angleDeg,
   checkTerminator,
   dot,
+  getAtmosphere,
   getBodyAxes,
   getGalileanOffsets,
   getMoonPhase,
@@ -50,7 +55,9 @@ import {
 } from '../celestial';
 import {
   BODIES,
+  EARTH_CLOUD_CREDIT,
   EARTH_STYLE_URL,
+  getEarthCloudMap,
   getBodyStyle,
   getVectorTexture,
   surfaceCredit,
@@ -58,6 +65,7 @@ import {
   type Body,
   type SurfaceMode
 } from '../bodies';
+import {AtmosphereLayer} from './atmosphere-layer';
 import {getMilkyWayTexture, getRingTexture} from './textures';
 import {isCameraIdle, shiftCameras, shouldRebase, type CameraActivity} from './floating-origin';
 import {getEquirectTexture, getTileStats, shimFetch} from './tiles';
@@ -86,6 +94,12 @@ const state = {
   shadows: params.get('shadows') !== 'off',
   /** The globe camera turns with the body; off (default), it keeps its orientation in space. */
   corotate: params.get('rotate') === 'on',
+  /** The Earth's clouds (and the cloud deck of Venus). */
+  clouds: params.get('clouds') !== 'off',
+  /** Ray-march steps through the cloud shell: 6 (low), 12 (medium), 24 (high). */
+  cloudSteps: Math.min(32, Math.max(1, Math.round(Number(params.get('cloudQuality') ?? 12)) || 12)),
+  /** Single-scattering atmospheres of the Earth, Mars and Venus. */
+  atmosphere: params.get('atmosphere') !== 'off',
   overviewView: {target: [0, 0, 0] as V3, zoom: 0, rotationOrbit: 30, rotationX: 35, minZoom: -12, maxZoom: 30},
   globeViews: {} as Record<string, {longitude: number; latitude: number; zoom: number; bearing?: number; pitch?: number; minZoom?: number; maxZoom?: number}>,
   clicked: null as null | {body: BodyId; lat: number; lon: number},
@@ -468,6 +482,12 @@ setTimeout(() => {
     if (state.mode !== 'compare') render();
   });
 }, 0);
+getEarthCloudMap()
+  .then(image => {
+    cloudMap = image;
+    if (state.mode !== 'compare' && !flightPhase) render();
+  })
+  .catch(error => textureErrors.push(`clouds: ${error}`));
 const SKY_PARAMETERS = {depthWriteEnabled: false, depthCompare: 'always'} as const;
 
 function skyLayers() {
@@ -709,6 +729,7 @@ function overviewLayers(scene: Scene, part: Part = {mode: 'all'}) {
     ...meshLayers,
     ...capLayers,
     ...terminator,
+    ...atmosphereLayers(scene, mode === 'rest' && focus ? [focus, ...ids] : ids),
     ...ringLayers,
     ...galileanLayers,
     labelLayer('labels', labelIds, 1),
@@ -739,6 +760,44 @@ function nightLayers(scene: Scene, ids: BodyId[]) {
     );
   });
 }
+
+/**
+ * Atmospheres (Earth, Mars, Venus) and the Earth's clouds: one ray-marched layer per body, after
+ * the bodies, so that a body in front hides it and one behind shows through it.
+ */
+let cloudMap: ImageBitmap | null = null;
+function atmosphereLayers(scene: Scene, ids: BodyId[]) {
+  if (!state.clouds && !state.atmosphere) return [];
+  const steps = state.cloudSteps;
+  return ATMOSPHERE_IDS.filter(id => ids.includes(id)).map(id => {
+    const m = scene.matrix[id];
+    const r = scene.radius[id];
+    const axes = [unit([m[0], m[1], m[2]]), unit([m[4], m[5], m[6]]), unit([m[8], m[9], m[10]])] as [V3, V3, V3];
+    const earth = id === 'earth';
+    const km = (value: number) => 1 + value / PHYSICAL_CONSTANTS[id].radiusKm;
+    return new AtmosphereLayer({
+      id: `atmosphere-${id}`,
+      atmosphere: getAtmosphere(id) as NonNullable<ReturnType<typeof getAtmosphere>>,
+      center: scene.pos[id],
+      radius: r,
+      axes,
+      sunDirection: scaleV(scene.night[id], -1),
+      atmosphereEnabled: state.atmosphere,
+      cloudBase: earth ? km(EARTH_CLOUD_BASE_KM) : 0,
+      cloudTop: earth ? km(EARTH_CLOUD_TOP_KM) : 0,
+      cloudImage: earth ? cloudMap : null,
+      cloudSteps: earth && state.clouds ? steps : 0,
+      lightSteps: steps >= 24 ? 4 : steps >= 12 ? 3 : 2,
+      atmosphereSteps: steps >= 24 ? 12 : steps >= 12 ? 8 : 6,
+      deckOpacity: state.clouds ? VENUS_DECK_OPACITY : 0
+    });
+  });
+}
+/**
+ * Venus's cloud deck is opaque. It draws at 0.8 so that the vector map under it stays readable:
+ * a choice for the example, not physics.
+ */
+const VENUS_DECK_OPACITY = 0.8;
 
 /** math.gl's terminator line on the overview Earth, as the globe draws it. */
 function overviewTerminatorLayer(scene: Scene) {
@@ -1823,6 +1882,9 @@ panel.innerHTML = `
   <label class="row"><input id="night" type="checkbox"> Night side</label>
   <label class="row"><input id="shadows" type="checkbox"> Eclipse shadows</label>
   <label class="row"><input id="corotate" type="checkbox"> Rotate with body</label>
+  <label class="row"><input id="clouds" type="checkbox"> Clouds
+    <select id="cloud-quality" title="Cloud quality: ray-march steps"><option value="6">Low (6 steps)</option><option value="12">Medium (12 steps)</option><option value="24">High (24 steps)</option></select></label>
+  <label class="row"><input id="atmosphere" type="checkbox"> Atmosphere (Earth, Mars, Venus)</label>
   <div id="gravity" class="note"></div>
   <div id="sky" class="note"></div>
   <details id="notes-box"><summary>Notes</summary><div class="note" id="notes"></div></details>
@@ -1862,6 +1924,25 @@ $<HTMLInputElement>('shadows').checked = state.shadows;
 $<HTMLInputElement>('shadows').onchange = event => {
   state.shadows = (event.target as HTMLInputElement).checked;
   render();
+};
+$<HTMLInputElement>('clouds').checked = state.clouds;
+$<HTMLInputElement>('clouds').onchange = event => {
+  state.clouds = (event.target as HTMLInputElement).checked;
+  if (state.mode !== 'compare' && !flightPhase) render();
+};
+const qualitySelect = $<HTMLSelectElement>('cloud-quality');
+if (![...qualitySelect.options].some(option => option.value === String(state.cloudSteps))) {
+  qualitySelect.add(new Option(`${state.cloudSteps} steps`, String(state.cloudSteps)));
+}
+qualitySelect.value = String(state.cloudSteps);
+qualitySelect.onchange = () => {
+  state.cloudSteps = Number(qualitySelect.value);
+  if (state.mode !== 'compare' && !flightPhase) render();
+};
+$<HTMLInputElement>('atmosphere').checked = state.atmosphere;
+$<HTMLInputElement>('atmosphere').onchange = event => {
+  state.atmosphere = (event.target as HTMLInputElement).checked;
+  if (state.mode !== 'compare' && !flightPhase) render();
 };
 $<HTMLInputElement>('night').checked = state.night;
 $<HTMLInputElement>('night').onchange = event => {
@@ -1968,7 +2049,8 @@ function renderPanel() {
        Positions of the planets, the Moon and the Galilean moons: Astronomy Engine (MIT). Poles and prime meridians of all bodies: Astronomy Engine RotationAxis (IAU WGCCRE). Night sides: math.gl getSunTerminator (Earth) and the true heliocentric directions, not the point light.`
     : `GlobeView draws every body on a sphere of the Earth's radius: heights and distances read as Earth units.
        Web Mercator tiles stop at ±85.05°: at the poles the overview sphere shows through.`;
-  $('credit').textContent = `${creditText(ids)} ${SKY_CREDIT}`;
+  const cloudCredit = state.clouds && state.mode !== 'compare' && (state.mode === 'overview' || ids.includes('earth')) ? ` ${EARTH_CLOUD_CREDIT}` : '';
+  $('credit').textContent = `${creditText(ids)}${cloudCredit} ${SKY_CREDIT}`;
   renderSky();
 }
 
@@ -2044,7 +2126,10 @@ Object.assign(window, {
     tileStats: getTileStats,
     errors: () => [...errors, ...textureErrors],
     /** The floating origin: absolute position = view state position + origin. */
-    origin: () => [...origin] as V3
+    origin: () => [...origin] as V3,
+    /** The three decks, for frame-cost checks. */
+    decks: () => ({deck, globeDeck, frontDeck}),
+    render
   }
 });
 

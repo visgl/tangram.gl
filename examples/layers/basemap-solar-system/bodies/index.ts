@@ -11,3 +11,4 @@ export {BODIES, SHIM_HOST, rasterCredit} from './registry';
 export type {BasemapStyle, SurfaceMode} from './styles';
 export {DETAIL_FROM, EARTH_STYLE_URL, getBodyStyle, getEarthStyle, surfaceCredit} from './styles';
 export {TEXTURE_STYLE_ZOOM, getVectorTexture} from './textures';
+export {EARTH_CLOUD_CREDIT, EARTH_CLOUD_MAP_URL, getEarthCloudMap} from './clouds';
