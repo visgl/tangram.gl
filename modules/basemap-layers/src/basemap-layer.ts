@@ -9,6 +9,7 @@ import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
 import {getSourceKey, type BasemapSource} from './style-resolver';
+import type {BasemapFeatureState} from './feature-state';
 import {
   CompositeLayer,
   log,
@@ -38,14 +39,21 @@ import {
 } from './label-placement';
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {BasemapStyleSchema, ResolvedBasemapStyleSchema} from './map-style-schema';
+import {getBasemapFetch, getBasemapLayerFetch, hasCustomScheme} from './basemap-protocol';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
+import {getResolvedBasemapStyleBaseUrl, isResolvedBasemapStyle} from './style-resolver';
 import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
 import {GlyphStore} from './glyph-store';
 import {getSpriteSources, loadSpriteAtlases} from './sprite';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {RejectRasterTile} from './raster-tile-loader';
+import {
+  querySourceFeaturesInTiles,
+  type BasemapSourceFeature,
+  type QuerySourceFeaturesOptions
+} from './source-features';
 
 /**
  * Logs a non-error basemap-layer runtime event to deck.gl logging.
@@ -69,14 +77,15 @@ function getMapStyleLoaderOptions(
 }
 
 /**
- * Globe-related runtime toggles used by {@link BasemapLayer}.
+ * Drawing toggles of the basemap helpers (`getBasemapLayers`). They apply in every mode, not only
+ * on a globe. `BasemapLayer` takes them as the flat `labels` and `atmosphere` props.
  */
 export type BasemapGlobeConfig = {
-  /** Renders the atmosphere overlays returned by the globe helpers when available. */
+  /** Draws the atmosphere in globe mode. Default `false`. */
   atmosphere?: boolean;
-  /** Renders the main globe basemap content when `true`. */
+  /** Draws the style layers. Default `true`. `false` draws only the atmosphere. */
   basemap?: boolean;
-  /** Enables symbol-label rendering on the globe path when `true`. */
+  /** Draws the style's symbol layers (labels and icons). Default `true`. */
   labels?: boolean;
 };
 
@@ -86,17 +95,40 @@ export type BasemapGlobeConfig = {
 export type BasemapLayerProps = {
   /** Optional deck.gl layer identifier. */
   id?: string;
-  /** MapLibre or Mapbox style JSON, or a URL that resolves to one. */
-  style: string | BasemapStyle | null;
+  /**
+   * MapLibre or Mapbox style JSON, or a URL that resolves to one, or a style that
+   * `resolveBasemapStyle` or `MapStyleLoader` resolved. A resolved style draws at once, without a
+   * second fetch of its TileJSON and GeoJSON data. A copy of a resolved style resolves again.
+   */
+  style: string | BasemapStyle | ResolvedBasemapStyle | null;
   /** Load options forwarded to {@link resolveBasemapStyle}. */
   loadOptions?: Record<string, unknown> | null;
   /** Selects whether deck layers are generated for a flat map or a globe. */
   mode?: 'map' | 'globe';
-  /** Optional globe-specific configuration used when `mode` is `'globe'`. */
+  /**
+   * The state of features, which `["feature-state", key]` reads in paint properties, as MapLibre
+   * GL JS's `setFeatureState` sets it: by source id, then, for a `vector` source, by source layer,
+   * then by feature id. Pass a new object to change a state; a change computes again only the paint
+   * attributes of the style layers that read the changed states, and keeps their geometry.
+   */
+  featureState?: BasemapFeatureState | null;
+  /**
+   * Draws the style's symbol layers (labels and icons). Default `true`. It applies in every mode.
+   * With `false`, the tiles do not decode the source layers that only symbol layers read.
+   */
+  labels?: boolean;
+  /**
+   * Draws the atmosphere around the globe in globe mode. Default `false`. The atmosphere layers
+   * are placeholders that draw nothing yet.
+   */
+  atmosphere?: boolean;
+  /**
+   * @deprecated Use the `labels` and `atmosphere` props, and deck.gl's `visible` prop in place of
+   * `basemap: false`. A field set here overrides the flat prop of the same name.
+   */
   globe?: {
-    /** Rendering toggles for globe-specific basemap behavior. */
     config?: BasemapGlobeConfig;
-  };
+  } | null;
   /**
    * Draws labels with the browser's fonts instead of the style's `glyphs`. By default labels are
    * drawn with the style's glyphs, as in MapLibre GL JS, and a style without `glyphs` maps each
@@ -209,6 +241,13 @@ type BasemapLayerState = {
   tileMaxStretch: number | null;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
+  /** The config `getStyleConfig` last returned, kept while its inputs do not change. */
+  styleConfig: {
+    labels: unknown;
+    atmosphere: unknown;
+    globe: unknown;
+    value: {config: Required<BasemapGlobeConfig>};
+  } | null;
 };
 
 /**
@@ -231,16 +270,10 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   /** Default props for {@link BasemapLayer}. */
   static defaultProps: DefaultProps<BasemapLayerProps> = {
     mode: 'map',
-    globe: {
-      type: 'object',
-      value: {
-        config: {
-          atmosphere: false,
-          basemap: true,
-          labels: true
-        }
-      }
-    },
+    featureState: null,
+    labels: true,
+    atmosphere: false,
+    globe: null,
     style: null,
     loadOptions: null,
     fontFamily: null,
@@ -275,8 +308,45 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       sourceCache: new Map(),
       sourceCacheOptions: undefined,
       styleLoadOptions: undefined,
-      glyphs: null
+      glyphs: null,
+      styleConfig: null
     };
+  }
+
+  /**
+   * The drawing toggles of the props, in the `{config}` form of the basemap helpers: `labels` and
+   * `atmosphere`, with the fields of the deprecated `globe.config` over them. The object keeps
+   * its identity while these props do not change.
+   */
+  getStyleConfig(): {config: Required<BasemapGlobeConfig>} {
+    const {labels, atmosphere, globe} = this.props;
+    const cached = this.state?.styleConfig;
+    if (
+      cached &&
+      cached.labels === labels &&
+      cached.atmosphere === atmosphere &&
+      cached.globe === globe
+    ) {
+      return cached.value;
+    }
+    const config = {labels: labels !== false, atmosphere: Boolean(atmosphere), basemap: true};
+    const legacy = globe?.config;
+    if (legacy) {
+      log.deprecated(
+        'BasemapLayer prop `globe.config`',
+        'the `labels` and `atmosphere` props, and `visible` for `basemap: false`'
+      )();
+      for (const key of ['labels', 'atmosphere', 'basemap'] as const) {
+        if (legacy[key] !== undefined) {
+          config[key] = Boolean(legacy[key]);
+        }
+      }
+    }
+    const value = {config};
+    if (this.state) {
+      this.state.styleConfig = {labels, atmosphere, globe, value};
+    }
+    return value;
   }
 
   /**
@@ -342,7 +412,13 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   private updateStyleByDiff(style: BasemapLayerProps['style']): boolean {
     const {resolvedStyle, styleSnapshot} = this.state;
     // A glyph range that failed loads again with the next load.
-    if (!resolvedStyle || !styleSnapshot || !isStyleObject(style) || this.state.glyphs?.failed) {
+    if (
+      !resolvedStyle ||
+      !styleSnapshot ||
+      !isStyleObject(style) ||
+      isResolvedBasemapStyle(style) ||
+      this.state.glyphs?.failed
+    ) {
       return false;
     }
     const snapshot = copyStyle(style);
@@ -390,7 +466,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
     const loadToken = this.state.loadToken + 1;
     this.setState({loadToken});
-    const styleJson = isStyleObject(style) ? JSON.stringify(style) : null;
+    const styleJson = isStyleObject(style) && !isResolvedBasemapStyle(style) ? JSON.stringify(style) : null;
     const styleSnapshot: BasemapStyle | null = styleJson ? JSON.parse(styleJson) : null;
     // A style update by diff waits for this load (see `updateStyleByDiff`).
     this.state.styleSnapshot = null;
@@ -400,6 +476,11 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       this.state.sourceCacheOptions = loadOptions;
     }
     const {sourceCache} = this.state;
+    if (isResolvedBasemapStyle(style)) {
+      logBasemapLayerEvent('Using resolved basemap style', {loadToken});
+      this.setResolvedStyle(style, style, loadOptions, loadToken, null);
+      return;
+    }
     logBasemapLayerEvent('Resolving basemap style', {
       style: typeof style === 'string' ? style : 'inline-style-object',
       loadToken
@@ -407,7 +488,9 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
     Promise.resolve(
       typeof style === 'string'
-        ? load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions, sourceCache))
+        ? hasCustomScheme(style)
+          ? loadProtocolStyle(style, loadOptions, sourceCache)
+          : load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions, sourceCache))
         : MapStyleLoader.parse(
             new TextEncoder().encode(styleJson!).buffer,
             getMapStyleLoaderOptions(loadOptions, sourceCache)
@@ -420,24 +503,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
             sources: Object.keys(resolvedStyle.sources || {}),
             layers: resolvedStyle.layers?.length || 0
           });
-          // The tilesets are keyed by source object: a source that did not change keeps its tiles.
-          const sameOptions = loadOptions === this.state.styleLoadOptions;
-          if (sameOptions && this.state.resolvedStyle) {
-            reuseSources(resolvedStyle, this.state.resolvedStyle);
-          }
-          const glyphs = getGlyphStore(resolvedStyle, style, loadOptions);
-          // A glyph range that failed loads again with a new store.
-          const keepGlyphs =
-            sameOptions && glyphs?.url === this.state.glyphs?.url && !this.state.glyphs?.failed;
-          this.setState({
-            resolvedStyle,
-            styleInput: style,
-            styleSnapshot: hasFailedSource(styleSnapshot, resolvedStyle) ? null : styleSnapshot,
-            loadError: null,
-            styleLoadOptions: loadOptions,
-            glyphs: keepGlyphs ? this.state.glyphs : glyphs
-          });
-          this.loadSprites(resolvedStyle, style, loadOptions, loadToken, sameOptions);
+          this.setResolvedStyle(resolvedStyle, style, loadOptions, loadToken, styleSnapshot);
         }
       })
       .catch((error: Error) => {
@@ -452,6 +518,32 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
           });
         }
       });
+  }
+
+  /** Draws `resolvedStyle`, the resolved form of the `style` prop, and loads its sprites. */
+  private setResolvedStyle(
+    resolvedStyle: ResolvedBasemapStyle,
+    style: BasemapLayerProps['style'],
+    loadOptions: BasemapLayerProps['loadOptions'],
+    loadToken: number,
+    styleSnapshot: BasemapStyle | null
+  ): void {
+    const sameOptions = loadOptions === this.state.styleLoadOptions;
+    if (sameOptions && this.state.resolvedStyle && !isResolvedBasemapStyle(style)) {
+      reuseSources(resolvedStyle, this.state.resolvedStyle);
+    }
+    const glyphs = getGlyphStore(resolvedStyle, style, loadOptions);
+    const keepGlyphs =
+      sameOptions && glyphs?.url === this.state.glyphs?.url && !this.state.glyphs?.failed;
+    this.setState({
+      resolvedStyle,
+      styleInput: style,
+      styleSnapshot: hasFailedSource(styleSnapshot, resolvedStyle) ? null : styleSnapshot,
+      loadError: null,
+      styleLoadOptions: loadOptions,
+      glyphs: keepGlyphs ? this.state.glyphs : glyphs
+    });
+    this.loadSprites(resolvedStyle, style, loadOptions, loadToken, sameOptions);
   }
 
   /**
@@ -475,7 +567,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       fetch?: typeof fetch;
       fetchOptions?: RequestInit;
     };
-    const baseUrl = typeof style === 'string' ? style : options.baseUrl;
+    const baseUrl = getStyleBaseUrl(style, options.baseUrl);
     const pixelRatio = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
     const spriteKey = JSON.stringify([getSpriteSources(resolvedStyle.sprite, baseUrl), pixelRatio]);
     if (!sameOptions || spriteKey !== this.state.spriteKey || !this.state.spriteLoad) {
@@ -500,6 +592,29 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         this.setState({spriteAtlases});
       }
     });
+  }
+
+  /**
+   * Returns the features of a `vector` or `geojson` source in the tiles that are loaded and drawn
+   * now, as MapLibre GL JS's `Map#querySourceFeatures`: every feature of `sourceLayer` that matches
+   * `filter`, whether a style layer draws it or not, in longitude and latitude. Tiles outside the
+   * view are not read. A feature that crosses a tile edge, or a point in the buffer of two tiles,
+   * is returned once per tile: compare `id`s to merge them. A source with no loaded tiles, a raster
+   * source, or an unknown id returns `[]`.
+   *
+   * Tiles decode only the source layers that the style draws, so a source layer that no style layer
+   * reads has no features here.
+   */
+  querySourceFeatures(
+    sourceId: string,
+    options?: QuerySourceFeaturesOptions | null
+  ): BasemapSourceFeature[] {
+    const source = this.state?.resolvedStyle?.sources?.[sourceId];
+    const tileset = source && isVectorTileSource(source) && this.state.tilesets.get(source);
+    if (!tileset) {
+      return [];
+    }
+    return querySourceFeaturesInTiles(tileset.visibleTiles, sourceId, source, options || {});
   }
 
   /** The basemap owns caches; style-run consumers only attach/detach. */
@@ -563,12 +678,22 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       this.state.tileMaxStretch !== this.props.projectedMaxStretch;
     // Tiles decode only the source layers the style draws: a style edit or a labels toggle that
     // changes the layers the loader decodes reloads the source's tiles.
-    const sourceLayers = getStyleSourceLayers(style, this.props.globe);
+    const sourceLayers = getStyleSourceLayers(style, this.getStyleConfig());
     const getDecodedLayers = (source: BasemapSource) =>
       (getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source)) as any)?.mvt?.layers;
+    // Projected views and globes show latitudes past the edges of Web Mercator tiles: GeoJSON is
+    // cut at them there, and tiled again when the view changes from one to the other.
+    const geoJson = {
+      clipToMercatorRange: this.props.mode === 'globe' || isProjectedViewport(this.context.viewport)
+    };
     const sourceLayerKeys = new Map([
       ...[...sources].map(
-        source => [source, JSON.stringify(getDecodedLayers(source) ?? null)] as const
+        source =>
+          [
+            source,
+            JSON.stringify(getDecodedLayers(source) ?? null) +
+              (source.type === 'geojson' ? `:${geoJson.clipToMercatorRange}` : '')
+          ] as const
       ),
       // An encoding edited in place reloads the source's tiles.
       ...[...demSources].map(source => [source, `dem:${getDemUnpackVector(source)}`] as const)
@@ -592,7 +717,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         const loader = new SharedMVTLayer({
           id: `${this.id}-loader`,
           data: source.tiles!,
-          fetch: this.props.fetch,
+          fetch: getBasemapLayerFetch(this.props.fetch, 'arrayBuffer'),
           loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
         });
         loader.context = this.context;
@@ -602,7 +727,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
-          getTileData: getVectorTileLoader(source, loader)
+          getTileData: getVectorTileLoader(source, loader, geoJson)
         });
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
@@ -642,8 +767,10 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
     const layers = getBasemapLayers({
       idPrefix: this.props.id,
+      featureState: this.props.featureState,
+      pickable: this.props.pickable,
       mode: this.getDrawMode(viewport),
-      globe: this.props.globe,
+      globe: this.getStyleConfig(),
       styleDefinition: resolvedStyle,
       zoom,
       loadOptions: this.props.loadOptions,
@@ -761,6 +888,29 @@ function reuseSources(resolvedStyle: ResolvedBasemapStyle, previous: ResolvedBas
 }
 
 /**
+ * Loads a style whose URL has a custom scheme, such as `pmtiles://`, with its protocol handler.
+ * Relative URLs in the style resolve against the style URL.
+ */
+async function loadProtocolStyle(
+  url: string,
+  loadOptions: BasemapLayerProps['loadOptions'],
+  sourceCache: Map<string, BasemapSource>
+): Promise<ResolvedBasemapStyle> {
+  const options = (loadOptions || {}) as {fetch?: typeof fetch; fetchOptions?: RequestInit};
+  const response = await getBasemapFetch(options.fetch, 'json')(url, options.fetchOptions);
+  if (!response.ok) {
+    throw new Error(`Failed to load basemap style: ${url} (${response.status})`);
+  }
+  return MapStyleLoader.parse(await response.arrayBuffer(), {
+    mapStyle: {
+      ...loadOptions,
+      sourceCache,
+      baseUrl: (loadOptions?.baseUrl as string | undefined) || url
+    }
+  });
+}
+
+/**
  * The glyph store of a style's `glyphs` URL, or null without one. A relative URL resolves against
  * the style URL, as sprite URLs do.
  */
@@ -780,8 +930,22 @@ function getGlyphStore(
   };
   return new GlyphStore({
     url,
-    baseUrl: typeof style === 'string' ? style : options.baseUrl,
+    baseUrl: getStyleBaseUrl(style, options.baseUrl),
     fetch: options.fetch,
     fetchOptions: options.fetchOptions
   });
+}
+
+/**
+ * The URL that relative `sprite` and `glyphs` URLs resolve against: the style URL, the URL that a
+ * resolved style was loaded from, or else `loadOptions.baseUrl`.
+ */
+function getStyleBaseUrl(
+  style: BasemapLayerProps['style'],
+  baseUrl: string | undefined
+): string | undefined {
+  if (typeof style === 'string') {
+    return style;
+  }
+  return (isResolvedBasemapStyle(style) && getResolvedBasemapStyleBaseUrl(style)) || baseUrl;
 }

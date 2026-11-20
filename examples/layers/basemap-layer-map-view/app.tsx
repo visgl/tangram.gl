@@ -359,13 +359,6 @@ function createBasemapLayer(
     id: 'map-basemap',
     mode: settings.view.mode === 'globe' ? 'globe' : 'map',
     style: styleOption.style,
-    globe: {
-      config: {
-        atmosphere: false,
-        basemap: true,
-        labels: true
-      }
-    },
     loadOptions: {
       fetch: trackedFetch,
       core: {
