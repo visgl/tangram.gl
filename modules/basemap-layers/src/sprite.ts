@@ -4,6 +4,8 @@
 
 import {log} from '@deck.gl/core';
 import {getBasemapFetch, isBasemapProtocolUrl} from './basemap-protocol';
+import {getIconQuads, isValidStretchMetadata} from './icon-text-fit';
+import type {ImageTextFit} from './icon-text-fit';
 import type {BasemapLoadOptions} from './style-resolver';
 
 /** One image in a style sprite, as listed in the sprite's JSON index. */
@@ -16,6 +18,23 @@ export type SpriteImage = {
   pixelRatio?: number;
   /** `true` for signed-distance-field images, which are tinted with `icon-color`. */
   sdf?: boolean;
+} & SpriteStretchMetadata;
+
+/**
+ * How `icon-text-fit` stretches an image, in image pixels, as MapLibre GL JS reads it from the
+ * sprite's JSON index (see `icon-text-fit.ts`).
+ */
+export type SpriteStretchMetadata = {
+  /** Ranges `[x1, x2]` of image columns that stretch. */
+  stretchX?: [number, number][];
+  /** Ranges `[y1, y2]` of image rows that stretch. */
+  stretchY?: [number, number][];
+  /** `[x1, y1, x2, y2]`: the part of the image that the label covers. */
+  content?: [number, number, number, number];
+  /** How the width may change to keep the aspect ratio of `content`. */
+  textFitWidth?: ImageTextFit;
+  /** How the height may change to keep the aspect ratio of `content`. */
+  textFitHeight?: ImageTextFit;
 };
 
 /** A deck.gl `IconLayer` mapping entry for one sprite image. */
@@ -28,7 +47,7 @@ export type SpriteIconMappingEntry = {
   mask: boolean;
   /** Device pixels per CSS pixel; `icon-size` scales `height / pixelRatio`. */
   pixelRatio: number;
-};
+} & SpriteStretchMetadata;
 
 /** A loaded sprite: the atlas image and its deck.gl icon mapping. */
 export type SpriteAtlas = {
@@ -83,13 +102,25 @@ export function getSpriteSources(sprite: unknown, baseUrl?: string): SpriteSourc
   return [];
 }
 
-/** Converts a sprite JSON index into a deck.gl `IconLayer` mapping. */
+const STRETCH_METADATA_KEYS = [
+  'stretchX',
+  'stretchY',
+  'content',
+  'textFitWidth',
+  'textFitHeight'
+] as const;
+
+/**
+ * Converts a sprite JSON index into a deck.gl `IconLayer` mapping. An image's stretch metadata is
+ * kept for `icon-text-fit`. As in MapLibre, an image whose stretch zones or content do not lie in
+ * order inside it is left out, with a warning.
+ */
 export function getSpriteIconMapping(
   index: Record<string, SpriteImage>
 ): Record<string, SpriteIconMappingEntry> {
   const mapping: Record<string, SpriteIconMappingEntry> = {};
   for (const [name, image] of Object.entries(index || {})) {
-    mapping[name] = {
+    const entry: SpriteIconMappingEntry = {
       x: image.x,
       y: image.y,
       width: image.width,
@@ -97,6 +128,16 @@ export function getSpriteIconMapping(
       mask: Boolean(image.sdf),
       pixelRatio: image.pixelRatio || 1
     };
+    for (const key of STRETCH_METADATA_KEYS) {
+      if (image[key] !== undefined) {
+        (entry as any)[key] = image[key];
+      }
+    }
+    if (!isValidStretchMetadata(entry)) {
+      log.warn(`[BasemapLayer] Sprite image "${name}" has invalid stretch metadata; skipped`)();
+      continue;
+    }
+    mapping[name] = entry;
   }
   return mapping;
 }
@@ -237,6 +278,46 @@ export function resolveSpriteIcon(
     return {atlas, name: iconImage, entry: atlas.mapping[iconImage]};
   }
   return null;
+}
+
+/** Whether `icon-text-fit` cuts an image into parts: it has `stretchX` or `stretchY` zones. */
+export function isStretchableIcon(entry: SpriteIconMappingEntry): boolean {
+  return Boolean(entry.stretchX?.length || entry.stretchY?.length);
+}
+
+/** The mapping name of part `index` of a stretchable image (see `getStretchIconMapping`). */
+export function getIconPartName(name: string, index: number): string {
+  return `${name}\u0000${index}`;
+}
+
+const stretchIconMappings = new WeakMap<SpriteAtlas, Record<string, SpriteIconMappingEntry>>();
+
+/**
+ * A sprite's mapping with an entry for each part that `icon-text-fit` cuts a stretchable image
+ * into (`getIconPartName`), besides each image's own. The parts are the same whatever the icon is
+ * fitted to: only their sizes on screen change.
+ */
+export function getStretchIconMapping(atlas: SpriteAtlas): Record<string, SpriteIconMappingEntry> {
+  let mapping = stretchIconMappings.get(atlas);
+  if (!mapping) {
+    mapping = {...atlas.mapping};
+    for (const [name, entry] of Object.entries(atlas.mapping)) {
+      if (isStretchableIcon(entry)) {
+        const quads = getIconQuads(entry, {left: 0, top: 0, right: 1, bottom: 1});
+        quads.forEach(({image}, index) => {
+          mapping![getIconPartName(name, index)] = {
+            ...entry,
+            x: entry.x + image.x,
+            y: entry.y + image.y,
+            width: image.width,
+            height: image.height
+          };
+        });
+      }
+    }
+    stretchIconMappings.set(atlas, mapping);
+  }
+  return mapping;
 }
 
 const warnedMissingIcons = new Set<string>();
