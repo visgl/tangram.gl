@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import type {FeatureStateLookup} from './feature-state';
 import {getCompiledStyleProperty, type StyleFeature} from './style-expression';
 
 type StyleLayerLike = {
@@ -50,20 +51,27 @@ export function getStyleZoomKey(zoom: number, zoomLimits: readonly (number | und
 export type StyleAccessor<T> = {
   /** A constant when no property depends on feature data, otherwise a per-feature function. */
   value: T | ((feature: StyleFeature) => T);
-  /** Set to the evaluation zoom (`getZoomBucket`) when a per-feature value also depends on zoom. */
-  updateTrigger?: number;
+  /**
+   * Set to the evaluation zoom (`getZoomBucket`) when a per-feature value also depends on zoom.
+   * A value that reads feature state takes a string instead, which also changes with the states.
+   */
+  updateTrigger?: number | string;
 };
 
 /**
  * Builds a deck.gl accessor from style properties, evaluated at the stepped zoom
  * (`getZoomBucket`). Feature-independent values become constants. Data-driven values become
- * per-feature functions, with an update trigger when they also depend on zoom.
+ * per-feature functions, with an update trigger when they also depend on zoom. With
+ * `featureState`, `["feature-state", ...]` reads each feature's state from it, and the update
+ * trigger of a value that reads it changes with the states: only that attribute is computed
+ * again, and the geometry is kept.
  */
 export function getStyleAccessor<T>(
   styleLayer: StyleLayerLike,
   propertyNames: string[],
   zoom: number,
-  combine: (values: any[]) => T
+  combine: (values: any[]) => T,
+  featureState?: FeatureStateLookup
 ): StyleAccessor<T> {
   const properties = propertyNames.map(name => getCompiledStyleProperty(styleLayer, name));
   const isFeatureDependent = properties.some(property => property?.isFeatureDependent);
@@ -74,6 +82,20 @@ export function getStyleAccessor<T>(
   }
 
   const isZoomDependent = properties.some(property => property?.isZoomDependent);
+  const state = properties.some(property => property?.isStateDependent) ? featureState : undefined;
+  if (state) {
+    return {
+      value: (feature: StyleFeature) => {
+        const featureValues = state.get(feature);
+        return combine(
+          properties.map(property =>
+            property?.evaluate(zoomBucket, feature, undefined, featureValues)
+          )
+        );
+      },
+      updateTrigger: `${isZoomDependent ? zoomBucket : ''}:state-${state.token}`
+    };
+  }
   return {
     value: (feature: StyleFeature) =>
       combine(properties.map(property => property?.evaluate(zoomBucket, feature))),

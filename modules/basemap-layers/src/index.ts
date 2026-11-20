@@ -7,6 +7,12 @@ export {BasemapLayer} from './basemap-layer';
 export type {BasemapSourceFeature, QuerySourceFeaturesOptions} from './source-features';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';
+export type {
+  BasemapFeatureState,
+  BasemapPickedFeature,
+  FeatureState,
+  FeatureStates
+} from './feature-state';
 export {
   createDemTileset,
   getBasemapLayers,

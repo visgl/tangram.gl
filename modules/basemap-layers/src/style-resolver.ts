@@ -276,8 +276,38 @@ function isLoadCancelled(error: unknown, loadOptions?: BasemapLoadOptions) {
 }
 
 /**
+ * The styles that `resolveBasemapStyle` returned, with the URL that their relative `sprite` and
+ * `glyphs` URLs resolve against. A WeakMap, not a property: the brand adds no field to the style,
+ * and a copy of the style is not branded.
+ */
+const resolvedStyleBaseUrls = new WeakMap<object, string | undefined>();
+
+/** Brands `style` as resolved, with the URL that its relative URLs resolve against. */
+export function markResolvedBasemapStyle<T extends ResolvedBasemapStyle>(
+  style: T,
+  baseUrl: string | undefined
+): T {
+  resolvedStyleBaseUrls.set(style, baseUrl);
+  return style;
+}
+
+/**
+ * Whether `style` is a style that `resolveBasemapStyle` or `MapStyleLoader` returned, and that
+ * `BasemapLayer` thus draws without resolving it again. A copy of a resolved style is not one.
+ */
+export function isResolvedBasemapStyle(style: unknown): style is ResolvedBasemapStyle {
+  return typeof style === 'object' && style !== null && resolvedStyleBaseUrls.has(style);
+}
+
+/** The URL that the relative URLs of a resolved style resolve against, if it has one. */
+export function getResolvedBasemapStyleBaseUrl(style: ResolvedBasemapStyle): string | undefined {
+  return resolvedStyleBaseUrls.get(style);
+}
+
+/**
  * Resolves a basemap style input into a style object whose sources contain
- * directly consumable tile templates and source metadata.
+ * directly consumable tile templates and source metadata. `BasemapLayer` draws the result
+ * without resolving it again (see `isResolvedBasemapStyle`).
  */
 export async function resolveBasemapStyle(
   style: string | BasemapStyle,
@@ -318,11 +348,12 @@ export async function resolveBasemapStyle(
     })
   );
 
-  return ResolvedBasemapStyleSchema.parse({
+  const resolved = ResolvedBasemapStyleSchema.parse({
     ...styleDefinition,
     sources: resolvedSources,
     layers: derefLayers([...(styleDefinition.layers || [])] as Parameters<
       typeof derefLayers
     >[0]) as ResolvedBasemapStyleLayer[]
   });
+  return markResolvedBasemapStyle(resolved, baseUrl);
 }

@@ -9,6 +9,7 @@ import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
 import type {BasemapSource} from './style-resolver';
+import type {BasemapFeatureState} from './feature-state';
 import {
   CompositeLayer,
   log,
@@ -38,6 +39,7 @@ import {
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
+import {getResolvedBasemapStyleBaseUrl, isResolvedBasemapStyle} from './style-resolver';
 import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
 import {GlyphStore} from './glyph-store';
 import {loadSpriteAtlases} from './sprite';
@@ -90,12 +92,23 @@ export type BasemapGlobeConfig = {
 export type BasemapLayerProps = {
   /** Optional deck.gl layer identifier. */
   id?: string;
-  /** MapLibre or Mapbox style JSON, or a URL that resolves to one. */
-  style: string | BasemapStyle | null;
+  /**
+   * MapLibre or Mapbox style JSON, or a URL that resolves to one, or a style that
+   * `resolveBasemapStyle` or `MapStyleLoader` resolved. A resolved style draws at once, without a
+   * second fetch of its TileJSON and GeoJSON data. A copy of a resolved style resolves again.
+   */
+  style: string | BasemapStyle | ResolvedBasemapStyle | null;
   /** Load options forwarded to {@link resolveBasemapStyle}. */
   loadOptions?: Record<string, unknown> | null;
   /** Selects whether deck layers are generated for a flat map or a globe. */
   mode?: 'map' | 'globe';
+  /**
+   * The state of features, which `["feature-state", key]` reads in paint properties, as MapLibre
+   * GL JS's `setFeatureState` sets it: by source id, then, for a `vector` source, by source layer,
+   * then by feature id. Pass a new object to change a state; a change computes again only the paint
+   * attributes of the style layers that read the changed states, and keeps their geometry.
+   */
+  featureState?: BasemapFeatureState | null;
   /** Optional globe-specific configuration used when `mode` is `'globe'`. */
   globe?: {
     /** Rendering toggles for globe-specific basemap behavior. */
@@ -217,6 +230,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   /** Default props for {@link BasemapLayer}. */
   static defaultProps: DefaultProps<BasemapLayerProps> = {
     mode: 'map',
+    featureState: null,
     globe: {
       type: 'object',
       value: {
@@ -328,6 +342,11 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
     const loadToken = this.state.loadToken + 1;
     this.setState({loadToken});
+    if (isResolvedBasemapStyle(style)) {
+      logBasemapLayerEvent('Using resolved basemap style', {loadToken});
+      this.setResolvedStyle(style, style, loadOptions, loadToken);
+      return;
+    }
     logBasemapLayerEvent('Resolving basemap style', {
       style: typeof style === 'string' ? style : 'inline-style-object',
       loadToken
@@ -348,13 +367,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
             sources: Object.keys(resolvedStyle.sources || {}),
             layers: resolvedStyle.layers?.length || 0
           });
-          this.setState({
-            resolvedStyle,
-            loadError: null,
-            spriteAtlases: null,
-            glyphs: getGlyphStore(resolvedStyle, style, loadOptions)
-          });
-          this.loadSprites(resolvedStyle, style, loadOptions, loadToken);
+          this.setResolvedStyle(resolvedStyle, style, loadOptions, loadToken);
         }
       })
       .catch((error: Error) => {
@@ -364,6 +377,22 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
           this.setState({resolvedStyle: null, loadError: error});
         }
       });
+  }
+
+  /** Draws `resolvedStyle`, the resolved form of the `style` prop, and loads its sprites. */
+  private setResolvedStyle(
+    resolvedStyle: ResolvedBasemapStyle,
+    style: BasemapLayerProps['style'],
+    loadOptions: BasemapLayerProps['loadOptions'],
+    loadToken: number
+  ): void {
+    this.setState({
+      resolvedStyle,
+      loadError: null,
+      spriteAtlases: null,
+      glyphs: getGlyphStore(resolvedStyle, style, loadOptions)
+    });
+    this.loadSprites(resolvedStyle, style, loadOptions, loadToken);
   }
 
   /**
@@ -387,7 +416,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       fetchOptions?: RequestInit;
     };
     loadSpriteAtlases(resolvedStyle.sprite, {
-      baseUrl: typeof style === 'string' ? style : options.baseUrl,
+      baseUrl: getStyleBaseUrl(style, options.baseUrl),
       fetch: options.fetch,
       fetchOptions: options.fetchOptions,
       pixelRatio: typeof devicePixelRatio === 'number' ? devicePixelRatio : 1
@@ -485,9 +514,19 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     const sourceLayers = getStyleSourceLayers(style, this.props.globe);
     const getDecodedLayers = (source: BasemapSource) =>
       (getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source)) as any)?.mvt?.layers;
+    // Projected views and globes show latitudes past the edges of Web Mercator tiles: GeoJSON is
+    // cut at them there, and tiled again when the view changes from one to the other.
+    const geoJson = {
+      clipToMercatorRange: this.props.mode === 'globe' || isProjectedViewport(this.context.viewport)
+    };
     const sourceLayerKeys = new Map([
       ...[...sources].map(
-        source => [source, JSON.stringify(getDecodedLayers(source) ?? null)] as const
+        source =>
+          [
+            source,
+            JSON.stringify(getDecodedLayers(source) ?? null) +
+              (source.type === 'geojson' ? `:${geoJson.clipToMercatorRange}` : '')
+          ] as const
       ),
       // An encoding edited in place reloads the source's tiles.
       ...[...demSources].map(source => [source, `dem:${getDemUnpackVector(source)}`] as const)
@@ -521,7 +560,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
-          getTileData: getVectorTileLoader(source, loader)
+          getTileData: getVectorTileLoader(source, loader, geoJson)
         });
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
@@ -561,6 +600,8 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
     const layers = getBasemapLayers({
       idPrefix: this.props.id,
+      featureState: this.props.featureState,
+      pickable: this.props.pickable,
       mode: this.getDrawMode(viewport),
       globe: this.props.globe,
       styleDefinition: resolvedStyle,
@@ -619,8 +660,22 @@ function getGlyphStore(
   };
   return new GlyphStore({
     url,
-    baseUrl: typeof style === 'string' ? style : options.baseUrl,
+    baseUrl: getStyleBaseUrl(style, options.baseUrl),
     fetch: options.fetch,
     fetchOptions: options.fetchOptions
   });
+}
+
+/**
+ * The URL that relative `sprite` and `glyphs` URLs resolve against: the style URL, the URL that a
+ * resolved style was loaded from, or else `loadOptions.baseUrl`.
+ */
+function getStyleBaseUrl(
+  style: BasemapLayerProps['style'],
+  baseUrl: string | undefined
+): string | undefined {
+  if (typeof style === 'string') {
+    return style;
+  }
+  return (isResolvedBasemapStyle(style) && getResolvedBasemapStyleBaseUrl(style)) || baseUrl;
 }
