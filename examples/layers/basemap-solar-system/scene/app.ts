@@ -56,6 +56,7 @@ import {
   type SurfaceMode
 } from '../bodies';
 import {getMilkyWayTexture, getRingTexture} from './textures';
+import {isCameraIdle, shiftCameras, shouldRebase, type CameraActivity} from './floating-origin';
 import {getEquirectTexture, getTileStats, shimFetch} from './tiles';
 type Mode = 'overview' | 'globe' | 'compare';
 
@@ -254,23 +255,46 @@ function computeScene(): Scene {
 
 /**
  * The floating origin, in absolute scene units (Sun at 0), kept in double precision. Between
- * flights it follows the body or the point in view (rebaseOrigin); during a flight it stays put,
+ * flights it follows the body or the point in view (originUpdate); during a flight it stays put,
  * because the flight keeps camera positions relative to it.
  */
 let origin: V3 = [0, 0, 0];
-/** Moves the floating origin to an absolute point, and shifts the cameras with it. */
+/** Moves the floating origin to an absolute point, and shifts the cameras with it in one step. */
 function rebaseOrigin(next: V3) {
-  const d: V3 = [next[0] - origin[0], next[1] - origin[1], next[2] - origin[2]];
-  if (d[0] === 0 && d[1] === 0 && d[2] === 0) return;
+  const cameras = shiftCameras(subV(next, origin), state.overviewView, state.camera);
   origin = next;
-  const shift = (p: V3): V3 => [p[0] - d[0], p[1] - d[1], p[2] - d[2]];
-  state.overviewView = {...state.overviewView, target: shift(state.overviewView.target)};
-  if (state.camera) state.camera = {...state.camera, eye: shift(state.camera.eye), target: shift(state.camera.target)};
+  state.overviewView = cameras.overview;
+  state.camera = cameras.camera;
 }
 /** The absolute point that the floating origin follows: the globe body, or the overview target. */
 function originTarget(): V3 {
   const p = state.mode === 'globe' ? scene.pos[state.body] : (state.camera?.target ?? state.overviewView.target);
   return [p[0] + origin[0], p[1] + origin[1], p[2] + origin[2]];
+}
+/** Interaction flags of the overview controller. */
+let overviewActivity: CameraActivity = {};
+/**
+ * The next origin, or null: a rebase waits for an idle overview camera, and for float32 steps at
+ * the target larger than MAX_STEP_PX. The globe camera is body-relative (longitude, latitude), so
+ * its gestures do not stop a rebase in the globe mode.
+ */
+function originUpdate(): V3 | null {
+  if (flightPhase || state.mode === 'compare') return null;
+  const next = originTarget();
+  const globe = state.mode === 'globe';
+  const camera = globe ? cameraFromGlobe(state.body) : (state.camera ?? cameraOf(orbitViewport(), state.overviewView.target));
+  // The nearest geometry: the surface of the globe body, or the overview target.
+  const depth = globe ? norm(subV(camera.eye, scene.pos[state.body])) - scene.radius[state.body] : norm(subV(camera.eye, camera.target));
+  const pixelSize = Math.max(depth, 0) / (focalOf(overviewFovy) * innerHeight);
+  return shouldRebase(subV(next, origin), pixelSize, globe || isCameraIdle(overviewActivity)) ? next : null;
+}
+/** Clock time to body positions, then the rebase: the scene in the frame of the camera. */
+function updateScene() {
+  scene = computeScene();
+  const next = originUpdate();
+  if (!next) return;
+  rebaseOrigin(next);
+  scene = computeScene();
 }
 
 // ---------- Overview layers ----------
@@ -1034,6 +1058,15 @@ const deck: any = new Deck({
   viewState: {overview: state.overviewView},
   layers: [],
   getCursor: ({isHovering, isDragging}: {isHovering: boolean; isDragging: boolean}) => (isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'),
+  onInteractionStateChange: (activity: CameraActivity) => {
+    overviewActivity = {...activity};
+    // Paused, nothing else renders: rebase on the next frame after the gesture.
+    if (isCameraIdle(activity) && !state.playing) {
+      requestAnimationFrame(() => {
+        if (!state.playing && isCameraIdle(overviewActivity) && originUpdate()) render();
+      });
+    }
+  },
   onViewStateChange: ({viewState}: {viewId: string; viewState: Record<string, unknown>}) => {
     if (state.mode === 'overview') {
       if (state.camera) return;
@@ -1192,10 +1225,9 @@ function globeReady() {
 }
 
 function render() {
-  if (!flightPhase && state.mode !== 'compare' && scene) rebaseOrigin(originTarget());
   setDecks();
   if (state.mode === 'overview') {
-    scene = computeScene();
+    updateScene();
     deck.setProps({
       views: [state.camera ? cameraView : orbitView],
       viewState: {overview: state.camera ?? state.overviewView},
@@ -1205,7 +1237,7 @@ function render() {
     renderViewState();
   } else if (state.mode === 'globe') {
     const inertial = state.corotate || !scene ? null : globeInertial(state.body);
-    scene = computeScene();
+    updateScene();
     if (inertial) applyGlobeInertial(state.body, inertial);
     bodyCache = overviewLayers(scene, {mode: 'body', focus: state.body});
     state.camera = cameraFromGlobe(state.body);
@@ -1926,7 +1958,9 @@ Object.assign(window, {
     globeLoaded: () => globeReady(),
     texturesPending: () => texturesPending,
     tileStats: getTileStats,
-    errors: () => [...errors, ...textureErrors]
+    errors: () => [...errors, ...textureErrors],
+    /** The floating origin: absolute position = view state position + origin. */
+    origin: () => [...origin] as V3
   }
 });
 
