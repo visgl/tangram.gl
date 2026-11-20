@@ -45,6 +45,7 @@ import {BasemapLayer} from '@tangram.gl/basemap-layers';
 - cuts GeoJSON sources into vector tiles on the client, in a web worker
 - generates `background`, `fill`, `line`, `symbol`, and `raster` sublayers
 - supports flat map rendering, globe rendering, and rendering in a projected view (`_CustomProjectionView`)
+- reads `["feature-state", ...]` from its `featureState` prop, and names its picked features (see [Picking](#picking))
 
 ## Terrain queries (experimental)
 
@@ -71,18 +72,75 @@ separately from displayed position; neither treats a miss as proof of coverage.
 
 ### `style`
 
-Type: `string | BasemapStyle | null`
+Type: `string | BasemapStyle | ResolvedBasemapStyle | null`
 
-The style document to render. Pass either:
+The style document to render. Pass one of:
 
 - a URL string pointing to a style JSON document
 - an in-memory MapLibre/Mapbox style object
+- a style that `resolveBasemapStyle` or `MapStyleLoader` returned
+
+The layer resolves a URL or a style object before it draws: it fetches the style document, each TileJSON `url` and each GeoJSON `data` URL. A style that is already resolved draws at once, and the layer does not fetch its sources again. Its relative `sprite` and `glyphs` URLs resolve against the URL that it was loaded from. This is the form of MapLibre GL JS's `getStyle()` and `setStyle(style)`: resolve a style one time, keep it, and give it to several layers or give it back later.
+
+A copy of a resolved style (for example `{...style}` or `structuredClone(style)`) is not marked as resolved, so the layer resolves it again. See `isResolvedBasemapStyle`.
+
+```ts
+import {resolveBasemapStyle} from '@tangram.gl/basemap-layers/map-style';
+
+const style = await resolveBasemapStyle('https://example.com/style.json');
+new BasemapLayer({id: 'base', style});
+```
 
 ### `mode`
 
 Type: `'map' | 'globe'`
 
 Controls whether the generated sublayers are optimized for a flat map or a globe. Defaults to `'map'`.
+
+### `featureState`
+
+Type: `BasemapFeatureState | null`
+
+The state of features, which `["feature-state", key]` reads in paint properties. It is the state that
+MapLibre GL JS's `map.setFeatureState()` sets, as data: by source id, then, for a `vector` source, by
+source layer, then by feature id. A feature of a `vector` source with a `promoteId` has the id of that
+property. Defaults to `null`: every state is empty.
+
+```ts
+const hoverColor = ['case', ['boolean', ['feature-state', 'hover'], false], '#ff6600', '#cccccc'];
+
+new BasemapLayer({
+  id: 'basemap',
+  style,
+  pickable: true,
+  // The building with id 42 in the `building` source layer of the `openmaptiles` source.
+  featureState: {openmaptiles: {building: {42: {hover: true}}}},
+  onHover: ({basemapFeature}) => setHovered(basemapFeature)
+});
+```
+
+Pass a new object to change a state: the prop is compared by identity, as deck.gl compares `data`.
+Only the style layers whose paint reads a changed state update, and only their paint attributes:
+the tiles are not loaded again, and their polygons and lines are not tessellated again. The states
+are read in the paint of `fill`, `line`, `circle` and `fill-extrusion` layers. In `symbol` layers they
+are empty. A `fill-extrusion-height` or `fill-extrusion-base` that reads a state rebuilds the
+extrusions of the style layer when the state changes.
+
+### Picking
+
+With `pickable: true`, the features of `vector` and `geojson` sources are pickable. The picking info
+has a `basemapFeature` field of type `BasemapPickedFeature`, named as in a feature of MapLibre GL JS's
+`queryRenderedFeatures()`:
+
+- `id`: the feature's id, or its `promoteId` property, or undefined
+- `source`: the id of the source in the style
+- `sourceLayer`: the source layer, for a `vector` source
+- `styleLayerId`: the id of the style layer that drew the feature
+- `properties`: the feature's properties
+
+`info.object` is the picked GeoJSON feature. To read the features in a rectangle, as
+`queryRenderedFeatures()` reads them, use deck.gl's `pickObjects()`. Rasters, hillshades and the
+background are not pickable.
 
 ### `loadOptions`
 
@@ -93,6 +151,8 @@ Optional loader configuration used by `resolveBasemapStyle`. This can include:
 - `baseUrl` for resolving relative URLs in in-memory styles
 - `fetch` for a custom fetch implementation
 - `fetchOptions` to customize network requests
+
+URLs with a custom scheme load with a registered handler instead (see [Custom protocols](#custom-protocols)).
 
 ### `fontFamily`
 
@@ -145,15 +205,67 @@ Limits:
 - `MaskExtension` masks a label by its anchor.
 - In deck.gl 10.0.0-alpha.1, `MaskExtension` draws its mask in Web Mercator. It does not mask a basemap in a `_CustomProjectionView`.
 
-### `globe`
+### `labels`
 
-Type: `{config?: BasemapGlobeConfig}`
+Type: `boolean`
 
-Optional globe-specific toggles:
+Draws the style's symbol layers (labels and icons). Defaults to `true`. It applies in every mode, not only on a globe. With `false`, the tiles do not decode the source layers that only symbol layers read. MapLibre GL JS has no such switch: there, an app sets `layout.visibility` on each symbol layer.
 
-- `atmosphere`: enable atmosphere overlay helpers
-- `basemap`: enable the main globe basemap geometry
-- `labels`: enable symbol-label rendering on the globe path
+### `atmosphere`
+
+Type: `boolean`
+
+Draws the atmosphere around the globe in globe mode. Defaults to `false`. The atmosphere layers are placeholders that draw nothing yet.
+
+### `globe` (deprecated)
+
+Type: `{config?: BasemapGlobeConfig} | null`
+
+Deprecated. Use `labels` and `atmosphere`. The layer logs a deprecation warning one time when `globe.config` is set, and it still applies the fields:
+
+- `labels`: as the `labels` prop
+- `atmosphere`: as the `atmosphere` prop
+- `basemap`: `false` draws no style layers. Use deck.gl's `visible: false` in its place.
+
+A field set in `globe.config` overrides the flat prop of the same name. A field that it leaves out keeps the flat prop.
+
+## Methods
+
+### `querySourceFeatures(sourceId, options?)`
+
+Returns the features of a `vector` or `geojson` source that are in the tiles the layer draws now, as MapLibre GL JS's [`Map#querySourceFeatures`](https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#querysourcefeatures). Use it to read the loaded basemap features without a pointer event: for example, to list the place names in view, or to search the loaded roads.
+
+```ts
+const basemap = deck.props.layers.find(layer => layer.id === 'basemap');
+const places = basemap.querySourceFeatures('openmaptiles', {
+  sourceLayer: 'place',
+  filter: ['==', ['get', 'class'], 'city']
+});
+```
+
+`options`:
+
+- `sourceLayer` (`string`): the source layer to read. Required for a `vector` source, where no features are returned without it. Ignored for a `geojson` source.
+- `filter` (`unknown[]`): a style-spec filter expression. `["zoom"]` in it is the zoom of the tile. A filter that the style spec rejects logs a warning and matches no features.
+
+Each returned feature is a GeoJSON `Feature` in longitude and latitude, with:
+
+- `id`: the tile feature's id, or the property that the source's `promoteId` names (a name, or a name per source layer), as in MapLibre. A feature without one has no `id`.
+- `properties`: the feature's properties.
+- `source` and `sourceLayer`: where the feature was read from (no `sourceLayer` for a `geojson` source).
+- `tile`: the `{x, y, z}` index of the tile it was read from.
+
+As in MapLibre:
+
+- The method returns every feature that matches, whether a style layer draws it or not, but it reads only the tiles drawn now: the tiles of the view, and the parent or child tiles drawn in place of tiles that are still loading. Tiles outside the view are not read, also when they are still cached.
+- A feature that crosses a tile edge is returned once for each tile, each time with the part of its geometry in that tile. A point near a tile edge can be in two tiles, because tiles have a buffer. Compare `id`s to merge the copies. A tile that is drawn more than once, as in the copies of the world, is read once.
+- A raster or `raster-dem` source, an unknown source id, and a layer whose style has not loaded return `[]`.
+
+Unlike MapLibre:
+
+- The tiles of a vector source decode only the source layers that the style draws, so a source layer that no style layer reads returns `[]`.
+
+The method reads state: call it after the tiles load, for example in deck.gl's `onAfterRender`, and not in `renderLayers`.
 
 ## Projected views
 
@@ -191,6 +303,56 @@ Limits:
 - Text along lines is straight. It does not follow the line glyph by glyph, as it does in a `MapView`.
 - A view can zoom out past the area that its projection draws well. Where the projection stretches a tile to more than four times the scale at the view center, or the tile lies on a seam of the projection, the tile is divided into smaller tiles, up to four times. The parts that are still stretched are not drawn.
 - `fill-extrusion` layers and pitched views are not covered by render tests.
+- Web Mercator tiles end at 85.051129 degrees north and south. A projected view, such as a polar stereographic one, can show latitudes past that limit, and so can a globe (`mode: 'globe'`). Raster, hillshade and vector tiles have no data past the limit. `geojson` sources are cut at the limit in these views: points past it are not drawn, and lines and polygons end where they cross it. geojson-vt, and MapLibre GL JS, move positions past the limit onto it, so a point at -89.5 degrees would otherwise draw on the -85.05 degree parallel, 135 km away on the Moon. The layer logs one warning per source that has features past the limit. A `MapView` does not show latitudes past the limit, and draws such features as MapLibre GL JS does. To draw data near the poles in full, a tile path that is not Web Mercator is necessary. That work is tracked in [#287](https://github.com/visgl/tangram.gl/issues/287).
+
+## Custom protocols
+
+```ts
+import {registerBasemapProtocol, unregisterBasemapProtocol} from '@tangram.gl/basemap-layers';
+```
+
+### `registerBasemapProtocol(scheme, handler)`
+
+Loads every URL `<scheme>://...` that `BasemapLayer` requests with `handler`, in place of `fetch`. The function has the shape of MapLibre GL JS's `addProtocol`, so the same handler works in both:
+
+```ts
+registerBasemapProtocol('custom', async (requestParameters, abortController) => {
+  const response = await fetch(`https://${requestParameters.url.split('://')[1]}`, {
+    signal: abortController.signal
+  });
+  if (!response.ok) {
+    throw new Error(`Tile fetch error: ${response.statusText}`);
+  }
+  return {data: await response.arrayBuffer()};
+});
+
+new BasemapLayer({style: 'custom://tiles.example.com/style.json'});
+```
+
+The handler loads these resources:
+
+- the style, when `style` is a URL
+- the TileJSON of a source `url`
+- the tiles of `vector`, `raster` and `raster-dem` sources
+- the sprite index and image
+- the glyph ranges of `glyphs`
+- the `data` URL of a `geojson` source
+
+`requestParameters` has the `url`, and the `type` of the resource: `'json'` for a style, TileJSON, sprite index or GeoJSON data, `'arrayBuffer'` for a vector tile or glyph range, and `'image'` for a raster or raster-dem tile or sprite image. It also has the `headers`, `method`, `body`, `credentials` and `cache` of `loadOptions.fetchOptions`, where they are set.
+
+The handler resolves with `{data}`. `data` is an `ArrayBuffer`, a typed array or a `Blob`, a string, or for a `'json'` request the parsed JSON value. An image is its encoded bytes: a decoded `ImageBitmap` or `HTMLImageElement` is not supported. `null` or empty data is a tile without data. `cacheControl` and `expires` are accepted and not used.
+
+`abortController` aborts when the request is cancelled, for example when deck.gl no longer needs a tile. The request then rejects at once, also when the handler ignores the abort.
+
+Notes:
+
+- A URL with a registered scheme is used as it is written. It is not resolved against the style URL, so a handler can read URLs such as `pmtiles://https://example.com/archive.pmtiles`. Relative URLs in a style or TileJSON loaded from `<scheme>://host/path` resolve against that URL, as with `https`.
+- `http`, `https` and `file` URLs always load with `fetch`, as in MapLibre GL JS, and cannot be registered. A URL with another scheme and no handler fails with an error that names the scheme, unless a custom `fetch` in `loadOptions` loads it.
+- The registry is global, as MapLibre GL JS's is. A second registration of the same scheme replaces the first.
+
+### `unregisterBasemapProtocol(scheme)`
+
+Removes the handler of `scheme`. Requests of its URLs then fail.
 
 ## Runtime Helpers
 
@@ -277,6 +439,8 @@ Loads and normalizes a style document. This resolves:
   `.../VectorTileServer/tile/{z}/{y}/{x}.pbf`
 - legacy Mapbox `ref` layer inheritance
 
+The result is marked as resolved, so that `BasemapLayer` draws it without resolving it again (see [`style`](#style)).
+
 ## Example
 
 ```ts
@@ -293,13 +457,7 @@ new Deck({
       id: 'earth',
       mode: 'globe',
       style: styleJson,
-      globe: {
-        config: {
-          atmosphere: false,
-          basemap: true,
-          labels: false
-        }
-      }
+      labels: false
     })
   ]
 });
