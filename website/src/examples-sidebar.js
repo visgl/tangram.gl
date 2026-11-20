@@ -16,6 +16,7 @@ const sidebars = {
       items: [
         {type: 'doc', id: 'basemap-layers/map-view', label: 'BasemapLayer'},
         {type: 'doc', id: 'basemap-layers/terrain-contract', label: 'Terrain queries'},
+        {type: 'doc', id: 'basemap-layers/draped-terrain', label: 'Draped on terrain'},
         {type: 'doc', id: 'basemap-layers/split-view', label: 'MapLibre comparison'},
         {type: 'doc', id: 'basemap-layers/masked-by-data', label: 'Basemap masked by data'},
         {type: 'doc', id: 'basemap-layers/custom-projection', label: 'CustomProjectionView (experimental)'}

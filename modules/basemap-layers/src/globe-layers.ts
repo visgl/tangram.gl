@@ -20,8 +20,21 @@ import {GeoJsonLayer, PolygonLayer, SolidPolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {ProjectedBackgroundLayer} from './projected-background-layer';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
+import {
+  ImageSourceLayer,
+  getImageSourceCorners,
+  hasFlippedWinding,
+  isDrawableImageSource,
+  type ImageSourceCorners
+} from './image-source-layer';
 import {getGlobeAtmosphereLayer, getGlobeAtmosphereSkyLayer} from './atmosphere-layer';
 import {createCircleSubLayer} from './circle-layer';
+import {
+  createHeatmapSubLayer,
+  getHeatmapPoints,
+  getTilesWithoutDrawnAncestor,
+  type HeatmapPoint
+} from './heatmap-layer';
 import {
   type BasemapFeatureState,
   type FeatureStateLookup,
@@ -255,6 +268,7 @@ const SUPPORTED_TYPES = new Set([
   'symbol',
   'raster',
   'hillshade',
+  'heatmap',
   'color-relief'
 ]);
 const DEFAULT_CONFIG: BasemapLayerConfig = {atmosphere: false, basemap: true, labels: true};
@@ -1007,6 +1021,60 @@ function createRasterLayer({
 }
 
 /**
+ * A `raster` style layer over an `image` source: the source's image at its four corners, with the
+ * raster paint properties of a raster tile layer. As in MapLibre, the image draws at every zoom.
+ */
+function createImageLayer({
+  idPrefix,
+  layer,
+  source,
+  zoom,
+  mode,
+  loadOptions,
+  fetch,
+  depthTested
+}: {
+  idPrefix: string;
+  layer: BasemapStyleLayer;
+  source: BasemapSource;
+  zoom: number;
+  mode: BasemapMode;
+  loadOptions?: BasemapLoadOptions;
+  fetch?: LayerProps['fetch'];
+  /** Drawn after an extrusion, see `getTileParameters`. */
+  depthTested?: boolean;
+}) {
+  const paint = getPaint(layer, zoom);
+  const rasterColorAdjustments = getRasterColorAdjustments(paint);
+  const isColorAdjusted = hasRasterColorAdjustments(rasterColorAdjustments);
+  const isNearest =
+    getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
+    getRasterPaintValue(paint, 'resampling') === 'nearest';
+  const corners = getImageSourceCorners(source) as ImageSourceCorners;
+  return new ImageSourceLayer({
+    id: `${idPrefix}-${layer.id}`,
+    image: source.url as string,
+    corners,
+    ...(fetch ? {fetch} : {}),
+    ...(loadOptions ? {loadOptions} : {}),
+    // As for raster tiles: deck.gl draws with `opacity ** (1 / 2.2)`.
+    opacity: getRasterPaintValue(paint, 'raster-opacity') ** 2.2,
+    ...(isColorAdjusted ? {extensions: [RASTER_COLOR_EXTENSION], rasterColorAdjustments} : {}),
+    textureParameters: isNearest ? NEAREST_TEXTURE_PARAMETERS : null,
+    onError: (error: Error) => {
+      logBasemapRuntimeError('Image failed to load', error, {
+        layerId: layer.id,
+        sourceId: layer.source
+      });
+    },
+    parameters:
+      mode === 'globe' && hasFlippedWinding(corners)
+        ? {...getTileParameters(mode, depthTested), cullMode: 'front'}
+        : getTileParameters(mode, depthTested)
+  } as any);
+}
+
+/**
  * A `hillshade` style layer over a `raster-dem` source. Its tiles are decoded on the main thread,
  * once for all of the source's hillshade layers, which share `tileset` (see `HillshadeTileLayer`).
  * MapLibre draws nothing at `hillshade-exaggeration: 0`.
@@ -1138,6 +1206,18 @@ const TILE_LABEL_FEATURES = 'tileLabelFeatures';
 /** The features of a symbol style layer without any in a tile. */
 const NO_FEATURES: any[] = [];
 
+/** The prop that hands a tile's `renderSubLayers` the map to record its heatmap points in. */
+const TILE_HEATMAP_POINTS = 'tileHeatmapPoints';
+
+/**
+ * Builds the heatmap layers of a run from the points of its drawn tiles, by style layer index;
+ * `getSubLayerProps` gives a heatmap layer the tile layer's props.
+ */
+type RenderHeatmapLayers = (
+  pointsByStyleLayer: Map<number, HeatmapPoint[]>,
+  getSubLayerProps: (id: string) => Record<string, any>
+) => Layer[];
+
 /**
  * Builds the label layers of a run from the label features of its drawn tiles, by style layer
  * index; `getSubLayerProps` gives a label layer the tile layer's props.
@@ -1200,6 +1280,16 @@ class StyledMVTLayer extends SharedMVTLayer {
     /** The style layers `labelStyleLayers` indexes, and the tileset of their tiles. */
     labelStyle?: unknown;
     labelTileset?: unknown;
+    /**
+     * The points of each heatmap style layer in a tile, by tile id and the style layer's index in
+     * its run, as `renderSubLayers` last recorded them (see `renderHeatmapLayers`).
+     */
+    tileHeatmapPoints?: Map<string, Map<number, HeatmapPoint[]>>;
+    /** The heatmap layers last rendered, with their props and points, by view. */
+    heatmapLayers?: Map<
+      string,
+      {props: unknown; key: unknown[]; points: Map<number, HeatmapPoint[]>; layers: Layer[]}
+    >;
     /** The label layers last rendered, and the props and tiles they were rendered for, by view. */
     labelLayers?: Map<
       string,
@@ -1230,6 +1320,7 @@ class StyledMVTLayer extends SharedMVTLayer {
       this.state.keptTileLayers?.clear();
       this.state.staleTiles?.clear();
       this.state.tileLabelFeatures?.clear();
+      this.state.tileHeatmapPoints?.clear();
     }
   }
 
@@ -1284,7 +1375,71 @@ class StyledMVTLayer extends SharedMVTLayer {
     if (!Array.isArray(layers)) {
       return layers;
     }
-    return [...sortTileSubLayers(layers as (Layer[] | null)[]), ...this.renderLabelLayers(tiles)];
+    return [
+      ...sortTileSubLayers(layers as (Layer[] | null)[]),
+      ...this.renderHeatmapLayers(tiles),
+      ...this.renderLabelLayers(tiles)
+    ];
+  }
+
+  /**
+   * The heatmaps of all drawn tiles, one layer per heatmap style layer and view: MapLibre GL JS
+   * sums the kernels of all tiles into one density before it colors it. A heatmap style layer has
+   * a run of its own (see `getStyleLayerRuns`), so it draws in style order. Where a drawn tile's
+   * ancestor is drawn too, as while the tile's siblings load, only the ancestor's points are
+   * drawn, as in MapLibre, so that no point adds to the density twice.
+   */
+  renderHeatmapLayers(tiles: SharedTile[]): Layer[] {
+    const render = (this.props as {renderHeatmapLayers?: RenderHeatmapLayers}).renderHeatmapLayers;
+    if (!render) {
+      return [];
+    }
+    const views = this.state.tilesetViews;
+    const entries: [string | null, (tile: SharedTile) => boolean][] =
+      !views || views.size <= 1
+        ? [[null, tile => this.isTileShown(tile)]]
+        : [...views].map(([viewKey, view]) => [viewKey, tile => view.isTileVisible(tile as any)]);
+    this.state.heatmapLayers ||= new Map();
+    const layers: Layer[] = [];
+    for (const [viewKey, isShown] of entries) {
+      const drawn = tiles.filter(
+        tile => tile.content && isShown(tile) && this.state.tileHeatmapPoints?.has(tile.id)
+      );
+      const key: unknown[] = [];
+      const pointsByStyleLayer = new Map<number, HeatmapPoint[][]>();
+      for (const tile of getTilesWithoutDrawnAncestor(drawn)) {
+        for (const [styleLayerIndex, points] of this.state.tileHeatmapPoints!.get(tile.id)!) {
+          key.push(styleLayerIndex, points);
+          let list = pointsByStyleLayer.get(styleLayerIndex);
+          if (!list) {
+            list = [];
+            pointsByStyleLayer.set(styleLayerIndex, list);
+          }
+          list.push(points);
+        }
+      }
+      // The same layers while the points and props do not change: new instances would be compared
+      // and updated at every frame. New props keep the points, so the layers keep their attributes.
+      const cacheKey = viewKey ?? '';
+      const last = this.state.heatmapLayers.get(cacheKey);
+      const isSamePoints = last && isSameList(last.key, key);
+      if (isSamePoints && last.props === this.props) {
+        layers.push(...last.layers);
+        continue;
+      }
+      const points = isSamePoints
+        ? last.points
+        : new Map([...pointsByStyleLayer].map(([index, lists]) => [index, lists.flat()]));
+      const viewLayers = render(points, id =>
+        this.getSubLayerProps({id: viewKey === null ? id : `${id}-view-${viewKey}`})
+      );
+      for (const layer of viewLayers) {
+        labelLayerViews.set(layer, viewKey);
+      }
+      this.state.heatmapLayers.set(cacheKey, {props: this.props, key, points, layers: viewLayers});
+      layers.push(...viewLayers);
+    }
+    return layers;
   }
 
   /**
@@ -1519,6 +1674,11 @@ class StyledMVTLayer extends SharedMVTLayer {
     this.state.tileLabelFeatures ||= new Map();
     this.state.tileLabelFeatures.set(props.tile.id, labelFeatures);
     (props as any)[TILE_LABEL_FEATURES] = labelFeatures;
+    // The tile's heatmap points, recorded as `renderSubLayers` filters them.
+    const heatmapPoints = new Map<number, HeatmapPoint[]>();
+    this.state.tileHeatmapPoints ||= new Map();
+    this.state.tileHeatmapPoints.set(props.tile.id, heatmapPoints);
+    (props as any)[TILE_HEATMAP_POINTS] = heatmapPoints;
     const previous = this.state.keptTileLayers?.get(props.tile.id);
     const styledProps = {
       ...props,
@@ -1602,6 +1762,7 @@ class StyledMVTLayer extends SharedMVTLayer {
     this.state.keptTileLayers?.delete(tile.id);
     this.state.staleTiles?.delete(tile.id);
     this.state.tileLabelFeatures?.delete(tile.id);
+    this.state.tileHeatmapPoints?.delete(tile.id);
   }
 
   /** Releases the shared tileset and the textures of `ZoomPaintExtension`. */
@@ -1624,7 +1785,8 @@ class StyledMVTLayer extends SharedMVTLayer {
   static defaultProps = {
     ...SharedMVTLayer.defaultProps,
     // A new function at each update, as `renderSubLayers`: compared, it would regenerate every tile.
-    renderLabelLayers: {type: 'function', optional: true, value: null, compare: false}
+    renderLabelLayers: {type: 'function', optional: true, value: null, compare: false},
+    renderHeatmapLayers: {type: 'function', optional: true, value: null, compare: false}
   } as any;
 }
 
@@ -2071,6 +2233,23 @@ function createVectorLayerGroup({
           labelPlacement
         });
       })) as RenderLabelLayers,
+    renderHeatmapLayers: ((pointsByStyleLayer, getSubLayerProps) =>
+      [...pointsByStyleLayer].flatMap(([styleLayerIndex, points]) => {
+        const styleLayer = styleLayers[styleLayerIndex];
+        const layer =
+          styleLayer?.type === 'heatmap'
+            ? createHeatmapSubLayer({
+                props: {
+                  ...getSubLayerProps(`heatmap-${JSON.stringify(styleLayer.id)}`),
+                  [STYLE_LAYER_INDEX]: styleLayerIndex
+                },
+                styleLayer,
+                points,
+                zoom
+              })
+            : null;
+        return layer ? [layer] : [];
+      })) as RenderHeatmapLayers,
     renderSubLayers: (props: Parameters<SharedMVTLayer['renderSubLayers']>[0]) => {
       const styleProps = props as typeof props & {
         styleAutoHighlight?: boolean;
@@ -2081,6 +2260,10 @@ function createVectorLayerGroup({
       const layers: any[] = [];
       // Where the tile layer collects them, a tile's labels are drawn with the other tiles'.
       const labelFeatures = (props as any)[TILE_LABEL_FEATURES] as Map<number, any[]> | undefined;
+      // Where the tile layer collects them, a tile's heatmap points are drawn with the others'.
+      const heatmapPoints = (props as any)[TILE_HEATMAP_POINTS] as
+        | Map<number, HeatmapPoint[]>
+        | undefined;
       const highlights =
         Boolean(styleProps[AUTO_HIGHLIGHT]) ||
         (styleProps.highlightedFeatureId !== null && styleProps.highlightedFeatureId !== undefined);
@@ -2177,6 +2360,16 @@ function createVectorLayerGroup({
         if (styleLayer.type === 'symbol' && labelFeatures) {
           // Drawn with the labels of the other tiles, after all tiles' sublayers.
           labelFeatures.set(styleLayerIndex, filteredData);
+          return;
+        }
+        if (styleLayer.type === 'heatmap') {
+          // Drawn with the points of the other tiles (see `renderHeatmapLayers`). Tile-local
+          // features are drawn in a Cartesian frame; on a globe and in a projected view they are
+          // in longitude/latitude.
+          heatmapPoints?.set(
+            styleLayerIndex,
+            getHeatmapPoints(filteredData, props.tile.index, props.coordinateSystem === 'lnglat')
+          );
           return;
         }
         flush();
@@ -3694,7 +3887,8 @@ function isVectorStyleLayer(layer: BasemapStyleLayer, config: BasemapLayerConfig
     : layer.type === 'fill' ||
         layer.type === 'fill-extrusion' ||
         layer.type === 'line' ||
-        layer.type === 'circle';
+        layer.type === 'circle' ||
+        layer.type === 'heatmap';
 }
 
 /**
@@ -3810,7 +4004,8 @@ export function getStyleLayerRuns(
           ((layer.type === 'raster' ||
             layer.type === 'hillshade' ||
             layer.type === 'color-relief') &&
-            getSource(layer)?.tiles)
+            getSource(layer)?.tiles) ||
+          (layer.type === 'raster' && isDrawableImageSource(getSource(layer)))
       )
       .map(layer => layer.id)
   );
@@ -3820,8 +4015,13 @@ export function getStyleLayerRuns(
     if (layer.type === 'background') {
       runs.push({type: 'background', id: layer.id, styleLayers: [layer]});
     } else if (layer.type === 'raster') {
-      if (source?.tiles) {
+      if (source?.tiles || isDrawableImageSource(source)) {
         runs.push({type: 'raster', id: layer.id, sourceId, source, styleLayers: [layer]});
+      } else if (source?.type === 'image') {
+        // Logged once per message: the runs are built again on each update.
+        log.warn(
+          `[BasemapLayer] Skipping raster layer "${layer.id}": image source "${sourceId}" needs a url and four [longitude, latitude] coordinates within the Web Mercator world`
+        )();
       } else {
         logBasemapRuntimeEvent('Skipping style layer without resolved tiles', {
           layerId: layer.id,
@@ -3843,7 +4043,17 @@ export function getStyleLayerRuns(
       const followsLabel =
         layer.type !== 'symbol' &&
         last?.styleLayers.some(styleLayer => styleLayer.type === 'symbol');
-      if (last?.type === 'vector' && last.sourceId === sourceId && !followsLabel) {
+      // A heatmap draws all of its tiles' points at once (see `renderHeatmapLayers`), so it has a
+      // run of its own.
+      const isHeatmapRun =
+        layer.type === 'heatmap' ||
+        last?.styleLayers.some(styleLayer => styleLayer.type === 'heatmap');
+      if (
+        last?.type === 'vector' &&
+        last.sourceId === sourceId &&
+        !followsLabel &&
+        !isHeatmapRun
+      ) {
         last.styleLayers.push(layer);
       } else {
         let id = sourceId;
@@ -3937,6 +4147,18 @@ function getStyleLayers({
     const [layer] = run.styleLayers;
     if (run.type === 'background') {
       return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, spriteAtlases});
+    }
+    if (run.type === 'raster' && run.source?.type === 'image') {
+      return createImageLayer({
+        idPrefix,
+        layer,
+        source: run.source,
+        zoom,
+        mode,
+        loadOptions,
+        fetch,
+        depthTested: depthTested.has(layer)
+      });
     }
     if (run.type === 'raster') {
       return createRasterLayer({
