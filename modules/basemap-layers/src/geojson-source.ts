@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {log} from '@deck.gl/core';
 import type {GeoJSONVT, GeoJSONVTOptions} from '@maplibre/geojson-vt';
 import {TaskRunner, type InitializedTask} from '@math.gl/tasks';
 import {createTileIndex, cutTile, decodeTile, GEOJSON_TILE_EXTENT} from './geojson-tiler';
@@ -88,6 +89,32 @@ export function getGeoJsonVtOptions(source: BasemapSource): GeoJSONVTOptions {
  */
 const POSITIONS_PER_BATCH = 100_000;
 
+/** How a GeoJSON source's tiles are cut, for the view they are drawn in. */
+export type GeoJsonTileOptions = {
+  /**
+   * Whether what lies past the edges of the Web Mercator world, at +-85.0511 degrees, is dropped
+   * and cut, and not clamped onto them as geojson-vt and MapLibre GL JS do (see
+   * `clipFeaturesToMercatorRange`): for views that show latitudes past them, projected views and
+   * globes. A Web Mercator view does not show them.
+   */
+  clipToMercatorRange?: boolean;
+};
+
+/** The sources that have warned of features past the edges of the Web Mercator world. */
+const warnedSources = new WeakSet<BasemapSource>();
+
+/** Warns, once per source, that features past the edges of the Web Mercator world are not drawn. */
+function warnOutside(source: BasemapSource, outside: number | undefined): void {
+  if (!outside || warnedSources.has(source)) {
+    return;
+  }
+  warnedSources.add(source);
+  log.warn(
+    '[BasemapLayer] GeoJSON features past +-85.051129 degrees of latitude, the edge of Web ' +
+      `Mercator tiles, are cut at that latitude (features cut in this source: ${outside})`
+  )();
+}
+
 /** Whether GeoJSON sources are tiled in a worker where workers are available. For tests. */
 let workerEnabled = true;
 
@@ -110,7 +137,10 @@ class GeoJsonWorker {
   private readonly resource: Promise<InitializedTask<typeof GeoJsonTask>>;
   private queue: Promise<void> = Promise.resolve();
   private nextId = 0;
-  private sources = new WeakMap<BasemapSource, {id: number; sent: Promise<void>}>();
+  /** Each source's index in the worker, without clipping (0) and with it (1). */
+  private sources = [0, 1].map(
+    () => new WeakMap<BasemapSource, {id: number; sent: Promise<void>}>()
+  );
   private registry = new FinalizationRegistry<number>(id =>
     void this.post({type: 'remove', source: id})
   );
@@ -122,22 +152,24 @@ class GeoJsonWorker {
   /** Cuts a tile of `source` in the worker, sending the source's data first if it is new. */
   async getTileFeatures(
     source: BasemapSource,
-    index: {x: number; y: number; z: number}
+    index: {x: number; y: number; z: number},
+    clip: boolean
   ): Promise<Record<string, unknown>[]> {
-    let entry = this.sources.get(source);
+    const sources = this.sources[Number(clip)];
+    let entry = sources.get(source);
     if (!entry) {
       const id = this.nextId++;
-      entry = {id, sent: this.sendSource(id, source)};
-      this.sources.set(source, entry);
+      entry = {id, sent: this.sendSource(id, source, clip)};
+      sources.set(source, entry);
       this.registry.register(source, id);
     }
     await entry.sent;
     if (this.failed) {
-      return getMainThreadTileFeatures(source, index);
+      return getMainThreadTileFeatures(source, index, clip);
     }
     const request = this.nextId++;
     const result = await this.post({type: 'tile', source: entry.id, request, ...index});
-    if (this.failed || !result) return getMainThreadTileFeatures(source, index);
+    if (this.failed || !result) return getMainThreadTileFeatures(source, index, clip);
     if ('error' in result) throw new Error(result.error);
     if (!result.tile) throw new Error('GeoJSON worker returned no tile');
     return decodeTile(result.tile);
@@ -147,11 +179,21 @@ class GeoJsonWorker {
    * Sends a source's data and options. A FeatureCollection's features go in batches, yielding to
    * the main thread between them; the worker builds the index when the last one arrives.
    */
-  private async sendSource(id: number, source: BasemapSource): Promise<void> {
+  private async sendSource(id: number, source: BasemapSource, clip: boolean): Promise<void> {
     const options = getGeoJsonVtOptions(source);
     const data = source.data as {type?: string; features?: unknown};
+    const index = async (message: {data?: unknown}) => {
+      const result = await this.post({
+        type: 'index',
+        source: id,
+        options,
+        clipToMercatorRange: clip,
+        ...message
+      });
+      warnOutside(source, result && 'outside' in result ? result.outside : 0);
+    };
     if (data.type !== 'FeatureCollection' || !Array.isArray(data.features)) {
-      await this.post({type: 'index', source: id, data, options});
+      await index({data});
       return;
     }
     let batch: unknown[] = [];
@@ -170,7 +212,7 @@ class GeoJsonWorker {
       }
     }
     await this.post({type: 'features', source: id, features: batch});
-    await this.post({type: 'index', source: id, options});
+    await index({});
   }
 
   /** Serialize operations to avoid overflowing the resource's bounded job queue. */
@@ -255,18 +297,25 @@ function getGeoJsonWorker(): GeoJsonWorker | null {
   return geoJsonWorker?.failed ? null : geoJsonWorker;
 }
 
-/** Each source's tile index on the main thread, built when its first tile is requested there. */
-const tileIndexes = new WeakMap<BasemapSource, GeoJSONVT>();
+/**
+ * Each source's tile index on the main thread, without clipping (0) and with it (1), built when
+ * its first tile is requested there.
+ */
+const tileIndexes = [0, 1].map(() => new WeakMap<BasemapSource, GeoJSONVT>());
 
 /** Cuts a tile of a GeoJSON source on the main thread, building its index first if needed. */
 function getMainThreadTileFeatures(
   source: BasemapSource,
-  index: {x: number; y: number; z: number}
+  index: {x: number; y: number; z: number},
+  clip: boolean
 ): Record<string, unknown>[] {
-  let tileIndex = tileIndexes.get(source);
+  const indexes = tileIndexes[Number(clip)];
+  let tileIndex = indexes.get(source);
   if (!tileIndex) {
-    tileIndex = createTileIndex(source.data, getGeoJsonVtOptions(source));
-    tileIndexes.set(source, tileIndex);
+    const created = createTileIndex(source.data, getGeoJsonVtOptions(source), clip);
+    tileIndex = created.index;
+    indexes.set(source, tileIndex);
+    warnOutside(source, created.outside);
   }
   return decodeTile(cutTile(tileIndex, index.z, index.x, index.y));
 }
@@ -280,8 +329,11 @@ function getMainThreadTileFeatures(
  */
 export async function getGeoJsonTileFeatures(
   source: BasemapSource,
-  index: {x: number; y: number; z: number}
+  index: {x: number; y: number; z: number},
+  {clipToMercatorRange = false}: GeoJsonTileOptions = {}
 ): Promise<Record<string, unknown>[]> {
   const worker = getGeoJsonWorker();
-  return worker ? worker.getTileFeatures(source, index) : getMainThreadTileFeatures(source, index);
+  return worker
+    ? worker.getTileFeatures(source, index, clipToMercatorRange)
+    : getMainThreadTileFeatures(source, index, clipToMercatorRange);
 }
