@@ -45,6 +45,8 @@ export type VolumeFrame = {
   /** Occluding spheres relative to the camera: [x, y, z, radius]. */
   spheres: number[][];
   corona: null | {center: V3; radius: number; pole: V3; gain: number};
+  /** The halo of the Sun: `radius` in Sun radii, `gain` the emission at the centre. */
+  halo: null | {center: V3; sunRadius: number; radius: number; gain: number};
   comet: null | {head: V3; coma: number; ion: V3[]; dust: V3[]; width: number; activity: number};
   zodiacal: null | {sun: V3; bound: number; trueScale: boolean; gain: number};
   clouds: CloudInstance[];
@@ -83,6 +85,8 @@ uniform bool uCoronaOn;
 uniform vec4 uSun;
 uniform vec3 uSunPole;
 uniform float uCoronaGain;
+uniform vec4 uHalo;
+uniform vec2 uHaloShape;
 uniform bool uCometOn;
 uniform vec4 uComa;
 uniform vec3 uIon[${ION_POINTS}];
@@ -186,6 +190,16 @@ void main() {
         sum += pow(n, 0.7) * streamer * smoothstep(3.0, 2.0, r) * dt / uSun.w;
       }
       emission += vec3(1.0, 0.82, 0.58) * uCoronaGain * sum;
+    }
+  }
+
+  // The halo of the Sun: a glow around the direction of the Sun, where no body is in front of the
+  // Sun. uHalo: centre and Sun radius; uHaloShape: halo radius (Sun radii) and gain.
+  if (uHaloShape.y > 0.0) {
+    float along = dot(rd, uHalo.xyz);
+    if (along > 0.0 && tMax > along - 1.01 * uHalo.w) {
+      float x = length(uHalo.xyz - rd * along) / (uHalo.w * uHaloShape.x);
+      emission += vec3(1.0, 0.9, 0.72) * uHaloShape.y * exp(-4.0 * x) * smoothstep(1.0, 0.7, x);
     }
   }
 
@@ -443,6 +457,9 @@ export function createSpaceVolumes(canvas: HTMLCanvasElement) {
       gl.uniform3f(loc('uSunPole'), ...corona.pole);
       gl.uniform1f(loc('uCoronaGain'), corona.gain);
     }
+    const halo = frame.halo;
+    if (halo) gl.uniform4f(loc('uHalo'), ...halo.center, halo.sunRadius);
+    gl.uniform2f(loc('uHaloShape'), halo?.radius ?? 1, halo?.gain ?? 0);
     gl.uniform1i(loc('uCometOn'), comet ? 1 : 0);
     if (comet) {
       gl.uniform4f(loc('uComa'), ...comet.head, comet.coma);

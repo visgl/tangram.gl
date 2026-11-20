@@ -62,18 +62,26 @@ after `yarn build:modules`.
   [Clouds and atmospheres](#clouds-and-atmospheres).
 
 - **Space volumes.** A WebGL2 pass over the decks adds what EVE Online-style space scenes have:
-  - *Look volumes*: regions that change the look when the camera is inside them: a warm,
-    brighter glare near the Sun, a haze in the colour of a planet inside its atmosphere shell
-    (4 radii), a dust haze in the ecliptic disc, and a darker sky with more stars beyond
-    Neptune (31 to 90 AU). Each volume is a sphere, a shell or a box with a soft edge; the
-    weights come from the camera position, and a priority rule blends them
+  - *Look volumes*: regions that change the look when the camera is inside them: a haze in the
+    colour of a planet inside its atmosphere shell (4 radii), a dust haze in the ecliptic disc,
+    and a darker sky with more stars beyond Neptune (31 to 90 AU; this one follows the point
+    that the camera looks at, because an orbit camera is far from its target at an ordinary
+    zoom). Each volume is a sphere, a shell or a box with a soft edge; the weights come from
+    the camera position, and a priority rule blends them. The warm, brighter *glare of the Sun*
+    is one more volume, but its weight comes from what the camera sees: the size of the Sun's
+    disc on the screen (full at 300 px, 15 % at 3 px and below), whether the Sun is in the
+    view, and the part of the disc that no body covers. So a zoom-out keeps a weaker glare,
+    and a camera that looks away loses it
     (`scene/look-volumes.ts`). The idea follows the post-process volumes of the
     [Carbon engine](https://github.com/carbonengine) (MIT); no Carbon code is used. The tint and
     exposure go through one SVG colour matrix, the haze through the volume pass, the star
     factor through the sky layers.
   - *The solar corona*: electron density from the Baumbach model, ray-marched to 3 solar radii
     with a display compression. The streamers are noise in direction only, so they are
-    radial: **artistic**.
+    radial: **artistic**. A *halo* (also artistic) goes with it: a glow of 4 solar radii, never
+    under 22 px on the screen, weak close to the Sun and strong for a small disc, so a Sun of
+    under a pixel (the system view in true scale) still shows as a bright star. It dims when
+    a body covers the Sun.
   - *A comet*: C/2020 F3 (NEOWISE), from the JPL Small-Body Database (solution JPL 31, epoch
     JD 2459036.5 TDB), on a two-body Kepler orbit (`celestial/comet.ts`). The ion tail points
     straight away from the Sun; the dust tail is a syndyne (radiation-pressure ratio 0.6, 12

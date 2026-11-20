@@ -76,8 +76,8 @@ import {getMilkyWayTexture, getRingTexture} from './textures';
 import {isCameraIdle, shiftCameras, shouldRebase, withoutTransition, type CameraActivity} from './floating-origin';
 import {getEquirectTexture, getTileStats, shimFetch} from './tiles';
 import {MULTIPLY_PARAMETERS, ShadowExtension, shadowUniforms} from './shadow-extension';
-import {DEFAULT_LOOK, blendLook, exposureGain, type LookBlend} from './look-volumes';
-import {CLOUDS, cloudPlacement, cometAt, lookVolumes, volumeFrame, type SpaceScene, type SpaceToggles} from './space';
+import {DEFAULT_LOOK, blendLook, exposureGain, sunGlareWeight, type LookBlend} from './look-volumes';
+import {CLOUDS, cloudPlacement, cometAt, lookVolumes, sunGlareVolume, sunView, volumeFrame, type SpaceScene, type SpaceToggles} from './space';
 import {QUALITY, createSpaceVolumes, type Quality, type SpaceVolumes} from './space-volumes';
 import {CARD_IDS, createPanel, type CardId} from './panel';
 type Mode = 'overview' | 'globe' | 'compare';
@@ -517,10 +517,11 @@ const OVERVIEW_FAR = 100000;
 let overviewFovy = 50;
 const SKY_DISTANCE = Number(params.get('skyDistance') ?? 2);
 const STARS = getStarPoints(2000 + (state.baseDate.getTime() - Date.UTC(2000, 0, 1, 12)) / (365.25 * 86400000), 1);
-function skyFrame(): {eye: V3; radius: number} {
-  const eye = [...overviewViewport().cameraPosition] as V3;
+function skyFrame(): {eye: V3; radius: number; viewport: AnyViewport} {
+  const viewport = overviewViewport();
+  const eye = [...viewport.cameraPosition] as V3;
   const target = state.camera ? state.camera.target : state.overviewView.target;
-  return {eye, radius: SKY_DISTANCE * norm(subV(eye, target))};
+  return {eye, radius: SKY_DISTANCE * norm(subV(eye, target)), viewport};
 }
 let milkyWay: ImageBitmap | null = null;
 let ringTexture: ImageBitmap | null = null;
@@ -543,10 +544,10 @@ getEarthCloudMap()
 const SKY_PARAMETERS = {depthWriteEnabled: false, depthCompare: 'always'} as const;
 
 function skyLayers() {
-  const {eye, radius} = skyFrame();
+  const {eye, radius, viewport} = skyFrame();
   const key = `${eye.join(',')}:${radius}`;
   // The look volumes dim or brighten the star field (stars < 1 dims, > 1 brightens).
-  const stars = lookAt(eye).params.stars;
+  const stars = lookAt(eye, viewport).params.stars;
   return [
     ...(milkyWay
       ? [
@@ -1367,11 +1368,18 @@ function spaceScene(): SpaceScene {
   };
 }
 let lookCache: {scene: Scene; volumes: ReturnType<typeof lookVolumes>} | null = null;
-/** The blended look at a camera position (relative to the floating origin). */
-function lookAt(eye: readonly number[]): LookBlend {
+/**
+ * The blended look of a view: the volumes at the camera position (relative to the floating
+ * origin) or at the point that the camera looks at, and the Sun glare from what the camera sees.
+ */
+function lookAt(eye: readonly number[], viewport: AnyViewport = overviewViewport()): LookBlend {
   if (!state.space.looks || state.mode === 'compare') return {params: {...DEFAULT_LOOK}, weights: []};
   if (lookCache?.scene !== scene) lookCache = {scene, volumes: lookVolumes(spaceScene())};
-  return blendLook(lookCache.volumes, eye);
+  const glare = sunGlareWeight(
+    sunView(scene, {eye: [...eye] as V3, viewProjection: [...viewport.viewProjectionMatrix], width: innerWidth, height: innerHeight})
+  );
+  const target = state.camera?.target ?? state.overviewView.target;
+  return blendLook([...lookCache.volumes, sunGlareVolume(glare)], eye, DEFAULT_LOOK, target);
 }
 /** Last frame of the space volumes, for the panel and automated checks. */
 const spaceStats = {drawMs: 0, look: null as LookBlend | null, frames: 0};
@@ -1392,7 +1400,7 @@ function drawSpace() {
   const viewport: AnyViewport = deck.getViewports()[0] ?? overviewViewport();
   const eye = [...viewport.cameraPosition] as V3;
   const target = state.camera?.target ?? state.overviewView.target;
-  const look = lookAt(eye);
+  const look = lookAt(eye, viewport);
   const {params: p} = look;
   // Tint and exposure: one colour matrix (SVG feColorMatrix) over the decks and the volumes.
   const gains = p.tint.map(c => Math.max(0, c) * exposureGain(p.exposure));

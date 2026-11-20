@@ -6,14 +6,21 @@
 // tails, the dust field under a floating-origin rebase, and the gas density models.
 
 import {expect, test} from 'vitest';
+import {Matrix4} from '@math.gl/core';
 import {
   DEFAULT_LOOK,
+  GLARE_FLOOR,
+  HALO_MIN_PX,
   blendLook,
   smoothstep,
+  sunGlareWeight,
+  sunHalo,
   weightAt,
   type LookParams,
   type LookVolume
 } from '../examples/layers/basemap-solar-system/scene/look-volumes';
+import {lookVolumes, sunGlareVolume, sunView, type SpaceScene} from '../examples/layers/basemap-solar-system/scene/space';
+import {BODY_IDS, type BodyId} from '../examples/layers/basemap-solar-system/celestial/constants';
 import {
   GAUSS_K,
   NEOWISE,
@@ -154,6 +161,140 @@ test('look blend: no jump across any volume edge', () => {
   // 4-unit edge the weight is below 0.2%.
   expect(weightAt(sphere(10, 4), [9.9, 0, 0])).toBeLessThan(0.002);
   expect(weightAt(sphere(10, 4), [6.1, 0, 0])).toBeGreaterThan(0.998);
+});
+
+// ---------- The Sun glare and halo: from what the camera sees ----------
+
+/** A scene with the Sun (radius 1) at the origin and every other body far away on -x. */
+function sunScene(extra: Partial<Record<BodyId, {pos: V3; radius: number}>> = {}): SpaceScene {
+  const pos = {} as Record<BodyId, V3>;
+  const radius = {} as Record<BodyId, number>;
+  BODY_IDS.forEach((id, k) => {
+    pos[id] = extra[id]?.pos ?? (id === 'sun' ? [0, 0, 0] : [-1e6 - 1e5 * k, 0, 0]);
+    radius[id] = extra[id]?.radius ?? (id === 'sun' ? 1 : 0.01);
+  });
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  return {
+    date: new Date(0), pos, radius, scale: 'true', origin: [0, 0, 0],
+    matrix: Object.fromEntries(BODY_IDS.map(id => [id, identity])) as Record<BodyId, number[]>,
+    toScene: p => [p[0] * 149.6, p[1] * 149.6, p[2] * 149.6],
+    colors: Object.fromEntries(BODY_IDS.map(id => [id, [255, 255, 255]])) as unknown as Record<BodyId, readonly number[]>
+  };
+}
+const VIEW = {width: 1200, height: 800, fovy: 50};
+/** A perspective camera at `eye` that looks at `center`. */
+function camera(eye: V3, center: V3 = [0, 0, 0]) {
+  const distance = norm(sub(eye, center));
+  const projection = new Matrix4().perspective({fovy: VIEW.fovy * DEG, aspect: VIEW.width / VIEW.height, near: distance * 1e-3, far: distance * 1e3});
+  const view = new Matrix4().lookAt({eye, center, up: [0, 0, 1]});
+  return {eye, viewProjection: projection.multiplyRight(view).toArray() as number[], width: VIEW.width, height: VIEW.height};
+}
+const FOCAL_PX = VIEW.height / 2 / Math.tan((VIEW.fovy * DEG) / 2);
+
+test('sunView: the disc size on the screen, the place in the view, and the part that a body covers', () => {
+  const scene = sunScene();
+  for (const d of [3, 50, 1e4]) {
+    const view = sunView(scene, camera([d, 0, 0]));
+    expect(view.sunPx / (FOCAL_PX / d)).toBeCloseTo(1, 3);
+    expect(view.outside).toBeLessThan(0);
+    expect(view.visible).toBe(1);
+  }
+  // The camera turns away: the Sun leaves the view, then is behind the camera.
+  const eye: V3 = [100, 0, 0];
+  const turned = (deg: number) => sunView(scene, camera(eye, [100 - 100 * Math.cos(deg * DEG), 100 * Math.sin(deg * DEG), 0]));
+  expect(turned(10).outside).toBeLessThan(0);
+  expect(turned(60).outside).toBeGreaterThan(0.5);
+  expect(turned(170).outside).toBe(Infinity);
+  // A body on the line of sight that covers the disc, half of it, none of it (same angular size).
+  const cover = (offset: number) => sunView(sunScene({moon: {pos: [50, offset, 0], radius: 0.5}}), camera(eye)).visible;
+  expect(cover(0)).toBeLessThan(0.02);
+  expect(cover(0.5)).toBeGreaterThan(0.3);
+  expect(cover(0.5)).toBeLessThan(0.7);
+  expect(cover(2)).toBe(1);
+});
+
+test('Sun glare: it stays while the Sun is in view, weaker for a smaller disc, with no jump', () => {
+  const inView = (sunPx: number) => sunGlareWeight({sunPx, outside: -0.5, visible: 1});
+  expect(inView(1000)).toBe(1);
+  expect(inView(300)).toBe(1);
+  // A Sun of a thousandth of a pixel (the system view in true scale, far out) keeps the floor.
+  expect(inView(1e-3)).toBe(GLARE_FLOOR);
+  expect(GLARE_FLOOR).toBeGreaterThan(0.1);
+  // A zoom-out in steps of 0.05 zoom levels: monotonic, and no step above 0.01.
+  let previous = inView(1000);
+  for (let zoom = 0; zoom > -24; zoom -= 0.05) {
+    const weight = inView(1000 * 2 ** zoom);
+    expect(weight).toBeLessThanOrEqual(previous);
+    expect(previous - weight).toBeLessThan(0.01);
+    previous = weight;
+  }
+  // The camera looks away: less glare, then none; behind the camera: none.
+  const turned = (outside: number) => sunGlareWeight({sunPx: 100, outside, visible: 1});
+  expect(turned(0)).toBe(inView(100));
+  expect(turned(0.25)).toBeLessThan(inView(100));
+  expect(turned(0.25)).toBeGreaterThan(0);
+  expect(turned(0.5)).toBe(0);
+  expect(turned(Infinity)).toBe(0);
+  // A body covers the Sun: the glare follows the visible part of the disc.
+  expect(sunGlareWeight({sunPx: 100, outside: -1, visible: 0.25})).toBeCloseTo(0.25 * inView(100), 12);
+  expect(sunGlareWeight({sunPx: 100, outside: -1, visible: 0})).toBe(0);
+});
+
+test('Sun glare from a camera: a zoom-out from the Sun changes the look by small steps and never to none', () => {
+  const scene = sunScene();
+  const volumes = lookVolumes(scene);
+  const lookFrom = (d: number) => {
+    const cam = camera([d, 0, 0]);
+    return blendLook([...volumes, sunGlareVolume(sunGlareWeight(sunView(scene, cam)))], cam.eye, DEFAULT_LOOK, [0, 0, 0]).params;
+  };
+  let previous = lookFrom(2.5);
+  expect(previous.exposure).toBeCloseTo(0.35, 6);
+  let worst = 0;
+  // From 2.5 Sun radii to 2.5e7 (about 116 AU for a Sun of radius 1 = 696 000 km), 0.1 zoom levels a step.
+  for (let d = 2.5; d < 2.5e7; d *= 2 ** 0.1) {
+    const next = lookFrom(d);
+    worst = Math.max(worst, Math.abs(next.exposure - previous.exposure), Math.abs(next.stars - previous.stars));
+    // No volume of the camera position takes the look over on the way out (no deep-space step).
+    expect(next.exposure).toBeGreaterThan(0);
+    expect(next.stars).toBeLessThan(1);
+    previous = next;
+  }
+  expect(worst).toBeLessThan(0.02);
+  expect(previous.exposure).toBeCloseTo(0.35 * GLARE_FLOOR, 6);
+});
+
+test('look blend: a weight shape takes the given weight; a target anchor ignores the camera position', () => {
+  const half = blendLook([{id: 'w', priority: 0, shape: {kind: 'weight', weight: 0.5}, params: {exposure: 1}}], [9, 9, 9]);
+  expect(half.params.exposure).toBeCloseTo(0.5, 12);
+  expect(weightAt({kind: 'weight', weight: 7}, [0, 0, 0])).toBe(1);
+  const shell: LookVolume = {id: 'far', priority: 0, anchor: 'target', shape: {kind: 'shell', center: [0, 0, 0], inner: 10, outer: 30, edge: 2}, params: {exposure: -1}};
+  // The camera is in the shell, its target is not: no effect. The target is in the shell: full.
+  expect(blendLook([shell], [20, 0, 0], DEFAULT_LOOK, [0, 0, 0]).params.exposure).toBe(0);
+  expect(blendLook([shell], [500, 0, 0], DEFAULT_LOOK, [20, 0, 0]).params.exposure).toBe(-1);
+  // The volumes of the example: the deep-space shell follows the target, and no volume of the
+  // camera position carries the Sun glare.
+  const volumes = lookVolumes(sunScene());
+  expect(volumes.find(v => v.id === 'deep-space')?.anchor).toBe('target');
+  expect(volumes.some(v => v.id === 'sun-glare')).toBe(false);
+});
+
+test('Sun halo: a least size on the screen, bright for a small Sun, subtle close to the Sun, dim in an eclipse', () => {
+  for (const sunPx of [1e-3, 0.07, 1, 3, 10]) {
+    const halo = sunHalo({sunPx, outside: -1, visible: 1});
+    expect(halo.radius * sunPx).toBeGreaterThanOrEqual(HALO_MIN_PX - 1e-9);
+  }
+  const gain = (sunPx: number, visible = 1) => sunHalo({sunPx, outside: -1, visible}).gain;
+  expect(gain(0.01)).toBeGreaterThan(2);
+  expect(gain(400)).toBeLessThan(0.2);
+  expect(gain(400)).toBeGreaterThan(0);
+  let previous = gain(1000);
+  for (let zoom = 0; zoom > -20; zoom -= 0.05) {
+    const next = gain(1000 * 2 ** zoom);
+    expect(Math.abs(next - previous)).toBeLessThan(0.05);
+    previous = next;
+  }
+  expect(gain(5, 0.5)).toBeCloseTo(0.5 * gain(5), 12);
+  expect(gain(5, 0)).toBe(0);
 });
 
 // ---------- Comet ----------

@@ -14,10 +14,11 @@ import {
   dustTail,
   ionTailDirection,
   julianTT,
+  sphereVisibility,
   type BodyId,
   type V3
 } from '../celestial';
-import type {LookVolume} from './look-volumes';
+import {sunHalo, type LookVolume, type SunView} from './look-volumes';
 import {dustLevels} from './space-dust';
 import type {CloudInstance, Quality, VolumeFrame} from './space-volumes';
 
@@ -149,13 +150,10 @@ export function lookVolumes(s: SpaceScene): LookVolume[] {
   const rSun = s.radius.sun;
   const volumes: LookVolume[] = [
     {
-      id: 'sun-glare', priority: 2,
-      shape: {kind: 'sphere', center: sun, radius: 8 * rSun, edge: 5 * rSun},
-      params: {tint: [1, 0.88, 0.72], exposure: 0.35, stars: 0.2, fogColor: [1, 0.62, 0.3], fogDensity: 0.035}
-    },
-    {
-      // Beyond Neptune: darker, more stars. 32 to 90 AU around the Sun.
-      id: 'deep-space', priority: 1,
+      // Beyond Neptune: darker, more stars. 32 to 90 AU around the Sun. It follows the point that
+      // the camera looks at: the orbit camera of the system view is tens of AU from its target at
+      // an ordinary zoom, and that is not a flight beyond Neptune.
+      id: 'deep-space', priority: 1, anchor: 'target',
       shape: {kind: 'shell', center: sun, inner: sceneDistance(s, 31), outer: sceneDistance(s, 90), edge: sceneDistance(s, 45) - sceneDistance(s, 31)},
       params: {tint: [0.82, 0.88, 1], exposure: -0.7, stars: 1.9}
     }
@@ -187,6 +185,42 @@ export function lookVolumes(s: SpaceScene): LookVolume[] {
     params: {fogColor: [0.55, 0.32, 0.18], fogDensity: 0.1, tint: [1, 0.9, 0.82], stars: 0.5}
   });
   return volumes;
+}
+
+/**
+ * The glare of the Sun: warm tint, more exposure, fewer stars, a little haze. Its weight comes from
+ * what the camera sees (sunGlareWeight of sunView), not from the camera position.
+ */
+export function sunGlareVolume(weight: number): LookVolume {
+  return {
+    id: 'sun-glare', priority: 2,
+    shape: {kind: 'weight', weight},
+    params: {tint: [1, 0.88, 0.72], exposure: 0.35, stars: 0.2, fogColor: [1, 0.62, 0.3], fogDensity: 0.035}
+  };
+}
+
+/** The Sun as a camera sees it: disc size and place on the screen, and the part that no body covers. */
+export function sunView(s: Pick<SpaceScene, 'pos' | 'radius'>, cam: Pick<FrameCamera, 'eye' | 'viewProjection' | 'width' | 'height'>): SunView {
+  const sun = sub(s.pos.sun, cam.eye);
+  const rSun = s.radius.sun;
+  const clip = new Matrix4(cam.viewProjection).transform([...s.pos.sun, 1]) as number[];
+  // Pixels per radian at the centre of the view, from two rays one clip unit apart.
+  const inv = new Matrix4(cam.viewProjection).invert();
+  const ray = (y: number) => sub(inv.transform([0, y, 1]) as number[], inv.transform([0, y, -1]) as number[]);
+  const [a, b] = [ray(0), ray(1)];
+  const halfFov = Math.acos(Math.max(-1, Math.min(1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (len(a) * len(b)))));
+  const focalPx = cam.height / 2 / Math.tan(halfFov);
+  const sunPx = (rSun / Math.max(len(sun), rSun)) * focalPx;
+  const outside =
+    clip[3] > 0
+      ? Math.max(Math.abs(clip[0] / clip[3]) - 1 - (2 * sunPx) / cam.width, Math.abs(clip[1] / clip[3]) - 1 - (2 * sunPx) / cam.height)
+      : Infinity;
+  let visible = 1;
+  for (const id of BODY_IDS) {
+    if (id === 'sun') continue;
+    visible *= sphereVisibility([0, 0, 0], sun, rSun, {id, center: sub(s.pos[id], cam.eye), radius: s.radius[id], zScale: 1, tint: [0, 0, 0]});
+  }
+  return {sunPx, outside, visible};
 }
 
 // ---------- The frame ----------
@@ -253,6 +287,7 @@ export function volumeFrame(s: SpaceScene, cam: FrameCamera, t: SpaceToggles, fo
     corners,
     spheres,
     corona: t.corona ? {center: rel(s.pos.sun), radius: s.radius.sun, pole: pole.map(v => v / poleN) as V3, gain: 0.8} : null,
+    halo: t.corona ? {center: rel(s.pos.sun), sunRadius: s.radius.sun, ...sunHalo(sunView(s, cam))} : null,
     comet,
     zodiacal: t.gas ? {sun: rel(s.pos.sun), bound: sceneDistance(s, 5), trueScale: s.scale === 'true', gain: 0.04} : null,
     clouds,
