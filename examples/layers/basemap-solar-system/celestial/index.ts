@@ -43,3 +43,9 @@ export {
   rayleighPhase,
   raySphere
 } from './atmosphere';
+export type {CometElements, OrbitState} from './comet';
+export {
+  GAUSS_K, NEOWISE, NEOWISE_PERIHELION, cometActivity, cometOrbit, cometState, dustTail, ionTailDirection,
+  julianTT, solveKepler
+} from './comet';
+export {baumbachDensity, kelsallDensity} from './gas';

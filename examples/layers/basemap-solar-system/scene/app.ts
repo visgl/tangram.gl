@@ -28,11 +28,13 @@ import {
   GALILEAN,
   PHYSICAL_CONSTANTS,
   KM_PER_AU,
+  NEOWISE,
   PLANET_IDS,
   SATURN_RINGS,
   STAR_SOURCE,
   angleDeg,
   checkTerminator,
+  cometOrbit,
   dot,
   getAtmosphere,
   getBodyAxes,
@@ -70,9 +72,15 @@ import {getMilkyWayTexture, getRingTexture} from './textures';
 import {isCameraIdle, shiftCameras, shouldRebase, type CameraActivity} from './floating-origin';
 import {getEquirectTexture, getTileStats, shimFetch} from './tiles';
 import {MULTIPLY_PARAMETERS, ShadowExtension, shadowUniforms} from './shadow-extension';
+import {DEFAULT_LOOK, blendLook, exposureGain, type LookBlend} from './look-volumes';
+import {CLOUDS, cloudPlacement, cometAt, lookVolumes, volumeFrame, type SpaceScene, type SpaceToggles} from './space';
+import {QUALITY, createSpaceVolumes, type Quality, type SpaceVolumes} from './space-volumes';
 type Mode = 'overview' | 'globe' | 'compare';
 
 const params = new URLSearchParams(location.search);
+/** `?comet=perihelion`: the clock starts at the comet's perihelion and the view shows the comet. */
+const COMET_PERIHELION = params.get('comet') === 'perihelion';
+const PERIHELION_DATE = new Date(Date.UTC(2000, 0, 1, 12) + (NEOWISE.tp - 2451545) * 86400000 - 69184);
 const COMPARE_IDS: BodyId[] = ['earth', 'moon', 'mars'];
 /** Compare globes start below the panel. */
 const COMPARE_TOP = 300;
@@ -80,8 +88,9 @@ const state = {
   mode: (['overview', 'globe', 'compare'].includes(params.get('mode') ?? '') ? params.get('mode') : 'overview') as Mode,
   body: (params.get('body') ?? 'earth') in BODIES ? (params.get('body') as BodyId) : ('earth' as BodyId),
   scale: (params.get('scale') === 'true' ? 'true' : 'readable') as 'readable' | 'true',
-  /** Start of the time slider: the `date` parameter (a day at UTC midnight, or an ISO time), or now. */
-  baseDate: parseDate(params.get('date')),
+  /** Start of the time slider: the comet's perihelion (`comet=perihelion`), the `date` parameter (a
+   * day at UTC midnight, or an ISO time), or now. */
+  baseDate: COMET_PERIHELION ? PERIHELION_DATE : parseDate(params.get('date')),
   offsetDays: Number(params.get('offset') ?? 0),
   sliderUnit: 'days' as 'days' | 'years',
   linked: params.get('linked') !== 'off',
@@ -103,6 +112,16 @@ const state = {
   overviewView: {target: [0, 0, 0] as V3, zoom: 0, rotationOrbit: 30, rotationX: 35, minZoom: -12, maxZoom: 30},
   globeViews: {} as Record<string, {longitude: number; latitude: number; zoom: number; bearing?: number; pitch?: number; minZoom?: number; maxZoom?: number}>,
   clicked: null as null | {body: BodyId; lat: number; lon: number},
+  /** Space volumes: look volumes, corona, comet, gas clouds, dust; and their quality. */
+  space: {
+    looks: params.get('looks') !== 'off',
+    corona: params.get('corona') !== 'off',
+    comet: params.get('comet') !== 'off',
+    gas: params.get('gas') !== 'off',
+    dust: params.get('dust') !== 'off',
+    cloudMode: params.get('cloud') === 'procedural' ? 'procedural' : 'baked',
+    quality: (['low', 'medium', 'high'].includes(params.get('quality') ?? '') ? params.get('quality') : 'medium') as Quality
+  } as SpaceToggles,
   /** Overview camera when it is not an OrbitView state: globe mode and the fly-out. */
   camera: null as null | Camera
 };
@@ -157,7 +176,11 @@ type Scene = {
   /** Eclipse shadows on each body that can receive one, and on Saturn's rings (true geometry). */
   shadows: Partial<Record<BodyId, ShadowGeometry | null>>;
   ringShadow: ShadowGeometry | null;
+  /** The comet (relative to the floating origin) and the inner part of its orbit. */
+  comet: {position: V3; orbit: V3[]; r: number};
 };
+/** The comet's orbit inside 40 AU, heliocentric AU (fixed: two-body elements). */
+const COMET_ORBIT_AU = cometOrbit(NEOWISE, 2048).filter(p => norm(p) < 40);
 
 
 /** Column-major 4 x 4 from body axes (columns x, y, z) and a uniform scale. */
@@ -282,7 +305,10 @@ function computeScene(): Scene {
   const shadows: Scene['shadows'] = {};
   for (const id of SHADOWED_BODIES) shadows[id] = getShadowGeometry(id, date, SATURN_RINGS);
   const ringShadow = getShadowGeometry('saturn', date, SATURN_RINGS, 'rings');
+  const cometNow = cometAt(date);
+  const comet = {position: rel(place(cometNow.position)), orbit: COMET_ORBIT_AU.map(p => rel(place(p))), r: cometNow.r};
   return {
+    comet,
     date, pos, radius, matrix, orbits, earthNight, moonNight, sunFixed, earthLightErrorDeg,
     moonSceneFraction, galilean, galileanOrbits: galileanOrbits.map(path => path.map(rel)), saturnAxes: axes.saturn, night,
     shadows, ringShadow
@@ -493,6 +519,8 @@ const SKY_PARAMETERS = {depthWriteEnabled: false, depthCompare: 'always'} as con
 function skyLayers() {
   const {eye, radius} = skyFrame();
   const key = `${eye.join(',')}:${radius}`;
+  // The look volumes dim or brighten the star field (stars < 1 dims, > 1 brightens).
+  const stars = lookAt(eye).params.stars;
   return [
     ...(milkyWay
       ? [
@@ -505,6 +533,7 @@ function skyLayers() {
             getColor: [255, 255, 255, 255],
             getTransformMatrix: () => new Matrix4().scale(radius * 1.05).toArray() as number[],
             material: {ambient: 1, diffuse: 0, shininess: 1, specularColor: [0, 0, 0]},
+            opacity: Math.min(1, stars),
             parameters: SKY_PARAMETERS,
             updateTriggers: {getPosition: key, getTransformMatrix: key}
           })
@@ -517,6 +546,8 @@ function skyLayers() {
       getFillColor: d => d.color,
       getRadius: d => d.radius,
       radiusUnits: 'pixels',
+      radiusScale: Math.sqrt(Math.max(0.05, stars)),
+      opacity: Math.min(1, stars),
       billboard: true,
       antialiasing: true,
       parameters: SKY_PARAMETERS,
@@ -710,7 +741,40 @@ function overviewLayers(scene: Scene, part: Part = {mode: 'all'}) {
       updateTriggers: {getPosition: trigger}
     });
   const labelIds = ids.filter(id => id !== focus);
+  const cometLayers = state.space.comet && fade > 0
+    ? [
+        new PathLayer<V3[]>({
+          id: 'comet-orbit',
+          data: [scene.comet.orbit],
+          getPath: d => d,
+          getColor: [150, 200, 220, 70],
+          getWidth: 1,
+          widthUnits: 'pixels',
+          opacity: fade,
+          updateTriggers: {getPath: trigger}
+        }),
+        new TextLayer<V3>({
+          id: 'comet-label',
+          data: [scene.comet.position],
+          getPosition: d => d,
+          getText: () => `${NEOWISE.name}, ${scene.comet.r.toFixed(2)} AU`,
+          // Every printable ASCII character: the label text changes with the clock.
+          characterSet: Array.from({length: 95}, (_, k) => String.fromCharCode(32 + k)),
+          getPixelOffset: [0, 14],
+          getSize: 11,
+          getColor: [190, 225, 240],
+          fontFamily: 'system-ui, sans-serif',
+          outlineWidth: 2,
+          outlineColor: [0, 0, 0, 255],
+          fontSettings: {sdf: true},
+          billboard: true,
+          opacity: fade,
+          updateTriggers: {getPosition: trigger, getText: trigger}
+        })
+      ]
+    : [];
   return [
+    ...cometLayers,
     ...(fade > 0
       ? [
           new PathLayer<{id: BodyId; path: V3[]}>({
@@ -1209,6 +1273,7 @@ const deck: any = new Deck({
   },
   layerFilter: ({layer, viewport}: {layer: {id: string}; viewport: {id: string}}) =>
     state.mode !== 'compare' || layer.id.startsWith(`${viewport.id}-`),
+  onAfterRender: () => drawSpace(),
   onError
 } as never);
 
@@ -1248,6 +1313,88 @@ const frontDeck: any = new Deck({
 } as never);
 
 let scene = computeScene();
+
+// ---------- Space volumes ----------
+
+const stageDiv = document.getElementById('stage') as HTMLDivElement;
+const lookMatrix = document.getElementById('look-matrix') as unknown as SVGFEColorMatrixElement;
+const volumesCanvas = document.getElementById('volumes') as HTMLCanvasElement;
+let space: SpaceVolumes | null = null;
+try {
+  space = createSpaceVolumes(volumesCanvas);
+} catch (error) {
+  textureErrors.push(String(error));
+}
+/** The baked cloud density (scene/data/bake-cloud.mjs), 96^3 R8. */
+const CLOUD_SIZE = 96;
+fetch(new URL('./data/cloud-96.r8', import.meta.url))
+  .then(response => response.arrayBuffer())
+  .then(buffer => {
+    space?.setCloudVolume({size: CLOUD_SIZE, data: new Uint8Array(buffer)});
+    cloudLoaded = true;
+    if (state.mode !== 'compare') deck.redraw('cloud');
+  })
+  .catch(error => textureErrors.push(`cloud volume: ${error}`));
+let cloudLoaded = false;
+
+function spaceScene(): SpaceScene {
+  return {
+    date: scene.date,
+    pos: scene.pos,
+    radius: scene.radius,
+    matrix: scene.matrix,
+    scale: state.scale,
+    toScene: p => subV(place(p), origin),
+    origin,
+    colors: Object.fromEntries(BODY_IDS.map(id => [id, BODIES[id].color])) as unknown as Record<BodyId, readonly number[]>
+  };
+}
+let lookCache: {scene: Scene; volumes: ReturnType<typeof lookVolumes>} | null = null;
+/** The blended look at a camera position (relative to the floating origin). */
+function lookAt(eye: readonly number[]): LookBlend {
+  if (!state.space.looks || state.mode === 'compare') return {params: {...DEFAULT_LOOK}, weights: []};
+  if (lookCache?.scene !== scene) lookCache = {scene, volumes: lookVolumes(spaceScene())};
+  return blendLook(lookCache.volumes, eye);
+}
+/** Last frame of the space volumes, for the panel and automated checks. */
+const spaceStats = {drawMs: 0, look: null as LookBlend | null, frames: 0};
+let spaceCleared = false;
+function drawSpace() {
+  if (!space) return;
+  const t = state.space;
+  const anything = t.looks || t.corona || t.comet || t.gas || t.dust;
+  if (state.mode === 'compare' || !anything) {
+    if (!spaceCleared) {
+      space.clear();
+      stageDiv.style.filter = '';
+      spaceCleared = true;
+    }
+    return;
+  }
+  spaceCleared = false;
+  const viewport: AnyViewport = deck.getViewports()[0] ?? overviewViewport();
+  const eye = [...viewport.cameraPosition] as V3;
+  const target = state.camera?.target ?? state.overviewView.target;
+  const look = lookAt(eye);
+  const {params: p} = look;
+  // Tint and exposure: one colour matrix (SVG feColorMatrix) over the decks and the volumes.
+  const gains = p.tint.map(c => Math.max(0, c) * exposureGain(p.exposure));
+  if (gains.some(g => Math.abs(g - 1) > 0.003)) {
+    lookMatrix.setAttribute('values', `${gains[0].toFixed(4)} 0 0 0 0 0 ${gains[1].toFixed(4)} 0 0 0 0 0 ${gains[2].toFixed(4)} 0 0 0 0 0 1 0`);
+    stageDiv.style.filter = 'url(#look-filter)';
+  } else {
+    stageDiv.style.filter = '';
+  }
+  const {frame, viewProjection} = volumeFrame(
+    spaceScene(),
+    {eye, distance: norm(subV(eye, target)), viewProjection: [...viewport.viewProjectionMatrix], width: innerWidth, height: innerHeight},
+    t,
+    {color: p.fogColor, density: p.fogDensity}
+  );
+  spaceStats.drawMs = space.draw(frame, viewProjection);
+  spaceStats.look = look;
+  spaceStats.frames++;
+}
 
 let overviewCache: unknown[] = [];
 let bodyCache: unknown[] = [];
@@ -1885,6 +2032,20 @@ panel.innerHTML = `
   <label class="row"><input id="clouds" type="checkbox"> Clouds
     <select id="cloud-quality" title="Cloud quality: ray-march steps"><option value="6">Low (6 steps)</option><option value="12">Medium (12 steps)</option><option value="24">High (24 steps)</option></select></label>
   <label class="row"><input id="atmosphere" type="checkbox"> Atmosphere (Earth, Mars, Venus)</label>
+  <details id="space-box" open><summary>Space volumes</summary>
+    <div class="row wrap">
+      <label><input id="sp-looks" type="checkbox"> Look volumes</label>
+      <label><input id="sp-corona" type="checkbox"> Corona</label>
+      <label><input id="sp-comet" type="checkbox"> Comet</label>
+      <label><input id="sp-gas" type="checkbox"> Gas clouds</label>
+      <label><input id="sp-dust" type="checkbox"> Dust</label>
+    </div>
+    <div class="row">Quality <select id="sp-quality"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select>
+      Cloud <select id="sp-cloud"><option value="baked">Baked 96³</option><option value="procedural">Procedural noise</option></select></div>
+    <div class="row wrap"><button id="sp-perihelion">Comet at perihelion</button><button id="sp-into-cloud">Fly into the Ember cloud</button></div>
+    <div class="note dim">Artistic: the three coloured gas clouds and the corona streamers. Measured models: corona density (Baumbach 1937), zodiacal dust profile (Kelsall et al. 1998, brightness scaled), comet orbit (JPL SBDB, two-body).</div>
+    <div class="note" id="space-look"></div>
+  </details>
   <div id="gravity" class="note"></div>
   <div id="sky" class="note"></div>
   <details id="notes-box"><summary>Notes</summary><div class="note" id="notes"></div></details>
@@ -1986,6 +2147,27 @@ $('now').onclick = () => {
   syncTimeInputs();
   render();
 };
+for (const key of ['looks', 'corona', 'comet', 'gas', 'dust'] as const) {
+  const input = $<HTMLInputElement>(`sp-${key}`);
+  input.checked = state.space[key];
+  input.onchange = () => {
+    state.space[key] = input.checked;
+    if (state.mode !== 'compare' && !flightPhase) render();
+    else deck.redraw('space');
+  };
+}
+$<HTMLSelectElement>('sp-quality').value = state.space.quality;
+$<HTMLSelectElement>('sp-quality').onchange = event => {
+  state.space.quality = (event.target as HTMLSelectElement).value as Quality;
+  deck.redraw('space');
+};
+$<HTMLSelectElement>('sp-cloud').value = state.space.cloudMode;
+$<HTMLSelectElement>('sp-cloud').onchange = event => {
+  state.space.cloudMode = (event.target as HTMLSelectElement).value as SpaceToggles['cloudMode'];
+  deck.redraw('space');
+};
+$('sp-perihelion').onclick = () => focusComet(true);
+$('sp-into-cloud').onclick = () => flyIntoCloud();
 $<HTMLInputElement>('linked').checked = state.linked;
 $<HTMLInputElement>('linked').onchange = event => {
   state.linked = (event.target as HTMLInputElement).checked;
@@ -2017,6 +2199,58 @@ function playStep(now: number) {
     render();
   }
   requestAnimationFrame(playStep);
+}
+
+/** Overview on the comet; `atPerihelion` also sets the clock to its perihelion. */
+function focusComet(atPerihelion: boolean) {
+  if (state.mode !== 'overview' || flightPhase) enterOverview();
+  if (atPerihelion) {
+    state.baseDate = PERIHELION_DATE;
+    state.offsetDays = 0;
+    syncTimeInputs();
+  }
+  state.space.comet = true;
+  $<HTMLInputElement>('sp-comet').checked = true;
+  state.camera = null;
+  scene = computeScene();
+  const c = cometAt(scene.date);
+  const tail = norm(subV(place(c.dustAU[c.dustAU.length - 1]), place(c.position)));
+  state.overviewView = {
+    ...state.overviewView,
+    target: scene.comet.position,
+    zoom: Math.log2((Math.min(innerWidth, innerHeight) * 0.3) / Math.max(tail, 1e-3)),
+    rotationX: 30,
+    rotationOrbit: 60
+  };
+  render();
+}
+
+/** A flight from the current overview camera into the Ember cloud (artistic), over 6 s. */
+function flyIntoCloud(durationMs = Number(params.get('cloudMs') ?? 6000)) {
+  if (state.mode !== 'overview' || flightPhase || state.camera) enterOverview();
+  state.space.gas = true;
+  $<HTMLInputElement>('sp-gas').checked = true;
+  const token = ++flight;
+  const placed = cloudPlacement(spaceScene(), CLOUDS[0]);
+  const from = {...state.overviewView};
+  // Inside the cloud: the camera 0.6 half-sizes from its centre.
+  const zoomInside = Math.log2((focalOf(overviewFovy) * innerHeight) / (0.6 * placed.half));
+  const to = {...from, target: placed.center, zoom: zoomInside, rotationX: 12};
+  const start = clock();
+  frameLoop(now => {
+    if (token !== flight) return false;
+    const t = Math.min(1, (now - start) / durationMs);
+    const e = ease(t);
+    state.overviewView = {
+      ...from,
+      target: from.target.map((v, k) => v + (to.target[k] - v) * Math.min(1, e * 1.3)) as V3,
+      zoom: from.zoom + (to.zoom - from.zoom) * e,
+      rotationX: from.rotationX + (to.rotationX - from.rotationX) * e,
+      rotationOrbit: from.rotationOrbit + 40 * e
+    };
+    renderViewState();
+    return t < 1;
+  });
 }
 
 function gravityText(id: BodyId, lat: number | null) {
@@ -2100,6 +2334,12 @@ setInterval(() => {
     `fps ${m.fps?.toFixed(0) ?? '-'} · tiles ${tiles.served}, source tiles ${tiles.sourceTiles}` +
     (tiles.sourceMisses ? ` (failed ${tiles.sourceMisses})` : '');
   $('errors').textContent = [...errors, ...textureErrors].slice(-3).join('\n');
+  const look = spaceStats.look;
+  const shares = look ? look.weights.filter(w => w.share > 0.005).map(w => `${w.id} ${(100 * w.share).toFixed(0)}%`) : [];
+  $('space-look').textContent =
+    `Look: ${shares.length ? shares.join(', ') : 'none'} · EV ${(look?.params.exposure ?? 0).toFixed(2)} · ` +
+    `volumes ${spaceStats.drawMs.toFixed(1)} ms CPU at ${state.space.quality} (${Math.round(QUALITY[state.space.quality].scale * 100)}% resolution)` +
+    (cloudLoaded ? '' : ' · cloud volume loading');
 }, 500);
 
 /** Hooks for automated browser checks. */
@@ -2129,7 +2369,19 @@ Object.assign(window, {
     origin: () => [...origin] as V3,
     /** The three decks, for frame-cost checks. */
     decks: () => ({deck, globeDeck, frontDeck}),
-    render
+    render,
+    space: {
+      stats: spaceStats,
+      lookAt: (eye: V3) => lookAt(eye),
+      focusComet,
+      flyIntoCloud,
+      cloudLoaded: () => cloudLoaded,
+      redraw: () => deck.redraw('space'),
+      viewport: () => {
+        const v = deck.getViewports()[0];
+        return v && {eye: [...v.cameraPosition], viewProjection: [...v.viewProjectionMatrix], project: (p: V3) => v.project(p)};
+      }
+    }
   }
 });
 
@@ -2138,4 +2390,5 @@ Object.assign(window, {
 if (state.mode === 'globe') enterGlobe(state.body);
 else if (state.mode === 'compare') enterCompare();
 else if (params.get('focus') && params.get('focus')! in BODIES) focusOn(params.get('focus') as BodyId);
+else if (COMET_PERIHELION) focusComet(true);
 else enterOverview();
