@@ -233,7 +233,6 @@ Bodies with no vector map:
 - The atmospheres have their true thickness. At whole-globe zoom the Earth's limb glow is
   1 to 3 px wide; the haze over the disk shows more. The ray march adds a little per-pixel
   noise near the limb.
-
 - `GlobeView` draws every body on a sphere of the Earth's radius, so heights and distances read
   as Earth units.
 - Web Mercator tiles stop at ±85.05°. At the poles the overview sphere shows through.
