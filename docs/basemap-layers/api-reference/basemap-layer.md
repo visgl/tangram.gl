@@ -282,6 +282,10 @@ Unlike MapLibre:
 
 The method reads state: call it after the tiles load, for example in deck.gl's `onAfterRender`, and not in `renderLayers`.
 
+## Draping on terrain (experimental)
+
+`BasemapLayer` makes deck.gl layers, so deck.gl's `_TerrainExtension` can drape them on a `TerrainLayer`. The [Draped on terrain example](/examples/basemap-layers/draped-terrain) adds the extension to the layers in a subclass, and draws data layers in the same depth buffer as the basemap and the terrain.
+
 ## Projected views
 
 `BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, and `mode` stays `'map'`.
