@@ -17,8 +17,16 @@ export type {
   ResolvedBasemapStyle,
   ResolvedBasemapStyleLayer
 } from './style-resolver';
+
+export type {BasemapSourceFeature, QuerySourceFeaturesOptions} from './source-features';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';
+export type {
+  BasemapFeatureState,
+  BasemapPickedFeature,
+  FeatureState,
+  FeatureStates
+} from './feature-state';
 export {
   createDemTileset,
   getBasemapLayers,
@@ -45,3 +53,10 @@ export type {
 export {ProjectedTileLayer, ProjectedTileset2D} from './projected-tileset';
 export {getMercatorZoom} from './projected-viewport';
 export type {ProjectedViewportLike} from './projected-viewport';
+export {registerBasemapProtocol, unregisterBasemapProtocol} from './basemap-protocol';
+export type {
+  BasemapProtocolHandler,
+  BasemapRequestParameters,
+  BasemapRequestType,
+  BasemapResourceResponse
+} from './basemap-protocol';

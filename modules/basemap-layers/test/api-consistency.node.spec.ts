@@ -37,7 +37,9 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('root exports', () => {
   test('the prop and style types are exported from the root', () => {
-    expectTypeOf<BasemapLayerProps['style']>().toEqualTypeOf<string | BasemapStyle | null | undefined>();
+    expectTypeOf<BasemapLayerProps['style']>().toEqualTypeOf<
+      string | BasemapStyle | ResolvedBasemapStyle | null | undefined
+    >();
     expectTypeOf<BasemapLayerProps['loadOptions']>().toEqualTypeOf<
       BasemapLayerLoadOptions | null | undefined
     >();

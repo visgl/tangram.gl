@@ -236,7 +236,8 @@ Approximations:
   rules. Placement runs when the view or the labels change: at most every
   `labelPlacementInterval` ms (300) while the view moves, and at once when it rests. Labels
   switch without MapLibre's fade, and text along lines is straight, so its circles are too.
-- `icon-text-fit` is not applied.
+- `icon-text-fit` stretches icons over their labels, with the sprite's `stretchX`, `stretchY` and
+  `content`. With `text-variable-anchor`, a fitted icon stays at the first anchor.
 
 ### Extrusions, dashes and fill outlines
 
