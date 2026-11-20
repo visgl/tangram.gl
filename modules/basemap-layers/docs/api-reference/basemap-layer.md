@@ -46,12 +46,24 @@ import {BasemapLayer} from '@tangram.gl/basemap-layers';
 
 ### `style`
 
-Type: `string | BasemapStyle | null`
+Type: `string | BasemapStyle | ResolvedBasemapStyle | null`
 
-The style document to render. Pass either:
+The style document to render. Pass one of:
 
 - a URL string pointing to a style JSON document
 - an in-memory MapLibre/Mapbox style object
+- a style that `resolveBasemapStyle` or `MapStyleLoader` returned
+
+The layer resolves a URL or a style object before it draws: it fetches the style document, each TileJSON `url` and each GeoJSON `data` URL. A style that is already resolved draws at once, and the layer does not fetch its sources again. Its relative `sprite` and `glyphs` URLs resolve against the URL that it was loaded from. This is the form of MapLibre GL JS's `getStyle()` and `setStyle(style)`: resolve a style one time, keep it, and give it to several layers or give it back later.
+
+A copy of a resolved style (for example `{...style}` or `structuredClone(style)`) is not marked as resolved, so the layer resolves it again. See `isResolvedBasemapStyle`.
+
+```ts
+import {resolveBasemapStyle} from '@tangram.gl/basemap-layers/map-style';
+
+const style = await resolveBasemapStyle('https://example.com/style.json');
+new BasemapLayer({id: 'base', style});
+```
 
 ### `mode`
 
@@ -290,6 +302,8 @@ Loads and normalizes a style document. This resolves:
 - GeoJSON source `data` URLs, fetched into the source's `data`
 - relative tile template URLs
 - legacy Mapbox `ref` layer inheritance
+
+The result is marked as resolved, so that `BasemapLayer` draws it without resolving it again (see [`style`](#style)).
 
 ## Example
 
