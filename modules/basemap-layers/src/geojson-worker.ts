@@ -20,8 +20,17 @@ import {installGeoJsonTaskHandler} from './geojson-task-handler';
 export type GeoJsonWorkerRequest =
   /** Features of a FeatureCollection, sent in batches before its `index` message. */
   | {type: 'features'; source: number; features: unknown[]}
-  /** Builds a source's index from `data`, or from the features sent before it. */
-  | {type: 'index'; source: number; data?: unknown; options: GeoJSONVTOptions}
+  /**
+   * Builds a source's index from `data`, or from the features sent before it, without what lies
+   * past the edges of the Web Mercator world with `clipToMercatorRange` (see `createTileIndex`).
+   */
+  | {
+      type: 'index';
+      source: number;
+      data?: unknown;
+      options: GeoJSONVTOptions;
+      clipToMercatorRange?: boolean;
+    }
   | {type: 'tile'; source: number; request: number; z: number; x: number; y: number}
   | {type: 'remove'; source: number};
 
@@ -79,7 +88,10 @@ scope.addEventListener('message', event => {
       };
       pendingFeatures.delete(message.source);
       try {
-        indexes.set(message.source, createTileIndex(data, message.options));
+        indexes.set(
+          message.source,
+          createTileIndex(data, message.options, message.clipToMercatorRange).index
+        );
       } catch (error) {
         indexes.set(message.source, error instanceof Error ? error : new Error(String(error)));
       }

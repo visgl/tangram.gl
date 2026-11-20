@@ -4,6 +4,7 @@
 
 /** Runtime exports for `@deck.gl-community/basemap-layers`. */
 export {BasemapLayer} from './basemap-layer';
+export type {BasemapSourceFeature, QuerySourceFeaturesOptions} from './source-features';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';
 export type {
@@ -38,3 +39,10 @@ export type {
 export {ProjectedTileLayer, ProjectedTileset2D} from './projected-tileset';
 export {getMercatorZoom} from './projected-viewport';
 export type {ProjectedViewportLike} from './projected-viewport';
+export {registerBasemapProtocol, unregisterBasemapProtocol} from './basemap-protocol';
+export type {
+  BasemapProtocolHandler,
+  BasemapRequestParameters,
+  BasemapRequestType,
+  BasemapResourceResponse
+} from './basemap-protocol';
