@@ -29,7 +29,12 @@ import {
   getPickedFeature
 } from './feature-state';
 import {sortFeaturesByKey} from './sort-key';
-import {getGeoJsonMaxZoom, getGeoJsonTileFeatures, isGeoJsonSource} from './geojson-source';
+import {
+  getGeoJsonMaxZoom,
+  getGeoJsonTileFeatures,
+  isGeoJsonSource,
+  type GeoJsonTileOptions
+} from './geojson-source';
 import {
   type FillPatternGroup,
   getFeaturesWithoutPattern,
@@ -3641,14 +3646,16 @@ export function isVectorTileSource(source: BasemapSource | undefined): boolean {
 /**
  * The `getTileData` of a vector tile source's tileset: `loader` fetches and decodes a vector
  * source's tiles, and a GeoJSON source's tiles are cut from its data, in the same tile-local
- * coordinates.
+ * coordinates. `geoJson` says how: a view that shows latitudes past the edges of Web Mercator
+ * tiles, projected or a globe, cuts GeoJSON at them (see `GeoJsonTileOptions`).
  */
 export function getVectorTileLoader(
   source: BasemapSource,
-  loader: SharedMVTLayer
+  loader: SharedMVTLayer,
+  geoJson?: GeoJsonTileOptions
 ): (tile: Parameters<SharedMVTLayer['getTileData']>[0]) => Promise<any> {
   return source.type === 'geojson'
-    ? tile => getGeoJsonTileFeatures(source, tile.index)
+    ? tile => getGeoJsonTileFeatures(source, tile.index, geoJson)
     : tile => loader.getTileData(tile);
 }
 
@@ -3921,7 +3928,9 @@ function getStyleLayers({
           ...getTilePyramidProps(run.source!),
           tileSize: run.source!.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
-          getTileData: getVectorTileLoader(run.source!, loader)
+          getTileData: getVectorTileLoader(run.source!, loader, {
+            clipToMercatorRange: mode === 'globe' || Boolean(projected)
+          })
         });
         owner = {tileset: ownedTileset, consumers: new Set()};
         ownedTilesets.set(run.source!, owner);
