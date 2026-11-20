@@ -11,6 +11,8 @@ const EXAMPLES = {
     .then(module => module.mountBasemapSplitViewExample),
   'custom-projection': () => import('../../../examples/layers/basemap-layer-custom-projection/app')
     .then(module => module.mountBasemapCustomProjectionExample),
+  'masked-by-data': () => import('../../../examples/layers/basemap-masked-by-data/app')
+    .then(module => module.mountBasemapMaskedByDataExample),
   'antique-style': () => import('../../../examples/layers/basemap-antique-style/app')
     .then(module => module.mountBasemapAntiqueStyleExample)
 };

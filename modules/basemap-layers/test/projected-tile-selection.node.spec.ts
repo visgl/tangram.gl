@@ -579,6 +579,150 @@ function viewportLike(viewport: CustomProjectionViewport): ProjectedViewportLike
   };
 }
 
+describe('getProjectedTileIndices: the outline scale of a tile', () => {
+  /**
+   * A view that counts its `projectPosition` calls. `crs` names its projection: with one, the
+   * selection keeps the outline scale of each tile; without one, it measures at each call.
+   */
+  function createCountedView(viewport: CustomProjectionViewport, crs?: object) {
+    const counts = {projectPosition: 0};
+    const view: ProjectedViewportLike = {
+      width: viewport.width,
+      height: viewport.height,
+      zoom: viewport.zoom,
+      project: position => viewport.project(position),
+      unproject: pixel => viewport.unproject(pixel),
+      projectPosition: position => {
+        counts.projectPosition++;
+        return viewport.projectPosition(position);
+      },
+      crs
+    };
+    return {view, counts};
+  }
+
+  /** The `projectPosition` calls that measure the scale at the view center. */
+  const CENTER_SCALE_CALLS = 3;
+  /** The points of a tile's outline: the first corner and 8 steps along each of the 4 sides. */
+  const OUTLINE_POINTS = 33;
+  /** The zoom of the tiles whose outlines the selection measures for the tiles of higher zooms. */
+  const EDGE_ZOOM = 5;
+
+  /** The keys of the tiles whose outlines the selection measures for `tiles`. */
+  function getMeasuredKeys(tiles: ProjectedTileIndex[]): Set<string> {
+    return new Set(
+      tiles.map(({x, y, z}) => {
+        const shift = 2 ** Math.max(0, z - EDGE_ZOOM);
+        return `${Math.min(z, EDGE_ZOOM)}/${Math.floor(x / shift)}/${Math.floor(y / shift)}`;
+      })
+    );
+  }
+
+  test('is measured one time for a projection, and not at each view change', () => {
+    const projection = {};
+    const first = createCountedView(createViewport(utm, [9, 48], 9.2), projection);
+    const tiles = getProjectedTileIndices(first.view, {z: 9});
+    expect(tiles.length).toBeGreaterThan(0);
+    const measured = getMeasuredKeys(tiles);
+    // Each outline is walked as a chain: a point is projected one time.
+    expect(first.counts.projectPosition).toBe(CENTER_SCALE_CALLS + OUTLINE_POINTS * measured.size);
+
+    // The same projection at another zoom of the view: only the outlines not yet measured, and
+    // the scale at the center, are measured.
+    const zoomed = createCountedView(createViewport(utm, [9, 48], 9.4), projection);
+    const zoomedTiles = getProjectedTileIndices(zoomed.view, {z: 9});
+    expect(zoomedTiles.map(getKey)).toEqual(expect.arrayContaining(tiles.slice(0, 1).map(getKey)));
+    const newOutlines = [...getMeasuredKeys(zoomedTiles)].filter(key => !measured.has(key));
+    expect(zoomed.counts.projectPosition).toBe(
+      CENTER_SCALE_CALLS + OUTLINE_POINTS * newOutlines.length
+    );
+
+    // Without a projection to keep them by, each selection measures its outlines again.
+    const unkept = createCountedView(createViewport(utm, [9, 48], 9.4));
+    getProjectedTileIndices(unkept.view, {z: 9});
+    expect(unkept.counts.projectPosition).toBe(
+      CENTER_SCALE_CALLS + OUTLINE_POINTS * getMeasuredKeys(zoomedTiles).size
+    );
+  });
+
+  test('is measured again for another projection', () => {
+    const view = createViewport(utm, [9, 48], 9.2);
+    const first = createCountedView(view, {});
+    const second = createCountedView(view, {});
+    getProjectedTileIndices(first.view, {z: 9});
+    getProjectedTileIndices(second.view, {z: 9});
+    expect(second.counts.projectPosition).toBe(first.counts.projectPosition);
+    expect(second.counts.projectPosition).toBeGreaterThan(CENTER_SCALE_CALLS);
+  });
+
+  test('a kept scale selects the tiles that a measured scale selects', () => {
+    // Views that divide stretched tiles and leave tiles out, and views that do neither.
+    const views: [CRS, number[], number, number, {pitch?: number; bearing?: number}?][] = [
+      [utm, [9, 48], 9.2, 9],
+      [utm, [9, 48], 3, 3],
+      [utm, [9, 48], 0.5, 1],
+      [utm, [9, 48], -1, 0],
+      [utm, [40, 60], 2, 2],
+      [utm, [9, 48], 6, 6, {pitch: 50, bearing: 30}],
+      [albers, [-96, 40], -1, 0],
+      [albers, [-96, 40], 2, 3],
+      [transverseMercator, [-99, 40], 0, 1],
+      [transverseMercator, [-99, 40], 1.5, 2],
+      [transverseMercator, [-20, 10], 1, 2]
+    ];
+    const projections = new Map<CRS, object>();
+    let divided = 0;
+    for (const [crs, center, zoom, z, options] of views) {
+      const viewport = createViewport(crs, center, zoom, options);
+      const projection = projections.get(crs) ?? {};
+      projections.set(crs, projection);
+      const measured = getProjectedTileIndices(createCountedView(viewport).view, {z});
+      // Two selections: the second reads every scale that the first kept.
+      for (let pass = 0; pass < 2; pass++) {
+        const kept = getProjectedTileIndices(createCountedView(viewport, projection).view, {z});
+        expect(kept.map(getKey)).toEqual(measured.map(getKey));
+      }
+      divided += measured.some(tile => tile.z > z) ? 1 : 0;
+    }
+    // The comparison covers views that divide stretched tiles.
+    expect(divided).toBeGreaterThan(0);
+  });
+});
+
+describe('getProjectedTileIndices: tiles off the screen', () => {
+  test('are left out from their projected outline, without a projection back', () => {
+    // A screen inside one tile of zoom 10: the other tiles the walk tests are off the screen.
+    const tile = getTileAt([9, 48], 10);
+    const center = mercatorWorldToLngLat([
+      (512 * (tile.x + 0.5)) / 2 ** 10,
+      512 * (1 - (tile.y + 0.5) / 2 ** 10)
+    ]);
+    const viewport = createViewport(utm, center, 13);
+    const counts = {project: 0, unproject: 0};
+    const view: ProjectedViewportLike = {
+      width: viewport.width,
+      height: viewport.height,
+      zoom: viewport.zoom,
+      project: position => {
+        counts.project++;
+        return viewport.project(position);
+      },
+      unproject: pixel => {
+        counts.unproject++;
+        return viewport.unproject(pixel);
+      },
+      projectPosition: position => viewport.projectPosition(position)
+    };
+
+    expect(getProjectedTileIndices(view, {z: 10}).map(getKey)).toEqual([getKey(tile)]);
+    // The screen samples (a grid of 17 by 17), the scale at the view center and the center that
+    // the tiles are sorted by. No sample of a tile off the screen is projected back.
+    expect(counts.unproject).toBe(17 * 17 + 2);
+    // The walk did test tiles off the screen: 32 outline samples for each.
+    expect(counts.project).toBeGreaterThan(17 * 17 + 32);
+  });
+});
+
 describe('getProjectedTileZoom', () => {
   test('follows the Web Mercator zoom of the same scale, not the zoom of the view', () => {
     // At latitude 60 a Web Mercator map is twice as large as the ground: one zoom less.
