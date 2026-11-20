@@ -9,6 +9,7 @@ import {
   BasemapStyleSchema,
   ResolvedBasemapStyleSchema
 } from './map-style-schema';
+import {getBasemapFetch, isBasemapProtocolUrl} from './basemap-protocol';
 
 /**
  * A basemap source entry from a style document.
@@ -107,7 +108,8 @@ export type BasemapLoadOptions = {
 
 /** Resolves a possibly relative URL against the provided base URL. */
 function normalizeUrl(url: string | undefined, baseUrl?: string) {
-  if (!url) {
+  // A URL with a registered scheme is absolute, in whatever form its handler reads.
+  if (!url || isBasemapProtocolUrl(url)) {
     return url;
   }
 
@@ -149,7 +151,7 @@ function getTileJsonTileBaseUrl(tileJsonUrl: string | undefined) {
 
 /** Fetches and parses a JSON resource. */
 async function fetchJson(url: string, loadOptions?: BasemapLoadOptions) {
-  const fetchFn = loadOptions?.fetch || fetch;
+  const fetchFn = getBasemapFetch(loadOptions?.fetch, 'json');
   const response = await fetchFn(url, loadOptions?.fetchOptions);
 
   if (!response.ok) {

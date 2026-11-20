@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {log} from '@deck.gl/core';
+import {getBasemapFetch, isBasemapProtocolUrl} from './basemap-protocol';
 import {getIconQuads, isValidStretchMetadata} from './icon-text-fit';
 import type {ImageTextFit} from './icon-text-fit';
 import type {BasemapLoadOptions} from './style-resolver';
@@ -81,6 +82,9 @@ export type SpriteLoadOptions = {
 /** Resolves a style's `sprite` value into sprite sources with absolute URLs. */
 export function getSpriteSources(sprite: unknown, baseUrl?: string): SpriteSource[] {
   const resolve = (url: string) => {
+    if (isBasemapProtocolUrl(url)) {
+      return url;
+    }
     try {
       return new URL(url, baseUrl).toString();
     } catch {
@@ -175,7 +179,7 @@ async function loadSpriteAtlas(
   source: SpriteSource,
   options: SpriteLoadOptions
 ): Promise<SpriteAtlas> {
-  const fetchFn = options.fetch || fetch;
+  const fetchFn = getBasemapFetch(options.fetch, 'json');
   const suffixes = (options.pixelRatio ?? 1) > 1 ? ['@2x', ''] : [''];
   let lastError: unknown;
   for (const suffix of suffixes) {
@@ -190,7 +194,7 @@ async function loadSpriteAtlas(
         id: source.id,
         image: await loadSpriteImage(
           getSpriteFileUrl(source.url, suffix, '.png'),
-          fetchFn,
+          getBasemapFetch(options.fetch, 'image'),
           options.fetchOptions
         ),
         mapping: getSpriteIconMapping(index)

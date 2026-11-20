@@ -97,6 +97,7 @@ import {
 } from './zoom-paint-extension';
 import type {BasemapGlobeConfig, BasemapLayerProps} from './basemap-layer';
 import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
+import {DEFAULT_LAYER_FETCH, DEFAULT_MVT_FETCH, getBasemapLayerFetch} from './basemap-protocol';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {
@@ -941,8 +942,9 @@ function createRasterLayer({
     data: source.tiles,
     ...(projectedMaxStretch === undefined ? {} : {maxStretch: projectedMaxStretch}),
     ...tilePyramidProps,
-    // Tiles load with the `fetch` and `loadOptions` of the basemap, as vector tiles do.
-    ...(fetch ? {fetch} : {}),
+    // Tiles load with the `fetch` and `loadOptions` of the basemap, as vector tiles do, and URLs
+    // with a registered scheme with their protocol handler.
+    fetch: getBasemapLayerFetch(fetch || DEFAULT_LAYER_FETCH, 'image'),
     ...(loadOptions ? {loadOptions} : {}),
     // A tile without data is drawn from its nearest ancestor that has data.
     ...(rejectRasterTile
@@ -3920,6 +3922,7 @@ function getStyleLayers({
         sourceLayers ??= getRunSourceLayers(allRuns);
         const loader = new SharedMVTLayer({
           data: run.source!.tiles!,
+          fetch: getBasemapLayerFetch(DEFAULT_MVT_FETCH, 'arrayBuffer'),
           loadOptions: getSourceLoadOptions(loadOptions, sourceLayers.get(run.source!))
         });
         const ownedTileset: SharedTileset2D = new SharedTileset2D({

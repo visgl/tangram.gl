@@ -37,6 +37,7 @@ import {
   releaseSharedLabelPlacement
 } from './label-placement';
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
+import {getBasemapFetch, getBasemapLayerFetch, hasCustomScheme} from './basemap-protocol';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getStyleZoomKey} from './style-accessor';
 import {getResolvedBasemapStyleBaseUrl, isResolvedBasemapStyle} from './style-resolver';
@@ -354,7 +355,9 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
     Promise.resolve(
       typeof style === 'string'
-        ? load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions))
+        ? hasCustomScheme(style)
+          ? loadProtocolStyle(style, loadOptions)
+          : load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions))
         : MapStyleLoader.parse(
             new TextEncoder().encode(JSON.stringify(style)).buffer,
             getMapStyleLoaderOptions(loadOptions)
@@ -550,7 +553,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         const loader = new SharedMVTLayer({
           id: `${this.id}-loader`,
           data: source.tiles!,
-          fetch: this.props.fetch,
+          fetch: getBasemapLayerFetch(this.props.fetch, 'arrayBuffer'),
           loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
         });
         loader.context = this.context;
@@ -638,6 +641,24 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       return layer.clone(props);
     });
   }
+}
+
+/**
+ * Loads a style whose URL has a custom scheme, such as `pmtiles://`, with its protocol handler.
+ * Relative URLs in the style resolve against the style URL.
+ */
+async function loadProtocolStyle(
+  url: string,
+  loadOptions: BasemapLayerProps['loadOptions']
+): Promise<ResolvedBasemapStyle> {
+  const options = (loadOptions || {}) as {fetch?: typeof fetch; fetchOptions?: RequestInit};
+  const response = await getBasemapFetch(options.fetch, 'json')(url, options.fetchOptions);
+  if (!response.ok) {
+    throw new Error(`Failed to load basemap style: ${url} (${response.status})`);
+  }
+  return MapStyleLoader.parse(await response.arrayBuffer(), {
+    mapStyle: {...loadOptions, baseUrl: (loadOptions?.baseUrl as string | undefined) || url}
+  });
 }
 
 /**

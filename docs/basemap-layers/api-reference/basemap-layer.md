@@ -152,6 +152,8 @@ Optional loader configuration used by `resolveBasemapStyle`. This can include:
 - `fetch` for a custom fetch implementation
 - `fetchOptions` to customize network requests
 
+URLs with a custom scheme load with a registered handler instead (see [Custom protocols](#custom-protocols)).
+
 ### `fontFamily`
 
 Type: `string | ((fontStack: string[]) => string | Partial<LabelFont> | null) | null`
@@ -286,6 +288,55 @@ Limits:
 - A view can zoom out past the area that its projection draws well. Where the projection stretches a tile to more than four times the scale at the view center, or the tile lies on a seam of the projection, the tile is divided into smaller tiles, up to four times. The parts that are still stretched are not drawn.
 - `fill-extrusion` layers and pitched views are not covered by render tests.
 - Web Mercator tiles end at 85.051129 degrees north and south. A projected view, such as a polar stereographic one, can show latitudes past that limit, and so can a globe (`mode: 'globe'`). Raster, hillshade and vector tiles have no data past the limit. `geojson` sources are cut at the limit in these views: points past it are not drawn, and lines and polygons end where they cross it. geojson-vt, and MapLibre GL JS, move positions past the limit onto it, so a point at -89.5 degrees would otherwise draw on the -85.05 degree parallel, 135 km away on the Moon. The layer logs one warning per source that has features past the limit. A `MapView` does not show latitudes past the limit, and draws such features as MapLibre GL JS does. To draw data near the poles in full, a tile path that is not Web Mercator is necessary. That work is tracked in [#287](https://github.com/visgl/tangram.gl/issues/287).
+
+## Custom protocols
+
+```ts
+import {registerBasemapProtocol, unregisterBasemapProtocol} from '@tangram.gl/basemap-layers';
+```
+
+### `registerBasemapProtocol(scheme, handler)`
+
+Loads every URL `<scheme>://...` that `BasemapLayer` requests with `handler`, in place of `fetch`. The function has the shape of MapLibre GL JS's `addProtocol`, so the same handler works in both:
+
+```ts
+registerBasemapProtocol('custom', async (requestParameters, abortController) => {
+  const response = await fetch(`https://${requestParameters.url.split('://')[1]}`, {
+    signal: abortController.signal
+  });
+  if (!response.ok) {
+    throw new Error(`Tile fetch error: ${response.statusText}`);
+  }
+  return {data: await response.arrayBuffer()};
+});
+
+new BasemapLayer({style: 'custom://tiles.example.com/style.json'});
+```
+
+The handler loads these resources:
+
+- the style, when `style` is a URL
+- the TileJSON of a source `url`
+- the tiles of `vector`, `raster` and `raster-dem` sources
+- the sprite index and image
+- the glyph ranges of `glyphs`
+- the `data` URL of a `geojson` source
+
+`requestParameters` has the `url`, and the `type` of the resource: `'json'` for a style, TileJSON, sprite index or GeoJSON data, `'arrayBuffer'` for a vector tile or glyph range, and `'image'` for a raster or raster-dem tile or sprite image. It also has the `headers`, `method`, `body`, `credentials` and `cache` of `loadOptions.fetchOptions`, where they are set.
+
+The handler resolves with `{data}`. `data` is an `ArrayBuffer`, a typed array or a `Blob`, a string, or for a `'json'` request the parsed JSON value. An image is its encoded bytes: a decoded `ImageBitmap` or `HTMLImageElement` is not supported. `null` or empty data is a tile without data. `cacheControl` and `expires` are accepted and not used.
+
+`abortController` aborts when the request is cancelled, for example when deck.gl no longer needs a tile. The request then rejects at once, also when the handler ignores the abort.
+
+Notes:
+
+- A URL with a registered scheme is used as it is written. It is not resolved against the style URL, so a handler can read URLs such as `pmtiles://https://example.com/archive.pmtiles`. Relative URLs in a style or TileJSON loaded from `<scheme>://host/path` resolve against that URL, as with `https`.
+- `http`, `https` and `file` URLs always load with `fetch`, as in MapLibre GL JS, and cannot be registered. A URL with another scheme and no handler fails with an error that names the scheme, unless a custom `fetch` in `loadOptions` loads it.
+- The registry is global, as MapLibre GL JS's is. A second registration of the same scheme replaces the first.
+
+### `unregisterBasemapProtocol(scheme)`
+
+Removes the handler of `scheme`. Requests of its URLs then fail.
 
 ## Runtime Helpers
 
