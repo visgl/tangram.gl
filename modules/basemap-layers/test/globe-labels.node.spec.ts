@@ -40,7 +40,7 @@ describe('label draw parameters', () => {
       'labels-text'
     ]);
     for (const sublayer of sublayers) {
-      expect(sublayer.props.parameters).toMatchObject({cullMode: 'none', depthTest: false});
+      expect(sublayer.props.parameters).toMatchObject({cullMode: 'none', depthCompare: 'always'});
     }
   });
 
