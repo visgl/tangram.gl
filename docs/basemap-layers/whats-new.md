@@ -8,8 +8,6 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
-- A new `style` object for `BasemapLayer` keeps the TileJSON, the tiles and the decoded data of each source whose definition did not change, and the loaded sprites and glyphs, as MapLibre GL JS's `setStyle(style, {diff: true})` keeps them. Before, each new style object loaded and decoded every tile again. A source is decoded again when the style draws a different set of its source layers.
-- A new `style` object that changes only what loads nothing (paint and layout values, filters, zoom ranges, the order and the visibility of the layers) applies in the same update, as MapLibre GL JS's `setStyle(style, {diff: true})` applies it: `BasemapLayer` compares the two styles with `diff` from `@maplibre/maplibre-gl-style-spec` and does not resolve the style again. The next frame draws the change.
 - In a `_CustomProjectionView` whose coordinate reference system is on another body, such as the Moon (`+proj=eqc +R=1737400`) or Mars, `hillshade` layers shade slopes by the radius of that body: the semi-major axis of the CRS. Before, they used the size of the Earth, and slopes on the Moon were drawn 3.67 times too flat. Maps, globes and projected views on the Earth draw as before.
 - `line-pattern` draws sprite images along lines, per feature, as MapLibre GL JS draws them: stretched across the line and repeated along it at their aspect ratio, in the `line-width` of the integer zoom, times `line-opacity`.
 - `line-gradient` draws over lines of a `geojson` source with `lineMetrics`, as MapLibre GL JS draws it: each line colored by its `line-progress` from its start to its end, across the tiles it crosses, times `line-opacity`.
