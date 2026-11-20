@@ -12,7 +12,8 @@
  */
 
 import {afterEach, describe, expect, test, vi} from 'vitest';
-import {createGeoJsonResourceState, runGeoJsonResource} from '../src/geojson-resource';
+import {createGeoJsonResourceState} from '../src/geojson-resource';
+import {GeoJsonTask} from '../src/geojson-task';
 import type {GeoJsonWorkerRequest} from '../src/geojson-worker';
 
 /** Polygons with a hole, enough of them to go to the worker in several batches. */
@@ -104,7 +105,7 @@ async function loadWithFakeWorker(mode: 'run' | 'fail') {
         let value;
         try {
           value = request.operation === 'run' && request.input
-            ? {tile: runGeoJsonResource(this.state, request.input)}
+            ? GeoJsonTask.process(request.input, {}, {state: this.state} as any)
             : undefined;
         } catch (error) {
           value = {error: error instanceof Error ? error.message : String(error)};
@@ -216,6 +217,24 @@ describe('GeoJSON worker', () => {
     )) as any[];
     expect(features).toHaveLength(1);
     expect(features[0].properties).toMatchObject({cluster: true, point_count: 10});
+  });
+
+  test('a source cut at the edges of Web Mercator tiles in the worker warns once, as on the main thread', async () => {
+    const data = {type: 'FeatureCollection', features: [
+      {type: 'Feature', properties: {name: 'inside'}, geometry: {type: 'Point', coordinates: [0, -83]}},
+      {type: 'Feature', properties: {name: 'past'}, geometry: {type: 'Point', coordinates: [90, -89.5]}}
+    ]};
+    const {module} = await loadWithFakeWorker('run');
+    const {log} = await import('@deck.gl/core');
+    const warn = vi.spyOn(log, 'warn').mockReturnValue(() => {});
+    const source = {type: 'geojson', data};
+    const clip = {clipToMercatorRange: true};
+    const [clipped] = await Promise.all(TILES.map(index => module.getGeoJsonTileFeatures(source, index, clip)));
+    const unclipped = await module.getGeoJsonTileFeatures(source, TILES[0]);
+    expect(clipped.map((f: any) => f.properties.name)).toEqual(['inside']);
+    expect(unclipped.map((f: any) => f.properties.name)).toContain('past');
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 
   test('invalid data rejects each tile request, as on the main thread', async () => {
