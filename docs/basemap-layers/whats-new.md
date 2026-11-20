@@ -8,7 +8,6 @@ Copyright (c) vis.gl contributors
 
 ## November 2026
 
-- `BasemapLayer` takes flat `labels` and `atmosphere` props. `labels: false` turns the labels off in every mode, not only on a globe. The nested `globe: {config: {...}}` prop is deprecated: it still works, and it logs a deprecation warning one time. Use deck.gl's `visible` prop in place of `globe.config.basemap: false`.
 - `BasemapLayer#querySourceFeatures(sourceId, {sourceLayer, filter})` returns the features of a `vector` or `geojson` source in the tiles drawn now, in longitude and latitude, as MapLibre GL JS's `Map#querySourceFeatures`. See [Methods](./api-reference/basemap-layer.md#methods).
 - `BasemapLayer`'s `style` prop accepts a style that `resolveBasemapStyle` or `MapStyleLoader` returned. Such a style draws at once, without a second fetch of its TileJSON and GeoJSON data, and its relative `sprite` and `glyphs` URLs still resolve against the URL that it was loaded from. `isResolvedBasemapStyle` (from `/map-style`) tells such a style from a copy.
 - In a projected view and on a globe, `geojson` sources are cut at the edge of Web Mercator tiles, at 85.051129 degrees north and south. Points past it are not drawn, and lines and polygons end where they cross it. Before, geojson-vt moved them onto the edge: in a south polar view, a point at -89.5 degrees drew on the -85.05 degree parallel. The layer warns once per source that has such features. `MapView` draws them as before, as MapLibre GL JS does. See [Projected views](./api-reference/basemap-layer.md#projected-views).
