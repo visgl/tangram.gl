@@ -68,6 +68,7 @@ import {
   type SurfaceMode
 } from '../bodies';
 import {AtmosphereLayer} from './atmosphere-layer';
+import {LABEL_FONT} from './labels';
 import {getMilkyWayTexture, getRingTexture} from './textures';
 import {isCameraIdle, shiftCameras, shouldRebase, withoutTransition, type CameraActivity} from './floating-origin';
 import {getEquirectTexture, getTileStats, shimFetch} from './tiles';
@@ -696,10 +697,7 @@ function overviewLayers(scene: Scene, part: Part = {mode: 'all'}) {
       getPixelOffset: [0, 11],
       getSize: 11,
       getColor: [220, 210, 190],
-      fontFamily: 'system-ui, sans-serif',
-      outlineWidth: 2,
-      outlineColor: [0, 0, 0, 255],
-      fontSettings: {sdf: true},
+      ...LABEL_FONT,
       billboard: true,
       updateTriggers: {getPosition: trigger}
     })
@@ -731,10 +729,7 @@ function overviewLayers(scene: Scene, part: Part = {mode: 'all'}) {
       getPixelOffset: id => [0, id === 'moon' ? 14 : -16],
       getSize: 13,
       getColor: [235, 240, 255],
-      fontFamily: 'system-ui, sans-serif',
-      outlineWidth: 2,
-      outlineColor: [0, 0, 0, 255],
-      fontSettings: {sdf: true},
+      ...LABEL_FONT,
       billboard: true,
       pickable: true,
       opacity,
@@ -763,10 +758,7 @@ function overviewLayers(scene: Scene, part: Part = {mode: 'all'}) {
           getPixelOffset: [0, 14],
           getSize: 11,
           getColor: [190, 225, 240],
-          fontFamily: 'system-ui, sans-serif',
-          outlineWidth: 2,
-          outlineColor: [0, 0, 0, 255],
-          fontSettings: {sdf: true},
+          ...LABEL_FONT,
           billboard: true,
           opacity: fade,
           updateTriggers: {getPosition: trigger, getText: trigger}
