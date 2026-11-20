@@ -38,11 +38,14 @@ import {
   getStarPoints,
   getTerminator,
   moonGeocentric,
+  getShadowGeometry,
   planetOrbit,
   planetPosition,
   unit,
+  SHADOWED_BODIES,
   type BodyId,
   type PlanetId,
+  type ShadowGeometry,
   type V3
 } from '../celestial';
 import {
@@ -58,6 +61,7 @@ import {
 import {getMilkyWayTexture, getRingTexture} from './textures';
 import {isCameraIdle, shiftCameras, shouldRebase, type CameraActivity} from './floating-origin';
 import {getEquirectTexture, getTileStats, shimFetch} from './tiles';
+import {MULTIPLY_PARAMETERS, ShadowExtension, shadowUniforms} from './shadow-extension';
 type Mode = 'overview' | 'globe' | 'compare';
 
 const params = new URLSearchParams(location.search);
@@ -68,8 +72,8 @@ const state = {
   mode: (['overview', 'globe', 'compare'].includes(params.get('mode') ?? '') ? params.get('mode') : 'overview') as Mode,
   body: (params.get('body') ?? 'earth') in BODIES ? (params.get('body') as BodyId) : ('earth' as BodyId),
   scale: (params.get('scale') === 'true' ? 'true' : 'readable') as 'readable' | 'true',
-  /** Start of the time slider: the `date` parameter (UTC midnight), or now. */
-  baseDate: params.get('date') ? new Date(`${params.get('date')}T00:00:00Z`) : new Date(),
+  /** Start of the time slider: the `date` parameter (a day at UTC midnight, or an ISO time), or now. */
+  baseDate: parseDate(params.get('date')),
   offsetDays: Number(params.get('offset') ?? 0),
   sliderUnit: 'days' as 'days' | 'years',
   linked: params.get('linked') !== 'off',
@@ -78,6 +82,8 @@ const state = {
   speed: Number(params.get('speed') ?? 86400),
   surface: (params.get('surface') === 'imagery' ? 'imagery' : 'vector') as SurfaceMode,
   night: params.get('night') !== 'off',
+  /** Eclipse shadows (analytic, in the fragment shader). */
+  shadows: params.get('shadows') !== 'off',
   /** The globe camera turns with the body; off (default), it keeps its orientation in space. */
   corotate: params.get('rotate') === 'on',
   overviewView: {target: [0, 0, 0] as V3, zoom: 0, rotationOrbit: 30, rotationX: 35, minZoom: -12, maxZoom: 30},
@@ -86,6 +92,13 @@ const state = {
   /** Overview camera when it is not an OrbitView state: globe mode and the fly-out. */
   camera: null as null | Camera
 };
+
+/** `2024-04-08` is UTC midnight; `2024-04-08T18:18Z` (any ISO time) is that instant. */
+function parseDate(value: string | null): Date {
+  if (!value) return new Date();
+  const date = new Date(value.includes('T') ? value : `${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? new Date() : date;
+}
 
 // ---------- Scene geometry ----------
 
@@ -127,6 +140,9 @@ type Scene = {
   saturnAxes: [V3, V3, V3];
   /** Anti-solar unit vector of each body (overview frame): its night caps and night cells. */
   night: Record<BodyId, V3>;
+  /** Eclipse shadows on each body that can receive one, and on Saturn's rings (true geometry). */
+  shadows: Partial<Record<BodyId, ShadowGeometry | null>>;
+  ringShadow: ShadowGeometry | null;
 };
 
 
@@ -247,9 +263,15 @@ function computeScene(): Scene {
   for (const orbit of orbits) orbit.path = orbit.path.map(rel);
   for (const g of galilean) g.position = rel(g.position);
   for (const sun of sunLights) sun.position = pos.sun;
+  // Shadows use true positions and radii in any scale: they are computed per receiving body, in
+  // its body-fixed frame, and drawn onto the drawn sphere by direction (scene/shadow-extension.ts).
+  const shadows: Scene['shadows'] = {};
+  for (const id of SHADOWED_BODIES) shadows[id] = getShadowGeometry(id, date, SATURN_RINGS);
+  const ringShadow = getShadowGeometry('saturn', date, SATURN_RINGS, 'rings');
   return {
     date, pos, radius, matrix, orbits, earthNight, moonNight, sunFixed, earthLightErrorDeg,
-    moonSceneFraction, galilean, galileanOrbits: galileanOrbits.map(path => path.map(rel)), saturnAxes: axes.saturn, night
+    moonSceneFraction, galilean, galileanOrbits: galileanOrbits.map(path => path.map(rel)), saturnAxes: axes.saturn, night,
+    shadows, ringShadow
   };
 }
 
@@ -298,6 +320,12 @@ function updateScene() {
 }
 
 // ---------- Overview layers ----------
+
+const SHADOW_EXTENSION = new ShadowExtension();
+/** Extension props of a shadowed layer: the uniforms are left at "off" when shadows are off. */
+function shadowProps(geometry: ShadowGeometry | null | undefined, kind: 'sphere' | 'rings' | 'lnglat', replace = false) {
+  return {extensions: [SHADOW_EXTENSION], shadowUniforms: shadowUniforms(state.shadows ? geometry : null, kind, replace)};
+}
 
 function sphereGeometry(nLon = 72, nLat = 36) {
   const positions: number[] = [], normals: number[] = [], texCoords: number[] = [], indices: number[] = [];
@@ -560,8 +588,9 @@ function overviewLayers(scene: Scene, part: Part = {mode: 'all'}) {
         getTransformMatrix: () => scene.matrix[id],
         material: id === 'sun' ? SUN_MATERIAL : UNLIT_MATERIAL,
         pickable: true,
+        ...(SHADOWED_BODIES.has(id) ? shadowProps(scene.shadows[id], 'sphere') : {}),
         updateTriggers: {getPosition: trigger, getTransformMatrix: trigger}
-      })
+      } as never)
   );
   const capLayers = state.night ? nightLayers(scene, ids.filter(id => id !== 'sun')) : [];
   const terminator = ids.includes('earth') ? [overviewTerminatorLayer(scene)] : [];
@@ -637,8 +666,9 @@ function overviewLayers(scene: Scene, part: Part = {mode: 'all'}) {
             getTransformMatrix: () => axesMatrix(scene.saturnAxes, scene.radius.saturn),
             material: UNLIT_MATERIAL,
             parameters: {depthWriteEnabled: false},
+            ...shadowProps(scene.ringShadow, 'rings'),
             updateTriggers: {getPosition: trigger, getTransformMatrix: trigger}
-          })
+          } as never)
         ]
       : [];
   const labelLayer = (layerId: string, data: BodyId[], opacity: number) =>
@@ -844,6 +874,35 @@ function bodyNightLayers(id: BodyId) {
     );
   }
   return layers;
+}
+
+/** A white pixel: the shadow overlay's colour comes from its shader. */
+const WHITE = (() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1;
+  const context = canvas.getContext('2d') as CanvasRenderingContext2D;
+  context.fillStyle = '#fff';
+  context.fillRect(0, 0, 1, 1);
+  return canvas;
+})();
+/**
+ * Eclipse shadows on a GlobeView: one BitmapLayer over the whole body whose fragment shader
+ * computes the light at its longitude and latitude, drawn with a multiply blend, so it darkens
+ * the BasemapLayer tiles under it. (The tiles are BasemapLayer sublayers; an overlay needs no
+ * shader injection into them.) Left out while no shadow can reach the body.
+ */
+function bodyShadowLayers(id: BodyId) {
+  const geometry = scene.shadows[id];
+  if (!state.shadows || !geometry || (!geometry.occluders.length && !geometry.ring)) return [];
+  return [
+    new BitmapLayer({
+      id: `${id}-shadow`,
+      image: WHITE,
+      bounds: [-180, -90, 180, 90],
+      ...shadowProps(geometry, 'lnglat', true),
+      parameters: {...MULTIPLY_PARAMETERS, depthWriteEnabled: false, depthBias: -2000, depthBiasSlopeScale: -4}
+    } as never)
+  ];
 }
 
 /** Compare mode only (deck.gl's default camera). */
@@ -1196,7 +1255,7 @@ async function mountGlobe(id: BodyId) {
   globeDeck.setProps({
     views: [globeView],
     viewState: {globe: state.globeViews.globe},
-    layers: [basemap, ...bodyNightLayers(id)],
+    layers: [basemap, ...bodyShadowLayers(id), ...bodyNightLayers(id)],
     // During the fly-in the globe deck updates its layers (selects and loads tiles) but does not
     // draw: each draw of the hidden globe would cost a fly-in frame. It draws from the wait on.
     _customRender: flightPhase === 'fly-in' || flightPhase === 'travel' ? () => {} : null
@@ -1208,7 +1267,9 @@ let globeMounted: BodyId | '' = '';
 let globeBasemap: BasemapLayer | null = null;
 /** New night layers on the mounted globe (after a time step), with the same basemap layer. */
 function updateGlobeNight() {
-  if (globeMounted && globeBasemap) globeDeck.setProps({layers: [globeBasemap, ...bodyNightLayers(globeMounted)]});
+  if (globeMounted && globeBasemap) {
+    globeDeck.setProps({layers: [globeBasemap, ...bodyShadowLayers(globeMounted), ...bodyNightLayers(globeMounted)]});
+  }
 }
 /** Empties the globe and front decks when the globe mode ends. */
 function unmountGlobe() {
@@ -1254,7 +1315,11 @@ function render() {
           new GlobeView({id, resolution: GLOBE_RESOLUTION, x: `${(i * 100) / 3}%`, width: `${100 / 3}%`, y: COMPARE_TOP, height: innerHeight - COMPARE_TOP, controller: CONTROLLER})
       ),
       viewState: {...state.globeViews},
-      layers: [...COMPARE_IDS.map(id => compareBasemaps[id] ?? null), ...COMPARE_IDS.flatMap(bodyNightLayers)],
+      layers: [
+        ...COMPARE_IDS.map(id => compareBasemaps[id] ?? null),
+        ...COMPARE_IDS.flatMap(bodyShadowLayers),
+        ...COMPARE_IDS.flatMap(bodyNightLayers)
+      ],
       effects: []
     });
 
@@ -1641,7 +1706,7 @@ function slerp(a: V3, b: V3, t: number): V3 {
   return unit(addV(scaleV(a, Math.sin((1 - t) * w) / s), scaleV(b, Math.sin(t * w) / s)));
 }
 
-/** Globe mode without a fly-in (`?mode=globe`): longitude 0, latitude 15, north up. */
+/** Globe mode without a fly-in (`?mode=globe`): longitude 0, latitude 15 (or `lon`, `lat`, `zoom`), north up. */
 function enterGlobe(id: BodyId) {
   ++flight;
   flightPhase = '';
@@ -1653,9 +1718,15 @@ function enterGlobe(id: BodyId) {
   state.mode = 'globe';
   state.body = id;
   state.clicked = null;
-  const latitude = id === 'saturn' ? 20 : 15;
-  const zoom = Math.log2((globeRadiusForLimb(handoffLimbPx(id)) * innerHeight) / 256) + zoomAdjustAt(latitude);
-  state.globeViews = {globe: {longitude: 0, latitude, zoom, bearing: 0, pitch: 0, ...globeZoomLimits(id)}};
+  // `view=sun`: face the sub-solar point of the body (where its eclipse shadows fall).
+  const subSolar = lonLatOf(toFixed(id, scaleV(scene.night[id], -1)));
+  const facing = params.get('view') === 'sun' && id !== 'sun';
+  const latitude = Number(params.get('lat') ?? (facing ? subSolar.lat : id === 'saturn' ? 20 : 15));
+  const longitude = Number(params.get('lon') ?? (facing ? subSolar.lon : 0));
+  const limits = globeZoomLimits(id);
+  const fit = Math.log2((globeRadiusForLimb(handoffLimbPx(id)) * innerHeight) / 256) + zoomAdjustAt(latitude);
+  const zoom = Math.min(limits.maxZoom, Math.max(limits.minZoom, Number(params.get('zoom') ?? fit)));
+  state.globeViews = {globe: {longitude, latitude, zoom, bearing: 0, pitch: 0, ...limits}};
   globeOpacity = 1;
   mountGlobe(id);
   render();
@@ -1693,9 +1764,9 @@ function enterOverview() {
   state.overviewView = {...state.overviewView, target: scene.pos.sun, zoom: fitZoom(state.scale), rotationX: 35};
   render();
 }
-/** Overview centred on a body, wide enough for its moons or rings (`?focus=`). */
+/** Overview centred on a body, wide enough for its moons or rings (`?focus=`; `orbit`, `tilt` and `extent` set the camera). */
 const FOCUS_EXTENT: Partial<Record<BodyId, number>> = {jupiter: 4, saturn: 2.6};
-function focusOn(id: BodyId, extent = FOCUS_EXTENT[id] ?? 1.5) {
+function focusOn(id: BodyId, extent = Number(params.get('extent') ?? FOCUS_EXTENT[id] ?? 1.5)) {
   state.mode = 'overview';
   state.camera = null;
   globeOpacity = 0;
@@ -1705,7 +1776,8 @@ function focusOn(id: BodyId, extent = FOCUS_EXTENT[id] ?? 1.5) {
     ...state.overviewView,
     target: scene.pos[id],
     zoom: Math.log2((Math.min(innerWidth, innerHeight) * 0.42) / radius),
-    rotationX: 25
+    rotationOrbit: Number(params.get('orbit') ?? state.overviewView.rotationOrbit),
+    rotationX: Number(params.get('tilt') ?? 25)
   };
   render();
 }
@@ -1749,6 +1821,7 @@ panel.innerHTML = `
   </div>
   <label class="row">Surface <select id="surface"><option value="vector">Vector map</option><option value="imagery">Imagery</option></select></label>
   <label class="row"><input id="night" type="checkbox"> Night side</label>
+  <label class="row"><input id="shadows" type="checkbox"> Eclipse shadows</label>
   <label class="row"><input id="corotate" type="checkbox"> Rotate with body</label>
   <div id="gravity" class="note"></div>
   <div id="sky" class="note"></div>
@@ -1784,6 +1857,11 @@ $<HTMLSelectElement>('surface').onchange = event => {
 $<HTMLInputElement>('corotate').checked = state.corotate;
 $<HTMLInputElement>('corotate').onchange = event => {
   state.corotate = (event.target as HTMLInputElement).checked;
+};
+$<HTMLInputElement>('shadows').checked = state.shadows;
+$<HTMLInputElement>('shadows').onchange = event => {
+  state.shadows = (event.target as HTMLInputElement).checked;
+  render();
 };
 $<HTMLInputElement>('night').checked = state.night;
 $<HTMLInputElement>('night').onchange = event => {
@@ -1918,6 +1996,12 @@ function renderSky() {
     `<b>Moon:</b> ${moon.name}, ${pct(moon.fraction)} lit (math.gl getMoonIllumination)`,
     `<b>Sub-solar point:</b> ${ll(t.subSolar.lat, t.subSolar.lon)} (math.gl getSunTerminator)`
   ];
+  const casting = Object.values(scene.shadows).flatMap(g =>
+    g ? g.occluders.map(o => `${o.id[0].toUpperCase()}${o.id.slice(1)} on ${BODIES[g.receiver].label}`) : []
+  );
+  lines.push(
+    `<b>Eclipse shadows:</b> ${state.shadows ? (casting.length ? casting.join(', ') : 'none now') + '; Saturn and its rings' : 'off'}`
+  );
   if (state.mode === 'overview') {
     lines.push(
       `<b>Galilean moons</b> (Astronomy Engine JupiterMoons): ${state.scale === 'true' ? 'true distances' : 'true directions on enlarged circles'}.`,

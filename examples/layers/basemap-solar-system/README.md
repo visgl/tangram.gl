@@ -40,9 +40,26 @@ after `yarn build:modules`.
   per second. **Now** goes to the current time. The night side of each body, the Earth's
   terminator (math.gl `getSunTerminator`), the positions, the Galilean moons and the poles
   follow the clock.
+- **Eclipse shadows.** The Moon's shadow on the Earth (solar eclipses), the Earth's shadow on
+  the Moon (lunar eclipses, with a reddened umbra), the shadows of the Galilean moons on
+  Jupiter, Saturn's shadow on its rings and the rings' shadow on Saturn. Each fragment traces a
+  ray toward the Sun, analytically, and takes the visible fraction of the solar disc, so the
+  umbra and the penumbra have their true size. They show in the overview and on the globe.
+  Known events:
+  - total solar eclipse, 2024-04-08:
+    `?mode=globe&body=earth&date=2024-04-08T18:17Z&lon=-100&lat=28`
+  - total lunar eclipse, 2025-03-14 (umbral phase 05:09-08:48 UTC, totality 06:26-07:32):
+    `?mode=globe&body=moon&date=2025-03-14T05:50Z&lon=0&lat=0`
+  - triple shadow transit of Io, Europa and Callisto on Jupiter, 2015-01-24 (seen from the
+    Earth 06:28-06:52 UTC; the scene time is Jupiter's, 36 minutes earlier):
+    `?mode=globe&body=jupiter&date=2015-01-24T06:04Z&view=sun&scale=true`
+  - Saturn's shadow on its rings: `?focus=saturn&date=2017-06-01&orbit=120&tilt=35`
 
 The page URL can set the start state, for example
-`?mode=globe&body=mars&surface=imagery&date=2026-06-21&speed=3600&night=off`.
+`?mode=globe&body=mars&surface=imagery&date=2026-06-21&speed=3600&night=off`. `date` takes a day
+(UTC midnight) or an ISO time. In globe mode `lon`, `lat` and `zoom` set the camera, and
+`view=sun` faces the sub-solar point. With `focus=<body>`, `orbit`, `tilt` and `extent` set the
+overview camera. `shadows=off` turns the eclipse shadows off.
 
 ## How it works
 
@@ -70,6 +87,32 @@ move to a library without changes to the others.
   a dependency for the poles and prime meridians, it covers the planets, the Moon and the
   Galilean moons to about 1 arcminute, and one scene takes about 0.1 ms.
 - `celestial/gravity.ts`: normal gravity on the reference ellipsoid of a body (Somigliana).
+- `celestial/shadows.ts` and `scene/shadow-extension.ts`: eclipse shadows. The idea is the
+  "circular occluder" of [CORTAO](https://github.com/carbonengine/CORTAO) (MIT): seen from a
+  shaded point, the light and each occluder are discs, and the occlusion is their overlap. Here
+  it is exact: the Sun's angular radius is taken at the point, the overlap is the area of the
+  lens between the two discs, and the light is the visible fraction of the solar disc. That
+  gives the umbra (0), the antumbra (an annulus of the Sun) and the penumbra with no shadow
+  map. Saturn's rings dim the ray by exp(-tau / |mu|), with a typical normal optical depth tau
+  for the C ring, the B ring, the Cassini Division and the A ring.
+  - The geometry is true at any scale. The CPU computes it in double precision from the
+    ephemeris, relative to the centre of the shaded body (the floating origin of the shadow),
+    in its body-fixed frame and in units of its radius. The shader maps each fragment of the
+    drawn sphere to the true surface point at the same geodetic direction. So in the readable
+    scale the shadow is in its true place on the map of the enlarged body, although the drawn
+    Moon or moons are elsewhere.
+  - Occluders are taken where they were when the shadowing light passed them (light time; this
+    moves the Moon's shadow on the Earth by about 38 km). The Earth as an occluder has an 88 km
+    atmosphere added, as in Astronomy Engine's lunar eclipse search. Earth longitudes come from
+    Astronomy Engine's sidereal time, not from the IAU rotation model, which is about 0.9°
+    off in longitude for the Earth.
+  - Overview: a `LayerExtension` on the body meshes and the rings multiplies the colour by the
+    light. Globe: `BasemapLayer` draws its tiles in sublayers, so instead one `BitmapLayer` over
+    the whole body runs the same shader on its longitude and latitude and darkens the tiles with
+    a multiply blend. It is in the layer list only while a shadow can reach the body.
+  - `test/solar-system-shadows.node.spec.ts` checks the math against known geometry and against
+    Astronomy Engine: the 2024-04-08 eclipse centre within 0.02°, the 2025-03-14 lunar eclipse
+    contacts within 1 minute, and the 2015-01-24 triple shadow transit within 3 minutes.
 
 ## Data and licences
 
@@ -108,5 +151,9 @@ Bodies with no vector map:
 - Web Mercator tiles stop at ±85.05°. At the poles the overview sphere shows through.
 - A flight between two globes goes through the overview and fades at each end. One continuous
   flight needs the globe of a body inside the system view, which `GlobeView` does not support.
+- Eclipse shadows: the Sun is a uniform disc (no limb darkening), the ring shadow ignores the
+  Sun's size, Jupiter does not shadow its moons, and the shader takes four sphere occluders per
+  body. The eclipsed Moon is a fixed red, not a model of the light refracted by the Earth's
+  atmosphere. The overview draws Saturn as a sphere; the shadows use its true flattening.
 - The planetary vector data is simplified, so the globe zoom stops at tile zoom 8 on the
   vector map. The imagery goes deeper.

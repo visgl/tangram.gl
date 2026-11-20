@@ -16,3 +16,8 @@ export type {StarPoint} from './sun';
 export {SATURN_RINGS, STAR_SOURCE, checkTerminator, getMoonPhase, getStarPoints, getTerminator} from './sun';
 export type {NormalGravity} from './gravity';
 export {getNormalGravity} from './gravity';
+export type {Occluder, RingShadow, ShadowGeometry} from './shadows';
+export {
+  RING_OPTICAL_DEPTH, SHADOWED_BODIES, discVisibleFraction, geodeticNormal, getShadowGeometry, lightAt,
+  ringTransmission, sphereVisibility, surfacePoint, visibleFractionAt
+} from './shadows';
