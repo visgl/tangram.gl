@@ -315,7 +315,7 @@ describe('circle layers', () => {
     'globe'
   ] as const)('circles are depth-tested without writing depth in %s mode', mode => {
     const [layer] = render([circle()], [point()], 12, {mode});
-    expect(layer.props.parameters.depthTest).toBe(true);
+    expect(layer.props.parameters.depthCompare).toBe('less-equal');
     expect(layer.props.parameters.depthWriteEnabled).toBe(false);
   });
 
