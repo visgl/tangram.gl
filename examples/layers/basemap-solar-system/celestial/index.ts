@@ -16,3 +16,25 @@ export type {StarPoint} from './sun';
 export {SATURN_RINGS, STAR_SOURCE, checkTerminator, getMoonPhase, getStarPoints, getTerminator} from './sun';
 export type {NormalGravity} from './gravity';
 export {getNormalGravity} from './gravity';
+export type {Atmosphere} from './atmosphere';
+export {
+  ATMOSPHERE_IDS,
+  CLOUD_LUT_DIFFUSE_SCALE,
+  CLOUD_LUT_MAX_ALTITUDE,
+  CLOUD_LUT_MIN_ALTITUDE,
+  CLOUD_LUT_SIZE,
+  CLOUD_MAP_FLOOR,
+  EARTH_CLOUD_BASE_KM,
+  EARTH_CLOUD_TOP_KM,
+  chapmanColumn,
+  cloudAlbedoFromMap,
+  cloudLutAltitude,
+  cloudLutCoordinate,
+  cloudOpticalDepth,
+  erfcx,
+  getAtmosphere,
+  getCloudLightTable,
+  henyeyGreenstein,
+  rayleighPhase,
+  raySphere
+} from './atmosphere';
