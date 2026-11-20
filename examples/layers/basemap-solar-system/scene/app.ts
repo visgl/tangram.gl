@@ -69,7 +69,7 @@ import {
 } from '../bodies';
 import {AtmosphereLayer} from './atmosphere-layer';
 import {getMilkyWayTexture, getRingTexture} from './textures';
-import {isCameraIdle, shiftCameras, shouldRebase, type CameraActivity} from './floating-origin';
+import {isCameraIdle, shiftCameras, shouldRebase, withoutTransition, type CameraActivity} from './floating-origin';
 import {getEquirectTexture, getTileStats, shimFetch} from './tiles';
 import {MULTIPLY_PARAMETERS, ShadowExtension, shadowUniforms} from './shadow-extension';
 import {DEFAULT_LOOK, blendLook, exposureGain, type LookBlend} from './look-volumes';
@@ -2232,23 +2232,29 @@ function flyIntoCloud(durationMs = Number(params.get('cloudMs') ?? 6000)) {
   $<HTMLInputElement>('sp-gas').checked = true;
   const token = ++flight;
   const placed = cloudPlacement(spaceScene(), CLOUDS[0]);
-  const from = {...state.overviewView};
+  const from = withoutTransition(state.overviewView);
   // Inside the cloud: the camera 0.6 half-sizes from its centre.
   const zoomInside = Math.log2((focalOf(overviewFovy) * innerHeight) / (0.6 * placed.half));
-  const to = {...from, target: placed.center, zoom: zoomInside, rotationX: 12};
+  // The path is in absolute scene units: with the clock running, the floating origin can move
+  // during the flight (render() rebases it), and the next frame then follows it.
+  const fromAbsolute = addV(from.target, origin);
+  const toAbsolute = addV(placed.center, origin);
   const start = clock();
   frameLoop(now => {
     if (token !== flight) return false;
     const t = Math.min(1, (now - start) / durationMs);
     const e = ease(t);
+    const a = Math.min(1, e * 1.3);
     state.overviewView = {
       ...from,
-      target: from.target.map((v, k) => v + (to.target[k] - v) * Math.min(1, e * 1.3)) as V3,
-      zoom: from.zoom + (to.zoom - from.zoom) * e,
-      rotationX: from.rotationX + (to.rotationX - from.rotationX) * e,
+      target: subV(fromAbsolute.map((v, k) => v + (toAbsolute[k] - v) * a) as V3, origin),
+      zoom: from.zoom + (zoomInside - from.zoom) * e,
+      rotationX: from.rotationX + (12 - from.rotationX) * e,
       rotationOrbit: from.rotationOrbit + 40 * e
     };
     renderViewState();
+    // At the end, a render lets the origin follow the camera when the clock is paused.
+    if (t >= 1) render();
     return t < 1;
   });
 }

@@ -8,7 +8,8 @@ import {
   float32Spacing,
   isCameraIdle,
   shiftCameras,
-  shouldRebase
+  shouldRebase,
+  withoutTransition
 } from '../examples/layers/basemap-solar-system/scene/floating-origin';
 import type {V3} from '../examples/layers/basemap-solar-system/celestial';
 
@@ -76,4 +77,10 @@ test('a rebase removes the transition props of the OrbitView state', () => {
   expect('transitionDuration' in shifted).toBe(false);
   expect('transitionInterpolator' in shifted).toBe(false);
   expect(shifted).toEqual({target: [0, 1, 2], zoom: 2});
+});
+
+test('a camera path drops the transition props of the last wheel zoom', () => {
+  const view = {target: [1, 2, 3] as V3, zoom: 2, rotationX: 30, transitionDuration: 250, transitionInterpolator: {}};
+  expect(withoutTransition(view)).toEqual({target: [1, 2, 3], zoom: 2, rotationX: 30});
+  expect(view.transitionDuration).toBe(250);
 });

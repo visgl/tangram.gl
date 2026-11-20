@@ -54,6 +54,19 @@ export function shouldRebase(offset: readonly number[], pixelSize: number, idle:
 type Camera = {eye: V3; target: V3};
 
 /**
+ * An OrbitView state without the transition props that the last wheel zoom left in it. A camera
+ * path that sets the view state on each frame must drop them: deck.gl would otherwise start a new
+ * transition from each frame's state.
+ */
+export function withoutTransition<O extends object>(view: O): Omit<O, 'transitionDuration' | 'transitionInterpolator'> {
+  const {transitionDuration: _duration, transitionInterpolator: _interpolator, ...rest} = view as O & {
+    transitionDuration?: unknown;
+    transitionInterpolator?: unknown;
+  };
+  return rest;
+}
+
+/**
  * The camera states after the origin moves by `delta`, in one step: the OrbitView target and the
  * free camera move by -delta. The OrbitView state loses its transition props: deck.gl would
  * otherwise start a new transition from the view state of the old frame.
@@ -64,12 +77,8 @@ export function shiftCameras<O extends {target: V3}, C extends Camera>(
   camera: C | null
 ): {overview: Omit<O, 'transitionDuration' | 'transitionInterpolator'>; camera: C | null} {
   const shift = (p: V3): V3 => [p[0] - delta[0], p[1] - delta[1], p[2] - delta[2]];
-  const {transitionDuration: _duration, transitionInterpolator: _interpolator, ...rest} = overview as O & {
-    transitionDuration?: unknown;
-    transitionInterpolator?: unknown;
-  };
   return {
-    overview: {...rest, target: shift(overview.target)},
+    overview: {...withoutTransition(overview), target: shift(overview.target)},
     camera: camera && {...camera, eye: shift(camera.eye), target: shift(camera.target)}
   };
 }
