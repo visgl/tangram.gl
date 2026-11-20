@@ -160,6 +160,44 @@ By default (`false`), the labels of every `BasemapLayer` in a deck are placed to
 
 The shared placement takes the `labelPlacementInterval` of the last `BasemapLayer` rendered: give layers that share it the same interval.
 
+## Methods
+
+### `querySourceFeatures(sourceId, options?)`
+
+Returns the features of a `vector` or `geojson` source that are in the tiles the layer draws now, as MapLibre GL JS's [`Map#querySourceFeatures`](https://maplibre.org/maplibre-gl-js/docs/API/classes/Map/#querysourcefeatures). Use it to read the loaded basemap features without a pointer event: for example, to list the place names in view, or to search the loaded roads.
+
+```ts
+const basemap = deck.props.layers.find(layer => layer.id === 'basemap');
+const places = basemap.querySourceFeatures('openmaptiles', {
+  sourceLayer: 'place',
+  filter: ['==', ['get', 'class'], 'city']
+});
+```
+
+`options`:
+
+- `sourceLayer` (`string`): the source layer to read. Required for a `vector` source, where no features are returned without it. Ignored for a `geojson` source.
+- `filter` (`unknown[]`): a style-spec filter expression. `["zoom"]` in it is the zoom of the tile. A filter that the style spec rejects logs a warning and matches no features.
+
+Each returned feature is a GeoJSON `Feature` in longitude and latitude, with:
+
+- `id`: the tile feature's id, or the property that the source's `promoteId` names (a name, or a name per source layer), as in MapLibre. A feature without one has no `id`.
+- `properties`: the feature's properties.
+- `source` and `sourceLayer`: where the feature was read from (no `sourceLayer` for a `geojson` source).
+- `tile`: the `{x, y, z}` index of the tile it was read from.
+
+As in MapLibre:
+
+- The method returns every feature that matches, whether a style layer draws it or not, but it reads only the tiles drawn now: the tiles of the view, and the parent or child tiles drawn in place of tiles that are still loading. Tiles outside the view are not read, also when they are still cached.
+- A feature that crosses a tile edge is returned once for each tile, each time with the part of its geometry in that tile. A point near a tile edge can be in two tiles, because tiles have a buffer. Compare `id`s to merge the copies. A tile that is drawn more than once, as in the copies of the world, is read once.
+- A raster or `raster-dem` source, an unknown source id, and a layer whose style has not loaded return `[]`.
+
+Unlike MapLibre:
+
+- The tiles of a vector source decode only the source layers that the style draws, so a source layer that no style layer reads returns `[]`.
+
+The method reads state: call it after the tiles load, for example in deck.gl's `onAfterRender`, and not in `renderLayers`.
+
 ## Projected views
 
 `BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, and `mode` stays `'map'`.
