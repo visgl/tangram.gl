@@ -4,7 +4,7 @@
 
 import type {LoaderContext, LoaderOptions, LoaderWithParser} from '@loaders.gl/core/loader-utils';
 import {ResolvedBasemapStyleSchema} from './map-style-schema';
-import {resolveBasemapStyle} from './style-resolver';
+import {markResolvedBasemapStyle, resolveBasemapStyle} from './style-resolver';
 import type {BasemapLoadOptions, BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
 
 // __VERSION__ is injected by babel-plugin-version-inline
@@ -50,7 +50,8 @@ export const MapStyleLoader = {
   ) => {
     const text = typeof data === 'string' ? data : new TextDecoder().decode(data);
     const style = JSON.parse(text) as BasemapStyle;
-    const resolved = await resolveBasemapStyle(style, getMapStyleLoadOptions(options, context));
-    return ResolvedBasemapStyleSchema.parse(resolved);
+    const loadOptions = getMapStyleLoadOptions(options, context);
+    const resolved = await resolveBasemapStyle(style, loadOptions);
+    return markResolvedBasemapStyle(ResolvedBasemapStyleSchema.parse(resolved), loadOptions.baseUrl);
   }
 } as const satisfies LoaderWithParser<ResolvedBasemapStyle, never, MapStyleLoaderOptions>;

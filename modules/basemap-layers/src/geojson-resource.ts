@@ -19,8 +19,12 @@ export function createGeoJsonResourceState(): GeoJsonResourceState {
   return {pendingFeatures: new Map(), indexes: new Map()};
 }
 
-/** Apply an ordered source operation and return a tile for tile requests. */
-export function runGeoJsonResource(state: GeoJsonResourceState, message: GeoJsonWorkerRequest): ReturnType<typeof cutTile> | null {
+/**
+ * Apply an ordered source operation. A tile request returns its tile, and an index request the
+ * number of features dropped or cut at the edges of the Web Mercator world (see
+ * `clipFeaturesToMercatorRange`).
+ */
+export function runGeoJsonResource(state: GeoJsonResourceState, message: GeoJsonWorkerRequest): ReturnType<typeof cutTile> | number | null {
   switch (message.type) {
     case 'features': {
       const features = state.pendingFeatures.get(message.source);
@@ -32,11 +36,13 @@ export function runGeoJsonResource(state: GeoJsonResourceState, message: GeoJson
       const data = message.data ?? {type: 'FeatureCollection', features: state.pendingFeatures.get(message.source) || []};
       state.pendingFeatures.delete(message.source);
       try {
-        state.indexes.set(message.source, createTileIndex(data, message.options));
+        const {index, outside} = createTileIndex(data, message.options, message.clipToMercatorRange);
+        state.indexes.set(message.source, index);
+        return outside;
       } catch (error) {
         state.indexes.set(message.source, error instanceof Error ? error : new Error(String(error)));
+        return 0;
       }
-      return null;
     }
     case 'tile': {
       const index = state.indexes.get(message.source);
