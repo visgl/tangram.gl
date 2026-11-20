@@ -16,7 +16,7 @@ import {
   log
 } from '@deck.gl/core';
 import {PathStyleExtension} from '@deck.gl/extensions';
-import {GeoJsonLayer, SolidPolygonLayer} from '@deck.gl/layers';
+import {GeoJsonLayer, PolygonLayer, SolidPolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {ProjectedBackgroundLayer} from './projected-background-layer';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
@@ -736,31 +736,86 @@ function getConfig(globe?: {config?: BasemapGlobeConfig}): BasemapLayerConfig {
   return {...DEFAULT_CONFIG, ...(globe?.config || {})};
 }
 
+/**
+ * The vertical offset, in repeats, that places a background pattern's rows as MapLibre GL JS
+ * places them: from the top of the world, in pixels at the integer zoom. deck.gl places the rows
+ * from the bottom of the world, which is a fraction of a repeat away unless the image height
+ * divides the world height.
+ */
+function getBackgroundPatternOffset(pattern: FillPatternGroup, zoom: number): [number, number] {
+  const name = pattern.getFillPattern as string;
+  const pixelRatio = pattern.getPixelRatio as number;
+  const repeats = (512 * 2 ** Math.floor(zoom) * pixelRatio) / pattern.atlas.mapping[name].height;
+  return [0, repeats - Math.floor(repeats)];
+}
+
 function createBackgroundLayer({
   idPrefix,
   layer,
   zoom,
   mode,
-  projected
+  projected,
+  spriteAtlases
 }: {
   idPrefix: string;
   layer: BasemapStyleLayer;
   zoom: number;
   mode: BasemapMode;
   projected?: boolean;
+  spriteAtlases?: SpriteAtlas[] | null;
 }) {
   const paint = getPaint(layer, zoom);
-  // A `background-pattern` disables `background-color`. Patterns are not drawn, so a patterned
-  // background draws nothing rather than its color or the default black.
-  const getFillColor =
-    paint['background-pattern'] !== undefined
-      ? TRANSPARENT_COLOR
-      : withOpacity(
-          (paint['background-color'] ?? getStylePropertyDefault('background-color')) as number[],
-          paint['background-opacity'] ?? 1
-        );
-  const id = `${idPrefix}-${layer.id}`;
+  const opacity = paint['background-opacity'] ?? 1;
+  const data = mode === 'globe' ? GLOBE_BACKGROUND_DATA : BACKGROUND_DATA;
+  // A `background-pattern` disables `background-color`: the image supplies the colors and
+  // `background-opacity` the opacity, as for a patterned fill. Without its image (sprites loading,
+  // or missing) the background draws nothing rather than its color or the default black.
+  const hasPattern = paint['background-pattern'] !== undefined;
+  const [pattern] = hasPattern
+    ? getFillPatternGroups(data, layer, zoom, spriteAtlases, 'background-pattern')
+    : [];
+  const getFillColor = hasPattern
+    ? pattern
+      ? withOpacity([255, 255, 255, 1], opacity)
+      : TRANSPARENT_COLOR
+    : withOpacity(
+        (paint['background-color'] ?? getStylePropertyDefault('background-color')) as number[],
+        opacity
+      );
+  // deck.gl adds an extension's attributes only to a new layer: the pattern draws in its own
+  // layer, made once the sprites have loaded.
+  const id = `${idPrefix}-${layer.id}${pattern ? '-pattern' : ''}`;
   const parameters = getBackgroundParameters(mode);
+
+  if (pattern) {
+    // Placed in common space, so the pattern stays anchored to the map, and sized at the integer
+    // zoom, as in MapLibre GL JS (see `getFillPatternProps`).
+    const {getFillPatternScale, ...fillPatternProps} = getFillPatternProps(pattern, zoom);
+    const patternProps = {
+      extensions: [FILL_PATTERN_EXTENSION],
+      ...fillPatternProps,
+      // `background-pattern` does not depend on feature data: its image, and so its scale, is one.
+      getFillPatternScale: getFillPatternScale as number,
+      getFillPatternOffset: getBackgroundPatternOffset(pattern, zoom),
+      getFillColor: getFillColor as Color,
+      parameters
+    };
+    if (mode === 'globe') {
+      // A composite layer, so that on WebGPU, where the extension draws no pattern, the extension
+      // makes its fill transparent rather than white.
+      return new PolygonLayer({
+        id,
+        data,
+        getPolygon: d => d,
+        stroked: false,
+        filled: true,
+        ...patternProps
+      });
+    }
+    // A square around the view rather than the whole world, whose far vertices would leave too
+    // little precision to place the pattern at high zoom.
+    return new ProjectedBackgroundLayer({id, geographic: !projected, ...patternProps});
+  }
 
   // A projected view has no outline of the world in longitude/latitude.
   if (projected) {
@@ -768,7 +823,7 @@ function createBackgroundLayer({
   }
   return new SolidPolygonLayer({
     id,
-    data: mode === 'globe' ? GLOBE_BACKGROUND_DATA : BACKGROUND_DATA,
+    data,
     getPolygon: d => d,
     stroked: false,
     filled: true,
@@ -3807,7 +3862,7 @@ function getStyleLayers({
   return runs.map(run => {
     const [layer] = run.styleLayers;
     if (run.type === 'background') {
-      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected});
+      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, spriteAtlases});
     }
     if (run.type === 'raster') {
       return createRasterLayer({
