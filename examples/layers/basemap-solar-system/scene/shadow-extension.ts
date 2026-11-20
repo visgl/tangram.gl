@@ -16,7 +16,8 @@
 // Surfaces (`kind`): 0 = sphere mesh, local position = geodetic direction; 1 = ring mesh, local
 // position = point in the ring plane; 2 = longitude/latitude geometry (BitmapLayer on GlobeView).
 // `replace` (params.w) = 1 makes the layer output the light itself: with a multiply blend, an
-// overlay on the GlobeView then darkens the basemap tiles under it.
+// overlay on the GlobeView then darkens the basemap tiles under it. The cloud shell
+// (scene/atmosphere-layer.ts) uses the module alone: `shadow_linearLight` scales its radiance.
 
 import {LayerExtension} from '@deck.gl/core';
 import {RING_SHADOW_FLOOR, SRGB_GAMMA, type ShadowGeometry} from '../celestial/shadows';
@@ -88,13 +89,22 @@ float shadow_encode(float linear) {
   return pow(linear, ${(1 / SRGB_GAMMA).toFixed(4)});
 }
 
-vec3 shadow_occlude(vec3 light, vec3 p, int i, vec4 occ, vec4 tint) {
+// linear = true: the factor scales linear light (a radiance), not an sRGB colour.
+float shadow_factor(float visible, bool linear) {
+  return linear ? visible : shadow_encode(visible);
+}
+
+vec3 shadow_occlude(vec3 light, vec3 p, int i, vec4 occ, vec4 tint, bool linear) {
   if (i >= int(shadow.params.x + 0.5)) return light;
-  return light * mix(tint.rgb, vec3(1.0), shadow_encode(shadow_sphere(p, occ, tint.w)));
+  return light * mix(tint.rgb, vec3(1.0), shadow_factor(shadow_sphere(p, occ, tint.w), linear));
+}
+
+bool shadow_active() {
+  return shadow.params.x > 0.5 || shadow.ring.z > 0.5;
 }
 
 // Light at a local point of the drawn geometry: rgb factors, 1 = full sunlight.
-vec3 shadow_light(vec3 local) {
+vec3 shadow_lightAt(vec3 local, bool linear) {
   float kind = shadow.params.z;
   vec3 p;
   if (kind > 1.5) {
@@ -111,19 +121,30 @@ vec3 shadow_light(vec3 local) {
     if (dot(n, shadow.sun.xyz - p) <= 0.0) return vec3(1.0);
   }
   vec3 light = vec3(1.0);
-  light = shadow_occlude(light, p, 0, shadow.occ0, shadow.tint0);
-  light = shadow_occlude(light, p, 1, shadow.occ1, shadow.tint1);
-  light = shadow_occlude(light, p, 2, shadow.occ2, shadow.tint2);
-  light = shadow_occlude(light, p, 3, shadow.occ3, shadow.tint3);
+  light = shadow_occlude(light, p, 0, shadow.occ0, shadow.tint0, linear);
+  light = shadow_occlude(light, p, 1, shadow.occ1, shadow.tint1, linear);
+  light = shadow_occlude(light, p, 2, shadow.occ2, shadow.tint2, linear);
+  light = shadow_occlude(light, p, 3, shadow.occ3, shadow.tint3, linear);
   if (shadow.ring.z > 0.5) {
-    light *= mix(vec3(${RING_SHADOW_FLOOR.toFixed(3)}), vec3(1.0), shadow_encode(shadow_ringTransmission(p)));
+    light *= mix(vec3(${RING_SHADOW_FLOOR.toFixed(3)}), vec3(1.0), shadow_factor(shadow_ringTransmission(p), linear));
   }
   return light;
+}
+
+// The factor on the sRGB colours of a map.
+vec3 shadow_light(vec3 local) {
+  return shadow_lightAt(local, false);
+}
+
+// The factor on linear light, for a shader that computes radiance (the clouds).
+vec3 shadow_linearLight(vec3 local) {
+  return shadow_lightAt(local, true);
 }
 `;
 
 const vec4 = 'vec4<f32>' as const;
-const shadowModule = {
+/** The shader module alone, for a layer that calls `shadow_linearLight` itself. */
+export const shadowModule = {
   name: 'shadow',
   vs: glsl,
   fs: glsl,
@@ -139,7 +160,7 @@ const inject = {
   'vs:#main-end': 'shadow_vLocal = positions;\n',
   'fs:#decl': 'in vec3 shadow_vLocal;\n',
   'fs:DECKGL_FILTER_COLOR': `
-  if (!bool(picking.isActive) && (shadow.params.x > 0.5 || shadow.ring.z > 0.5)) {
+  if (!bool(picking.isActive) && shadow_active()) {
     vec3 shadowLight = shadow_light(shadow_vLocal);
     color.rgb = mix(color.rgb * shadowLight, shadowLight, shadow.params.w);
     color.a = mix(color.a, 1.0, shadow.params.w);
@@ -150,7 +171,7 @@ const inject = {
 type Vec4 = [number, number, number, number];
 export type ShadowUniforms = Record<string, Vec4>;
 const ZERO: Vec4 = [0, 0, 0, 0];
-const OFF: ShadowUniforms = {
+export const SHADOWS_OFF: ShadowUniforms = {
   sun: [0, 0, 1, 1], occ0: ZERO, occ1: ZERO, occ2: ZERO, occ3: ZERO,
   tint0: ZERO, tint1: ZERO, tint2: ZERO, tint3: ZERO, ring: ZERO, ringEdges: ZERO, ringTau: ZERO, params: ZERO
 };
@@ -161,8 +182,8 @@ export function shadowUniforms(
   kind: 'sphere' | 'rings' | 'lnglat',
   replace = false
 ): ShadowUniforms {
-  if (!geometry || (!geometry.occluders.length && !geometry.ring)) return OFF;
-  const u: ShadowUniforms = {...OFF};
+  if (!geometry || (!geometry.occluders.length && !geometry.ring)) return SHADOWS_OFF;
+  const u: ShadowUniforms = {...SHADOWS_OFF};
   u.sun = [...geometry.sun, geometry.sunRadius];
   const occluders = geometry.occluders.slice(0, MAX_OCCLUDERS);
   occluders.forEach((o, i) => {
@@ -190,7 +211,7 @@ export class ShadowExtension extends LayerExtension {
 
   draw(this: never) {
     const layer = this as unknown as {props: {shadowUniforms?: ShadowUniforms | null}; setShaderModuleProps: (p: object) => void};
-    layer.setShaderModuleProps({shadow: layer.props.shadowUniforms ?? OFF});
+    layer.setShaderModuleProps({shadow: layer.props.shadowUniforms ?? SHADOWS_OFF});
   }
 }
 

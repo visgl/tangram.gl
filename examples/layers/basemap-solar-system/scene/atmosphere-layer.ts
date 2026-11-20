@@ -7,8 +7,9 @@
 // optical depth from Schüler's Chapman approximation; the Earth's clouds are a thin shell whose
 // density comes from a cloud map, lit by math.gl `getCloudLighting` (a table by Sun altitude) with
 // self-shadowing toward the Sun. Venus gets an opaque cloud deck at the base of its atmosphere.
-// The functions are repeated, and tested, in celestial/atmosphere.ts. WebGL2 only: on WebGPU the
-// layer draws nothing.
+// The clouds take the eclipse shadows of the surface (scene/shadow-extension.ts) as a factor on
+// their sunlight and sky light. The functions are repeated, and tested, in celestial/atmosphere.ts
+// and celestial/shadows.ts. WebGL2 only: on WebGPU the layer draws nothing.
 
 import {Layer, project32, type DefaultProps, type LayerProps} from '@deck.gl/core';
 import type {Device, Texture} from '@luma.gl/core';
@@ -23,6 +24,7 @@ import {
   type Atmosphere,
   type V3
 } from '../celestial';
+import {SHADOWS_OFF, shadowModule, type ShadowUniforms} from './shadow-extension';
 
 const uniformBlock = /* glsl */ `\
 layout(std140) uniform atmoUniforms {
@@ -282,6 +284,7 @@ void main(void) {
   bool hitBase = base.x <= base.y && base.x > 0.0;
   float tEnd = hitBase ? base.x : top.y;
   float jitter = hash(gl_FragCoord.xy);
+  bool eclipse = shadow_active();
 
   // Clouds.
   vec3 cloudLight = vec3(0.0);
@@ -299,6 +302,9 @@ void main(void) {
       float cosView = dot(rd, sun);
       float phase = henyeyGreenstein(cosView, CLOUD_ASYMMETRY);
       float t = c0 + dt * jitter;
+      // The eclipse light, taken once per ray at the first cloud: the umbra is wider than the
+      // cloud shell is thick.
+      vec3 eclipseLight = vec3(-1.0);
       for (int i = 0; i < 32; i++) {
         if (float(i) >= atmo.cloudSteps) break;
         vec3 p = ro + rd * t;
@@ -323,6 +329,10 @@ void main(void) {
           float diffuse = albedo / (PI * max(1.0 - exp(-columnTau), 1e-3));
           float mu = max(sinAlt, 0.03);
           vec3 source = direct * (phase * exp(-lightDepth) + diffuse * mu * exp(-CLOUD_MULTIPLE_DEPTH * lightDepth)) + sky * diffuse;
+          if (eclipse) {
+            if (eclipseLight.r < 0.0) eclipseLight = shadow_linearLight(toFixed(p));
+            source *= eclipseLight;
+          }
           float stepT = exp(-sigma * dt);
           cloudLight += cloudT * source * (1.0 - stepT);
           cloudT *= stepT;
@@ -355,8 +365,8 @@ void main(void) {
       float dM = exp(-h / atmo.mieHeight);
       columnR += 0.5 * dR * dt;
       columnM += 0.5 * dM * dt;
-      vec2 shadow = raySphere(p, sun, atmo.baseRadius);
-      if (!(shadow.x <= shadow.y && shadow.x > 0.0)) {
+      vec2 ground = raySphere(p, sun, atmo.baseRadius);
+      if (!(ground.x <= ground.y && ground.x > 0.0)) {
         vec3 view = exp(-(atmo.rayleigh * columnR + atmo.mieExtinction * columnM));
         light += view * sunTransmittance(p, sun) * (atmo.rayleigh * dR * phaseR + atmo.mieScattering * dM * phaseM) * dt;
       }
@@ -442,6 +452,8 @@ export type AtmosphereLayerProps = LayerProps & {
   deckOpacity: number;
   /** Radiance to display value: 1 - exp(-exposure L). */
   exposure: number;
+  /** Eclipse shadows on the clouds: `shadowUniforms(geometry, 'sphere')` of the body, or null. */
+  shadowUniforms: ShadowUniforms | null;
 };
 
 const defaultProps: DefaultProps<AtmosphereLayerProps> = {
@@ -458,7 +470,8 @@ const defaultProps: DefaultProps<AtmosphereLayerProps> = {
   lightSteps: 3,
   atmosphereSteps: 8,
   deckOpacity: 0,
-  exposure: 12
+  exposure: 12,
+  shadowUniforms: {type: 'object', value: null, compare: true}
 };
 
 let cloudLightTable: Uint8Array | null = null;
@@ -509,7 +522,7 @@ export class AtmosphereLayer extends Layer<AtmosphereLayerProps> {
   declare state: {model?: Model; emptyTexture?: Texture};
 
   getShaders() {
-    return super.getShaders({vs, fs, modules: [project32, atmoModule]});
+    return super.getShaders({vs, fs, modules: [project32, atmoModule, shadowModule]});
   }
 
   initializeState() {
@@ -575,7 +588,7 @@ export class AtmosphereLayer extends Layer<AtmosphereLayerProps> {
       cloudMap: textures.map ?? emptyTexture,
       cloudLut: textures.lut
     };
-    model.shaderInputs.setProps({atmo: uniforms});
+    model.shaderInputs.setProps({atmo: uniforms, shadow: p.shadowUniforms ?? SHADOWS_OFF});
     // From outside: the front faces, depth-tested, so a moon in front hides the atmosphere.
     // From inside (a globe close to the surface): the back faces, drawn over everything.
     model.setParameters({

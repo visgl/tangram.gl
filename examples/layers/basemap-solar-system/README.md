@@ -45,6 +45,8 @@ after `yarn build:modules`.
   Jupiter, Saturn's shadow on its rings and the rings' shadow on Saturn. Each fragment traces a
   ray toward the Sun, analytically, and takes the visible fraction of the solar disc, so the
   umbra and the penumbra have their true size. They show in the overview and on the globe.
+  The Earth's clouds take the same shadow, as a factor on their light (linear, not
+  gamma-encoded), so the clouds over the umbra go dark with the ground under them.
   Known events:
   - total solar eclipse, 2024-04-08:
     `?mode=globe&body=earth&date=2024-04-08T18:17Z&lon=-100&lat=28`
@@ -127,7 +129,9 @@ only inside their own boxes, so the map takes every gesture elsewhere.
   - **Info**: gravity, sky data, notes, tile counts and errors. A badge on the icon shows the
     number of errors.
 - **Scenes** (on the rail): one-click states. Each scene with a URL opens exactly as the page
-  does from that URL, without a reload:
+  does from that URL, without a reload, with the clock stopped. The two eclipse scenes also set
+  the speed to 1 minute per second: at 1 day per second the umbra crosses the Earth in about
+  0.1 s. The scenes:
   - Total solar eclipse, 2024: `?mode=globe&body=earth&date=2024-04-08T18:17Z&lon=-100&lat=28`
   - Ring shadow of Saturn: `?focus=saturn&date=2017-06-01&orbit=120&tilt=35`
   - Total lunar eclipse, 2025: `?focus=moon&date=2025-03-14T06:58Z`

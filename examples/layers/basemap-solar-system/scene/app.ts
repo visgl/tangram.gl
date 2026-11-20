@@ -871,7 +871,9 @@ function atmosphereLayers(scene: Scene, ids: BodyId[]) {
       cloudSteps: earth && state.clouds ? steps : 0,
       lightSteps: steps >= 24 ? 4 : steps >= 12 ? 3 : 2,
       atmosphereSteps: steps >= 24 ? 12 : steps >= 12 ? 8 : 6,
-      deckOpacity: state.clouds ? VENUS_DECK_OPACITY : 0
+      deckOpacity: state.clouds ? VENUS_DECK_OPACITY : 0,
+      // The same shadow geometry as the surface: the clouds over the umbra go dark with it.
+      shadowUniforms: shadowUniforms(state.shadows ? scene.shadows[id] : null, 'sphere')
     });
   });
 }
@@ -2037,13 +2039,15 @@ const NEXT_EVENT_DAYS = 400;
 
 /**
  * One-click states. A scene with a `query` opens as the page does from that URL query; `on` names
- * the layers that it shows, which it turns on.
+ * the layers that it shows, which it turns on; `speed` sets the playback speed. An eclipse plays
+ * at 1 minute per second: at 1 day per second the umbra crosses the Earth in about 0.1 s.
  */
-type SceneSpec = {id: string; label: string; hint: string; query?: string; on?: ('shadows' | 'clouds')[]; run?: () => void};
+type SceneSpec = {id: string; label: string; hint: string; query?: string; on?: ('shadows' | 'clouds')[]; speed?: number; run?: () => void};
+const ECLIPSE_SPEED = 60;
 const SCENES: SceneSpec[] = [
-  {id: 'solar-eclipse', label: 'Total solar eclipse, 2024', hint: 'The shadow of the Moon on the Earth', query: 'mode=globe&body=earth&date=2024-04-08T18:17Z&lon=-100&lat=28', on: ['shadows']},
+  {id: 'solar-eclipse', label: 'Total solar eclipse, 2024', hint: 'The shadow of the Moon on the Earth', query: 'mode=globe&body=earth&date=2024-04-08T18:17Z&lon=-100&lat=28', on: ['shadows'], speed: ECLIPSE_SPEED},
   {id: 'ring-shadow', label: 'Ring shadow of Saturn', hint: 'Saturn and its rings shade each other, 2017', query: 'focus=saturn&date=2017-06-01&orbit=120&tilt=35', on: ['shadows']},
-  {id: 'lunar-eclipse', label: 'Total lunar eclipse, 2025', hint: 'The shadow of the Earth on the Moon', query: 'focus=moon&date=2025-03-14T06:58Z', on: ['shadows']},
+  {id: 'lunar-eclipse', label: 'Total lunar eclipse, 2025', hint: 'The shadow of the Earth on the Moon', query: 'focus=moon&date=2025-03-14T06:58Z', on: ['shadows'], speed: ECLIPSE_SPEED},
   {id: 'comet', label: 'Comet at perihelion', hint: `${NEOWISE.name}, 2020-07-03`, query: 'comet=perihelion'},
   {id: 'ember', label: 'Into the Ember cloud', hint: 'A flight into a gas cloud (artistic)', run: () => flyIntoCloud()},
   {id: 'clouds', label: 'Clouds of the Earth', hint: 'The day side, from above the sub-solar point', query: 'mode=globe&body=earth&view=sun', on: ['clouds']}
@@ -2330,6 +2334,10 @@ function openScene(id: string) {
   for (const key of spec.on ?? []) {
     state[key] = true;
     $<HTMLInputElement>(key).checked = true;
+  }
+  if (spec.speed) {
+    state.speed = spec.speed;
+    syncSpeed();
   }
   if (spec.run) {
     spec.run();

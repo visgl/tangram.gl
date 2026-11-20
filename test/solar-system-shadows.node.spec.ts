@@ -155,6 +155,31 @@ test('total solar eclipse of 2024-04-08: central point at maximum against Astron
   console.log(`solar 2024-04-08: model ${point.lat.toFixed(3)}, ${point.lon.toFixed(3)}; Astronomy Engine ${eclipse.latitude?.toFixed(3)}, ${eclipse.longitude?.toFixed(3)}`);
 });
 
+test('the clouds take the same 2024-04-08 shadow, as a factor on linear light', () => {
+  const eclipse = SearchGlobalSolarEclipse(new Date('2024-04-01T00:00:00Z'));
+  const g = getShadowGeometry('earth', eclipse.peak.date, RINGS) as ShadowGeometry;
+  const point = axisPoint(g);
+  const at = (dLat: number) => surfacePoint(geodeticNormal(point.lat + dLat, point.lon), g.e2);
+  const tint = g.occluders[0].tint;
+  // The umbra keeps only the tint: the clouds there are as dark as the ground.
+  expect(lightAt(g, at(0), 'linear')).toEqual(tint);
+  // The penumbra: the visible fraction itself, not gamma-encoded, so darker than the map factor.
+  for (const dLat of [2, 5, 10, 20]) {
+    const v = visibleFractionAt(g, geodeticNormal(point.lat + dLat, point.lon));
+    const linear = lightAt(g, at(dLat), 'linear');
+    const srgb = lightAt(g, at(dLat));
+    for (let c = 0; c < 3; c++) {
+      expect(linear[c]).toBeCloseTo(tint[c] + (1 - tint[c]) * v, 12);
+      expect(linear[c]).toBeLessThan(srgb[c]);
+    }
+  }
+  // It dims smoothly: the light grows with the distance from the axis.
+  const profile = [0, 1, 2, 4, 8, 16, 32].map(dLat => lightAt(g, at(dLat), 'linear')[0]);
+  for (let i = 1; i < profile.length; i++) expect(profile[i]).toBeGreaterThan(profile[i - 1]);
+  // Outside the penumbra: no change.
+  expect(lightAt(g, at(-45), 'linear')).toEqual([1, 1, 1]);
+});
+
 /** Lowest and highest light on the Moon's limb as the Sun sees it (the circle nearest the shadow axis). */
 function moonLimb(date: Date) {
   const g = getShadowGeometry('moon', date, RINGS) as ShadowGeometry;

@@ -154,17 +154,19 @@ export const geodeticNormal = (latDeg: number, lonDeg: number): V3 => [
 ];
 
 /**
- * Light at a point, as a factor on sRGB map colours: per channel, the product of every occluder
- * and the ring. The visible fraction is linear light, so it is encoded with the sRGB gamma.
+ * Light at a point: per channel, the product of every occluder and the ring. 'srgb' gives a
+ * factor on sRGB map colours: the visible fraction is linear light, so it is encoded with the
+ * sRGB gamma. 'linear' gives a factor on linear light, as the clouds take it (a radiance).
  */
-export function lightAt(geometry: ShadowGeometry, p: V3): V3 {
+export function lightAt(geometry: ShadowGeometry, p: V3, encoding: 'srgb' | 'linear' = 'srgb'): V3 {
+  const k = encoding === 'srgb' ? 1 / SRGB_GAMMA : 1;
   const light: V3 = [1, 1, 1];
   for (const occ of geometry.occluders) {
-    const v = sphereVisibility(p, geometry.sun, geometry.sunRadius, occ) ** (1 / SRGB_GAMMA);
+    const v = sphereVisibility(p, geometry.sun, geometry.sunRadius, occ) ** k;
     for (let c = 0; c < 3; c++) light[c] *= occ.tint[c] + (1 - occ.tint[c]) * v;
   }
   if (geometry.ring) {
-    const t = ringTransmission(p, geometry.sun, geometry.ring) ** (1 / SRGB_GAMMA);
+    const t = ringTransmission(p, geometry.sun, geometry.ring) ** k;
     for (let c = 0; c < 3; c++) light[c] *= RING_SHADOW_FLOOR + (1 - RING_SHADOW_FLOOR) * t;
   }
   return light;
