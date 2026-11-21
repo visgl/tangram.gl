@@ -175,12 +175,15 @@ The module evaluates styles with [`@maplibre/maplibre-gl-style-spec`][maplibre-s
 - Evaluates filter expressions for each GeoJSON `Feature` input
 - Evaluates paint expressions given the zoom level
 
-Zoom-dependent paint and layout values are evaluated at the zoom rounded down to a 0.25 step
-(`STYLE_ZOOM_STEP`), and every visible tile uses the same evaluation zoom, so tiles agree at their
-seams. Filters use the integer zoom, as the style spec specifies, and layer visibility uses the
-exact zoom. MapLibre instead evaluates zoom expressions at the integer zooms on either side of
-the current zoom and interpolates on the GPU; moving interpolation to the GPU remains the
-long-term plan.
+Tile sublayers are made again at each 0.25 zoom step (`STYLE_ZOOM_STEP`), and every visible
+tile uses the same step, so tiles agree at their seams. Between steps, on WebGL, the widths,
+colors and opacities of `fill`, `line` and `circle` layers follow the zoom continuously, as in
+MapLibre: paint that depends only on the zoom is evaluated at the exact zoom of each frame and
+sent to the GPU in a small texture or in uniforms, and paint that also depends on the feature is
+evaluated at the two steps around the zoom into vertex attributes and interpolated on the GPU.
+Zooming within a step writes no attributes and makes no sublayers. Other paint, layout values and
+WebGPU use the zoom rounded down to the step. Filters use the integer zoom, as the style spec
+specifies, and layer visibility uses the exact zoom.
 
 ### Label fonts
 
