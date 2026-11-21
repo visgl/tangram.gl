@@ -264,6 +264,38 @@ const rejectRasterTile = createRasterTileFingerprintFilter([placeholderFingerpri
 new BasemapLayer({style, rejectRasterTile});
 ```
 
+### `onError`
+
+Type: `((error: Error) => boolean | void) | null`
+
+The `onError` prop of every deck.gl layer. `BasemapLayer` calls it once for each resource of the style that fails to load, with a `BasemapLoadError`. If the function does not return `true`, the `onError` of the `Deck` also receives the error. The default `onError` of the `Deck` logs it. A cancelled request, such as a tile that leaves the view before it loads, is not a failure. As in MapLibre GL JS, a vector tile that answers 404 is a tile without data, not a failure; a raster or raster-dem tile that answers 404 is a failure.
+
+A `BasemapLoadError` is an `Error` with these fields, which match those of the `error` event of MapLibre GL JS:
+
+- `kind`: what failed: `'style'`, `'source'` (a TileJSON or the GeoJSON `data` of a source), `'tile'`, `'sprite'`, `'glyphs'` (one glyph range), or `'image'` (an image source)
+- `sourceId`: the id of the style source, for a `source`, `tile` or `image`
+- `url`: the URL that failed, when it is known
+- `status`: the HTTP status of the response, when the server answered
+- `tile`: the `{x, y, z}` index of the tile, for a `tile`
+- `cause`: the error the load failed with
+
+The layer draws what it can without the failed resource: a source that fails has no layers, a tile that fails is not drawn, and the icons of a sprite that fails are skipped.
+
+```ts
+import {BasemapLayer, BasemapLoadError} from '@tangram.gl/basemap-layers';
+
+new BasemapLayer({
+  style,
+  onError: error => {
+    if (error instanceof BasemapLoadError) {
+      showMessage(`Could not load the ${error.kind} ${error.url ?? ''} (${error.status ?? 'no response'})`);
+      return true;
+    }
+    return false;
+  }
+});
+```
+
 ### `extensions`
 
 Type: `LayerExtension[]`
@@ -716,6 +748,7 @@ With a `sourceCache` map in `loadOptions`, a source whose definition and base UR
 is not fetched again. Each call replaces the entries of the map with the sources it resolved.
 `BasemapLayer` uses this to keep the TileJSON of a source across styles.
 
+A source that cannot be loaded does not fail the style: a warning is logged, and its layers are skipped unless the source also lists inline `tiles`. Pass `loadOptions.onError` to receive a `BasemapLoadError` of kind `'source'` for each such source in place of the warning.
 The result is marked as resolved, so that `BasemapLayer` draws it without resolving it again (see [`style`](#style)).
 
 ## Types

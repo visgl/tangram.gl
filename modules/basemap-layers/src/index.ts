@@ -22,6 +22,8 @@ export type {
   ResolvedBasemapStyleLayer
 } from './style-resolver';
 
+export {BasemapLoadError} from './basemap-error';
+export type {BasemapLoadErrorDetails, BasemapLoadErrorKind} from './basemap-error';
 export type {BasemapSourceFeature, QuerySourceFeaturesOptions} from './source-features';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';

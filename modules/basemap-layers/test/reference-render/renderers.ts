@@ -14,7 +14,7 @@ import {expression as styleExpression, latest} from '@maplibre/maplibre-gl-style
 import mvtWorkerUrl from '@loaders.gl/tiles/mvt/mvt-worker.js?url';
 import * as maplibregl from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-import {BasemapLayer} from '../../src/index';
+import {BasemapLayer, BasemapLoadError} from '../../src/index';
 import type {GlyphStore} from '../../src/glyph-store';
 import {MVTLabelLayer} from '../../src/mvt-label-layer';
 import {renderMapLibreScene} from '../../../../dev/basemap-conformance/src/maplibre';
@@ -475,7 +475,15 @@ async function drawBasemapLayer(
             }
             resolve(readCanvas(deck!.getCanvas()!, pixelRatio));
           },
-          onError: error => reject(error)
+          onError: error => {
+            // The fixtures hold only the tiles a scene draws. Another raster-dem tile answers 404:
+            // it draws nothing, in both renderers, and is not a render failure.
+            const tile = error instanceof BasemapLoadError && error.kind === 'tile';
+            if (tile && error.status === 404) {
+              return;
+            }
+            reject(error);
+          }
         });
       }),
       'BasemapLayer render'

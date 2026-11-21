@@ -80,6 +80,7 @@ import {getSourceTileTemplates} from './source-tiles';
 import {isProjectedViewport} from './projected-viewport';
 import {getBasemapFetch} from './basemap-protocol';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
+import {BasemapFetchError} from './basemap-error';
 
 /**
  * `hillshade` style layers over `raster-dem` sources, drawn as MapLibre GL JS draws them.
@@ -762,7 +763,11 @@ export async function loadDemTile(
   const fetchFn = getBasemapFetch(loadOptions?.fetch, 'image');
   const response = await fetchFn(url, {...loadOptions?.fetchOptions, signal});
   if (!response.ok) {
-    throw new Error(`Failed to load DEM tile: ${url} (${response.status})`);
+    throw new BasemapFetchError(
+      `Failed to load DEM tile: ${url} (${response.status})`,
+      url,
+      response.status
+    );
   }
   const blob = await response.blob();
   if (blob.size === 0) {

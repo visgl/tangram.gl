@@ -429,7 +429,15 @@ describe('a style update by diff', () => {
     async failOnce => {
       const requests: Requests = {resources: [], tiles: []};
       const loadOptions = {fetch: createResourceFetch(requests, {failOnce})};
-      const props = {...createProps(requests), loadOptions};
+      const errors: Error[] = [];
+      const props = {
+        ...createProps(requests),
+        loadOptions,
+        onError: (error: Error) => {
+          errors.push(error);
+          return true;
+        }
+      };
       createDeck(createLayer(createStyle(), props));
       // Without its TileJSON, the source draws nothing: wait for the load, not for a frame.
       await vi.waitFor(() => expect(getBasemapState()?.resolvedStyle).toBeTruthy(), {
@@ -437,6 +445,8 @@ describe('a style update by diff', () => {
       });
       await new Promise(resolve => setTimeout(resolve, 500));
       expect(requests.resources.filter(url => url.endsWith(failOnce))).toHaveLength(1);
+      expect(errors).toHaveLength(1);
+      expect(errors[0]?.message).toContain(failOnce);
 
       deck!.setProps({layers: [createLayer(createStyle({water: '#0000ff'}), props)]});
       const colors = countColors(await settledFrame());

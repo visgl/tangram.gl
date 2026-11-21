@@ -7,6 +7,7 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 import {LayerManager, WebMercatorViewport} from '@deck.gl/core';
 import {NullDevice} from '@luma.gl/core/test-utils';
 import {BasemapLayer} from '../src/basemap-layer';
+import {BasemapLoadError} from '../src/basemap-error';
 
 const TILEJSON_URL = 'https://tiles.example.com/streets.json';
 const TILES = ['https://tiles.example.com/{z}/{x}/{y}.mvt'];
@@ -145,6 +146,7 @@ describe('BasemapLayer isLoaded and lifecycle callbacks', () => {
 
   test('is not loaded before the sublayers of the style exist, or while sprites load', async () => {
     const sprite = deferred<void>();
+    const onError = vi.fn((_error: BasemapLoadError) => true);
     const fetchSprite = vi.fn(async () => {
       await sprite.promise;
       return {ok: false, status: 404, json: async () => ({})};
@@ -172,6 +174,7 @@ describe('BasemapLayer isLoaded and lifecycle callbacks', () => {
           sources: {},
           layers: [background]
         } as any,
+        onError,
         loadOptions: {fetch: fetchSprite}
       } as any)
     ]);
@@ -182,6 +185,9 @@ describe('BasemapLayer isLoaded and lifecycle callbacks', () => {
     sprite.resolve();
     await settle();
     expect(isLoaded()).toBe(true);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(BasemapLoadError);
+    expect(onError.mock.calls[0][0]).toMatchObject({kind: 'sprite'});
   });
 
   test('an error in onStyleLoad keeps the style and goes to onError', async () => {

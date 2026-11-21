@@ -7,6 +7,11 @@ import {getBasemapFetch, isBasemapProtocolUrl} from './basemap-protocol';
 import {getIconQuads, isValidStretchMetadata} from './icon-text-fit';
 import type {ImageTextFit} from './icon-text-fit';
 import type {BasemapLoadOptions} from './style-resolver';
+import {
+  BasemapFetchError,
+  getBasemapLoadError,
+  type BasemapLoadErrorHandler
+} from './basemap-error';
 
 /** One image in a style sprite, as listed in the sprite's JSON index. */
 export type SpriteImage = {
@@ -77,6 +82,8 @@ export type SpriteLoadOptions = {
   baseUrl?: string;
   /** Device pixel ratio. At 2 or more, the `@2x` sprite is requested first. Default 1. */
   pixelRatio?: number;
+  /** Called for each sprite that fails to load, in place of the warning logged without it. */
+  onError?: BasemapLoadErrorHandler;
 } & Pick<NonNullable<BasemapLoadOptions>, 'fetch' | 'fetchOptions'>;
 
 /** Resolves a style's `sprite` value into sprite sources with absolute URLs. */
@@ -158,7 +165,11 @@ async function loadSpriteImage(
   }
   const response = await fetchFn(url, fetchOptions);
   if (!response.ok) {
-    throw new Error(`Failed to load sprite image: ${url} (${response.status})`);
+    throw new BasemapFetchError(
+      `Failed to load sprite image: ${url} (${response.status})`,
+      url,
+      response.status
+    );
   }
   return await createImageBitmap(await response.blob(), {premultiplyAlpha: 'none'});
 }
@@ -187,7 +198,11 @@ async function loadSpriteAtlas(
     try {
       const response = await fetchFn(jsonUrl, options.fetchOptions);
       if (!response.ok) {
-        throw new Error(`Failed to load sprite: ${jsonUrl} (${response.status})`);
+        throw new BasemapFetchError(
+          `Failed to load sprite: ${jsonUrl} (${response.status})`,
+          jsonUrl,
+          response.status
+        );
       }
       const index = (await response.json()) as Record<string, SpriteImage>;
       return {
@@ -218,10 +233,14 @@ export async function loadSpriteAtlases(
   const atlases = await Promise.all(
     sources.map(source =>
       loadSpriteAtlas(source, options).catch(error => {
-        log.warn(
-          `[BasemapLayer] Sprite ${source.url} failed to load; its icons are skipped`,
-          error
-        )();
+        if (options.onError) {
+          options.onError(getBasemapLoadError('sprite', error, {url: source.url}));
+        } else {
+          log.warn(
+            `[BasemapLayer] Sprite ${source.url} failed to load; its icons are skipped`,
+            error
+          )();
+        }
         return null;
       })
     )

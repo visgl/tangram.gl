@@ -75,6 +75,12 @@ import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
 import type {RejectRasterTile} from './raster-tile-loader';
 import {
+  type BasemapLoadError,
+  type BasemapLoadErrorHandler,
+  getBasemapLoadError,
+  isAbortError
+} from './basemap-error';
+import {
   querySourceFeaturesInTiles,
   type BasemapSourceFeature,
   type QuerySourceFeaturesOptions
@@ -87,18 +93,26 @@ function logBasemapLayerEvent(message: string, details?: unknown): void {
   log.probe(1, message, details ?? '')();
 }
 
-/**
- * Logs a basemap-layer runtime error to deck.gl logging.
- */
+/** Logs a basemap-layer runtime error to deck.gl logging. */
 function logBasemapLayerError(message: string, error: Error): void {
   log.error(`${message}: ${error.message}`)();
 }
 
 function getMapStyleLoaderOptions(
   loadOptions: BasemapLayerProps['loadOptions'],
-  sourceCache: Map<string, BasemapSource>
+  sourceCache: Map<string, BasemapSource>,
+  onError: BasemapLoadErrorHandler
 ): MapStyleLoaderOptions {
-  return {mapStyle: {...loadOptions, sourceCache}};
+  const {fetch: fetchFn, fetchOptions} = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
+  return {
+    ...(fetchFn || fetchOptions
+      ? {
+          fetch: (url: string, init?: RequestInit) =>
+            (fetchFn || fetch)(url, {...init, ...fetchOptions})
+        }
+      : {}),
+    mapStyle: {...loadOptions, sourceCache, onError} as NonNullable<MapStyleLoaderOptions['mapStyle']>
+  };
 }
 
 /**
@@ -419,6 +433,8 @@ type BasemapLayerState = {
   insertedLayers: Set<Layer>;
   /** The style and unknown `beforeId`s that errors were last raised for, to raise them once. */
   insertionError: {style: ResolvedBasemapStyle; beforeIds: string} | null;
+  /** The causes of the errors given to `reportError`, which reports each once. */
+  reportedErrors: WeakSet<Error>;
   /** The config `getStyleConfig` last returned, kept while its inputs do not change. */
   styleConfig: {
     labels: unknown;
@@ -517,6 +533,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       styleLayerProps: null,
       insertedLayers: new Set(),
       insertionError: null,
+      reportedErrors: new WeakSet(),
       styleConfig: null
     };
   }
@@ -628,6 +645,20 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       return mode === 'globe' ? 'globe' : 'map';
     }
     return isGlobeViewport(viewport) ? 'globe' : 'map';
+  }
+
+  /**
+   * Raises a load failure (see `BasemapLoadError`) to the layer's `onError`, and to the deck's
+   * `onError` unless the layer's returns `true`. A cancelled request is not a failure. Tile layers
+   * that share a tileset each report its failed tiles: a failure is raised once.
+   */
+  reportError(error: BasemapLoadError): void {
+    if (isAbortError(error.cause) || this.state.reportedErrors.has(error.cause)) {
+      return;
+    }
+    this.state.reportedErrors.add(error.cause);
+    // A load that ends after the props changed raises the error with the current props.
+    (this.getCurrentLayer() ?? this).raiseError(error, '');
   }
 
   /** Reacts to changes in the input style definition. */
@@ -841,14 +872,24 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       loadToken
     });
 
+    // A source, sprite or glyph range of a style that was replaced is not reported.
+    const onStyleResourceError = (error: BasemapLoadError) => {
+      if (this.state.loadToken === loadToken) {
+        this.reportError(error);
+      }
+    };
     Promise.resolve(
       typeof style === 'string'
         ? hasCustomScheme(style)
-          ? loadProtocolStyle(style, loadOptions, sourceCache)
-          : load(style, MapStyleLoader, getMapStyleLoaderOptions(loadOptions, sourceCache))
+          ? loadProtocolStyle(style, loadOptions, sourceCache, onStyleResourceError)
+          : load(
+              style,
+              MapStyleLoader,
+              getMapStyleLoaderOptions(loadOptions, sourceCache, onStyleResourceError)
+            )
         : MapStyleLoader.parse(
             new TextEncoder().encode(styleJson!).buffer,
-            getMapStyleLoaderOptions(loadOptions, sourceCache)
+            getMapStyleLoaderOptions(loadOptions, sourceCache, onStyleResourceError)
           )
     )
       .then(resolvedStyle => {
@@ -863,7 +904,6 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       })
       .catch((error: Error) => {
         if (this.state.loadToken === loadToken) {
-          logBasemapLayerError('Failed to resolve basemap style', error);
           this.clearSourceTilesets();
           this.setState({
             resolvedStyle: null,
@@ -872,6 +912,11 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
             loadError: error,
             loadedToken: loadToken
           });
+          if (!(loadOptions as BasemapLoadOptions)?.fetchOptions?.signal?.aborted) {
+            this.reportError(
+              getBasemapLoadError('style', error, typeof style === 'string' ? {url: style} : {})
+            );
+          }
         }
       });
   }
@@ -888,7 +933,11 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     if (sameOptions && this.state.resolvedStyle && !isResolvedBasemapStyle(style)) {
       reuseSources(resolvedStyle, this.state.resolvedStyle);
     }
-    const glyphs = getGlyphStore(resolvedStyle, style, loadOptions);
+    const glyphs = getGlyphStore(resolvedStyle, style, loadOptions, error => {
+      if (this.state.glyphs === glyphs) {
+        this.reportError(error);
+      }
+    });
     const keepGlyphs =
       sameOptions && glyphs?.url === this.state.glyphs?.url && !this.state.glyphs?.failed;
     this.setState({
@@ -939,7 +988,12 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         baseUrl,
         fetch: options.fetch,
         fetchOptions: options.fetchOptions,
-        pixelRatio
+        pixelRatio,
+        onError: error => {
+          if (this.state.spriteLoad === spriteLoad) {
+            this.reportError(error);
+          }
+        }
       });
       this.setState({spriteAtlases: null, spriteKey, spriteLoad});
       spriteLoad.then(spriteAtlases => {
@@ -1259,6 +1313,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       loadOptions: this.props.loadOptions,
       fetch: this.props.fetch,
       rejectRasterTile: this.props.rejectRasterTile,
+      onError: error => this.reportError(error),
       spriteAtlases: this.state.spriteAtlases,
       fontFamily: this.props.fontFamily,
       // A label font of the caller's is drawn with the browser's fonts.
@@ -1590,7 +1645,8 @@ function getStyleAttributions(
 async function loadProtocolStyle(
   url: string,
   loadOptions: BasemapLayerProps['loadOptions'],
-  sourceCache: Map<string, BasemapSource>
+  sourceCache: Map<string, BasemapSource>,
+  onError: BasemapLoadErrorHandler
 ): Promise<ResolvedBasemapStyle> {
   const options = (loadOptions || {}) as {fetch?: typeof fetch; fetchOptions?: RequestInit};
   const response = await getBasemapFetch(options.fetch, 'json')(url, options.fetchOptions);
@@ -1601,6 +1657,7 @@ async function loadProtocolStyle(
     mapStyle: {
       ...loadOptions,
       sourceCache,
+      onError,
       baseUrl: (loadOptions?.baseUrl as string | undefined) || url
     }
   });
@@ -1613,7 +1670,8 @@ async function loadProtocolStyle(
 function getGlyphStore(
   resolvedStyle: ResolvedBasemapStyle,
   style: BasemapLayerProps['style'],
-  loadOptions: BasemapLayerProps['loadOptions']
+  loadOptions: BasemapLayerProps['loadOptions'],
+  onError: BasemapLoadErrorHandler
 ): GlyphStore | null {
   const url = resolvedStyle.glyphs;
   if (typeof url !== 'string' || !url) {
@@ -1628,7 +1686,8 @@ function getGlyphStore(
     url,
     baseUrl: getStyleBaseUrl(style, options.baseUrl),
     fetch: options.fetch,
-    fetchOptions: options.fetchOptions
+    fetchOptions: options.fetchOptions,
+    onError
   });
 }
 
