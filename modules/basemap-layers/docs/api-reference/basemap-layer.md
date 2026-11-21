@@ -65,6 +65,19 @@ const style = await resolveBasemapStyle('https://example.com/style.json');
 new BasemapLayer({id: 'base', style});
 ```
 
+A new style keeps what it shares with the previous style, as MapLibre GL JS's
+`setStyle(style, {diff: true})` keeps it. A source with the same definition keeps its TileJSON,
+its tiles and its decoded data. The sprites and the glyphs keep their loaded images when their
+URLs do not change. A source is decoded again when the style draws a different set of its source
+layers. A new `loadOptions` object loads everything again.
+
+A new style object is compared with the previous one by `diff` from
+`@maplibre/maplibre-gl-style-spec`, as in MapLibre GL JS. When only paint or layout values,
+filters, zoom ranges, the order of the layers or other values that load nothing change, the new
+style applies in the same update, without a load, and the next frame draws it. A change of a
+source, the sprite or the glyphs loads the style as above. Give a new style object for each
+change: the same object again does nothing, also when it was changed in place.
+
 ### `mode`
 
 Type: `'map' | 'globe'`
@@ -454,6 +467,10 @@ Loads and normalizes a style document. This resolves:
 - GeoJSON source `data` URLs, fetched into the source's `data`
 - relative tile template URLs
 - legacy Mapbox `ref` layer inheritance
+
+With a `sourceCache` map in `loadOptions`, a source whose definition and base URL are in the map
+is not fetched again. Each call replaces the entries of the map with the sources it resolved.
+`BasemapLayer` uses this to keep the TileJSON of a source across styles.
 
 The result is marked as resolved, so that `BasemapLayer` draws it without resolving it again (see [`style`](#style)).
 

@@ -106,9 +106,26 @@ export type BasemapLoadOptions = {
   fetch?: typeof fetch;
   /** Optional init object passed to the selected fetch implementation. */
   fetchOptions?: RequestInit;
+  /**
+   * Resolved sources by `getSourceKey` of their definition and base URL. A source whose key is in
+   * the cache is not fetched again. Each resolution replaces the entries with its own sources.
+   */
+  sourceCache?: Map<string, BasemapSource>;
   /** Additional loader options are accepted for forward compatibility. */
   [key: string]: unknown;
 } | null;
+
+/**
+ * A key of a source's content: its JSON with sorted object keys. Two sources with the same key
+ * load the same tiles.
+ */
+export function getSourceKey(value: unknown): string {
+  return JSON.stringify(value, (_key, item) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
+      : item
+  );
+}
 
 /** Resolves a possibly relative URL against the provided base URL. */
 function normalizeUrl(url: string | undefined, baseUrl?: string) {
@@ -359,11 +376,17 @@ export async function resolveBasemapStyle(
   );
   const baseUrl = typeof style === 'string' ? style : loadOptions?.baseUrl;
   const resolvedSources: Record<string, BasemapSource> = {};
+  const sourceCache = loadOptions?.sourceCache;
+  const cachedSources = new Map<string, BasemapSource>();
 
   await Promise.all(
     Object.entries(styleDefinition.sources || {}).map(async ([sourceId, source]) => {
+      const key = sourceCache ? getSourceKey([source, baseUrl]) : '';
       try {
-        resolvedSources[sourceId] = (await resolveSource(source, baseUrl, loadOptions)) || {};
+        const resolvedSource =
+          sourceCache?.get(key) ?? ((await resolveSource(source, baseUrl, loadOptions)) || {});
+        resolvedSources[sourceId] = resolvedSource;
+        cachedSources.set(key, resolvedSource);
       } catch (error) {
         if (isLoadCancelled(error, loadOptions)) {
           throw loadOptions?.fetchOptions?.signal?.aborted
@@ -388,6 +411,10 @@ export async function resolveBasemapStyle(
       }
     })
   );
+  if (sourceCache) {
+    sourceCache.clear();
+    for (const [key, source] of cachedSources) sourceCache.set(key, source);
+  }
 
   const resolved = ResolvedBasemapStyleSchema.parse({
     ...styleDefinition,
