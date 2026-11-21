@@ -12,7 +12,8 @@ import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {toFixtureUrl} from './reference-render/fixtures';
 
-// A hillshade draws on a globe as on a map. At zoom 10 the globe is nearly flat over the view.
+// A hillshade and a color relief draw on a globe as on a map. At zoom 10 the globe is nearly flat
+// over the view.
 
 const SIZE = 256;
 const BACKGROUND = [242, 239, 233];
@@ -43,6 +44,31 @@ const STYLE = {
   ]
 };
 
+const COLOR_RELIEF_STYLE = {
+  ...STYLE,
+  layers: [
+    STYLE.layers[0],
+    {
+      id: 'relief',
+      type: 'color-relief',
+      source: 'terrain',
+      paint: {
+        'color-relief-color': [
+          'interpolate',
+          ['linear'],
+          ['elevation'],
+          400,
+          '#0b6623',
+          2000,
+          '#e8d68f',
+          4300,
+          '#ffffff'
+        ]
+      }
+    }
+  ]
+};
+
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
 
@@ -54,7 +80,7 @@ afterEach(() => {
 });
 
 /** The pixels of the basemap drawn in `mode`, once every tile has loaded. */
-function render(mode: 'map' | 'globe'): Promise<Uint8ClampedArray> {
+function render(mode: 'map' | 'globe', style: object = STYLE): Promise<Uint8ClampedArray> {
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise((resolve, reject) => {
@@ -97,7 +123,7 @@ function render(mode: 'map' | 'globe'): Promise<Uint8ClampedArray> {
       deviceProps: {adapters: [webgl2Adapter]},
       views: mode === 'globe' ? new GlobeView({resolution: 36, id: 'view'}) : new MapView({id: 'view'}),
       viewState: VIEW_STATE as any,
-      layers: [new BasemapLayer({id: 'basemap', mode, style: structuredClone(STYLE) as any})],
+      layers: [new BasemapLayer({id: 'basemap', mode, style: structuredClone(style) as any})],
       onAfterRender: () => {
         if (!isLoaded()) {
           // Deck does not always draw again by itself when the last tile loads.
@@ -154,6 +180,22 @@ describe('hillshade on a globe', () => {
     expect(medianDifference(globe, BACKGROUND)).toBeGreaterThan(50);
     // `GlobeView` draws a zoom at another scale than `MapView`, so the pixels do not line up; the
     // shading's colors do.
+    const mapMean = meanColor(map);
+    const globeMean = meanColor(globe);
+    for (let channel = 0; channel < 3; channel++) {
+      expect(Math.abs(globeMean[channel] - mapMean[channel])).toBeLessThanOrEqual(4);
+    }
+  }, 60_000);
+});
+
+describe('color relief on a globe', () => {
+  test('draws as on a map', async () => {
+    const map = await render('map', COLOR_RELIEF_STYLE);
+    deck?.finalize();
+    parent?.remove();
+    const globe = await render('globe', COLOR_RELIEF_STYLE);
+    // The ramp is drawn: most pixels are colored away from the background.
+    expect(medianDifference(globe, BACKGROUND)).toBeGreaterThan(50);
     const mapMean = meanColor(map);
     const globeMean = meanColor(globe);
     for (let channel = 0; channel < 3; channel++) {

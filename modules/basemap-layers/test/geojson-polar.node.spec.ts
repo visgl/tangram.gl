@@ -3,9 +3,10 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, expect, test, vi} from 'vitest';
-import {log} from '@deck.gl/core';
+import {_GlobeViewport as GlobeViewport, log, WebMercatorViewport} from '@deck.gl/core';
 import {TaskRunner} from '@math.gl/tasks';
 import {getBasemapLayers} from '../src/index.ts';
+import {BasemapLayer} from '../src/basemap-layer';
 import {getGeoJsonTileFeatures} from '../src/geojson-source';
 import {GeoJsonTask} from '../src/geojson-task';
 import {resolveBasemapStyle} from '../src/style-resolver';
@@ -148,6 +149,33 @@ test('projected and globe basemaps cut GeoJSON at the limit; a Web Mercator one 
   expect(await getNames({mode: 'map'})).toEqual(['inside', 'past']);
   expect(await getNames({mode: 'map', projected: true})).toEqual(['inside']);
   expect(await getNames({mode: 'globe'})).toEqual(['inside']);
+});
+
+test('a BasemapLayer cuts GeoJSON in the mode it draws, also with mode auto', async () => {
+  vi.spyOn(log, 'warn').mockReturnValue(() => {});
+  const style = await resolveBasemapStyle({
+    version: 8,
+    sources: {shapes: source(POINTS)},
+    layers: [{id: 'points', type: 'circle', source: 'shapes'}]
+  } as any);
+  const basemap = new BasemapLayer({id: 'test', style});
+  basemap.initializeState();
+  basemap.state.resolvedStyle = style;
+  const camera = {width: 256, height: 256, longitude: 0, latitude: 0, zoom: 2};
+  const getNames = async (viewport: GlobeViewport | WebMercatorViewport) => {
+    basemap.context = {viewport} as any;
+    const layer = (basemap.renderLayers().flat(Infinity as 1) as any[])
+      .find(item => item?.id === 'test-shapes');
+    const features = await layer.props.data.opts.getTileData({index: {x: 0, y: 0, z: 0}});
+    return [...new Set(features.map((item: any) => item.properties.name))].sort();
+  };
+  try {
+    expect(basemap.props.mode).toBe('auto');
+    expect(await getNames(new GlobeViewport(camera))).toEqual(['inside']);
+    expect(await getNames(new WebMercatorViewport(camera))).toEqual(['inside', 'past']);
+  } finally {
+    basemap.finalizeState();
+  }
 });
 
 test('generated ids are the same in every view: a feature dropped before another does not move its id', async () => {
