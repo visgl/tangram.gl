@@ -25,19 +25,17 @@ new Deck({
   layers: [
     new BasemapLayer({
       id: 'basemap',
-      mode: 'map',
       style: styleJson
     })
   ]
 });
 ```
 
-For globe rendering, switch `mode` to `'globe'`. The `labels` prop turns the labels off in any mode:
+For globe rendering, draw the layer in a deck.gl `GlobeView`. The default `mode: 'auto'` reads the globe from the viewport, so the layer needs no `mode` prop. The `labels` prop turns the labels off in any mode:
 
 ```ts
 new BasemapLayer({
   id: 'earth',
-  mode: 'globe',
   style: styleJson,
   labels: false
 });
