@@ -46,6 +46,7 @@ import {
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {getBasemapFetch, getBasemapLayerFetch, hasCustomScheme} from './basemap-protocol';
 import {getDemUnpackVector} from './hillshade-layer';
+import {getTileLoadOptions} from './pmtiles-source';
 import {getStyleZoomKey} from './style-accessor';
 import {getResolvedBasemapStyleBaseUrl, isResolvedBasemapStyle} from './style-resolver';
 import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
@@ -625,7 +626,10 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
           id: `${this.id}-loader`,
           data: source.tiles!,
           fetch: getBasemapLayerFetch(this.props.fetch, 'arrayBuffer'),
-          loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
+          loadOptions: getTileLoadOptions(
+            source,
+            getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
+          )
         });
         loader.context = this.context;
         const gate = this.state.zoomLoadGate;
