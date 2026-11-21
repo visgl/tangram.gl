@@ -645,11 +645,9 @@ test(`${DEVICE_TYPE}: UTM zone 32N shows style layers by the zoom of the Web Mer
 });
 
 if (DEVICE_TYPE === 'webgl') {
-  // Hillshade layers are drawn on WebGL only.
-  test(`${DEVICE_TYPE}: UTM zone 32N draws a hillshade on the tiles of the zone`, async () => {
-    const projection = PROJECTIONS[0];
-    // Terrarium elevation tiles of a plane that rises to the east: 20 meters for each kilometer.
-    const requests = serveFiles(path => {
+  // Terrarium elevation tiles of a plane that rises to the east: 20 meters for each kilometer.
+  const serveEastwardSlope = () =>
+    serveFiles(path => {
       const [z, x] = path.replace('.png', '').split('/').map(Number);
       const tile = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
       const context = tile.getContext('2d')!;
@@ -668,6 +666,11 @@ if (DEVICE_TYPE === 'webgl') {
       context.putImageData(pixels, 0, 0);
       return toPngResponse(tile);
     });
+
+  // Hillshade and color-relief layers are drawn on WebGL only.
+  test(`${DEVICE_TYPE}: UTM zone 32N draws a hillshade on the tiles of the zone`, async () => {
+    const projection = PROJECTIONS[0];
+    const requests = serveEastwardSlope();
     harness = createHarness(projection, {
       version: 8,
       sources: {
@@ -769,6 +772,39 @@ if (DEVICE_TYPE === 'webgl') {
     const moon = await renderSlopeShade(1737400, 0.05);
     expect(earth).toBeGreaterThan(30);
     expect(Math.abs(moon - earth)).toBeLessThan(3);
+  });
+
+  test(`${DEVICE_TYPE}: UTM zone 32N colors the elevations of the zone by a ramp`, async () => {
+    const projection = PROJECTIONS[0];
+    const requests = serveEastwardSlope();
+    harness = createHarness(projection, {
+      version: 8,
+      sources: {
+        dem: {type: 'raster-dem', tiles: [`${TILE_URL}{z}/{x}/{y}.png`], tileSize: TILE_SIZE,
+          encoding: 'terrarium', maxzoom: 10}
+      },
+      layers: [
+        BACKGROUND,
+        {id: 'relief', type: 'color-relief', source: 'dem',
+          paint: {'color-relief-color':
+            ['interpolate', ['linear'], ['elevation'], 0, '#0000ff', 12000, '#ff0000']}}
+      ]
+    }, 5);
+    const image = await harness.render();
+    expect(requests.length).toBeGreaterThan(0);
+    // At 9°E the plane is 7500 meters high: 5/8 of the way from blue to red.
+    const middle = getProjectedPixel(projection.project, [9, 48], harness.view);
+    const [r, g, b] = getPixel(image, middle[0], middle[1]);
+    expect(Math.abs(r - 159)).toBeLessThanOrEqual(8);
+    expect(g).toBeLessThanOrEqual(2);
+    expect(Math.abs(b - 96)).toBeLessThanOrEqual(8);
+    // Red grows to the east across the zone.
+    const west = getProjectedPixel(projection.project, [7, 48], harness.view);
+    const east = getProjectedPixel(projection.project, [11, 48], harness.view);
+    expect(getPixel(image, east[0], east[1])[0]).toBeGreaterThan(getPixel(image, west[0], west[1])[0] + 60);
+    // Outside the zone the background shows.
+    expect(isBackground(getPixel(image, 8, HEIGHT / 2))).toBe(true);
+    expect(isBackground(getPixel(image, WIDTH - 8, HEIGHT / 2))).toBe(true);
   });
 }
 }

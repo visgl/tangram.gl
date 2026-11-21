@@ -6,6 +6,7 @@
 import {describe, expect, test} from 'vitest';
 import {getBasemapLayers} from '../src/index.ts';
 import {RasterColorExtension, getRasterColorUniforms} from '../src/raster-color-extension.ts';
+import {RasterFadeExtension} from '../src/raster-fade.ts';
 
 const SOURCES = {
   raster: {type: 'raster', tiles: ['https://tiles.example.com/{z}/{x}/{y}.png'], tileSize: 256}
@@ -85,8 +86,10 @@ describe('raster color adjustments', () => {
   test('are passed to each tile with the color extension, defaults filled in', () => {
     const rasterLayer = getRasterLayer({'raster-saturation': -1, 'raster-hue-rotate': 90});
     const tile = renderTile(rasterLayer);
-    expect(tile.props.extensions).toHaveLength(1);
+    // The default `raster-fade-duration` adds the fade after the color adjustments.
+    expect(tile.props.extensions).toHaveLength(2);
     expect(tile.props.extensions[0]).toBeInstanceOf(RasterColorExtension);
+    expect(tile.props.extensions[1]).toBeInstanceOf(RasterFadeExtension);
     expect(tile.props.rasterColorAdjustments).toEqual({
       brightnessMin: 0,
       brightnessMax: 1,
@@ -105,7 +108,7 @@ describe('raster color adjustments', () => {
         blendColorDstFactor: 'one-minus-src-alpha',
         blendAlphaSrcFactor: 'one',
         blendAlphaDstFactor: 'one-minus-src-alpha',
-        depthTest: true
+        depthCompare: 'less-equal'
       });
     }
   );

@@ -106,7 +106,8 @@ fn fillTranslate_getPosition(position: vec4<f32>) -> vec4<f32> {
 /** The anchor of `fill-translate`. */
 export type FillTranslateAnchor = 'map' | 'viewport';
 
-type FillTranslateExtensionProps = {
+/** The props of `FillTranslateExtension`. */
+export type FillTranslateExtensionProps = {
   /** `fill-translate`: the offset in pixels, x right and y down. */
   fillTranslate?: [number, number];
   /** `fill-translate-anchor`: `'map'` turns the offset with the map, `'viewport'` keeps it on screen. */
