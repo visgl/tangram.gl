@@ -4545,6 +4545,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@math.gl/core@npm:5.0.0-beta.12":
+  version: 5.0.0-beta.12
+  resolution: "@math.gl/core@npm:5.0.0-beta.12"
+  dependencies:
+    "@math.gl/tasks": "npm:5.0.0-beta.12"
+  peerDependencies:
+    apache-arrow: ">=17.0.0"
+  peerDependenciesMeta:
+    apache-arrow:
+      optional: true
+  checksum: 10c0/57e0c6834e9d9ea7ed13e8454be0cf48b8fc5df098bb6420b6375bff8fd82eb086e9dda3140e566ec6e4c3149304f6c443dc4bb721838753e641941abe16efa6
+  languageName: node
+  linkType: hard
+
 "@math.gl/core@npm:5.0.0-beta.8, @math.gl/core@npm:~5.0.0-beta.8":
   version: 5.0.0-beta.8
   resolution: "@math.gl/core@npm:5.0.0-beta.8"
@@ -4561,6 +4575,16 @@ __metadata:
     h3-js: "npm:^4.5.0"
     open-location-code: "npm:^1.0.3"
   checksum: 10c0/6380d3020c751f5ce976e0d75a00a542b3020f02581cea9951e2d69b2e6276d4b75e04cb8edd4e5371deabb6ea89be6878825ea566562510284f4f52b5bc532f
+  languageName: node
+  linkType: hard
+
+"@math.gl/earth@npm:5.0.0-beta.12":
+  version: 5.0.0-beta.12
+  resolution: "@math.gl/earth@npm:5.0.0-beta.12"
+  dependencies:
+    "@math.gl/core": "npm:5.0.0-beta.12"
+    astronomy-engine: "npm:2.1.19"
+  checksum: 10c0/06cf54f74574c2002df9b7a26bb5dcae845cb0a29e1133ea6a10fa8e9a7ec23431949f8d4e5e91090afdee4a9c1b2d7ac2f19a02d79ef67fbec6947480478e08
   languageName: node
   linkType: hard
 
@@ -4613,6 +4637,13 @@ __metadata:
     "@math.gl/web-mercator": "npm:5.0.0-beta.8"
     polygon-clipping: "npm:0.15.7"
   checksum: 10c0/e77b993708a979cce7ddc65b3e0720d559fcb2968e3b2e8954bf61898ec815e84b96f3d52ff7736e07738ac668b5b28f5e01ff666bd2d13cae8edcd99f01828d
+  languageName: node
+  linkType: hard
+
+"@math.gl/tasks@npm:5.0.0-beta.12":
+  version: 5.0.0-beta.12
+  resolution: "@math.gl/tasks@npm:5.0.0-beta.12"
+  checksum: 10c0/67546670a9f98d6e4f7d8d4c6c7a3a9d6a26cc7e664f4efacc2b555d87dbcd90e4272e3f5fee32baa5bdda818b7b2550fb3678cfb04590bdab76172402aa9bdb
   languageName: node
   linkType: hard
 
@@ -19268,6 +19299,22 @@ __metadata:
     "@luma.gl/shaders": "npm:10.0.0-alpha.14"
     "@tangram.gl/basemap-layers": "workspace:*"
     geotiff: "npm:^2.1.0"
+    vite: "npm:^7.3.1"
+  languageName: unknown
+  linkType: soft
+
+"tangram-basemap-solar-system-example@workspace:examples/layers/basemap-solar-system":
+  version: 0.0.0-use.local
+  resolution: "tangram-basemap-solar-system-example@workspace:examples/layers/basemap-solar-system"
+  dependencies:
+    "@deck.gl/core": "npm:10.0.0-alpha.1"
+    "@deck.gl/layers": "npm:10.0.0-alpha.1"
+    "@deck.gl/mesh-layers": "npm:10.0.0-alpha.1"
+    "@luma.gl/engine": "npm:10.0.0-alpha.14"
+    "@math.gl/core": "npm:5.0.0-beta.8"
+    "@math.gl/earth": "npm:5.0.0-beta.12"
+    "@tangram.gl/basemap-layers": "workspace:*"
+    astronomy-engine: "npm:2.1.19"
     vite: "npm:^7.3.1"
   languageName: unknown
   linkType: soft

@@ -1,0 +1,13 @@
+{
+  "earth-clouds-2048.jpg": {
+    "title": "Blue Marble: Clouds (cloud_combined_2048.jpg, 2048 x 1024, plate carree, -180 at the left)",
+    "source": "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg",
+    "page": "https://visibleearth.nasa.gov/images/57747/blue-marble-clouds",
+    "retrievedFrom": "https://web.archive.org/web/20210217230404id_/https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg",
+    "retrievedNote": "The NASA image host did not answer on 2026-11-20; the file is the Internet Archive copy of the original URL, unchanged.",
+    "credit": "NASA Goddard Space Flight Center, image by Reto Stöckli; MODIS cloud composite (2002)",
+    "licence": "NASA imagery, public domain in the United States; no restriction on use (NASA media usage guidelines). Credit NASA.",
+    "bytes": 829367,
+    "sha256": "daddaad84d7a33bbbc86cdda3f591099f57cee8607b7bcf3b67eb7e4f7a1c793"
+  }
+}
