@@ -78,7 +78,7 @@ import {ProjectedBitmapLayer} from './projected-bitmap-layer';
 import {basemapTilesetAdapter} from './projected-tileset';
 import {getSourceTileTemplates} from './source-tiles';
 import {isProjectedViewport} from './projected-viewport';
-import {getBasemapFetch} from './basemap-protocol';
+import {getBasemapResourceFetch} from './basemap-request';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 import {BasemapFetchError} from './basemap-error';
 
@@ -760,7 +760,7 @@ export async function loadDemTile(
   unpack: DemUnpackVector,
   {signal, loadOptions}: {signal?: AbortSignal; loadOptions?: BasemapLoadOptions} = {}
 ): Promise<DemTile | null> {
-  const fetchFn = getBasemapFetch(loadOptions?.fetch, 'image');
+  const fetchFn = getBasemapResourceFetch('Tile', 'image', loadOptions || undefined);
   const response = await fetchFn(url, {...loadOptions?.fetchOptions, signal});
   if (!response.ok) {
     throw new BasemapFetchError(

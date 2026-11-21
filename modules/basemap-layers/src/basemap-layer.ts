@@ -18,7 +18,7 @@ import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {getSourceTileBounds, getSourceTileTemplates} from './source-tiles';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
-import {getSourceKey, loadGeoJsonData, type BasemapSource} from './style-resolver';
+import {fetchJson, resolveBasemapStyle, getSourceKey, loadGeoJsonData, type BasemapSource} from './style-resolver';
 import type {BasemapFeatureState} from './feature-state';
 import {
   CompositeLayer,
@@ -31,8 +31,8 @@ import {
   type UpdateParameters,
   type Viewport
 } from '@deck.gl/core';
-import {load} from '@loaders.gl/core';
 import {derefLayers, diff, type StyleSpecification} from '@maplibre/maplibre-gl-style-spec';
+import {getBasemapTileFetch, type BasemapTransformRequest} from './basemap-request';
 import {
   createDemTileset,
   getBasemapLayers,
@@ -47,7 +47,8 @@ import {
   isVectorTileSource,
   VECTOR_TILE_ZOOM_OFFSET,
   type StyleLayerPropsMap,
-  type StyleLayerSubLayerProps
+  type StyleLayerSubLayerProps,
+  withTransformRequest
 } from './globe-layers';
 import {
   acquireSharedLabelPlacement,
@@ -58,7 +59,6 @@ import {
 } from './label-placement';
 import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {BasemapStyleSchema, ResolvedBasemapStyleSchema} from './map-style-schema';
-import {getBasemapFetch, getBasemapLayerFetch, hasCustomScheme} from './basemap-protocol';
 import {getDemUnpackVector} from './hillshade-layer';
 import {getTileLoadOptions} from './pmtiles-source';
 import {getStyleZoomKey} from './style-accessor';
@@ -176,6 +176,16 @@ export type BasemapLayerProps = {
    * - A style URL loads with `MapStyleLoader`, with these options as its `mapStyle` options.
    */
   loadOptions?: BasemapLayerLoadOptions | null;
+  /**
+   * Changes each request the layer makes before it is sent, as MapLibre GL JS's `transformRequest`
+   * map option: the style, TileJSON, GeoJSON data, vector, raster and raster-dem tiles, sprites and
+   * glyphs. It receives the absolute URL and the resource type (see `BasemapResourceType`), and
+   * returns the URL to request, with `headers`, `credentials`, `method`, `body` or `cache`, or
+   * nothing to send the request as it is. The request is then sent with `loadOptions.fetch`.
+   * Fields it returns replace those of `loadOptions.fetchOptions`; headers merge by name. Pass a
+   * stable function: the style and its tiles load again when it changes.
+   */
+  transformRequest?: BasemapTransformRequest | null;
   /**
    * Selects whether the sublayers draw as a flat map or on a globe. `'auto'` (the default) reads
    * it from the viewport: globe sublayers in a deck.gl `GlobeView`, map sublayers in other views.
@@ -321,7 +331,7 @@ type SourceDataEntry = {
   /** Its GeoJSON object, or the previous entry's until a URL loads, or null. */
   data: object | null;
   /** For a URL, the URL that it resolves against and the `loadOptions` that it loads with. */
-  context?: {baseUrl: string | undefined; loadOptions: BasemapLayerProps['loadOptions']};
+  context?: {baseUrl: string | undefined; loadOptions: BasemapLayerProps['loadOptions']; transformRequest: BasemapLayerProps['transformRequest']};
 };
 
 /** A `geojson` source of the resolved style with the data of its `sourceData` entry. */
@@ -435,6 +445,8 @@ type BasemapLayerState = {
   insertionError: {style: ResolvedBasemapStyle; beforeIds: string} | null;
   /** The causes of the errors given to `reportError`, which reports each once. */
   reportedErrors: WeakSet<Error>;
+  /** The `transformRequest` the current source caches request tiles with. */
+  tileTransformRequest: BasemapTransformRequest | null;
   /** The config `getStyleConfig` last returned, kept while its inputs do not change. */
   styleConfig: {
     labels: unknown;
@@ -465,6 +477,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     globe: null,
     style: null,
     loadOptions: null,
+    transformRequest: null,
     fontFamily: null,
     rejectRasterTile: null,
     getStyleLayerProps: null,
@@ -513,6 +526,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       tileLoadOptions: null,
       tileMaxStretch: null,
       tileFetch: null,
+      tileTransformRequest: null,
       spriteAtlases: null,
       spriteKey: null,
       spriteLoad: null,
@@ -667,21 +681,24 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     if (
       changeFlags.dataChanged ||
       props.style !== oldProps.style ||
-      props.loadOptions !== oldProps.loadOptions
+      props.loadOptions !== oldProps.loadOptions ||
+      props.transformRequest !== oldProps.transformRequest
     ) {
       const updated =
         !changeFlags.dataChanged &&
         props.loadOptions === oldProps.loadOptions &&
+        props.transformRequest === oldProps.transformRequest &&
         oldProps.style === this.state.styleInput &&
         this.updateStyleByDiff(props.style);
       if (!updated) {
-        this.loadStyle(props.style, props.loadOptions);
+        this.loadStyle(props.style, props.loadOptions, props.transformRequest);
       }
     }
     if (
       props.sourceData !== oldProps.sourceData ||
       props.style !== oldProps.style ||
-      props.loadOptions !== oldProps.loadOptions
+      props.loadOptions !== oldProps.loadOptions ||
+      props.transformRequest !== oldProps.transformRequest
     ) {
       this.updateSourceData(props);
     }
@@ -692,7 +709,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
    * a GeoJSON object is used as it is, and a URL is fetched. A URL is fetched again when the URL
    * that it resolves against or the `loadOptions` change.
    */
-  private updateSourceData({sourceData, style, loadOptions}: BasemapLayerProps): void {
+  private updateSourceData({sourceData, style, loadOptions, transformRequest}: BasemapLayerProps): void {
     const previous = this.state.sourceData;
     const entries = new Map<string, SourceDataEntry>();
     const baseUrl = getStyleBaseUrl(style, ((loadOptions || {}) as {baseUrl?: string}).baseUrl);
@@ -705,7 +722,8 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         previousEntry?.input === input &&
         (typeof input !== 'string' ||
           (previousEntry.context?.baseUrl === baseUrl &&
-            previousEntry.context?.loadOptions === loadOptions))
+            previousEntry.context?.loadOptions === loadOptions &&
+            previousEntry.context?.transformRequest === transformRequest))
       ) {
         entries.set(sourceId, previousEntry);
       } else if (typeof input !== 'string') {
@@ -715,7 +733,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         const entry: SourceDataEntry = {
           input,
           data: previousEntry?.data ?? null,
-          context: {baseUrl, loadOptions}
+          context: {baseUrl, loadOptions, transformRequest}
         };
         entries.set(sourceId, entry);
         this.loadSourceData(sourceId, entry);
@@ -726,9 +744,9 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
   /** Fetches the GeoJSON of a `sourceData` URL, unless the entry has changed by then. */
   private loadSourceData(sourceId: string, entry: SourceDataEntry): void {
-    const {baseUrl, loadOptions} = entry.context!;
+    const {baseUrl, loadOptions, transformRequest} = entry.context!;
     const isCurrent = () => this.state.sourceData.get(sourceId) === entry;
-    loadGeoJsonData(entry.input as string, baseUrl, loadOptions)
+    loadGeoJsonData(entry.input as string, baseUrl, withTransformRequest(loadOptions, transformRequest))
       .then(data => {
         if (isCurrent()) {
           const entries = new Map(this.state.sourceData);
@@ -831,8 +849,14 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
    */
   loadStyle(
     style: BasemapLayerProps['style'],
-    loadOptions: BasemapLayerProps['loadOptions']
+    layerLoadOptions: BasemapLayerProps['loadOptions'],
+    transformRequest?: BasemapTransformRequest | null
   ): void {
+    // The load options of the requests the layer makes itself, with `transformRequest`.
+    const loadOptions = withTransformRequest(
+      (layerLoadOptions || undefined) as BasemapLoadOptions | undefined,
+      transformRequest
+    ) as BasemapLayerProps['loadOptions'];
     if (!style) {
       const loadToken = this.state.loadToken + 1;
       logBasemapLayerEvent('Clearing basemap style');
@@ -880,13 +904,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     };
     Promise.resolve(
       typeof style === 'string'
-        ? hasCustomScheme(style)
-          ? loadProtocolStyle(style, loadOptions, sourceCache, onStyleResourceError)
-          : load(
-              style,
-              MapStyleLoader,
-              getMapStyleLoaderOptions(loadOptions, sourceCache, onStyleResourceError)
-            )
+        ? loadStyleUrl(style, loadOptions, sourceCache, onStyleResourceError)
         : MapStyleLoader.parse(
             new TextEncoder().encode(styleJson!).buffer,
             getMapStyleLoaderOptions(loadOptions, sourceCache, onStyleResourceError)
@@ -974,11 +992,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       this.setState({spriteAtlases: [], spriteKey: null, spriteLoad: null});
       return;
     }
-    const options = (loadOptions || {}) as {
-      baseUrl?: string;
-      fetch?: typeof fetch;
-      fetchOptions?: RequestInit;
-    };
+    const options = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
     const baseUrl = getStyleBaseUrl(style, options.baseUrl);
     const pixelRatio = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
     const spriteKey = JSON.stringify([getSpriteSources(resolvedStyle.sprite, baseUrl), pixelRatio]);
@@ -988,6 +1002,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         baseUrl,
         fetch: options.fetch,
         fetchOptions: options.fetchOptions,
+        transformRequest: options.transformRequest,
         pixelRatio,
         onError: error => {
           if (this.state.spriteLoad === spriteLoad) {
@@ -1085,6 +1100,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   }
 
   private updateSourceTilesets(style: ResolvedBasemapStyle): void {
+    const {transformRequest = null} = this.props;
     const sources = new Set(
       Object.values(style.sources || {}).filter(source => isVectorTileSource(source))
     );
@@ -1097,6 +1113,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     const optionsChanged =
       this.state.tileLoadOptions !== this.props.loadOptions ||
       this.state.tileFetch !== this.props.fetch ||
+      this.state.tileTransformRequest !== transformRequest ||
       this.state.tileMaxStretch !== this.props.projectedMaxStretch;
     // Tiles decode only the source layers the style draws: a style edit or a labels toggle that
     // changes the layers the loader decodes reloads the source's tiles.
@@ -1136,16 +1153,17 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     }
     this.state.tileLoadOptions = this.props.loadOptions;
     this.state.tileFetch = this.props.fetch;
+    this.state.tileTransformRequest = transformRequest;
     this.state.tileMaxStretch = this.props.projectedMaxStretch ?? null;
     for (const source of sources) {
       if (!this.state.tilesets.has(source)) {
         const loader = new SharedMVTLayer({
           id: `${this.id}-loader`,
           data: getSourceTileTemplates(source)!,
-          fetch: getBasemapLayerFetch(this.props.fetch, 'arrayBuffer'),
+          fetch: getBasemapTileFetch(this.props.fetch, 'arrayBuffer', transformRequest),
           loadOptions: getTileLoadOptions(
             source,
-            getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
+            getSourceLoadOptions(withTransformRequest(this.props.loadOptions, transformRequest), sourceLayers.get(source))
           )
         });
         loader.context = this.context;
@@ -1169,7 +1187,11 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     }
     for (const source of demSources) {
       if (!this.state.tilesets.has(source)) {
-        const tileset = createDemTileset(source, this.props.loadOptions, this.props.projectedMaxStretch);
+        const tileset = createDemTileset(
+          source,
+          withTransformRequest(this.props.loadOptions as BasemapLoadOptions, transformRequest),
+          this.props.projectedMaxStretch
+        );
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
       }
@@ -1312,6 +1334,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       zoom,
       loadOptions: this.props.loadOptions,
       fetch: this.props.fetch,
+      transformRequest: this.props.transformRequest,
       rejectRasterTile: this.props.rejectRasterTile,
       onError: error => this.reportError(error),
       spriteAtlases: this.state.spriteAtlases,
@@ -1639,28 +1662,19 @@ function getStyleAttributions(
 }
 
 /**
- * Loads a style whose URL has a custom scheme, such as `pmtiles://`, with its protocol handler.
- * Relative URLs in the style resolve against the style URL.
+ * Fetches the style document of a URL with the `fetch` and `fetchOptions` of `loadOptions`, as its
+ * sources, sprites and glyphs are fetched, and resolves it. Relative URLs in the style resolve
+ * against `loadOptions.baseUrl`, or else against the style URL.
  */
-async function loadProtocolStyle(
+async function loadStyleUrl(
   url: string,
   loadOptions: BasemapLayerProps['loadOptions'],
   sourceCache: Map<string, BasemapSource>,
   onError: BasemapLoadErrorHandler
 ): Promise<ResolvedBasemapStyle> {
-  const options = (loadOptions || {}) as {fetch?: typeof fetch; fetchOptions?: RequestInit};
-  const response = await getBasemapFetch(options.fetch, 'json')(url, options.fetchOptions);
-  if (!response.ok) {
-    throw new Error(`Failed to load basemap style: ${url} (${response.status})`);
-  }
-  return MapStyleLoader.parse(await response.arrayBuffer(), {
-    mapStyle: {
-      ...loadOptions,
-      sourceCache,
-      onError,
-      baseUrl: (loadOptions?.baseUrl as string | undefined) || url
-    }
-  });
+  const options = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
+  const style = (await fetchJson(url, options, 'Style')) as BasemapStyle;
+  return resolveBasemapStyle(style, {...options, sourceCache, onError, baseUrl: options.baseUrl || url});
 }
 
 /**
@@ -1677,17 +1691,14 @@ function getGlyphStore(
   if (typeof url !== 'string' || !url) {
     return null;
   }
-  const options = (loadOptions || {}) as {
-    baseUrl?: string;
-    fetch?: typeof fetch;
-    fetchOptions?: RequestInit;
-  };
+  const options = (loadOptions || {}) as NonNullable<BasemapLoadOptions>;
   return new GlyphStore({
     url,
     baseUrl: getStyleBaseUrl(style, options.baseUrl),
     fetch: options.fetch,
     fetchOptions: options.fetchOptions,
-    onError
+    onError,
+    transformRequest: options.transformRequest
   });
 }
 

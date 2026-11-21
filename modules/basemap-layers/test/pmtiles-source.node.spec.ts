@@ -6,6 +6,7 @@ import {readFileSync} from 'node:fs';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {log} from '@deck.gl/core';
 import {encodePMTiles} from '@loaders.gl/tiles/pmtiles';
+import {getBasemapTileFetch} from '../src/basemap-request';
 import {resolveBasemapStyle, type BasemapSource} from '../src/style-resolver';
 import {
   MAX_OPEN_ARCHIVES,
@@ -220,6 +221,32 @@ describe('pmtiles:// archive reads', () => {
     );
     return {response: new Response(body, {status: 200, headers}), stats};
   }
+
+  test('transforms archive range requests and never transforms synthetic tile URLs', async () => {
+    const rewritten = 'https://cdn.example.com/vector.pmtiles';
+    const server = createServer({[rewritten]: readFixture('vector.pmtiles')});
+    const transformRequest = vi.fn((url: string) => ({
+      url: rewritten,
+      headers: {Authorization: 'token', Range: 'bytes=0-0'},
+      credentials: 'include' as const
+    }));
+    const options = {fetch: server.fetch, transformRequest};
+    const resolved = await resolveBasemapStyle(style, options);
+    const tileOptions = getTileLoadOptions(resolved.sources.source, options);
+    const nextFetch = vi.fn(async (url: string) => tileOptions.fetch(url));
+    const wrapped = getBasemapTileFetch(nextFetch, 'arrayBuffer', transformRequest);
+    await wrapped(`pmtiles://${ARCHIVE_URL}/0/0/0`, {} as never);
+    expect(transformRequest).toHaveBeenCalledWith(ARCHIVE_URL, 'Source');
+    expect(transformRequest).toHaveBeenCalledWith(ARCHIVE_URL, 'Tile');
+    expect(transformRequest.mock.calls.every(([url]) => !url.startsWith('pmtiles://'))).toBe(true);
+    expect(server.requests.length).toBeGreaterThanOrEqual(2);
+    for (const request of server.requests) {
+      expect(request.url).toBe(rewritten);
+      expect(request.headers.get('Authorization')).toBe('token');
+      expect(request.range).toMatch(/^bytes=\d+-\d+$/);
+      expect(request.range).not.toBe('bytes=0-0');
+    }
+  });
 
   test('a whole archive answering a range request is not read past the range', async () => {
     const warn = vi.spyOn(log, 'warn');

@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {log} from '@deck.gl/core';
-import {getBasemapFetch, isBasemapProtocolUrl} from './basemap-protocol';
+import {getBasemapResourceFetch} from './basemap-request';
+import {isBasemapProtocolUrl} from './basemap-protocol';
 import {getIconQuads, isValidStretchMetadata} from './icon-text-fit';
 import type {ImageTextFit} from './icon-text-fit';
 import type {BasemapLoadOptions} from './style-resolver';
@@ -84,7 +85,7 @@ export type SpriteLoadOptions = {
   pixelRatio?: number;
   /** Called for each sprite that fails to load, in place of the warning logged without it. */
   onError?: BasemapLoadErrorHandler;
-} & Pick<NonNullable<BasemapLoadOptions>, 'fetch' | 'fetchOptions'>;
+} & Pick<NonNullable<BasemapLoadOptions>, 'fetch' | 'fetchOptions' | 'transformRequest'>;
 
 /** Resolves a style's `sprite` value into sprite sources with absolute URLs. */
 export function getSpriteSources(sprite: unknown, baseUrl?: string): SpriteSource[] {
@@ -190,13 +191,13 @@ async function loadSpriteAtlas(
   source: SpriteSource,
   options: SpriteLoadOptions
 ): Promise<SpriteAtlas> {
-  const fetchFn = getBasemapFetch(options.fetch, 'json');
+  const fetchJsonFn = getBasemapResourceFetch('SpriteJSON', 'json', options);
   const suffixes = (options.pixelRatio ?? 1) > 1 ? ['@2x', ''] : [''];
   let lastError: unknown;
   for (const suffix of suffixes) {
     const jsonUrl = getSpriteFileUrl(source.url, suffix, '.json');
     try {
-      const response = await fetchFn(jsonUrl, options.fetchOptions);
+      const response = await fetchJsonFn(jsonUrl, options.fetchOptions);
       if (!response.ok) {
         throw new BasemapFetchError(
           `Failed to load sprite: ${jsonUrl} (${response.status})`,
@@ -209,7 +210,7 @@ async function loadSpriteAtlas(
         id: source.id,
         image: await loadSpriteImage(
           getSpriteFileUrl(source.url, suffix, '.png'),
-          getBasemapFetch(options.fetch, 'image'),
+          getBasemapResourceFetch('SpriteImage', 'image', options),
           options.fetchOptions
         ),
         mapping: getSpriteIconMapping(index)

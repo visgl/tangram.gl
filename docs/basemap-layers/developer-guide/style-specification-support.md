@@ -48,6 +48,9 @@ See [Sources][sources].
 
 ### PMTiles archives
 
+`transformRequest` receives the resolved HTTP(S) archive URL for each range request: `'Source'` for header and directory reads and `'Tile'` for tile data reads. Synthetic `pmtiles://` URLs are not passed to the hook. Its returned URL and request fields apply to the range request, whose `Range` header is always retained.
+
+
 A `vector`, `raster` or `raster-dem` source can take its tiles from a [PMTiles][pmtiles] v3
 archive: `"url": "pmtiles://<archive URL>"`, as with the `pmtiles` protocol of MapLibre GL JS. A
 relative archive URL resolves against the style URL. No TileJSON is fetched.

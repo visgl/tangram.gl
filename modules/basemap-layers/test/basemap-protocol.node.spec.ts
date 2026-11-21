@@ -12,6 +12,7 @@ import {
   getBasemapFetch,
   getBasemapLayerFetch
 } from '../src/basemap-protocol';
+import {getBasemapTileFetch} from '../src/basemap-request';
 import {GlyphStore} from '../src/glyph-store';
 import {loadDemTile} from '../src/hillshade-layer';
 import {RasterTileLoader} from '../src/raster-tile-loader';
@@ -142,6 +143,31 @@ describe('BasemapLayer resources with a registered scheme', () => {
       'json mem://basemap/points.geojson',
       'json mem://basemap/style.json',
       'json mem://basemap/tiles.json'
+    ]);
+  });
+
+  test('transformed resource and tile URLs reach the registered protocol with request fields', async () => {
+    const {requests} = registerMemoryProtocol({
+      'mem://basemap/style.json': {version: 8, sources: {}, layers: []},
+      'mem://tiles/0/0/0.png': new ArrayBuffer(0)
+    });
+    const transformRequest = (url: string) => ({
+      url: url.replace('https://', 'mem://'),
+      headers: {Authorization: 'token'},
+      credentials: 'include' as const
+    });
+    await resolveBasemapStyle('https://basemap/style.json', {transformRequest});
+    await getBasemapTileFetch(DEFAULT_MVT_FETCH, 'image', transformRequest)(
+      'https://tiles/0/0/0.png',
+      {propName: 'data', layer: {props: {loaders: []}, getLoadOptions: () => null} as any}
+    );
+    expect(requests.map(({url, credentials, headers}) => ({
+      url,
+      credentials,
+      authorization: new Headers(headers).get('Authorization')
+    }))).toEqual([
+      {url: 'mem://basemap/style.json', credentials: 'include', authorization: 'token'},
+      {url: 'mem://tiles/0/0/0.png', credentials: 'include', authorization: 'token'}
     ]);
   });
 

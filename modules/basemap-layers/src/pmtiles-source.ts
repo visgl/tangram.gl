@@ -3,7 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import type {RangeResponse, Source} from 'pmtiles';
-import {Compression, PMTiles, TileType} from 'pmtiles';
+import {bytesToHeader, Compression, PMTiles, TileType} from 'pmtiles';
+import {transformBasemapRequest} from './basemap-request';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 
 /** The URL prefix of a PMTiles archive, as in the `pmtiles` protocol of MapLibre GL JS. */
@@ -53,6 +54,8 @@ export function parsePMTilesTileUrl(
  * of the load options.
  */
 class FetchRangeSource implements Source {
+  private tileDataOffset = Infinity;
+  private tileDataEnd = Infinity;
   constructor(
     private readonly url: string,
     private readonly loadOptions: BasemapLoadOptions | undefined
@@ -77,7 +80,13 @@ class FetchRangeSource implements Source {
       await response.body?.cancel();
       throw new Error(`Failed to load PMTiles archive: ${this.url} (${response.status})`);
     }
-    return {data: await this.readAtMost(response, length)};
+    const data = await this.readAtMost(response, length);
+    if (offset === 0 && data.byteLength >= 127) {
+      const header = bytesToHeader(data.slice(0, 127));
+      this.tileDataOffset = header.tileDataOffset;
+      this.tileDataEnd = header.tileDataOffset + (header.tileDataLength ?? 0);
+    }
+    return {data};
   }
 
   /**
@@ -127,7 +136,11 @@ class FetchRangeSource implements Source {
     const headers = new Headers(fetchOptions?.headers);
     headers.set('Range', `bytes=${first}-${last}`);
     const fetchFn = this.loadOptions?.fetch || fetch;
-    return fetchFn(this.url, {...fetchOptions, headers, ...(signal ? {signal} : {})});
+    const request = transformBasemapRequest(this.loadOptions?.transformRequest, this.url,
+      first >= this.tileDataOffset && first < this.tileDataEnd ? 'Tile' : 'Source', {...fetchOptions, headers, ...(signal ? {signal} : {})});
+    const requestHeaders = new Headers(request.init?.headers);
+    requestHeaders.set('Range', `bytes=${first}-${last}`);
+    return fetchFn(request.url, {...request.init, headers: requestHeaders});
   }
 }
 
@@ -141,7 +154,7 @@ const DEFAULT_KEY = {};
 export const MAX_OPEN_ARCHIVES = 32;
 
 /** Opened archives, by `fetch`, by `fetchOptions` and by archive URL, least recently used first. */
-const archives = new WeakMap<object, WeakMap<object, Map<string, PMTiles>>>();
+const archives = new WeakMap<object, WeakMap<object, WeakMap<object, Map<string, PMTiles>>>>();
 
 /**
  * The reader of an archive, opened once per archive URL, `fetch` and `fetchOptions`: it keeps the
@@ -156,10 +169,16 @@ function getArchive(url: string, loadOptions: BasemapLoadOptions | undefined): P
     byFetchOptions = new WeakMap();
     archives.set(fetchKey, byFetchOptions);
   }
-  let byUrl = byFetchOptions.get(fetchOptionsKey);
+  let byTransform = byFetchOptions.get(fetchOptionsKey);
+  if (!byTransform) {
+    byTransform = new WeakMap();
+    byFetchOptions.set(fetchOptionsKey, byTransform);
+  }
+  const transformKey = loadOptions?.transformRequest || DEFAULT_KEY;
+  let byUrl = byTransform.get(transformKey);
   if (!byUrl) {
     byUrl = new Map();
-    byFetchOptions.set(fetchOptionsKey, byUrl);
+    byTransform.set(transformKey, byUrl);
   }
   let archive = byUrl.get(url);
   if (archive) {

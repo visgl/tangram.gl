@@ -6,7 +6,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {getBasemapFetch} from './basemap-protocol';
+import {getBasemapResourceFetch, type BasemapTransformRequest} from './basemap-request';
 import {GLYPH_RANGE_SIZE, parseGlyphRange} from './glyph-pbf';
 import type {Glyph} from './glyph-pbf';
 import {
@@ -25,6 +25,8 @@ export type GlyphStoreOptions = {
   fetchOptions?: RequestInit;
   /** Called for each range that fails to load, in place of the warning logged without it. */
   onError?: BasemapLoadErrorHandler;
+  /** Changes each glyph range request before it is sent (see `BasemapTransformRequest`). */
+  transformRequest?: BasemapTransformRequest | null;
 };
 
 /** The highest code point of a glyph range, as in MapLibre GL JS. */
@@ -87,9 +89,9 @@ export class GlyphStore {
   /** Called once when a consumer next gives back a font stack (see `onRetainedFreed`). */
   private readonly freedListeners = new Map<object, () => void>();
 
-  constructor({url, baseUrl, fetch: fetchFn, fetchOptions, onError}: GlyphStoreOptions) {
+  constructor({url, baseUrl, fetch: fetchFn, fetchOptions, transformRequest, onError}: GlyphStoreOptions) {
     this.url = resolveGlyphsUrl(url, baseUrl);
-    this.fetch = getBasemapFetch(fetchFn, 'arrayBuffer');
+    this.fetch = getBasemapResourceFetch('Glyphs', 'arrayBuffer', {fetch: fetchFn, transformRequest});
     this.fetchOptions = fetchOptions;
     this.onError = onError;
   }

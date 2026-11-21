@@ -179,6 +179,43 @@ Options for the requests of the layer. The object holds two kinds of options:
 - loaders.gl options, such as `mvt` and `core`. They go to the tile loaders.
 
 A style URL loads with `MapStyleLoader`, with these options as its `mapStyle` options. The tiles of vector and raster sources load with `loadOptions` and with the `fetch` prop of the layer. With `rejectRasterTile`, raster tiles load with the `fetch` and `fetchOptions` of `loadOptions` (see below).
+### `transformRequest`
+
+Type: `((url: string, resourceType: BasemapResourceType) => BasemapTransformedRequest | null | undefined) | null`
+
+Changes each request that the layer makes before it is sent, as MapLibre GL JS's `transformRequest` map option. The same function works in both. Use it to add an API key to each URL, or to send headers or cookies to a tile service that requires authentication.
+
+```ts
+new BasemapLayer({
+  style: 'https://tiles.example.com/style.json',
+  transformRequest: (url, resourceType) =>
+    url.startsWith('https://tiles.example.com/')
+      ? {url, headers: {Authorization: `Bearer ${token}`}}
+      : undefined
+});
+```
+
+The function receives the absolute URL, after relative URLs are resolved and after `{z}`, `{x}` and `{y}` are filled in, and the kind of resource. The resource types have the names of MapLibre GL JS's `ResourceType`:
+
+| Request | `resourceType` |
+|---|---|
+| The style, when `style` is a URL | `'Style'` |
+| The TileJSON of a source `url`, and the `data` URL of a `geojson` source | `'Source'` |
+| Vector, raster and raster-dem tiles | `'Tile'` |
+| Glyph ranges of `glyphs` | `'Glyphs'` |
+| The sprite index and the sprite image | `'SpriteJSON'`, `'SpriteImage'` |
+
+It returns the request to send: `url`, and optionally `headers`, `credentials`, `method`, `body` and `cache`. Return `undefined` or `null` to send the request as it is. `type` and `collectResourceTiming` are accepted, for MapLibre GL JS compatibility, and not used.
+
+How a request is made:
+
+1. `transformRequest` gives the URL and the request fields.
+2. The fields it returns replace those of the same name in the request, such as those of `loadOptions.fetchOptions`. `headers` are merged by name, and a header it returns replaces one of the same name. The abort signal of the request is always kept.
+3. `loadOptions.fetch` sends the request, or the global `fetch` without one. Tiles drawn through deck.gl also go through the `fetch` prop of the layer, which receives the URL that `transformRequest` returned.
+
+For PMTiles archives, the hook receives the resolved HTTP(S) archive URL, with `'Source'` for header and directory reads and `'Tile'` for tile data reads. Synthetic `pmtiles://` URLs are not passed to it. The returned URL and request fields apply to each range request; its `Range` header is always retained.
+
+Relative URLs in a style or TileJSON resolve against the original URL, not the URL that `transformRequest` returned. Pass a stable function: when the function changes, the style and its tiles load again.
 
 URLs with a custom scheme load with a registered handler instead (see [Custom protocols](#custom-protocols)).
 
