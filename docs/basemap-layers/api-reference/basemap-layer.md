@@ -106,9 +106,15 @@ change: the same object again does nothing, also when it was changed in place.
 
 ### `mode`
 
-Type: `'map' | 'globe'`
+Type: `'auto' | 'map' | 'globe'`
 
-Controls whether the generated sublayers are optimized for a flat map or a globe. Defaults to `'map'`.
+Selects whether the sublayers draw as a flat map or on a globe. Defaults to `'auto'`.
+
+- `'auto'`: the layer reads the mode from the viewport. It draws globe sublayers in a deck.gl `GlobeView` and map sublayers in other views. A layer that draws in two views (for example a `MapView` and a `GlobeView` in one deck) uses the mode of each view.
+- `'map'`: always draw map sublayers.
+- `'globe'`: draw globe sublayers. Above zoom 12, `GlobeView` uses a Web Mercator viewport, and the layer draws map sublayers there, as with `'auto'`.
+
+This matches MapLibre GL JS, where the projection of the map selects how the style draws. Here, the deck.gl view is the projection, so most apps do not set `mode`.
 
 ### `featureState`
 
@@ -344,7 +350,7 @@ A style, a sprite or a tile that failed to load counts as loaded.
 
 ## Projected views
 
-`BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, and `mode` stays `'map'`.
+`BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, as `mode: 'auto'` does.
 
 ```ts
 import {Deck, _CustomProjectionView as CustomProjectionView} from '@deck.gl/core';

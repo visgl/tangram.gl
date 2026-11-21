@@ -123,8 +123,12 @@ export type BasemapLayerProps = {
   style: string | BasemapStyle | ResolvedBasemapStyle | null;
   /** Load options forwarded to {@link resolveBasemapStyle}. */
   loadOptions?: Record<string, unknown> | null;
-  /** Selects whether deck layers are generated for a flat map or a globe. */
-  mode?: 'map' | 'globe';
+  /**
+   * Selects whether the sublayers draw as a flat map or on a globe. `'auto'` (the default) reads
+   * it from the viewport: globe sublayers in a deck.gl `GlobeView`, map sublayers in other views.
+   * `'map'` and `'globe'` override the viewport.
+   */
+  mode?: 'auto' | 'map' | 'globe';
   /**
    * The state of features, which `["feature-state", key]` reads in paint properties, as MapLibre
    * GL JS's `setFeatureState` sets it: by source id, then, for a `vector` source, by source layer,
@@ -335,7 +339,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
   /** Default props for {@link BasemapLayer}. */
   static defaultProps: DefaultProps<BasemapLayerProps> = {
-    mode: 'map',
+    mode: 'auto',
     featureState: null,
     labels: true,
     atmosphere: false,
@@ -469,13 +473,20 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   }
 
   /**
-   * The mode the sublayers are drawn in. Above zoom 12, `GlobeView` draws with a Web Mercator
-   * viewport, so a globe basemap draws as a map there: globe depth and culling parameters assume
-   * longitude/latitude geometry on a sphere.
+   * The mode the sublayers are drawn in. With `mode: 'auto'`, a globe viewport draws globe
+   * sublayers and any other viewport draws map sublayers. Above zoom 12, `GlobeView` draws with a
+   * Web Mercator viewport, so a globe basemap draws as a map there: globe depth and culling
+   * parameters assume longitude/latitude geometry on a sphere.
    */
   getDrawMode(viewport: Viewport | undefined): 'map' | 'globe' {
-    const {mode = 'map'} = this.props;
-    return mode === 'globe' && viewport && !isGlobeViewport(viewport) ? 'map' : mode;
+    const {mode = 'auto'} = this.props;
+    if (mode === 'map') {
+      return 'map';
+    }
+    if (!viewport) {
+      return mode === 'globe' ? 'globe' : 'map';
+    }
+    return isGlobeViewport(viewport) ? 'globe' : 'map';
   }
 
   /** Reacts to changes in the input style definition. */
@@ -790,7 +801,10 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     // Projected views and globes show latitudes past the edges of Web Mercator tiles: GeoJSON is
     // cut at them there, and tiled again when the view changes from one to the other.
     const geoJson = {
-      clipToMercatorRange: this.props.mode === 'globe' || isProjectedViewport(this.context.viewport)
+      clipToMercatorRange:
+        this.props.mode === 'globe' ||
+        (this.props.mode !== 'map' && isGlobeViewport(this.context.viewport)) ||
+        isProjectedViewport(this.context.viewport)
     };
     const sourceLayerKeys = new Map([
       ...[...sources].map(
