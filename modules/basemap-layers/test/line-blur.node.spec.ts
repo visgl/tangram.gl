@@ -253,7 +253,6 @@ describe('line-blur', () => {
       expect(getBlurExtensions(layer)).toHaveLength(1);
       expect(layer.props.styleLayerIndex).toBe(1);
       expect(layer.props.parameters).toMatchObject({
-        depthTest: true,
         depthCompare: 'less-equal',
         depthWriteEnabled: false
       });

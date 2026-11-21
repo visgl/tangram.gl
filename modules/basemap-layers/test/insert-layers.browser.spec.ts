@@ -117,7 +117,7 @@ function square(props: Record<string, unknown> = {}) {
 class PickableBasemapLayer extends BasemapLayer {
   static layerName = 'PickableBasemapLayer';
   renderLayers(): any {
-    return ([super.renderLayers()].flat(Infinity) as any[]).filter(Boolean).map(layer =>
+    return (super.renderLayers() as any[]).flat(Infinity).filter(Boolean).map(layer =>
       layer.id.startsWith(`${this.props.id}-`) ? layer.clone({pickable: true}) : layer
     );
   }

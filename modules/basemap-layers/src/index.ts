@@ -4,6 +4,8 @@
 
 /** Runtime exports for `@deck.gl-community/basemap-layers`. */
 export {BasemapLayer} from './basemap-layer';
+export type {BasemapTile} from './basemap-layer';
+export type {BasemapSourceData} from './basemap-layer';
 export type {BasemapInsertion} from './basemap-layer';
 export type {BasemapSourceFeature, QuerySourceFeaturesOptions} from './source-features';
 export {pickTerrainSurface} from './terrain-query';
@@ -20,6 +22,7 @@ export {
   getGlobeBaseLayers,
   getGlobeTopLayers
 } from './globe-layers';
+export type {StyleLayerSubLayerProps} from './globe-layers';
 export {getSpriteIconMapping, getSpriteSources, loadSpriteAtlases} from './sprite';
 export type {SpriteAtlas, SpriteIconMappingEntry, SpriteSource} from './sprite';
 export {getLabelFont} from './text-font';
