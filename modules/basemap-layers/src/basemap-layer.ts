@@ -36,11 +36,14 @@ import {
   getSourceLoadOptions,
   getStyleDefinitionZoomLimits,
   getStyleSourceLayers,
+  getStyleLayerPropsMap,
   getTilePyramidProps,
   getVectorTileLoader,
   isDrawnStyleLayer,
   isVectorTileSource,
-  VECTOR_TILE_ZOOM_OFFSET
+  VECTOR_TILE_ZOOM_OFFSET,
+  type StyleLayerPropsMap,
+  type StyleLayerSubLayerProps
 } from './globe-layers';
 import {
   acquireSharedLabelPlacement,
@@ -243,6 +246,17 @@ export type BasemapLayerProps = {
    * again. An id that is not a `geojson` source of the style is ignored with a warning.
    */
   sourceData?: Record<string, BasemapSourceData | null | undefined> | null;
+  /**
+   * Extra deck.gl props for the sublayers that draw one style layer, or null for none: for example
+   * `extensions` and their props for the roads only. Called for each style layer when the style or
+   * the function changes, not for each tile. `extensions` are added after the sublayer's own and
+   * `updateTriggers` are merged with its own; `id` and `data` are ignored. A fill or line layer
+   * with extra props draws in a sublayer of its own, not batched with its neighbors. Pass a
+   * stable function: the tiles regenerate when it changes.
+   */
+  getStyleLayerProps?:
+    | ((styleLayer: ResolvedBasemapStyleLayer) => StyleLayerSubLayerProps | null | undefined)
+    | null;
 };
 
 /** A `sourceData` entry and its GeoJSON: the entry itself, or its URL's once it loads. */
@@ -354,6 +368,12 @@ type BasemapLayerState = {
   sourceDataSources: Map<string, SourceDataSource>;
   /** The resolved style with the `sourceData` sources, and the resolved style it was made from. */
   styleWithSourceData: {base: ResolvedBasemapStyle; style: ResolvedBasemapStyle} | null;
+  /** The extra sublayer props of each style layer, and the style and function they came from. */
+  styleLayerProps: {
+    style: ResolvedBasemapStyle;
+    getStyleLayerProps: BasemapLayerProps['getStyleLayerProps'];
+    value: StyleLayerPropsMap | null;
+  } | null;
   /** The config `getStyleConfig` last returned, kept while its inputs do not change. */
   styleConfig: {
     labels: unknown;
@@ -391,6 +411,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     loadOptions: null,
     fontFamily: null,
     rejectRasterTile: null,
+    getStyleLayerProps: null,
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
     separateLabelPlacement: false,
     zoomLoadDelay: 0,
@@ -439,6 +460,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       sourceData: new Map(),
       sourceDataSources: new Map(),
       styleWithSourceData: null,
+      styleLayerProps: null,
       styleConfig: null
     };
   }
@@ -458,6 +480,21 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       return false;
     }
     return super.isLoaded;
+  }
+
+  /**
+   * The extra sublayer props of each style layer of `style` (see `getStyleLayerProps`), computed
+   * once per style and function.
+   */
+  private getStyleLayerPropsMap(style: ResolvedBasemapStyle): StyleLayerPropsMap | null {
+    const {getStyleLayerProps} = this.props;
+    const cached = this.state.styleLayerProps;
+    if (cached?.style === style && cached.getStyleLayerProps === getStyleLayerProps) {
+      return cached.value;
+    }
+    const value = getStyleLayerPropsMap(style, getStyleLayerProps ?? null);
+    this.state.styleLayerProps = {style, getStyleLayerProps, value};
+    return value;
   }
 
   /**
@@ -1163,7 +1200,8 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       labelPlacement: this.getLabelPlacement(),
       tilesets: this.state.tilesets,
       projected: isProjectedViewport(viewport),
-      projectedMaxStretch: this.props.projectedMaxStretch
+      projectedMaxStretch: this.props.projectedMaxStretch,
+      styleLayerProps: this.getStyleLayerPropsMap(resolvedStyle)
     });
     const {extensions} = this.props;
     if (extensions.length === 0) {
