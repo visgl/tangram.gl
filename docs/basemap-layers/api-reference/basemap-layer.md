@@ -185,6 +185,21 @@ to a CSS font (see [Label fonts](/docs/modules/basemap-layers#label-fonts)). Def
 `getBasemapLayers` and `getGlobeBaseLayers` accept the same `fontFamily` option, and a `glyphs`
 option, a `GlyphStore` of the style's `glyphs` URL, to draw labels with the style's glyphs.
 
+### `zoomLoadDelay`
+
+Type: `number`
+
+Milliseconds that vector tile loads wait after the last zoom change of a view. Defaults to `0`:
+tiles load at once, as before.
+
+In a zoom gesture, the tile selection passes through several tile zooms. Each tile that loads at
+one of them is decoded and triangulated on the main thread, and is drawn for only a fraction of a
+second. With a delay, a tile that a loaded ancestor (at most 3 tile zooms up) draws, enlarged, in
+its place waits until no view has changed its zoom for that time. When the zoom comes to rest, a
+waiting tile that no view selects is cancelled, not loaded. A tile without such an ancestor, such
+as a new tile at the edge of a zoom out, loads at once. A pan does not change the zoom, so its
+loads do not wait. Raster and `raster-dem` tiles do not wait.
+
 ### `extensions`
 
 Type: `LayerExtension[]`
@@ -280,6 +295,53 @@ Unlike MapLibre:
 
 The method reads state: call it after the tiles load, for example in deck.gl's `onAfterRender`, and not in `renderLayers`.
 
+### `onStyleLoad`
+
+Type: `((style: ResolvedBasemapStyle) => void) | null`
+
+Called with the resolved style each time a style resolves, as MapLibre GL JS's `style.load` event.
+The sprites, the glyphs and the tiles of the style can still be loading. An error that the
+function throws goes to deck.gl's `onError`, and the style stays loaded. Defaults to `null`.
+
+### `onTileLoad`
+
+Type: `((tile: BasemapTile) => void) | null`
+
+Called when a tile of a `vector`, `raster`, `raster-dem` or `geojson` source loads, with deck.gl's
+tile header, as `TileLayer.onTileLoad`. The style layers of one source share its tiles, so each
+load is reported once. Defaults to `null`.
+
+### `onViewportLoad`
+
+Type: `((tiles: BasemapTile[]) => void) | null`
+
+Called with the tiles of all sources in the current viewport when they have loaded, as deck.gl's
+`TileLayer.onViewportLoad` and MapLibre GL JS's `idle` event. The style and its sprites have
+loaded too. A tile that failed to load counts as loaded. Unlike `TileLayer`, a viewport that
+selects no tiles is not reported, and the same tiles are not reported again. Defaults to `null`.
+
+### `onAttributionChange`
+
+Type: `((attributions: string[]) => void) | null`
+
+Called with the `attribution` of the sources that the style draws, when they change, as
+`TangramLayer.onAttributionChange`. The list is collected as MapLibre GL JS's
+`AttributionControl` collects it: a source that only hidden layers draw at the current zoom is
+left out (also layers that `globe.config` turns off, and layer types that are not drawn), each attribution is given once, and one that another contains is left out. A change of
+style or zoom can change the list, and a style of `null` gives `[]`. The strings are the
+provider's HTML and are **not sanitized**: display them as safe linked text. `BasemapLayer` does
+not draw an attribution control. Defaults to `null`.
+
+### `isLoaded`
+
+`BasemapLayer.isLoaded`, and thus deck.gl's `Deck.isLoaded`, is `false` while the style resolves,
+while its sprites load, and while the tiles of the current viewport load, as `TileLayer.isLoaded`.
+A style, a sprite or a tile that failed to load counts as loaded.
+
+## Draping on terrain (experimental)
+
+`BasemapLayer` makes deck.gl layers, so deck.gl's `_TerrainExtension` can drape them on a `TerrainLayer`. The [Draped on terrain example](/examples/basemap-layers/draped-terrain) adds the extension to the layers in a subclass, and draws data layers in the same depth buffer as the basemap and the terrain.
+
 ## Projected views
 
 `BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, and `mode` stays `'map'`.
@@ -298,11 +360,13 @@ new Deck({
 
 The [CustomProjectionView example](/examples/basemap-layers/custom-projection) draws the OpenFreeMap Liberty style in UTM zone 32N, Conus Albers and a south polar stereographic projection.
 
+The [native CRS raster example](/examples/basemap-layers/native-crs-raster) draws the style together with a Cloud Optimized GeoTIFF in the coordinate reference system of the GeoTIFF: a Sentinel-2 image in UTM zone 32N, and a hillshade in Antarctic polar stereographic. The raster is a deck.gl `BitmapLayer` between the fills and the labels of the style.
+
 In a projected view:
 
 - Tiles are still the Web Mercator tiles of the style's sources. They are selected for the area that the screen shows, through the projection (see `getProjectedTileIndices`).
 - Vector geometry is drawn from longitude/latitude positions. deck.gl converts each vertex to the coordinate reference system of the view. Lines and fills are not drawn as tile images. Long edges, such as the edges of a polygon cut at the side of a tile, get more vertices, so that they follow the projection.
-- Raster and hillshade tile images are drawn on a mesh that follows the projection. The mesh is refined with math.gl `subdivideTriangleMesh` until the sampled error is less than half a texel.
+- Raster, hillshade and color-relief tile images are drawn on a mesh that follows the projection. The mesh is refined with math.gl `subdivideTriangleMesh` until the sampled error is less than half a texel.
 - Hillshade slopes are scaled by the radius of the body that the coordinate reference system is on, its semi-major axis, so that a CRS on the Moon or Mars shades a slope as steep as the same slope on the Earth. Maps and globes use the radius of the Earth, as MapLibre GL JS.
 - Labels at points stay upright on the screen. Labels along lines turn to the line as the view draws it.
 - Styles are evaluated, and tiles are selected, at the zoom of the Web Mercator map that has the same scale at the view center (see `getMercatorZoom`). The zoom of the view itself counts pixels per unit of the coordinate reference system. At latitude 60, the two differ by one zoom level.
@@ -412,7 +476,7 @@ Generates the deck.gl sublayers for an already-resolved style definition. Use th
   <img src="https://img.shields.io/badge/stability-experimental-orange.svg?style=flat-square" alt="experimental" />
 </p>
 
-Creates the shared tileset of a `raster-dem` source, for the `tilesets` map of `getBasemapLayers`: each tile is fetched and decoded once for all of the source's `hillshade` layers. The caller finalizes it.
+Creates the shared tileset of a `raster-dem` source, for the `tilesets` map of `getBasemapLayers`: each tile is fetched and decoded once for all of the source's `hillshade` and `color-relief` layers. The caller finalizes it.
 
 ### `getGlobeBaseLayers(options)`
 

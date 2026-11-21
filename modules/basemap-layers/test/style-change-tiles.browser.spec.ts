@@ -411,10 +411,12 @@ describe('a style update by diff', () => {
     let release!: () => void;
     const ready = new Promise<void>(resolve => (release = resolve));
     const slow = {...props, loadOptions: {fetch: createResourceFetch(requests, {ready})}};
+    const previousToken = getBasemapState().loadToken;
     deck!.setProps({layers: [createLayer(style, slow)]});
-    await nextFrame();
-    deck!.setProps({layers: [createLayer(createStyle({water: '#0000ff'}), slow)]});
-    await nextFrame();
+    await vi.waitFor(() => expect(getBasemapState().loadToken).toBeGreaterThan(previousToken));
+    const paintedLayer = createLayer(createStyle({water: '#0000ff'}), slow);
+    deck!.setProps({layers: [paintedLayer]});
+    await vi.waitFor(() => expect((deck as any).layerManager.getLayers()).toContain(paintedLayer));
     release();
     // The load with the new loadOptions ends.
     await vi.waitFor(() => expect(getBasemapState().styleLoadOptions).toBe(slow.loadOptions));

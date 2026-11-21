@@ -6,7 +6,9 @@ import type {GlyphStore} from './glyph-store';
 import {SharedMVTLayer, SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {isGeographicViewport, isProjectedViewport} from './projected-viewport';
 import {getTileFeaturesInLngLat} from './projected-tile-data';
-import {getBasemapTilesetAdapter, ProjectedTileLayer} from './projected-tileset';
+import {getBasemapTilesetAdapter} from './projected-tileset';
+import {RasterFadeExtension, RasterFadeTileLayer} from './raster-fade';
+import {getSourceTileBounds, getSourceTileTemplates} from './source-tiles';
 import {
   type Color,
   type Layer,
@@ -20,8 +22,21 @@ import {GeoJsonLayer, PolygonLayer, SolidPolygonLayer} from '@deck.gl/layers';
 import {Matrix4} from '@math.gl/core';
 import {ProjectedBackgroundLayer} from './projected-background-layer';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
+import {
+  ImageSourceLayer,
+  getImageSourceCorners,
+  hasFlippedWinding,
+  isDrawableImageSource,
+  type ImageSourceCorners
+} from './image-source-layer';
 import {getGlobeAtmosphereLayer, getGlobeAtmosphereSkyLayer} from './atmosphere-layer';
 import {createCircleSubLayer} from './circle-layer';
+import {
+  createHeatmapSubLayer,
+  getHeatmapPoints,
+  getTilesWithoutDrawnAncestor,
+  type HeatmapPoint
+} from './heatmap-layer';
 import {
   type BasemapFeatureState,
   type FeatureStateLookup,
@@ -43,7 +58,11 @@ import {
   getLinePatternProps,
   getFillPatternProps
 } from './fill-pattern';
-import {FillPatternExtension, FillTranslateExtension} from './fill-style-extensions';
+import {
+  FillPatternExtension,
+  FillTranslateExtension,
+  type FillTranslateAnchor
+} from './fill-style-extensions';
 import {FillOutlineExtension} from './fill-outline-extension';
 import {LineBlurExtension, getBlurredLineWidth} from './line-blur-extension';
 import {
@@ -56,10 +75,12 @@ import {LinePatternExtension} from './line-pattern-extension';
 import {
   HillshadeTileLayer,
   createSharedDemTileset,
+  getDemUnpackVector,
   getHillshadeParameters,
   type DemTile,
   type DemTilesetOwner
 } from './hillshade-layer';
+import {ColorReliefTileLayer, createColorRamp, isColorRampVisible} from './color-relief-layer';
 import type {LabelPlacement} from './label-placement';
 import {MVTLabelLayer, type LabelTile} from './mvt-label-layer';
 import {isSameList} from './util';
@@ -97,6 +118,7 @@ import {
 } from './zoom-paint-extension';
 import type {BasemapGlobeConfig, BasemapLayerProps} from './basemap-layer';
 import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
+import {getTileLoadOptions} from './pmtiles-source';
 import {DEFAULT_LAYER_FETCH, DEFAULT_MVT_FETCH, getBasemapLayerFetch} from './basemap-protocol';
 import type {SpriteAtlas} from './sprite';
 import type {LabelFontFamily} from './text-font';
@@ -157,11 +179,11 @@ type BasemapLayerGroup = {
 };
 
 /**
- * Style layers that draw together, in style order: a background, raster or hillshade layer on its
- * own, or consecutive style layers of one vector source, which share one tile layer.
+ * Style layers that draw together, in style order: a background, raster, hillshade or color-relief
+ * layer on its own, or consecutive style layers of one vector source, which share one tile layer.
  */
 export type StyleLayerRun = {
-  type: 'background' | 'raster' | 'hillshade' | 'vector';
+  type: 'background' | 'raster' | 'hillshade' | 'color-relief' | 'vector';
   /** The deck.gl layer id, without the basemap's id prefix. */
   id: string;
   sourceId?: string;
@@ -177,11 +199,15 @@ function logBasemapRuntimeError(message: string, error: unknown, details?: unkno
   log.error(`[BasemapLayer] ${message}`, details || '', error)();
 }
 
+/**
+ * Depth parameters are set as luma.gl sets them on both backends: `depthCompare: 'always'` turns
+ * the depth test off. WebGPU has no `depthTest` parameter, and luma.gl logs an error for it.
+ */
 function getBackgroundParameters(mode: BasemapMode) {
   return (
     mode === 'globe'
-      ? {depthTest: true, depthWriteEnabled: true, depthCompare: 'less-equal', cullMode: 'back'}
-      : {depthTest: false, cullMode: 'none'}
+      ? {depthWriteEnabled: true, depthCompare: 'less-equal', cullMode: 'back'}
+      : {depthCompare: 'always', cullMode: 'none'}
   ) as any;
 }
 
@@ -199,10 +225,9 @@ function getBackgroundParameters(mode: BasemapMode) {
  */
 function getTileParameters(mode: BasemapMode, depthTested = false) {
   if (mode === 'globe' && !depthTested) {
-    return {depthTest: false, depthWriteEnabled: false, cullMode: 'back'} as any;
+    return {depthCompare: 'always', depthWriteEnabled: false, cullMode: 'back'} as any;
   }
   return {
-    depthTest: true,
     depthWriteEnabled: false,
     depthCompare: 'less-equal',
     cullMode: mode === 'globe' ? 'back' : 'none'
@@ -249,7 +274,9 @@ const SUPPORTED_TYPES = new Set([
   'line',
   'symbol',
   'raster',
-  'hillshade'
+  'hillshade',
+  'heatmap',
+  'color-relief'
 ]);
 const DEFAULT_CONFIG: BasemapLayerConfig = {atmosphere: false, basemap: true, labels: true};
 const DEFAULT_TEXT_COLOR = [0, 0, 0, 1];
@@ -284,6 +311,8 @@ const FILL_TRANSLATE_EXTENSION = new FillTranslateExtension();
 
 /** Applies the `raster-*` color adjustments, shared by every raster layer that sets them. */
 const RASTER_COLOR_EXTENSION = new RasterColorExtension();
+/** `raster-fade-duration`, shared by every raster tile. */
+const RASTER_FADE_EXTENSION = new RasterFadeExtension();
 
 /**
  * The texture filters of `raster-resampling: nearest`. MapLibre magnifies with the nearest texel
@@ -293,7 +322,6 @@ const NEAREST_TEXTURE_PARAMETERS = {magFilter: 'nearest'} as const;
 
 /** Extrusions are depth-tested against each other; flat layers draw in style order. */
 const EXTRUSION_PARAMETERS = {
-  depthTest: true,
   depthWriteEnabled: true,
   depthCompare: 'less-equal',
   cullMode: 'none'
@@ -509,6 +537,12 @@ function getStyleSubLayerId(parentId: string, styleLayerId: string | string[]): 
  * null where fills and lines cannot take their paint from `ZoomPaintExtension`, which needs WebGL.
  */
 const ZOOM_PAINT_CONTEXT = 'zoomPaintContext';
+
+/**
+ * The prop that tells a tile's `renderSubLayers` that its tile layer draws on WebGPU, where the
+ * GLSL of `FillTranslateExtension` does not run.
+ */
+const WEBGPU_DEVICE = 'webgpuDevice';
 
 /** Shared by every fill and line sublayer, so deck.gl does not see their extensions change. */
 const ZOOM_PAINT_EXTENSION = new ZoomPaintExtension();
@@ -886,7 +920,7 @@ export function getTilePyramidProps(source: BasemapSource): {
 
 /**
  * Creates the tileset of a `raster-dem` source: each tile is fetched and decoded once, and shared by
- * every `hillshade` layer drawn from it. `BasemapLayer` creates and finalizes these itself. Direct
+ * every `hillshade` and `color-relief` layer drawn from it. `BasemapLayer` creates and finalizes these itself. Direct
  * `getBasemapLayers` callers that call it on every render pass them in `tilesets`, keyed by source,
  * to keep the tiles across calls, and finalize them when done.
  */
@@ -895,9 +929,9 @@ export function createDemTileset(
   loadOptions?: BasemapLoadOptions,
   projectedMaxStretch?: number
 ): SharedTileset2D<DemTile | null> {
-  return createSharedDemTileset(source, loadOptions, {
+  return createSharedDemTileset(source, getTileLoadOptions(source, loadOptions), {
     ...getTilePyramidProps(source),
-    adapter: getBasemapTilesetAdapter(projectedMaxStretch)
+    adapter: getBasemapTilesetAdapter(projectedMaxStretch, getSourceTileBounds(source))
   });
 }
 
@@ -935,17 +969,23 @@ function createRasterLayer({
     getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
     getRasterPaintValue(paint, 'resampling') === 'nearest';
   const tilePyramidProps = getTilePyramidProps(source);
+  // The tiles of a PMTiles archive load with a `fetch` that reads them from the archive.
+  const tileLoadOptions = getTileLoadOptions(source, loadOptions);
+
+  // MapLibre fades a raster tile in over `raster-fade-duration` once it loads.
+  const fadeDuration = Math.max(0, Number(getRasterPaintValue(paint, 'raster-fade-duration')) || 0);
 
   // Also selects tiles in a projected view.
-  return new ProjectedTileLayer({
+  return new RasterFadeTileLayer({
     id: `${idPrefix}-${layer.id}`,
-    data: source.tiles,
+    data: getSourceTileTemplates(source),
     ...(projectedMaxStretch === undefined ? {} : {maxStretch: projectedMaxStretch}),
     ...tilePyramidProps,
-    // Tiles load with the `fetch` and `loadOptions` of the basemap, as vector tiles do, and URLs
-    // with a registered scheme with their protocol handler.
+    // Tiles outside the source's `bounds` are not requested.
+    tileBounds: getSourceTileBounds(source),
+    // Tiles use the basemap fetch and load options, and registered protocol handlers.
     fetch: getBasemapLayerFetch(fetch || DEFAULT_LAYER_FETCH, 'image'),
-    ...(loadOptions ? {loadOptions} : {}),
+    ...(tileLoadOptions ? {loadOptions: tileLoadOptions} : {}),
     // A tile without data is drawn from its nearest ancestor that has data.
     ...(rejectRasterTile
       ? {
@@ -953,7 +993,7 @@ function createRasterLayer({
             sourceId: layer.source || '',
             minZoom: tilePyramidProps.minZoom,
             rejectTile: rejectRasterTile,
-            loadOptions
+            loadOptions: tileLoadOptions
           }).getTileData
         }
       : {}),
@@ -965,6 +1005,7 @@ function createRasterLayer({
     // The color adjustments and texture filter are passed down to each tile's bitmap layer.
     ...(isColorAdjusted ? {extensions: [RASTER_COLOR_EXTENSION], rasterColorAdjustments} : {}),
     textureParameters: isNearest ? NEAREST_TEXTURE_PARAMETERS : null,
+    rasterFadeDuration: fadeDuration,
     renderSubLayers: props => {
       const {west, south, east, north} = (props.tile?.bbox || {}) as {
         west: number;
@@ -983,6 +1024,9 @@ function createRasterLayer({
         // A texture keeps the filter it was created with, so a filter change needs a new layer.
         id: isNearest ? `${props.id}-nearest` : props.id,
         _imageCoordinateSystem: 'cartesian',
+        ...(fadeDuration > 0
+          ? {extensions: [...(props.extensions || []), RASTER_FADE_EXTENSION]}
+          : {}),
         data: null,
         image: props.data,
         bounds: [west, south, east, north],
@@ -999,6 +1043,60 @@ function createRasterLayer({
     },
     parameters: getTileParameters(mode, depthTested)
   });
+}
+
+/**
+ * A `raster` style layer over an `image` source: the source's image at its four corners, with the
+ * raster paint properties of a raster tile layer. As in MapLibre, the image draws at every zoom.
+ */
+function createImageLayer({
+  idPrefix,
+  layer,
+  source,
+  zoom,
+  mode,
+  loadOptions,
+  fetch,
+  depthTested
+}: {
+  idPrefix: string;
+  layer: BasemapStyleLayer;
+  source: BasemapSource;
+  zoom: number;
+  mode: BasemapMode;
+  loadOptions?: BasemapLoadOptions;
+  fetch?: LayerProps['fetch'];
+  /** Drawn after an extrusion, see `getTileParameters`. */
+  depthTested?: boolean;
+}) {
+  const paint = getPaint(layer, zoom);
+  const rasterColorAdjustments = getRasterColorAdjustments(paint);
+  const isColorAdjusted = hasRasterColorAdjustments(rasterColorAdjustments);
+  const isNearest =
+    getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
+    getRasterPaintValue(paint, 'resampling') === 'nearest';
+  const corners = getImageSourceCorners(source) as ImageSourceCorners;
+  return new ImageSourceLayer({
+    id: `${idPrefix}-${layer.id}`,
+    image: source.url as string,
+    corners,
+    ...(fetch ? {fetch} : {}),
+    ...(loadOptions ? {loadOptions} : {}),
+    // As for raster tiles: deck.gl draws with `opacity ** (1 / 2.2)`.
+    opacity: getRasterPaintValue(paint, 'raster-opacity') ** 2.2,
+    ...(isColorAdjusted ? {extensions: [RASTER_COLOR_EXTENSION], rasterColorAdjustments} : {}),
+    textureParameters: isNearest ? NEAREST_TEXTURE_PARAMETERS : null,
+    onError: (error: Error) => {
+      logBasemapRuntimeError('Image failed to load', error, {
+        layerId: layer.id,
+        sourceId: layer.source
+      });
+    },
+    parameters:
+      mode === 'globe' && hasFlippedWinding(corners)
+        ? {...getTileParameters(mode, depthTested), cullMode: 'front'}
+        : getTileParameters(mode, depthTested)
+  } as any);
 }
 
 /**
@@ -1056,6 +1154,64 @@ function createHillshadeLayer({
 }
 
 /**
+ * A `color-relief` style layer over a `raster-dem` source, which shares the source's decoded tiles
+ * with its other layers (see `createHillshadeLayer`). A ramp that is not an `interpolate`
+ * expression is transparent, as in MapLibre, and draws nothing.
+ */
+function createColorReliefLayer({
+  idPrefix,
+  layer,
+  tileset,
+  demTilesetOwner,
+  source,
+  zoom,
+  mode,
+  depthTested
+}: {
+  idPrefix: string;
+  layer: BasemapStyleLayer;
+  /** The source's decoded tiles (see `createDemTileset`). */
+  tileset: SharedTileset2D;
+  /** Set when the layer shares a tileset that no `BasemapLayer` owns. */
+  demTilesetOwner?: DemTilesetOwner;
+  source: BasemapSource;
+  zoom: number;
+  mode: BasemapMode;
+  /** Drawn after an extrusion, see `getTileParameters`. */
+  depthTested?: boolean;
+}) {
+  const paint = getPaint(layer, zoom);
+  const opacity = (paint['color-relief-opacity'] as number | undefined) ?? 1;
+  const colorReliefColor = layer.paint?.['color-relief-color'];
+  const isNearest = getRasterPaintValue(paint, 'resampling') === 'nearest';
+  const filter = isNearest ? 'nearest' : 'linear';
+
+  return new ColorReliefTileLayer({
+    id: `${idPrefix}-${layer.id}`,
+    data: tileset,
+    demTilesetOwner,
+    ...getTilePyramidProps(source),
+    tileSize: source.tileSize || 512,
+    visible: opacity > 0 && isColorRampVisible(createColorRamp(colorReliefColor, Infinity)),
+    colorReliefColor,
+    colorReliefOpacity: opacity,
+    colorReliefUnpack: getDemUnpackVector(source),
+    colorReliefSubLayerProps: {
+      // MapLibre samples the elevations without mipmaps.
+      textureParameters: {minFilter: filter, magFilter: filter, mipmapFilter: 'none'},
+      parameters: getTileParameters(mode, depthTested)
+    },
+    onTileError: error => {
+      logBasemapRuntimeError('DEM tile failed to load', error, {
+        layerId: layer.id,
+        sourceId: layer.source
+      });
+    },
+    parameters: getTileParameters(mode, depthTested)
+  });
+}
+
+/**
  * Orders the sublayers of all tiles of a tile layer by style layer, as MapLibre draws each style
  * layer across all tiles before the next: a tile's fills cannot paint over the labels of the tile
  * drawn before it. Within a style layer, tiles keep their order, and so do the sublayers of a tile.
@@ -1074,6 +1230,18 @@ const TILE_LABEL_FEATURES = 'tileLabelFeatures';
 
 /** The features of a symbol style layer without any in a tile. */
 const NO_FEATURES: any[] = [];
+
+/** The prop that hands a tile's `renderSubLayers` the map to record its heatmap points in. */
+const TILE_HEATMAP_POINTS = 'tileHeatmapPoints';
+
+/**
+ * Builds the heatmap layers of a run from the points of its drawn tiles, by style layer index;
+ * `getSubLayerProps` gives a heatmap layer the tile layer's props.
+ */
+type RenderHeatmapLayers = (
+  pointsByStyleLayer: Map<number, HeatmapPoint[]>,
+  getSubLayerProps: (id: string) => Record<string, any>
+) => Layer[];
 
 /**
  * Builds the label layers of a run from the label features of its drawn tiles, by style layer
@@ -1137,6 +1305,16 @@ class StyledMVTLayer extends SharedMVTLayer {
     /** The style layers `labelStyleLayers` indexes, and the tileset of their tiles. */
     labelStyle?: unknown;
     labelTileset?: unknown;
+    /**
+     * The points of each heatmap style layer in a tile, by tile id and the style layer's index in
+     * its run, as `renderSubLayers` last recorded them (see `renderHeatmapLayers`).
+     */
+    tileHeatmapPoints?: Map<string, Map<number, HeatmapPoint[]>>;
+    /** The heatmap layers last rendered, with their props and points, by view. */
+    heatmapLayers?: Map<
+      string,
+      {props: unknown; key: unknown[]; points: Map<number, HeatmapPoint[]>; layers: Layer[]}
+    >;
     /** The label layers last rendered, and the props and tiles they were rendered for, by view. */
     labelLayers?: Map<
       string,
@@ -1167,6 +1345,7 @@ class StyledMVTLayer extends SharedMVTLayer {
       this.state.keptTileLayers?.clear();
       this.state.staleTiles?.clear();
       this.state.tileLabelFeatures?.clear();
+      this.state.tileHeatmapPoints?.clear();
     }
   }
 
@@ -1221,7 +1400,71 @@ class StyledMVTLayer extends SharedMVTLayer {
     if (!Array.isArray(layers)) {
       return layers;
     }
-    return [...sortTileSubLayers(layers as (Layer[] | null)[]), ...this.renderLabelLayers(tiles)];
+    return [
+      ...sortTileSubLayers(layers as (Layer[] | null)[]),
+      ...this.renderHeatmapLayers(tiles),
+      ...this.renderLabelLayers(tiles)
+    ];
+  }
+
+  /**
+   * The heatmaps of all drawn tiles, one layer per heatmap style layer and view: MapLibre GL JS
+   * sums the kernels of all tiles into one density before it colors it. A heatmap style layer has
+   * a run of its own (see `getStyleLayerRuns`), so it draws in style order. Where a drawn tile's
+   * ancestor is drawn too, as while the tile's siblings load, only the ancestor's points are
+   * drawn, as in MapLibre, so that no point adds to the density twice.
+   */
+  renderHeatmapLayers(tiles: SharedTile[]): Layer[] {
+    const render = (this.props as {renderHeatmapLayers?: RenderHeatmapLayers}).renderHeatmapLayers;
+    if (!render) {
+      return [];
+    }
+    const views = this.state.tilesetViews;
+    const entries: [string | null, (tile: SharedTile) => boolean][] =
+      !views || views.size <= 1
+        ? [[null, tile => this.isTileShown(tile)]]
+        : [...views].map(([viewKey, view]) => [viewKey, tile => view.isTileVisible(tile as any)]);
+    this.state.heatmapLayers ||= new Map();
+    const layers: Layer[] = [];
+    for (const [viewKey, isShown] of entries) {
+      const drawn = tiles.filter(
+        tile => tile.content && isShown(tile) && this.state.tileHeatmapPoints?.has(tile.id)
+      );
+      const key: unknown[] = [];
+      const pointsByStyleLayer = new Map<number, HeatmapPoint[][]>();
+      for (const tile of getTilesWithoutDrawnAncestor(drawn)) {
+        for (const [styleLayerIndex, points] of this.state.tileHeatmapPoints!.get(tile.id)!) {
+          key.push(styleLayerIndex, points);
+          let list = pointsByStyleLayer.get(styleLayerIndex);
+          if (!list) {
+            list = [];
+            pointsByStyleLayer.set(styleLayerIndex, list);
+          }
+          list.push(points);
+        }
+      }
+      // The same layers while the points and props do not change: new instances would be compared
+      // and updated at every frame. New props keep the points, so the layers keep their attributes.
+      const cacheKey = viewKey ?? '';
+      const last = this.state.heatmapLayers.get(cacheKey);
+      const isSamePoints = last && isSameList(last.key, key);
+      if (isSamePoints && last.props === this.props) {
+        layers.push(...last.layers);
+        continue;
+      }
+      const points = isSamePoints
+        ? last.points
+        : new Map([...pointsByStyleLayer].map(([index, lists]) => [index, lists.flat()]));
+      const viewLayers = render(points, id =>
+        this.getSubLayerProps({id: viewKey === null ? id : `${id}-view-${viewKey}`})
+      );
+      for (const layer of viewLayers) {
+        labelLayerViews.set(layer, viewKey);
+      }
+      this.state.heatmapLayers.set(cacheKey, {props: this.props, key, points, layers: viewLayers});
+      layers.push(...viewLayers);
+    }
+    return layers;
   }
 
   /**
@@ -1456,10 +1699,16 @@ class StyledMVTLayer extends SharedMVTLayer {
     this.state.tileLabelFeatures ||= new Map();
     this.state.tileLabelFeatures.set(props.tile.id, labelFeatures);
     (props as any)[TILE_LABEL_FEATURES] = labelFeatures;
+    // The tile's heatmap points, recorded as `renderSubLayers` filters them.
+    const heatmapPoints = new Map<number, HeatmapPoint[]>();
+    this.state.tileHeatmapPoints ||= new Map();
+    this.state.tileHeatmapPoints.set(props.tile.id, heatmapPoints);
+    (props as any)[TILE_HEATMAP_POINTS] = heatmapPoints;
     const previous = this.state.keptTileLayers?.get(props.tile.id);
     const styledProps = {
       ...props,
       [ZOOM_PAINT_CONTEXT]: this.context.device?.type === 'webgpu' ? null : zoomPaintContext,
+      [WEBGPU_DEVICE]: this.context.device?.type === 'webgpu',
       [PREVIOUS_TILE_LAYERS]: previous
         ? new Map(previous.map((layer: Layer) => [layer.id, layer]))
         : undefined,
@@ -1539,6 +1788,7 @@ class StyledMVTLayer extends SharedMVTLayer {
     this.state.keptTileLayers?.delete(tile.id);
     this.state.staleTiles?.delete(tile.id);
     this.state.tileLabelFeatures?.delete(tile.id);
+    this.state.tileHeatmapPoints?.delete(tile.id);
   }
 
   /** Releases the shared tileset and the textures of `ZoomPaintExtension`. */
@@ -1561,7 +1811,8 @@ class StyledMVTLayer extends SharedMVTLayer {
   static defaultProps = {
     ...SharedMVTLayer.defaultProps,
     // A new function at each update, as `renderSubLayers`: compared, it would regenerate every tile.
-    renderLabelLayers: {type: 'function', optional: true, value: null, compare: false}
+    renderLabelLayers: {type: 'function', optional: true, value: null, compare: false},
+    renderHeatmapLayers: {type: 'function', optional: true, value: null, compare: false}
   } as any;
 }
 
@@ -1782,12 +2033,16 @@ function createStyledVectorSubLayer({
       zoom,
       featureState,
       globe: mode === 'globe',
+      webgpu: Boolean(props[WEBGPU_DEVICE]),
+      translate:
+        styleLayer.paint?.['circle-translate'] === undefined
+          ? null
+          : getTranslateProps(styleLayer, zoom, 'circle'),
       // Depth-tested against the globe without writing depth: a circle's quad, blur and
       // antialiased edge included, would otherwise cut holes in the circles drawn after it.
       // Circles face the viewer, so back-face culling does not hide those on the far side.
       parameters: {
         ...getTileParameters(mode),
-        depthTest: true,
         depthCompare: 'less-equal',
         depthWriteEnabled: false
       }
@@ -1925,7 +2180,7 @@ function createVectorLayerGroup({
 
   return new StyledMVTLayer({
     id: `${idPrefix}-${id}`,
-    data: tileset || source.tiles,
+    data: tileset || getSourceTileTemplates(source),
     ...{sourceTilesetOwner},
     ...(pickable ? {pickable} : {}),
     // Name the source of picked features (see `getPickingInfo`).
@@ -2009,6 +2264,23 @@ function createVectorLayerGroup({
           labelPlacement
         });
       })) as RenderLabelLayers,
+    renderHeatmapLayers: ((pointsByStyleLayer, getSubLayerProps) =>
+      [...pointsByStyleLayer].flatMap(([styleLayerIndex, points]) => {
+        const styleLayer = styleLayers[styleLayerIndex];
+        const layer =
+          styleLayer?.type === 'heatmap'
+            ? createHeatmapSubLayer({
+                props: {
+                  ...getSubLayerProps(`heatmap-${JSON.stringify(styleLayer.id)}`),
+                  [STYLE_LAYER_INDEX]: styleLayerIndex
+                },
+                styleLayer,
+                points,
+                zoom
+              })
+            : null;
+        return layer ? [layer] : [];
+      })) as RenderHeatmapLayers,
     renderSubLayers: (props: Parameters<SharedMVTLayer['renderSubLayers']>[0]) => {
       const styleProps = props as typeof props & {
         styleAutoHighlight?: boolean;
@@ -2019,6 +2291,10 @@ function createVectorLayerGroup({
       const layers: any[] = [];
       // Where the tile layer collects them, a tile's labels are drawn with the other tiles'.
       const labelFeatures = (props as any)[TILE_LABEL_FEATURES] as Map<number, any[]> | undefined;
+      // Where the tile layer collects them, a tile's heatmap points are drawn with the others'.
+      const heatmapPoints = (props as any)[TILE_HEATMAP_POINTS] as
+        | Map<number, HeatmapPoint[]>
+        | undefined;
       const highlights =
         Boolean(styleProps[AUTO_HIGHLIGHT]) ||
         (styleProps.highlightedFeatureId !== null && styleProps.highlightedFeatureId !== undefined);
@@ -2115,6 +2391,16 @@ function createVectorLayerGroup({
         if (styleLayer.type === 'symbol' && labelFeatures) {
           // Drawn with the labels of the other tiles, after all tiles' sublayers.
           labelFeatures.set(styleLayerIndex, filteredData);
+          return;
+        }
+        if (styleLayer.type === 'heatmap') {
+          // Drawn with the points of the other tiles (see `renderHeatmapLayers`). Tile-local
+          // features are drawn in a Cartesian frame; on a globe and in a projected view they are
+          // in longitude/latitude.
+          heatmapPoints?.set(
+            styleLayerIndex,
+            getHeatmapPoints(filteredData, props.tile.index, props.coordinateSystem === 'lnglat')
+          );
           return;
         }
         flush();
@@ -2626,6 +2912,25 @@ function getLineShapeGroups(
 }
 
 /**
+ * The props of `FillTranslateExtension` from a style layer's `<prefix>-translate` and
+ * `<prefix>-translate-anchor` (`fill`, `line`, `circle` or `fill-extrusion`), evaluated at the
+ * stepped zoom: the style specification does not let them depend on feature data.
+ */
+function getTranslateProps(
+  styleLayer: BasemapStyleLayer,
+  zoom: number,
+  prefix: 'fill' | 'line' | 'circle' | 'fill-extrusion'
+): {fillTranslate: [number, number]; fillTranslateAnchor: FillTranslateAnchor} {
+  const paint = getPaint(styleLayer, zoom);
+  const translate = `${prefix}-translate`;
+  const anchor = `${prefix}-translate-anchor`;
+  return {
+    fillTranslate: paint[translate] ?? getStylePropertyDefault(translate),
+    fillTranslateAnchor: paint[anchor] ?? getStylePropertyDefault(anchor)
+  };
+}
+
+/**
  * The extensions and props of `fill-pattern` (with the features' images) and `fill-translate`
  * (when the layer sets it). `fill-translate` is evaluated at the stepped zoom; it cannot depend on
  * feature data.
@@ -2640,7 +2945,6 @@ function getFillStyleProps(
   if (!pattern && !hasTranslate) {
     return {};
   }
-  const paint = getPaint(styleLayer, zoom);
   return {
     extensions: [
       ...(extensions || []),
@@ -2648,13 +2952,7 @@ function getFillStyleProps(
       ...(hasTranslate ? [FILL_TRANSLATE_EXTENSION] : [])
     ],
     ...(pattern ? getFillPatternProps(pattern, zoom) : {}),
-    ...(hasTranslate
-      ? {
-          fillTranslate: paint['fill-translate'] ?? getStylePropertyDefault('fill-translate'),
-          fillTranslateAnchor:
-            paint['fill-translate-anchor'] ?? getStylePropertyDefault('fill-translate-anchor')
-        }
-      : {})
+    ...(hasTranslate ? getTranslateProps(styleLayer, zoom, 'fill') : {})
   };
 }
 
@@ -2686,6 +2984,8 @@ type GeometryStyle = {
   isBlurredGap: boolean;
   /** Whether the fill sets `fill-pattern` or `fill-translate`, which take their own extensions. */
   hasFillStyle: boolean;
+  /** Whether the line sets `line-translate`, which takes its own extension. */
+  hasLineTranslate: boolean;
   lineShape?: LineShape;
   /** The features' `fill-pattern` images; without it, a patterned fill draws no fill. */
   pattern?: FillPatternGroup;
@@ -2937,6 +3237,7 @@ function getGeometryStyle({
     isFill &&
     (styleLayer.paint?.['fill-pattern'] !== undefined ||
       styleLayer.paint?.['fill-translate'] !== undefined);
+  const hasLineTranslate = isLine && styleLayer.paint?.['line-translate'] !== undefined;
 
   // A constant transparent color or zero width draws nothing, so its sublayers are left out.
   const drawsFill = isFill && !isTransparent(fillColor);
@@ -2975,6 +3276,7 @@ function getGeometryStyle({
     gapOffset,
     isBlurredGap,
     hasFillStyle,
+    hasLineTranslate,
     lineShape,
     pattern,
     lineGradient,
@@ -3036,6 +3338,7 @@ function getBatchKey(style: GeometryStyle): string | null {
     style.lineBlur ||
     style.lineGradient ||
     style.pattern ||
+    style.hasLineTranslate ||
     !style.lineShape
   ) {
     return null;
@@ -3210,6 +3513,7 @@ function createGeometrySubLayer({
     gapOffset,
     isBlurredGap,
     hasFillStyle,
+    hasLineTranslate,
     pattern,
     lineGradient,
     lineGradientFallbackColor,
@@ -3277,8 +3581,10 @@ function createGeometrySubLayer({
   // deck.gl draws lines without antialiasing and cut to a line's pixels by `FillOutlineExtension`.
   const fadesLines = drawsLines && !isFill;
   const drawsOutline = drawsLines && isFill;
+  // `line-translate` takes the extension of `fill-translate`, which moves any vertex.
+  const translatesLine = !isFill && hasLineTranslate;
   const geometryExtensions =
-    dashArray || lineOffset || fadesLines || drawsOutline || zoomPaint
+    dashArray || lineOffset || fadesLines || drawsOutline || zoomPaint || translatesLine
       ? [
           ...(baseProps.extensions || []),
           ...(dashArray ? [lineOffset ? DASH_OFFSET_EXTENSION : DASH_EXTENSION] : []),
@@ -3294,7 +3600,8 @@ function createGeometrySubLayer({
             : []),
           ...(drawsOutline ? [FILL_OUTLINE_EXTENSION] : []),
           ...(lineGradient ? [LINE_GRADIENT_EXTENSION] : []),
-          ...(linePattern ? [LINE_PATTERN_EXTENSION] : [])
+          ...(linePattern ? [LINE_PATTERN_EXTENSION] : []),
+          ...(translatesLine ? [FILL_TRANSLATE_EXTENSION] : [])
         ]
       : null;
   // `fill-pattern` and `fill-translate` add their extensions to these, so an outlined fill keeps
@@ -3352,6 +3659,7 @@ function createGeometrySubLayer({
           getLinePatternWidth: linePatternWidth.value
         }
       : {}),
+    ...(translatesLine ? getTranslateProps(first.styleLayer, zoom, 'line') : {}),
     ...(offsetValue ? {getOffset: getOffset(1)} : {}),
     ...(lineDashArray
       ? {
@@ -3533,6 +3841,8 @@ function createExtrusionSubLayer({
     featureState
   );
   const baseProps = getSubLayerBaseProps(props);
+  // `fill-extrusion-translate` moves the whole extrusion, walls and roof, on the ground.
+  const translates = styleLayer.paint?.['fill-extrusion-translate'] !== undefined;
 
   return getTileGeoJsonLayer(props, {
     ...baseProps,
@@ -3554,7 +3864,12 @@ function createExtrusionSubLayer({
     getPointRadius: 0,
     pointRadiusMinPixels: 0,
     parameters: EXTRUSION_PARAMETERS,
-    extensions: [...(baseProps.extensions || []), FILL_EXTRUSION_LIGHTING_EXTENSION],
+    extensions: [
+      ...(baseProps.extensions || []),
+      FILL_EXTRUSION_LIGHTING_EXTENSION,
+      ...(translates ? [FILL_TRANSLATE_EXTENSION] : [])
+    ],
+    ...(translates ? getTranslateProps(styleLayer, zoom, 'fill-extrusion') : {}),
     fillExtrusionLight: light,
     fillExtrusionVerticalGradient: paint['fill-extrusion-vertical-gradient'] ?? true
   });
@@ -3626,13 +3941,30 @@ function getLabelPriorityRanges(
 }
 
 /** Whether a style layer is drawn from vector tiles: a `symbol` layer only with labels on. */
+/**
+ * Whether `getBasemapLayers` draws a style layer with these globe toggles: a supported type, with
+ * the basemap on, and labels on for a symbol layer. Style visibility and zoom are not checked.
+ */
+export function isDrawnStyleLayer(
+  layer: BasemapStyleLayer,
+  globe?: {config?: BasemapGlobeConfig}
+): boolean {
+  const config = getConfig(globe);
+  return (
+    config.basemap &&
+    SUPPORTED_TYPES.has(layer.type) &&
+    (layer.type !== 'symbol' || config.labels)
+  );
+}
+
 function isVectorStyleLayer(layer: BasemapStyleLayer, config: BasemapLayerConfig): boolean {
   return layer.type === 'symbol'
     ? config.labels
     : layer.type === 'fill' ||
         layer.type === 'fill-extrusion' ||
         layer.type === 'line' ||
-        layer.type === 'circle';
+        layer.type === 'circle' ||
+        layer.type === 'heatmap';
 }
 
 /**
@@ -3717,13 +4049,13 @@ export function getSourceLoadOptions(
 }
 
 /**
- * Splits the style into runs that draw in style order, as in MapLibre: each background, raster
- * and hillshade layer on its own, and consecutive layers of one vector source together, so that a
+ * Splits the style into runs that draw in style order, as in MapLibre: each background, raster,
+ * hillshade and color-relief layer on its own, and consecutive layers of one vector source together, so that a
  * raster layer between two vector layers draws between them. Layers that cannot draw (a source
  * without tiles, labels turned off) do not split a run. Runs do not depend on zoom, so the tile
- * layers keep their ids and tiles when a layer leaves its zoom range. Background, raster and
- * hillshade runs have their style layer's id. The first run of a source has the source id as its
- * id, unless a background, raster or hillshade run already has that id; later runs, and a first run whose source id is
+ * layers keep their ids and tiles when a layer leaves its zoom range. Background, raster,
+ * hillshade and color-relief runs have their style layer's id. The first run of a source has the
+ * source id as its id, unless such a run already has that id; later runs, and a first run whose source id is
  * taken, add the quoted id of their first style layer.
  */
 export function getStyleLayerRuns(
@@ -3745,7 +4077,11 @@ export function getStyleLayerRuns(
       .filter(
         layer =>
           layer.type === 'background' ||
-          ((layer.type === 'raster' || layer.type === 'hillshade') && getSource(layer)?.tiles)
+          ((layer.type === 'raster' ||
+            layer.type === 'hillshade' ||
+            layer.type === 'color-relief') &&
+            getSource(layer)?.tiles) ||
+          (layer.type === 'raster' && isDrawableImageSource(getSource(layer)))
       )
       .map(layer => layer.id)
   );
@@ -3755,19 +4091,24 @@ export function getStyleLayerRuns(
     if (layer.type === 'background') {
       runs.push({type: 'background', id: layer.id, styleLayers: [layer]});
     } else if (layer.type === 'raster') {
-      if (source?.tiles) {
+      if (source?.tiles || isDrawableImageSource(source)) {
         runs.push({type: 'raster', id: layer.id, sourceId, source, styleLayers: [layer]});
+      } else if (source?.type === 'image') {
+        // Logged once per message: the runs are built again on each update.
+        log.warn(
+          `[BasemapLayer] Skipping raster layer "${layer.id}": image source "${sourceId}" needs a url and four [longitude, latitude] coordinates within the Web Mercator world`
+        )();
       } else {
         logBasemapRuntimeEvent('Skipping style layer without resolved tiles', {
           layerId: layer.id,
           sourceId
         });
       }
-    } else if (layer.type === 'hillshade') {
+    } else if (layer.type === 'hillshade' || layer.type === 'color-relief') {
       if (source?.tiles && source.type === 'raster-dem') {
-        runs.push({type: 'hillshade', id: layer.id, sourceId, source, styleLayers: [layer]});
+        runs.push({type: layer.type, id: layer.id, sourceId, source, styleLayers: [layer]});
       } else {
-        logBasemapRuntimeEvent('Skipping hillshade layer without a raster-dem source', {
+        logBasemapRuntimeEvent(`Skipping ${layer.type} layer without a raster-dem source`, {
           layerId: layer.id,
           sourceId
         });
@@ -3778,7 +4119,17 @@ export function getStyleLayerRuns(
       const followsLabel =
         layer.type !== 'symbol' &&
         last?.styleLayers.some(styleLayer => styleLayer.type === 'symbol');
-      if (last?.type === 'vector' && last.sourceId === sourceId && !followsLabel) {
+      // A heatmap draws all of its tiles' points at once (see `renderHeatmapLayers`), so it has a
+      // run of its own.
+      const isHeatmapRun =
+        layer.type === 'heatmap' ||
+        last?.styleLayers.some(styleLayer => styleLayer.type === 'heatmap');
+      if (
+        last?.type === 'vector' &&
+        last.sourceId === sourceId &&
+        !followsLabel &&
+        !isHeatmapRun
+      ) {
         last.styleLayers.push(layer);
       } else {
         let id = sourceId;
@@ -3873,6 +4224,18 @@ function getStyleLayers({
     if (run.type === 'background') {
       return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, spriteAtlases});
     }
+    if (run.type === 'raster' && run.source?.type === 'image') {
+      return createImageLayer({
+        idPrefix,
+        layer,
+        source: run.source,
+        zoom,
+        mode,
+        loadOptions,
+        fetch,
+        depthTested: depthTested.has(layer)
+      });
+    }
     if (run.type === 'raster') {
       return createRasterLayer({
         idPrefix,
@@ -3887,8 +4250,8 @@ function getStyleLayers({
         projectedMaxStretch
       });
     }
-    if (run.type === 'hillshade') {
-      // One tileset per raster-dem source, shared by its hillshade layers.
+    if (run.type === 'hillshade' || run.type === 'color-relief') {
+      // One tileset per raster-dem source, shared by its hillshade and color-relief layers.
       let owner: DemTilesetOwner | undefined;
       let tileset = tilesets?.get(run.source!);
       if (!tileset) {
@@ -3902,7 +4265,7 @@ function getStyleLayers({
         }
         tileset = owner.tileset;
       }
-      return createHillshadeLayer({
+      return (run.type === 'hillshade' ? createHillshadeLayer : createColorReliefLayer)({
         idPrefix,
         layer,
         tileset,
@@ -3921,13 +4284,16 @@ function getStyleLayers({
         // Tiles decode the source layers of all of the source's runs, at every zoom.
         sourceLayers ??= getRunSourceLayers(allRuns);
         const loader = new SharedMVTLayer({
-          data: run.source!.tiles!,
+          data: getSourceTileTemplates(run.source!)!,
           fetch: getBasemapLayerFetch(DEFAULT_MVT_FETCH, 'arrayBuffer'),
-          loadOptions: getSourceLoadOptions(loadOptions, sourceLayers.get(run.source!))
+          loadOptions: getTileLoadOptions(
+            run.source!,
+            getSourceLoadOptions(loadOptions, sourceLayers.get(run.source!))
+          )
         });
         const ownedTileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
-          adapter: getBasemapTilesetAdapter(projectedMaxStretch),
+          adapter: getBasemapTilesetAdapter(projectedMaxStretch, getSourceTileBounds(run.source!)),
           ...getTilePyramidProps(run.source!),
           tileSize: run.source!.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,

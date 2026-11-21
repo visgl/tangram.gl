@@ -2,11 +2,21 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {SharedMVTLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
+import {
+  SharedMVTLayer,
+  SharedTile2DLayer,
+  SharedTileset2D,
+  type SharedTile2DHeader,
+  type SharedTileset2DAdapter
+} from '@deck.gl-community/geo-layers';
+import type {RequestScheduler} from '@loaders.gl/core/loader-utils';
+import {TileLayer, type Tile2DHeader} from '@deck.gl/geo-layers';
 import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from './terrain-query';
 import {isGlobeViewport} from './is-globe-viewport';
+import {ZoomLoadGate} from './zoom-load-gate';
 import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
+import {getSourceTileBounds, getSourceTileTemplates} from './source-tiles';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
 import {getSourceKey, type BasemapSource} from './style-resolver';
 import type {BasemapFeatureState} from './feature-state';
@@ -14,6 +24,7 @@ import {
   CompositeLayer,
   log,
   type DefaultProps,
+  type Layer,
   type UpdateParameters,
   type Viewport
 } from '@deck.gl/core';
@@ -27,6 +38,7 @@ import {
   getStyleSourceLayers,
   getTilePyramidProps,
   getVectorTileLoader,
+  isDrawnStyleLayer,
   isVectorTileSource,
   VECTOR_TILE_ZOOM_OFFSET
 } from './globe-layers';
@@ -41,9 +53,14 @@ import {MapStyleLoader, type MapStyleLoaderOptions} from './map-style-loader';
 import {BasemapStyleSchema, ResolvedBasemapStyleSchema} from './map-style-schema';
 import {getBasemapFetch, getBasemapLayerFetch, hasCustomScheme} from './basemap-protocol';
 import {getDemUnpackVector} from './hillshade-layer';
+import {getTileLoadOptions} from './pmtiles-source';
 import {getStyleZoomKey} from './style-accessor';
 import {getResolvedBasemapStyleBaseUrl, isResolvedBasemapStyle} from './style-resolver';
-import type {BasemapStyle, ResolvedBasemapStyle} from './style-resolver';
+import type {
+  BasemapStyle,
+  ResolvedBasemapStyle,
+  ResolvedBasemapStyleLayer
+} from './style-resolver';
 import {GlyphStore} from './glyph-store';
 import {getSpriteSources, loadSpriteAtlases} from './sprite';
 import type {SpriteAtlas} from './sprite';
@@ -88,6 +105,9 @@ export type BasemapGlobeConfig = {
   /** Draws the style's symbol layers (labels and icons). Default `true`. */
   labels?: boolean;
 };
+
+/** A tile given to `onTileLoad` and `onViewportLoad`: deck.gl's tile header. */
+export type BasemapTile = Tile2DHeader | SharedTile2DHeader;
 
 /**
  * Props accepted by {@link BasemapLayer}.
@@ -152,6 +172,16 @@ export type BasemapLayerProps = {
    */
   separateLabelPlacement?: boolean;
   /**
+   * Milliseconds that vector tile loads wait after the last zoom change of a view (default 0: no
+   * wait). In a zoom gesture the view passes through several tile zooms; each tile loaded at one
+   * of them is decoded and triangulated, and is drawn for a fraction of a second. With a wait, a
+   * tile that a loaded ancestor tile draws, enlarged, waits until the zoom comes to rest, and is
+   * not loaded if no view selects it then. A tile without a loaded ancestor, such as the new
+   * tiles at the edges of a zoom out, loads at once. A pan does not change the zoom, and its
+   * loads do not wait.
+   */
+  zoomLoadDelay?: number;
+  /**
    * The stretch limit of the tile selection in a projected view (deck.gl's
    * `_CustomProjectionView`), see `ProjectedTileSelectionOptions.maxStretch`. The default, 4, suits
    * most projections. A projection whose scale grows steeply toward the edge of its area of use,
@@ -168,6 +198,30 @@ export type BasemapLayerProps = {
    * function: raster tiles reload when it changes. See `createRasterTileFingerprintFilter`.
    */
   rejectRasterTile?: RejectRasterTile | null;
+  /**
+   * Called with the resolved style each time a style resolves, as MapLibre GL JS's `style.load`
+   * event. Its sprites, glyphs and tiles can still be loading.
+   */
+  onStyleLoad?: ((style: ResolvedBasemapStyle) => void) | null;
+  /**
+   * Called when a tile of a vector, raster, raster-dem or geojson source loads, as deck.gl's
+   * `TileLayer.onTileLoad`. The style layers of one source share its tiles: each load is reported
+   * once.
+   */
+  onTileLoad?: ((tile: BasemapTile) => void) | null;
+  /**
+   * Called with the tiles of all sources in the current viewport when they have loaded, as
+   * deck.gl's `TileLayer.onViewportLoad` and MapLibre GL JS's `idle` event. The style and its
+   * sprites have loaded too. A viewport that selects no tiles is not reported.
+   */
+  onViewportLoad?: ((tiles: BasemapTile[]) => void) | null;
+  /**
+   * Called with the `attribution` of the sources that the style draws, when they change, as
+   * MapLibre GL JS's `AttributionControl` collects them: a source that only hidden layers draw is
+   * left out, each attribution is given once, and one that another contains is left out. The
+   * strings are the provider's HTML, not sanitized: display them as safe linked text.
+   */
+  onAttributionChange?: ((attributions: string[]) => void) | null;
 };
 
 const fractionalZoomLimitsCache = new WeakMap<ResolvedBasemapStyle, number[]>();
@@ -241,6 +295,18 @@ type BasemapLayerState = {
   tileMaxStretch: number | null;
   /** Fetch identity, kept separate from render-only props such as view mode. */
   tileFetch: unknown;
+  /** Holds the vector tile loads while a view zooms (see `zoomLoadDelay`). */
+  zoomLoadGate: ZoomLoadGate;
+  /** The `loadToken` of the last style load that ended. */
+  loadedToken: number;
+  /** The resolved style that the current sublayers were generated from. */
+  renderedStyle: ResolvedBasemapStyle | null;
+  /** The content of each tile reported to `onTileLoad`, to report a load once. */
+  reportedTiles: WeakMap<object, unknown>;
+  /** The tiles last reported to `onViewportLoad`. */
+  viewportTiles: BasemapTile[] | null;
+  /** The attributions last reported to `onAttributionChange`, as JSON. */
+  attributions: string;
   /** The config `getStyleConfig` last returned, kept while its inputs do not change. */
   styleConfig: {
     labels: unknown;
@@ -280,7 +346,12 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     rejectRasterTile: null,
     labelPlacementInterval: DEFAULT_PLACEMENT_INTERVAL,
     separateLabelPlacement: false,
-    projectedMaxStretch: DEFAULT_MAX_STRETCH
+    zoomLoadDelay: 0,
+    projectedMaxStretch: DEFAULT_MAX_STRETCH,
+    onStyleLoad: {type: 'function', optional: true, value: null},
+    onTileLoad: {type: 'function', optional: true, value: null},
+    onViewportLoad: {type: 'function', optional: true, value: null},
+    onAttributionChange: {type: 'function', optional: true, value: null}
   };
 
   /** Current layer state. */
@@ -309,8 +380,32 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       sourceCacheOptions: undefined,
       styleLoadOptions: undefined,
       glyphs: null,
+      zoomLoadGate: new ZoomLoadGate(),
+      loadedToken: 0,
+      renderedStyle: null,
+      reportedTiles: new WeakMap(),
+      viewportTiles: null,
+      // No style draws no sources: the first report is the first attribution.
+      attributions: '[]',
       styleConfig: null
     };
+  }
+
+  /**
+   * False while the style, its sprites or the tiles of the current viewport load, as deck.gl's
+   * `TileLayer.isLoaded`. A style or tile that failed to load counts as loaded.
+   */
+  get isLoaded(): boolean {
+    const state = this.state;
+    if (!state || state.loadedToken !== state.loadToken) {
+      return false;
+    }
+    // Until the sublayers of the style exist, the sublayers that `super` checks are not its own.
+    const {resolvedStyle, spriteAtlases, renderedStyle} = state;
+    if (resolvedStyle && (!spriteAtlases || renderedStyle !== resolvedStyle)) {
+      return false;
+    }
+    return super.isLoaded;
   }
 
   /**
@@ -458,6 +553,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         styleSnapshot: null,
         loadError: null,
         loadToken,
+        loadedToken: loadToken,
         spriteAtlases: null,
         glyphs: null
       });
@@ -514,7 +610,8 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
             resolvedStyle: null,
             styleInput: null,
             styleSnapshot: null,
-            loadError: error
+            loadError: error,
+            loadedToken: loadToken
           });
         }
       });
@@ -540,10 +637,17 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       styleInput: style,
       styleSnapshot: hasFailedSource(styleSnapshot, resolvedStyle) ? null : styleSnapshot,
       loadError: null,
+      loadedToken: loadToken,
       styleLoadOptions: loadOptions,
       glyphs: keepGlyphs ? this.state.glyphs : glyphs
     });
     this.loadSprites(resolvedStyle, style, loadOptions, loadToken, sameOptions);
+    // An error of the app's callback is not a load failure: it must not clear the style.
+    try {
+      this.getCurrentProps().onStyleLoad?.(resolvedStyle);
+    } catch (error) {
+      (this.getCurrentLayer() ?? this).raiseError(error as Error, 'onStyleLoad');
+    }
   }
 
   /**
@@ -590,6 +694,8 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     this.state.spriteLoad!.then(spriteAtlases => {
       if (this.state.loadToken === loadToken && this.state.spriteAtlases !== spriteAtlases) {
         this.setState({spriteAtlases});
+        // The tiles can have loaded before the sprites.
+        (this.getCurrentLayer() as this | null)?.checkViewportLoad();
       }
     });
   }
@@ -716,19 +822,28 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       if (!this.state.tilesets.has(source)) {
         const loader = new SharedMVTLayer({
           id: `${this.id}-loader`,
-          data: source.tiles!,
+          data: getSourceTileTemplates(source)!,
           fetch: getBasemapLayerFetch(this.props.fetch, 'arrayBuffer'),
-          loadOptions: getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
+          loadOptions: getTileLoadOptions(
+            source,
+            getSourceLoadOptions(this.props.loadOptions, sourceLayers.get(source))
+          )
         });
         loader.context = this.context;
-        const tileset = new SharedTileset2D({
+        const gate = this.state.zoomLoadGate;
+        const loadTile = getVectorTileLoader(source, loader, geoJson);
+        const tileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
-          adapter: getBasemapTilesetAdapter(this.props.projectedMaxStretch),
+          adapter: getZoomGatedAdapter(
+            gate,
+            getBasemapTilesetAdapter(this.props.projectedMaxStretch, getSourceTileBounds(source))
+          ),
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
-          getTileData: getVectorTileLoader(source, loader, geoJson)
+          getTileData: tile => (tile.signal?.aborted ? null : loadTile(tile))
         });
+        holdBeforeRequestSlot(tileset, gate);
         this.state.tilesets.set(source, tileset);
         this.state.tilesetSourceLayers.set(source, sourceLayerKeys.get(source)!);
       }
@@ -751,18 +866,110 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     return labelPlacement;
   }
 
+  /** The props of the current layer: an async load can end after the props changed. */
+  private getCurrentProps(): BasemapLayerProps {
+    return (this.getCurrentLayer() ?? this).props;
+  }
+
+  /** Gives each tile load once to `onTileLoad`: the style layers of a source share its tiles. */
+  private reportTileLoad(tile: BasemapTile): void {
+    const {reportedTiles} = this.state;
+    if (reportedTiles.has(tile) && reportedTiles.get(tile) === tile.content) {
+      return;
+    }
+    reportedTiles.set(tile, tile.content);
+    this.getCurrentProps().onTileLoad?.(tile);
+  }
+
+  /**
+   * Calls `onViewportLoad` when the style, its sprites and the tiles that every tile sublayer
+   * selects have loaded, and the tiles are not those last reported. As in deck.gl's `TileLayer`,
+   * the tiles count, not the layers drawn from them.
+   */
+  private checkViewportLoad(): void {
+    const {resolvedStyle, renderedStyle, spriteAtlases, loadedToken, loadToken} = this.state;
+    if (
+      loadedToken !== loadToken ||
+      !resolvedStyle ||
+      renderedStyle !== resolvedStyle ||
+      !spriteAtlases
+    ) {
+      return;
+    }
+    const tiles: BasemapTile[] = [];
+    for (const layer of this.getSubLayers()) {
+      const selected = getLoadedSelectedTiles(layer);
+      if (!selected) {
+        return;
+      }
+      tiles.push(...selected);
+    }
+    const unique = [...new Set(tiles)];
+    const last = this.state.viewportTiles;
+    // A viewport that selects no tiles has nothing loaded (an empty `every` is true).
+    const reported =
+      last?.length === unique.length && last.every((tile, i) => tile === unique[i]);
+    if (!unique.length || reported) {
+      return;
+    }
+    this.state.viewportTiles = unique;
+    this.getCurrentProps().onViewportLoad?.(unique);
+  }
+
+  /** Calls `onAttributionChange` when the attributions of the drawn sources change. */
+  private updateAttributions(style: ResolvedBasemapStyle | null, zoom: number): void {
+    const attributions = style ? getStyleAttributions(style, zoom, this.getStyleConfig()) : [];
+    const key = JSON.stringify(attributions);
+    if (key !== this.state.attributions) {
+      this.state.attributions = key;
+      this.getCurrentProps().onAttributionChange?.(attributions);
+    }
+  }
+
+  /**
+   * Adds this layer's tile and viewport callbacks to its tile sublayers, after their own. The
+   * layer manager runs a sublayer's callbacks with the props of its latest render.
+   */
+  private addTileCallbacks(layers: Layer[]): Layer[] {
+    return layers.map(layer => {
+      if (!(layer instanceof TileLayer || layer instanceof SharedTile2DLayer)) {
+        return layer;
+      }
+      const {onTileLoad, onViewportLoad} = layer.props as {
+        onTileLoad?: ((tile: BasemapTile) => void) | null;
+        onViewportLoad?: ((tiles: BasemapTile[]) => void) | null;
+      };
+      return layer.clone({
+        onTileLoad: (tile: BasemapTile) => {
+          onTileLoad?.(tile);
+          this.reportTileLoad(tile);
+        },
+        onViewportLoad: (tiles: BasemapTile[]) => {
+          onViewportLoad?.(tiles);
+          // The sublayer reports during its update, before the other sublayers update.
+          Promise.resolve().then(() =>
+            (this.getCurrentLayer() as this | null)?.checkViewportLoad()
+          );
+        }
+      } as any);
+    });
+  }
+
   /** Renders the sublayers generated from the resolved style definition. */
   renderLayers() {
     const {resolvedStyle} = this.state;
+    const {viewport} = this.context;
+    // In a projected view, the zoom of the Web Mercator map of the same scale.
+    const zoom = getStyleZoom(viewport);
+    this.updateAttributions(resolvedStyle, zoom);
+    // Recorded without setState: this only tracks what the current sublayers were built from.
+    this.state.renderedStyle = resolvedStyle;
     if (!resolvedStyle) {
       return [];
     }
 
+    this.state.zoomLoadGate.delay = Math.max(0, Number(this.props.zoomLoadDelay) || 0);
     this.updateSourceTilesets(resolvedStyle);
-    const {viewport} = this.context;
-    // In a projected view, the zoom of the Web Mercator map of the same scale.
-    const zoom = getStyleZoom(viewport);
-    // Recorded without setState: this only tracks what the current sublayers were built from.
     this.state.zoomKey = this.getZoomKey(resolvedStyle, viewport);
 
     const layers = getBasemapLayers({
@@ -787,12 +994,12 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     });
     const {extensions} = this.props;
     if (extensions.length === 0) {
-      return layers;
+      return this.addTileCallbacks(layers);
     }
     // The sublayers are not made with `getSubLayerProps`: give them the extensions of this layer
     // and the props of those extensions, as `getSubLayerProps` does. A sublayer keeps its own
     // extensions, and runs them first.
-    return layers.map(layer => {
+    const extendedLayers = layers.map(layer => {
       const props: Record<string, any> = {
         extensions: [...(layer.props.extensions || []), ...extensions],
         updateTriggers: {...layer.props.updateTriggers}
@@ -804,6 +1011,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       }
       return layer.clone(props);
     });
+    return this.addTileCallbacks(extendedLayers);
   }
 }
 
@@ -885,6 +1093,154 @@ function reuseSources(resolvedStyle: ResolvedBasemapStyle, previous: ResolvedBas
   for (const [sourceId, source] of Object.entries(resolvedStyle.sources)) {
     resolvedStyle.sources[sourceId] = previousSources.get(getSourceKey(source)) ?? source;
   }
+}
+
+/**
+ * The most tile zooms between a held tile and the loaded ancestor that draws in its place. A much
+ * coarser tile, such as one loaded for the first view of the map, has too little detail to draw
+ * in place of a tile 8 times as fine.
+ */
+const MAX_PLACEHOLDER_ZOOMS = 3;
+
+/** Whether a tileset has loaded content for a near ancestor of a tile, which draws in its place. */
+function hasLoadedAncestor(
+  tileset: SharedTileset2D,
+  index: {x: number; y: number; z: number}
+): boolean {
+  for (let parent = index; parent.z > Math.max(0, index.z - MAX_PLACEHOLDER_ZOOMS); ) {
+    parent = tileset.getParentIndex(parent);
+    const ancestor = tileset.getTile(parent);
+    if (ancestor?.isLoaded && ancestor.content) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A request token that does not take a slot, for a held load that a newer load replaced. */
+const NO_SLOT = {done: () => {}};
+
+/**
+ * Holds the vector tile loads of `tileset` in `gate` before they take a request slot, so that held
+ * tiles do not keep a tile with no placeholder from loading. Only a tile that a loaded ancestor
+ * draws, enlarged, meanwhile is held: in a zoom out the new tiles cover more than the old, and
+ * load at once. `SharedTileset2D` has no option for its request scheduler, so this wraps its own.
+ */
+function holdBeforeRequestSlot(tileset: SharedTileset2D, gate: ZoomLoadGate): void {
+  const internals = tileset as unknown as {_requestScheduler: RequestScheduler};
+  const scheduler = internals._requestScheduler;
+  if (!scheduler) {
+    throw new Error('SharedTileset2D has no request scheduler to hold zoom loads before.');
+  }
+  const requests = new WeakMap<SharedTile2DHeader, number>();
+  internals._requestScheduler = {
+    async scheduleRequest(tile: SharedTile2DHeader, getPriority?: () => number) {
+      const request = (requests.get(tile) ?? 0) + 1;
+      requests.set(tile, request);
+      const isCurrent = () => requests.get(tile) === request;
+      if (
+        gate.delay > 0 &&
+        (await gate.wait(null, () => isCurrent() && hasLoadedAncestor(tileset, tile.index)))
+      ) {
+        if (!isCurrent()) {
+          // A newer load of the tile replaced this one, and aborted its signal: it fetches nothing.
+          return NO_SLOT;
+        }
+        // The view has come to rest: a tile that no view shows or selects now is not loaded.
+        // Cancelled, it loads again if a view selects it later.
+        if (!tile.isLoading || !tileset.visibleTiles.includes(tile)) {
+          return null;
+        }
+      }
+      return scheduler.scheduleRequest(tile, getPriority);
+    }
+  } as RequestScheduler;
+}
+
+/**
+ * The basemap tile traversal `adapter`, which also records each view's zoom in `gate` at each tile
+ * selection. This is the view's own zoom: in a projected view the Web Mercator zoom of the same
+ * scale changes with the latitude, so a pan would hold loads as a zoom does.
+ */
+function getZoomGatedAdapter(
+  gate: ZoomLoadGate,
+  adapter: ReturnType<typeof getBasemapTilesetAdapter>
+): SharedTileset2DAdapter<unknown> {
+  return {
+    getTileIndices(context) {
+      const viewport = context.viewState as Viewport;
+      gate.noteZoom(viewport.id, viewport.zoom);
+      return adapter.getTileIndices(context);
+    },
+    getTileBoundingBox: (context, index) => adapter.getTileBoundingBox(context, index)
+  };
+}
+
+/**
+ * The selected tiles of a tile sublayer, once they have all loaded; null while one loads. A layer
+ * that is not a tile layer selects no tiles.
+ */
+function getLoadedSelectedTiles(layer: Layer): BasemapTile[] | null {
+  if (layer instanceof TileLayer) {
+    const tileset = layer.state?.tileset;
+    return tileset?.isLoaded ? tileset.selectedTiles! : null;
+  }
+  if (layer instanceof SharedTile2DLayer) {
+    const views = [...((layer.state as any)?.tilesetViews?.values() ?? [])];
+    if (!views.length || !views.every(view => view.isLoaded)) {
+      return null;
+    }
+    return views.flatMap(view => view.selectedTiles);
+  }
+  return [];
+}
+
+/**
+ * Whether a style layer is drawn at `zoom`, as MapLibre GL JS's `StyleLayer.isHidden`, and with
+ * the globe toggles.
+ */
+function isShownAt(
+  layer: ResolvedBasemapStyleLayer,
+  zoom: number,
+  globe: ReturnType<BasemapLayer['getStyleConfig']>
+): boolean {
+  return (
+    isDrawnStyleLayer(layer, globe) &&
+    layer.layout?.visibility !== 'none' &&
+    !(layer.minzoom !== undefined && zoom < layer.minzoom) &&
+    !(layer.maxzoom !== undefined && zoom >= layer.maxzoom)
+  );
+}
+
+/**
+ * The `attribution` of the sources that the shown layers of a style draw at `zoom`, in source
+ * order, as MapLibre GL JS's `AttributionControl` collects them: each once, without blank ones,
+ * and without one that another contains.
+ */
+function getStyleAttributions(
+  style: ResolvedBasemapStyle,
+  zoom: number,
+  globe: ReturnType<BasemapLayer['getStyleConfig']>
+): string[] {
+  const used = new Set(
+    (style.layers || []).filter(layer => isShownAt(layer, zoom, globe)).map(layer => layer.source)
+  );
+  const attributions: string[] = [];
+  for (const [id, source] of Object.entries(style.sources || {})) {
+    const {attribution} = source || {};
+    if (
+      used.has(id) &&
+      typeof attribution === 'string' &&
+      attribution.trim() &&
+      !attributions.includes(attribution)
+    ) {
+      attributions.push(attribution);
+    }
+  }
+  return attributions.filter(
+    attribution =>
+      !attributions.some(other => other !== attribution && other.includes(attribution))
+  );
 }
 
 /**
