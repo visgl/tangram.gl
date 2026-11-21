@@ -104,6 +104,9 @@ export function getBasemapRequestFetch(
   }
   return (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith('pmtiles://')) {
+      return send(input, init);
+    }
     const request = transformBasemapRequest(transformRequest, url, resourceType, init);
     return send(request.url, request.init);
   };
@@ -139,6 +142,9 @@ export function getBasemapLayerFetch(
   let layerFetch = byFetch.get(nextFetch);
   if (!layerFetch) {
     layerFetch = (url, context) => {
+      if (url.startsWith('pmtiles://')) {
+        return nextFetch(url, context);
+      }
       const request = transformBasemapRequest(transformRequest, url, 'Tile');
       if (!request.init || Object.keys(request.init).length === 0) {
         return nextFetch(request.url, context);

@@ -14,7 +14,7 @@ import {expression as styleExpression, latest} from '@maplibre/maplibre-gl-style
 import mvtWorkerUrl from '@loaders.gl/tiles/mvt/mvt-worker.js?url';
 import * as maplibregl from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url';
-import {BasemapLayer} from '../../src/index';
+import {BasemapLayer, BasemapLoadError} from '../../src/index';
 import type {GlyphStore} from '../../src/glyph-store';
 import {MVTLabelLayer} from '../../src/mvt-label-layer';
 import {renderMapLibreScene} from '../../../../dev/basemap-conformance/src/maplibre';
@@ -430,12 +430,16 @@ async function drawBasemapLayer(
             const layers = layerManager?.getLayers() || [];
             // A tile layer reports loaded before it has selected any tiles.
             const tileLayers = layers.filter((layer: any) => layer.state?.tileset);
+            // A style whose sources have no tiles (an image over a background) draws no tile layer.
+            const hasTiles = Object.values(resolvedStyle?.sources || {}).some(
+              (source: any) => source?.tiles || source?.type === 'geojson'
+            );
             frameDraws = draws;
             draws = 0;
             const ready =
               resolvedStyle &&
               (!resolvedStyle.sprite || basemap.state.spriteAtlases) &&
-              tileLayers.length > 0 &&
+              (tileLayers.length > 0 || !hasTiles) &&
               tileLayers.every((layer: any) => layer.state.tileset.selectedTiles) &&
               layers.every((layer: any) => layer.isLoaded) &&
               // Labels along lines are placed by a length estimate until their web font has
@@ -471,7 +475,15 @@ async function drawBasemapLayer(
             }
             resolve(readCanvas(deck!.getCanvas()!, pixelRatio));
           },
-          onError: error => reject(error)
+          onError: error => {
+            // The fixtures hold only the tiles a scene draws. Another raster-dem tile answers 404:
+            // it draws nothing, in both renderers, and is not a render failure.
+            const tile = error instanceof BasemapLoadError && error.kind === 'tile';
+            if (tile && error.status === 404) {
+              return;
+            }
+            reject(error);
+          }
         });
       }),
       'BasemapLayer render'

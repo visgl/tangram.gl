@@ -3,6 +3,11 @@
 // Copyright (c) vis.gl contributors
 
 import {log} from '@deck.gl/core';
+import {
+  BasemapFetchError,
+  getBasemapLoadError,
+  type BasemapLoadErrorHandler
+} from './basemap-error';
 import {derefLayers} from '@maplibre/maplibre-gl-style-spec';
 import {
   getBasemapResourceFetch,
@@ -14,6 +19,7 @@ import {
   BasemapStyleSchema,
   ResolvedBasemapStyleSchema
 } from './map-style-schema';
+import {getPMTilesSourceFields, isPMTilesUrl, PMTILES_PROTOCOL} from './pmtiles-source';
 import {isBasemapProtocolUrl} from './basemap-protocol';
 
 /**
@@ -22,7 +28,10 @@ import {isBasemapProtocolUrl} from './basemap-protocol';
 export type BasemapSource = {
   /** Source kind such as `vector` or `raster`. */
   type?: string;
-  /** Optional TileJSON URL used to resolve the source metadata. */
+  /**
+   * Optional TileJSON URL used to resolve the source metadata, or a PMTiles archive,
+   * `pmtiles://<archive URL>`, whose header resolves it.
+   */
   url?: string;
   /** Inline tile templates for the source. */
   tiles?: string[];
@@ -108,6 +117,16 @@ export type BasemapLoadOptions = {
   /** Optional init object passed to the selected fetch implementation. */
   fetchOptions?: RequestInit;
   /**
+   * Resolved sources by `getSourceKey` of their definition and base URL. A source whose key is in
+   * the cache is not fetched again. Each resolution replaces the entries with its own sources.
+   */
+  sourceCache?: Map<string, BasemapSource>;
+  /**
+   * Called for each source whose TileJSON or GeoJSON data cannot be loaded, in place of the
+   * warning that is logged without it.
+   */
+  onError?: BasemapLoadErrorHandler;
+  /**
    * Changes each request before it is sent (see `BasemapTransformRequest`). `BasemapLayer` sets it
    * from its `transformRequest` prop.
    */
@@ -115,6 +134,18 @@ export type BasemapLoadOptions = {
   /** Additional loader options are accepted for forward compatibility. */
   [key: string]: unknown;
 } | null;
+
+/**
+ * A key of a source's content: its JSON with sorted object keys. Two sources with the same key
+ * load the same tiles.
+ */
+export function getSourceKey(value: unknown): string {
+  return JSON.stringify(value, (_key, item) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]]))
+      : item
+  );
+}
 
 /** Resolves a possibly relative URL against the provided base URL. */
 function normalizeUrl(url: string | undefined, baseUrl?: string) {
@@ -172,7 +203,11 @@ export async function fetchJson(
   const response = await fetchFn(url, loadOptions?.fetchOptions);
 
   if (!response.ok) {
-    throw new Error(`Failed to load basemap resource: ${url} (${response.status})`);
+    throw new BasemapFetchError(
+      `Failed to load basemap resource: ${url} (${response.status})`,
+      url,
+      response.status
+    );
   }
 
   return await response.json();
@@ -226,12 +261,24 @@ async function resolveGeoJsonSource(
   if (typeof source.data !== 'string') {
     return {...source};
   }
-  const dataUrl = normalizeUrl(source.data, baseUrl) || source.data;
+  return {...source, data: await loadGeoJsonData(source.data, baseUrl, loadOptions)};
+}
+
+/**
+ * Fetches the GeoJSON of a `geojson` source's `data` URL, as MapLibre loads it. A relative URL
+ * resolves against `baseUrl`. Throws if the data cannot be fetched or is not a GeoJSON object.
+ */
+export async function loadGeoJsonData(
+  url: string,
+  baseUrl: string | undefined,
+  loadOptions?: BasemapLoadOptions
+): Promise<object> {
+  const dataUrl = normalizeUrl(url, baseUrl) || url;
   const data = await fetchJson(dataUrl, loadOptions, 'Source');
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error(`Invalid GeoJSON: ${dataUrl}`);
   }
-  return {...source, data};
+  return data;
 }
 
 /**
@@ -253,8 +300,17 @@ async function resolveSource(
     return await resolveGeoJsonSource(source, baseUrl, loadOptions);
   }
 
+  // An image's url resolves against the style's base url, as tile templates do.
+  if (source.type === 'image' && typeof source.url === 'string') {
+    return {...source, url: normalizeUrl(source.url, baseUrl)};
+  }
+
   if (!source.url || !TILEJSON_SOURCE_TYPES.has(String(source.type))) {
     return source.tiles ? {...source, tiles: normalizeTiles(source.tiles, baseUrl)} : {...source};
+  }
+
+  if (isPMTilesUrl(source.url) && !isBasemapProtocolUrl(source.url)) {
+    return await resolvePMTilesSource(source, baseUrl, loadOptions);
   }
 
   const tileJsonUrl = normalizeUrl(source.url, baseUrl);
@@ -281,6 +337,32 @@ async function resolveSource(
     throw new Error(`TileJSON has no tiles: ${tileJsonUrl}`);
   }
   return resolvedSource;
+}
+
+/**
+ * Resolves a source whose `url` is a PMTiles archive, `pmtiles://<archive URL>`, from the archive's
+ * header, as MapLibre GL JS's `pmtiles` protocol does: its tiles are read from the archive (see
+ * `getPMTilesSourceFields`). The archive URL resolves against the style's base URL. As with a
+ * TileJSON, the style's own source properties take precedence.
+ */
+async function resolvePMTilesSource(
+  source: BasemapSource,
+  baseUrl: string | undefined,
+  loadOptions?: BasemapLoadOptions
+): Promise<BasemapSource> {
+  const archiveUrl = String(source.url).slice(PMTILES_PROTOCOL.length);
+  const resolvedArchiveUrl = normalizeUrl(archiveUrl, baseUrl) || archiveUrl;
+  const archiveFields = await getPMTilesSourceFields(
+    resolvedArchiveUrl,
+    String(source.type),
+    loadOptions
+  );
+  return {
+    ...archiveFields,
+    ...source,
+    url: `${PMTILES_PROTOCOL}${resolvedArchiveUrl}`,
+    tiles: source.tiles ? normalizeTiles(source.tiles, baseUrl) : archiveFields.tiles
+  };
 }
 
 /**
@@ -339,11 +421,17 @@ export async function resolveBasemapStyle(
   );
   const baseUrl = typeof style === 'string' ? style : loadOptions?.baseUrl;
   const resolvedSources: Record<string, BasemapSource> = {};
+  const sourceCache = loadOptions?.sourceCache;
+  const cachedSources = new Map<string, BasemapSource>();
 
   await Promise.all(
     Object.entries(styleDefinition.sources || {}).map(async ([sourceId, source]) => {
+      const key = sourceCache ? getSourceKey([source, baseUrl]) : '';
       try {
-        resolvedSources[sourceId] = (await resolveSource(source, baseUrl, loadOptions)) || {};
+        const resolvedSource =
+          sourceCache?.get(key) ?? ((await resolveSource(source, baseUrl, loadOptions)) || {});
+        resolvedSources[sourceId] = resolvedSource;
+        cachedSources.set(key, resolvedSource);
       } catch (error) {
         if (isLoadCancelled(error, loadOptions)) {
           throw loadOptions?.fetchOptions?.signal?.aborted
@@ -356,11 +444,18 @@ export async function resolveBasemapStyle(
         const inlineTiles = source?.tiles?.length
           ? normalizeTiles(source.tiles, baseUrl)
           : undefined;
-        log.warn(
-          `[BasemapLayer] Source "${sourceId}" could not be loaded; ${
-            inlineTiles ? 'using its inline tiles' : 'its layers are skipped'
-          }: ${String((error as Error)?.message ?? error)}`
-        )();
+        if (loadOptions?.onError) {
+          const url = typeof source?.data === 'string' ? source.data : source?.url;
+          loadOptions.onError(
+            getBasemapLoadError('source', error, {sourceId, url: normalizeUrl(url, baseUrl)})
+          );
+        } else {
+          log.warn(
+            `[BasemapLayer] Source "${sourceId}" could not be loaded; ${
+              inlineTiles ? 'using its inline tiles' : 'its layers are skipped'
+            }: ${String((error as Error)?.message ?? error)}`
+          )();
+        }
         resolvedSources[sourceId] =
           source?.type === 'geojson'
             ? {...source, data: undefined}
@@ -368,6 +463,10 @@ export async function resolveBasemapStyle(
       }
     })
   );
+  if (sourceCache) {
+    sourceCache.clear();
+    for (const [key, source] of cachedSources) sourceCache.set(key, source);
+  }
 
   const resolved = ResolvedBasemapStyleSchema.parse({
     ...styleDefinition,

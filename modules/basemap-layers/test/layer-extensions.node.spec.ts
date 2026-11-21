@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {DataFilterExtension, MaskExtension} from '@deck.gl/extensions';
+import {TileLayer} from '@deck.gl/geo-layers';
 import {describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer.ts';
 import {getBasemapLayers} from '../src/index.ts';
@@ -122,6 +123,31 @@ describe('the extensions of a BasemapLayer', () => {
       expect(sublayer.props.extensions.at(-1), sublayer.id).toBe(mask);
       expect(sublayer.props.maskId, sublayer.id).toBe('mask');
     }
+  });
+
+  test('inserted layers stay as given: no basemap extensions, and picked', () => {
+    const mask = new MaskExtension();
+    const inserted = new TileLayer({id: 'app-tiles', data: 'https://app.example.com/{z}/{x}/{y}'});
+    const layer = basemap({
+      extensions: [mask],
+      maskId: 'mask',
+      insertLayers: [{beforeId: 'road', layers: inserted}]
+    });
+    const sublayers = layer.renderLayers().flat(Infinity);
+    expect(sublayers).toContain(inserted);
+    expect(inserted.props.extensions).not.toContain(mask);
+    const own = sublayers.filter((sublayer: any) => sublayer !== inserted);
+    expect(own.length).toBeGreaterThan(1);
+    for (const sublayer of own) {
+      expect(sublayer.props.extensions.at(-1), sublayer.id).toBe(mask);
+    }
+    // Picking finds the inserted layer, as it was given.
+    const info = layer.getPickingInfo({
+      info: {layer, index: 0, picked: true},
+      mode: 'query',
+      sourceLayer: inserted
+    } as any);
+    expect(info.layer).toBe(inserted);
   });
 
   test('a BasemapLayer without extensions renders its sublayers unchanged', () => {

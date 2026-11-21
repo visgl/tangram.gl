@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 /* eslint-disable import/no-extraneous-dependencies */
-import {Layer, log} from '@deck.gl/core';
+import {Layer} from '@deck.gl/core';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer, registerBasemapProtocol, unregisterBasemapProtocol} from '../src/index.ts';
 import type {BasemapProtocolHandler, BasemapRequestParameters} from '../src/index.ts';
@@ -273,12 +273,8 @@ describe('BasemapLayer resources with a registered scheme', () => {
   });
 
   test('a style URL with an unknown scheme fails the style with a clear error', async () => {
-    const errors: string[] = [];
-    vi.spyOn(log, 'error').mockImplementation(((message: string) => {
-      errors.push(message);
-      return () => {};
-    }) as any);
-    const layer = new BasemapLayer({style: 'foo://basemap/style.json'});
+    const onError = vi.fn();
+    const layer = new BasemapLayer({style: 'foo://basemap/style.json', onError});
     layer.initializeState();
     layer.setState = (state: object) => Object.assign(layer.state, state);
     layer.loadStyle('foo://basemap/style.json', null);
@@ -286,6 +282,8 @@ describe('BasemapLayer resources with a registered scheme', () => {
     expect(layer.state.loadError!.message).toMatch(
       /No basemap protocol is registered for "foo:\/\/" \(foo:\/\/basemap\/style\.json\)/
     );
-    expect(errors[0]).toMatch(/Failed to resolve basemap style/);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({kind: 'style', url: 'foo://basemap/style.json'})
+    );
   });
 });
