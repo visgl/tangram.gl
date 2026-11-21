@@ -121,6 +121,8 @@ Selects whether the sublayers draw as a flat map or on a globe. Defaults to `'au
 
 This matches MapLibre GL JS, where the projection of the map selects how the style draws. Here, the deck.gl view is the projection, so most apps do not set `mode`.
 
+With `'auto'`, the layer logs one warning if the style declares a projection that differs from the view. Use [`getStyleView`](#getstyleviewstyle) to choose a matching view.
+
 ### `featureState`
 
 Type: `BasemapFeatureState | null`
@@ -788,6 +790,32 @@ is not fetched again. Each call replaces the entries of the map with the sources
 A source that cannot be loaded does not fail the style: a warning is logged, and its layers are skipped unless the source also lists inline `tiles`. Pass `loadOptions.onError` to receive a `BasemapLoadError` of kind `'source'` for each such source in place of the warning.
 The result is marked as resolved, so that `BasemapLayer` draws it without resolving it again (see [`style`](#style)).
 
+### `getStyleView(style)`
+
+Returns `{projection, viewState}` synchronously from a style object. For a style URL, resolve it with `resolveBasemapStyle` first. Pass the same resolved style to `BasemapLayer` so the style loads once.
+
+```ts
+import {Deck, MapView, _GlobeView} from '@deck.gl/core';
+import {BasemapLayer, getStyleView} from '@tangram.gl/basemap-layers';
+import {resolveBasemapStyle} from '@tangram.gl/basemap-layers/map-style';
+
+const style = await resolveBasemapStyle('https://example.com/style.json');
+const {projection, viewState} = getStyleView(style);
+
+new Deck({
+  views: projection === 'globe' ? new _GlobeView() : new MapView(),
+  initialViewState: viewState,
+  controller: true,
+  layers: [new BasemapLayer({style})]
+});
+```
+
+`globe` and `vertical-perspective` return `'globe'`. A projection expression returns `'globe'` if it contains either value, and `'mercator'` otherwise. A missing or invalid declaration also returns `'mercator'`.
+
+These values select `GlobeView` or a flat `MapView`. Like MapLibre's `globe`, `GlobeView` draws a globe up to zoom 12 and switches to Web Mercator above zoom 12. This is the only zoom-driven projection change. A `vertical-perspective` declaration follows the same zoom limit.
+
+`viewState` uses `center` for longitude and latitude and reads `zoom`, `bearing` and `pitch`. Missing or invalid values default to `0`. The helper skips `roll` because `MapView` has no equivalent. It also skips `centerAltitude`.
+
 ## Types
 
 The root entry point exports these types:
@@ -795,6 +823,7 @@ The root entry point exports these types:
 - `BasemapLayerProps`, `BasemapLayerLoadOptions` and `BasemapGlobeConfig`, the props of `BasemapLayer`
 - `BasemapStyle`, `BasemapStyleLayer`, `BasemapSource` and `BasemapLoadOptions`, a style before it is resolved
 - `ResolvedBasemapStyle` and `ResolvedBasemapStyleLayer`, a style that `resolveBasemapStyle` returned
+- `StyleProjection`, `StyleView` and `StyleViewState`, the projection and camera from `getStyleView`
 
 The `/map-style` entry point exports the style types too.
 

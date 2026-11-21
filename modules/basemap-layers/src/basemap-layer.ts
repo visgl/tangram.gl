@@ -62,6 +62,7 @@ import {BasemapStyleSchema, ResolvedBasemapStyleSchema} from './map-style-schema
 import {getDemUnpackVector} from './hillshade-layer';
 import {getTileLoadOptions} from './pmtiles-source';
 import {getStyleZoomKey} from './style-accessor';
+import {getStyleProjection} from './style-view';
 import {getResolvedBasemapStyleBaseUrl, isResolvedBasemapStyle} from './style-resolver';
 import type {
   BasemapLoadOptions,
@@ -388,6 +389,8 @@ type BasemapLayerState = {
   loadToken: number;
   /** `getStyleZoomKey` of the zoom the current sublayers were generated at. */
   zoomKey: string | null;
+  /** Whether this layer has warned about a style projection mismatch. */
+  warnedProjectionMismatch: boolean;
   /** Sprites of the resolved style, once loaded. */
   spriteAtlases: SpriteAtlas[] | null;
   /** The sprite URLs and pixel ratio of `spriteLoad`. */
@@ -521,6 +524,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       loadError: null,
       loadToken: 0,
       zoomKey: null,
+      warnedProjectionMismatch: false,
       tilesets: new Map(),
       tilesetSourceLayers: new Map(),
       tileLoadOptions: null,
@@ -659,6 +663,33 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       return mode === 'globe' ? 'globe' : 'map';
     }
     return isGlobeViewport(viewport) ? 'globe' : 'map';
+  }
+
+  /** Warns once when the declared style projection differs from the viewport in auto mode. */
+  warnProjectionMismatch(style: ResolvedBasemapStyle, viewport: Viewport | undefined): void {
+    if (
+      this.props.mode !== 'auto' ||
+      !viewport ||
+      this.state.warnedProjectionMismatch ||
+      isProjectedViewport(viewport)
+    ) {
+      return;
+    }
+    const projection = getStyleProjection(style);
+    if (!projection) {
+      return;
+    }
+    const globe = isGlobeViewport(viewport);
+    // GlobeView switches to a Web Mercator viewport above zoom 12.
+    const mismatch = projection === 'globe' ? !globe && viewport.zoom <= 12 : globe;
+    if (mismatch) {
+      this.state.warnedProjectionMismatch = true;
+      log.warn(
+        `[BasemapLayer] The style projection is "${projection}", but the view draws ${
+          globe ? 'a globe' : 'a flat map'
+        }. With mode: 'auto', the layer follows the deck.gl view. Use getStyleView(style) to choose MapView or GlobeView.`
+      )();
+    }
   }
 
   /**
@@ -1321,6 +1352,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     this.state.zoomLoadGate.delay = Math.max(0, Number(this.props.zoomLoadDelay) || 0);
     this.updateSourceTilesets(resolvedStyle);
     this.state.zoomKey = this.getZoomKey(resolvedStyle, viewport);
+    this.warnProjectionMismatch(baseStyle, viewport);
 
     const insertLayers = this.getValidInsertions(resolvedStyle);
     const layers = getBasemapLayers({

@@ -22,3 +22,5 @@ export {
   type ResolvedBasemapStyleLayer,
   type ResolvedBasemapStyle
 } from './style-resolver';
+export {getStyleView} from './style-view';
+export type {StyleProjection, StyleView, StyleViewState} from './style-view';

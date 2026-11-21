@@ -191,7 +191,8 @@ See [Layers][layers] for the properties of each type.
 | [`glyphs`][glyphs]                 | Supported     | Loaded per font stack and 256-character range as labels need them. CJK ideographs, hangul and kana are drawn with the browser's `sans-serif` font, as with MapLibre's default `localIdeographFontFamily`, at half its resolution. |
 | [`light`][light]                   | Supported     | `anchor`, `position`, `color` and `intensity`, with zoom expressions, shade `fill-extrusion` layers as in MapLibre. On a globe, the light keeps its position relative to the ground under each building. On WebGL and WebGPU.     |
 | [`sky`][sky], [`terrain`][terrain] | Not supported |                                                                                                                                                                                                                                   |
-| [`projection`][projection]         | Not supported | Use deck.gl's `MapView` or `GlobeView`. The default `mode: 'auto'` reads it from the view.                                                                                                                                                                     |
+| [`projection`][projection]         | Partial       | The layer does not read it: the deck.gl view sets the projection, and the default `mode: 'auto'` follows the view. [`getStyleView`][get-style-view] reads it, so the app can choose `MapView` or `GlobeView`. `globe`, `vertical-perspective` and an expression that names one of them give `GlobeView`; other values give `MapView`. `GlobeView` draws a flat map above zoom 12, as MapLibre's `globe` does. With `mode: 'auto'`, the layer logs one warning when the style's projection does not match the view. |
+| `center`, `zoom`, `bearing`, `pitch` | Partial     | The deck.gl view state sets the camera. [`getStyleView`][get-style-view] returns these values for `initialViewState`; a missing value is `0`. `roll` has no `MapView` equivalent and is not read. `centerAltitude` is not read. |
 
 ## Rendering
 
@@ -210,3 +211,4 @@ See [Layers][layers] for the properties of each type.
 [sky]: https://maplibre.org/maplibre-style-spec/sky/
 [terrain]: https://maplibre.org/maplibre-style-spec/terrain/
 [projection]: https://maplibre.org/maplibre-style-spec/projection/
+[get-style-view]: ../api-reference/basemap-layer.md#getstyleviewstyle

@@ -17,6 +17,7 @@ import {
   parseProperties,
   isResolvedBasemapStyle,
   resolveBasemapStyle,
+  getStyleView,
   ResolvedBasemapStyleSchema
 } from '@tangram.gl/basemap-layers/map-style';
 ```
@@ -31,6 +32,7 @@ Use `@tangram.gl/basemap-layers/map-style` when you want map-style validation, r
 - `findFeaturesStyledByLayer`
 - `parseProperties`
 - `resolveBasemapStyle`
+- `getStyleView`
 - `isResolvedBasemapStyle`
 - `MapStyleLoader`
 - `BasemapSourceSchema`
@@ -100,3 +102,7 @@ Resolves a style URL or in-memory style document into a fully normalized style d
 - returns a `ResolvedBasemapStyle`, marked as resolved: `BasemapLayer` draws it without resolving it again
 
 If you want a loaders.gl-compatible wrapper around the same behavior, use [`MapStyleLoader`](./map-style-loader).
+
+## `getStyleView(style)`
+
+Reads a style object's projection and initial camera. See [`getStyleView` in the `BasemapLayer` API reference](./basemap-layer#getstyleviewstyle) for the view selection rules and an example.

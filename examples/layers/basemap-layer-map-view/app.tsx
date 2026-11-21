@@ -4,7 +4,13 @@
 
 import {EXAMPLE_PANEL_STYLE} from '../../utils/panel-theme';
 import {Deck, MapView, _GlobeView} from '@deck.gl/core';
-import {BasemapLayer} from '@tangram.gl/basemap-layers';
+import {
+  BasemapLayer,
+  getStyleView,
+  type ResolvedBasemapStyle,
+  type StyleProjection
+} from '@tangram.gl/basemap-layers';
+import {resolveBasemapStyle} from '@tangram.gl/basemap-layers/map-style';
 import {
   ColumnPanel,
   MarkdownPanel,
@@ -28,6 +34,10 @@ type ExampleStyleOption = {
 type RasterBasemapStyle = {
   version: 8;
   name: string;
+  projection: {type: 'globe'};
+  center: [number, number];
+  zoom: number;
+  pitch: number;
   sources: {
     basemap: {
       type: 'raster';
@@ -51,7 +61,7 @@ type RasterBasemapStyle = {
 
 type ExampleSettings = {
   view: {
-    mode: 'flat' | 'globe';
+    mode: 'flat' | 'globe' | 'style';
   };
   basemap: {
     style: ExampleStyleOption['id'];
@@ -121,9 +131,10 @@ const SETTINGS_SCHEMA: SettingsSchema = {
           type: 'select',
           options: [
             {label: 'Flat', value: 'flat'},
-            {label: 'Globe (Experimental)', value: 'globe'}
+            {label: 'Globe (Experimental)', value: 'globe'},
+            {label: 'From the style', value: 'style'}
           ],
-          description: 'Switch between a standard `MapView` and a globe view.'
+          description: 'Use a flat map, a globe, or the projection and camera from the style.'
         },
         {
           name: 'basemap.style',
@@ -146,6 +157,8 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
   const clearColor = [0.92, 0.94, 0.94, 1];
   const flatView = new MapView({clearColor});
   const globeView = new _GlobeView({resolution: 36, clearColor});
+  let projection: StyleProjection = 'mercator';
+  let selectionId = 0;
   const state = {
     settings: {
       view: {
@@ -182,8 +195,12 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
     }
 
     applyStyleSelection(nextStyleId);
-    syncDeckLayers();
-    syncInfoWidget();
+    if (state.settings.view.mode === 'style') {
+      void syncDeckMode();
+    } else {
+      syncDeckLayers();
+      syncInfoWidget();
+    }
   };
   const handleViewModeChange = (nextMode: ExampleSettings['view']['mode']) => {
     if (nextMode === state.settings.view.mode) {
@@ -195,8 +212,7 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
       applyStyleSelection(DEFAULT_GLOBE_STYLE_ID);
     }
 
-    syncDeckMode();
-    syncInfoWidget();
+    void syncDeckMode();
   };
 
   const trackedFetch: typeof fetch = async (input, init) => {
@@ -242,18 +258,19 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
     }
   };
 
-  const deck = new Deck({
+  const deck = new Deck<MapView | _GlobeView | null>({
     parent: rootElement,
-    views: getView(state.settings, flatView, globeView),
-    initialViewState: getViewState(state.settings),
+    views: flatView,
+    initialViewState: FLAT_VIEW_STATE,
     controller: true,
-    layers: [createBasemapLayer(state.settings, status, trackedFetch)],
+    layers: [createBasemapLayer(getSelectedStyle(), trackedFetch)],
     widgets: [infoWidget]
   });
 
   syncInfoWidget();
 
   return () => {
+    selectionId += 1;
     deck.finalize();
     rootElement.remove();
     container.replaceChildren();
@@ -275,20 +292,52 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
     status.lastError = null;
   }
 
+  function getSelectedStyle(): ExampleBasemapStyle {
+    return (STYLE_OPTIONS.find(option => option.id === status.activeStyleId) || STYLE_OPTIONS[0])
+      .style;
+  }
+
   function syncDeckLayers() {
     deck.setProps({
-      layers: [createBasemapLayer(state.settings, status, trackedFetch)],
+      layers: [createBasemapLayer(getSelectedStyle(), trackedFetch)],
       widgets: [infoWidget]
     });
   }
 
-  function syncDeckMode() {
+  async function syncDeckMode() {
+    const id = ++selectionId;
+    const mode = state.settings.view.mode;
+    let style: ExampleBasemapStyle | ResolvedBasemapStyle = getSelectedStyle();
+    let nextProjection: StyleProjection = mode === 'globe' ? 'globe' : 'mercator';
+    let initialViewState = mode === 'globe' ? GLOBE_VIEW_STATE : FLAT_VIEW_STATE;
+    if (mode === 'style') {
+      status.lastError = null;
+      syncInfoWidget();
+      try {
+        style = await resolveBasemapStyle(style, {fetch: trackedFetch});
+      } catch (error) {
+        if (id === selectionId) {
+          status.lastError = error instanceof Error ? error.message : String(error);
+          syncInfoWidget();
+        }
+        return;
+      }
+      if (id !== selectionId) {
+        return;
+      }
+      const styleView = getStyleView(style);
+      nextProjection = styleView.projection;
+      initialViewState = styleView.viewState;
+    }
+
+    projection = nextProjection;
     deck.setProps({
-      views: getView(state.settings, flatView, globeView),
-      initialViewState: getViewState(state.settings),
-      layers: [createBasemapLayer(state.settings, status, trackedFetch)],
+      views: projection === 'globe' ? globeView : flatView,
+      initialViewState,
+      layers: [createBasemapLayer(style, trackedFetch)],
       widgets: [infoWidget]
     });
+    syncInfoWidget();
   }
 
   function syncInfoWidget() {
@@ -304,7 +353,8 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
             markdown: [
               'This example validates both the flat `MapView` path and the experimental globe path.',
               '',
-              `- View: **${state.settings.view.mode === 'globe' ? 'GlobeView' : 'MapView'}**`,
+              `- View: **${projection === 'globe' ? 'GlobeView' : 'MapView'}**`,
+              `- Projection: **${projection}**`,
               `- Resolved style: **${escapeMarkdown(status.activeStyleName)}**`,
               `- Status: **${stateLabel}**`,
               `- Style metadata requests: **${status.styleMetadataRequests}**`,
@@ -323,7 +373,7 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
             onSettingsChange: nextSettings => {
               const nextMode = getValueAtPath(nextSettings, 'view.mode');
               const nextStyleId = getValueAtPath(nextSettings, 'basemap.style');
-              if (nextMode === 'flat' || nextMode === 'globe') {
+              if (nextMode === 'flat' || nextMode === 'globe' || nextMode === 'style') {
                 handleViewModeChange(nextMode);
               }
               if (nextStyleId === 'positron' || nextStyleId === 'dark' || nextStyleId === 'liberty' || nextStyleId === 'blue-marble') {
@@ -348,16 +398,12 @@ function createRoot(container: HTMLElement): HTMLDivElement {
 }
 
 function createBasemapLayer(
-  settings: ExampleSettings,
-  status: ExampleStatus,
+  style: ExampleBasemapStyle | ResolvedBasemapStyle,
   trackedFetch: typeof fetch
 ): BasemapLayer {
-  const styleOption =
-    STYLE_OPTIONS.find(option => option.id === status.activeStyleId) || STYLE_OPTIONS[0];
-
   return new BasemapLayer({
     id: 'map-basemap',
-    style: styleOption.style,
+    style,
     loadOptions: {
       fetch: trackedFetch,
       core: {
@@ -365,14 +411,6 @@ function createBasemapLayer(
       }
     }
   });
-}
-
-function getView(settings: ExampleSettings, flatView: MapView, globeView: _GlobeView) {
-  return settings.view.mode === 'globe' ? globeView : flatView;
-}
-
-function getViewState(settings: ExampleSettings) {
-  return settings.view.mode === 'globe' ? GLOBE_VIEW_STATE : FLAT_VIEW_STATE;
 }
 
 function isStableGlobeStyle(styleId: ExampleStyleOption['id']) {
@@ -396,6 +434,10 @@ function createRasterStyle(name: string, tileTemplate: string): RasterBasemapSty
   return {
     version: 8,
     name,
+    projection: {type: 'globe'},
+    center: [0, 0],
+    zoom: 0.9,
+    pitch: 30,
     sources: {
       basemap: {
         type: 'raster',
