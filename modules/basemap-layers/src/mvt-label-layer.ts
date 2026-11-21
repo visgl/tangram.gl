@@ -53,7 +53,13 @@ import type {FittedIcon, IconTextFit} from './icon-text-fit';
 import {StretchIconLayer} from './stretch-icon-layer';
 import type {ResolvedSpriteIcon, SpriteAtlas} from './sprite';
 import {GlobeHorizonExtension} from './globe-horizon-extension';
-import {GlobeLineAngleExtension} from './globe-line-angle-extension';
+import {
+  FirstPersonLabelSizeExtension,
+  GlobeLineAngleExtension,
+  getFirstPersonLabelPerspective,
+  getFirstPersonLabelReferenceDepth
+} from './globe-line-angle-extension';
+import {isGeographicFirstPersonViewport} from './projected-background-layer';
 import {DEFAULT_TEXT_FONT, getTextLayerFontWeight, resolveLabelFont} from './text-font';
 import {getHaloBlurGamma, TextHaloBlurExtension} from './text-halo-blur-extension';
 import {
@@ -428,6 +434,15 @@ function getGlobeDrawnAngle(
   return keepUpright && dx < 0 ? angle + Math.PI : angle;
 }
 
+/** Project a map-plane direction into the billboard's screen plane. */
+function getMercatorDrawnAngle(toScreen: number[], angle: number, keepUpright: boolean): number {
+  const [ax, ay, bx, by] = toScreen;
+  const x = ax * Math.cos(angle) - bx * Math.sin(angle);
+  const y = ay * Math.cos(angle) - by * Math.sin(angle);
+  const projected = Math.atan2(-y, x);
+  return keepUpright && x < 0 ? projected + Math.PI : projected;
+}
+
 /** What placement needs of a label layer's rows that does not change with the view. */
 type PlacementGeometry = {
   key: unknown[];
@@ -463,6 +478,12 @@ const GLOBE_LINE_ANGLE_EXTENSIONS = {
   // Text kept upright turns around without its `text-offset` (see `withLineDirection`).
   uprightText: new GlobeLineAngleExtension({keepUpright: true, keepOffsetSide: true})
 };
+
+const MERCATOR_TEXT_ANGLE_EXTENSIONS = {
+  free: new GlobeLineAngleExtension({keepUpright: false, mercator: true}),
+  upright: new GlobeLineAngleExtension({keepUpright: true, keepOffsetSide: true, mercator: true})
+};
+const FIRST_PERSON_LABEL_SIZE_EXTENSION = new FirstPersonLabelSizeExtension();
 
 /** One quad of an icon stretched by `icon-text-fit`, as a `StretchIconLayer` draws it. */
 type FittedIconPart = {
@@ -585,6 +606,7 @@ type MVTLabelLayerState = {
   glyphKey?: string;
   /** The map bearing, in `BEARING_STEP` steps, that upright line labels were turned for. */
   bearingStep?: number;
+  firstPersonText?: boolean;
   /** 1 while the layer waits for glyphs of the labels' text to load (see `hasLabelGlyphs`). */
   glyphLoads?: number;
   /** The glyph store the layer waits on while `glyphLoads` is 1. */
@@ -2068,6 +2090,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       ),
       getAngle: `${this.state?.bearingStep}|${getTrigger(
         'text-keep-upright',
+        'text-pitch-alignment',
         'text-rotate',
         'symbol-placement'
       )}`,
@@ -2635,8 +2658,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     return (
       super.shouldUpdateState(params) ||
       (params.changeFlags.viewportChanged &&
-        this.turnsWithLines() &&
-        this.getBearingStep(params.context.viewport) !== this.state.bearingStep)
+        (isGeographicFirstPersonViewport(params.context.viewport) !== Boolean(this.state.firstPersonText) ||
+          (this.turnsWithLines() && this.getBearingStep(params.context.viewport) !== this.state.bearingStep)))
     );
   }
 
@@ -2661,11 +2684,18 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     );
   }
 
+  /** Explicit viewport pitch can be combined with map-relative rotation. */
+  usesMercatorLineBillboard(viewport: unknown = this.context?.viewport): boolean {
+    return this.props.billboard !== false &&
+      !isGeographicViewport(viewport) &&
+      this.getStyleProperty('text-pitch-alignment')?.evaluate(getZoomBucket(this.props.zoom || 0)) === 'viewport';
+  }
+
   /**
    * Text layer props for labels along lines: each label is turned to its line, upright when
    * `text-keep-upright` is set (the default). On a flat map they are drawn in the map plane, as
    * MapLibre does with the `auto` `text-rotation-alignment` and `text-pitch-alignment` of line
-   * placement; on a globe they stay billboards, turned in screen space.
+   * placement. On a globe or with viewport pitch alignment, they follow the line in screen space.
    */
   getLineLabelProps(): Record<string, unknown> {
     const placement = this.getSymbolPlacement();
@@ -2689,7 +2719,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       ? (row: LabelRow) => getProjectedPlaneAngle(viewport, row.position, row.angle ?? 0)
       : (row: LabelRow) => row.angle ?? 0;
     return {
-      billboard: geographic ? this.props.billboard : false,
+      billboard: geographic ? this.props.billboard : this.usesMercatorLineBillboard(viewport),
       getAngle: (row: LabelRow) => getUprightAngle(getLineAngle(row), bearingStep, keepUpright)
     };
   }
@@ -2703,7 +2733,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
   curvesLineText(viewport: any = this.context?.viewport): boolean {
     // In a projected view, glyph offsets along a line, measured in Web Mercator space, have
     // another direction and length: labels stay straight there.
-    if (!viewport || isGeographicViewport(viewport) || this.context?.device?.type === 'webgpu') {
+    if (!viewport || isGeographicViewport(viewport) || this.usesMercatorLineBillboard(viewport) || this.context?.device?.type === 'webgpu') {
       return false;
     }
     if (this.props.labelSizeUnits !== 'pixels' || !this.getStyleProperty('text-field')) {
@@ -2914,10 +2944,9 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
   }
 
   /**
-   * The extensions that keep billboards along lines on their lines on a globe. A globe draws them
-   * in screen space, at angles taken from north up, so the shader turns them by the direction the
-   * view draws the line in, at every frame, and upright with `keepUpright`: there the bearing
-   * alone does not tell which way they read. A flat map draws them in the map plane. The shader
+   * The extensions that turn billboards to their lines in screen space. Globe labels and
+   * viewport-pitched road text use the direction the view draws the line at every frame.
+   * The shader
    * keeps an angle upright only when it is the line's direction: icons turned by `icon-rotate` are
    * kept upright from north up, by their angles. Text keeps its `text-offset` on its side of the
    * line as it turns around.
@@ -2928,12 +2957,16 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     isLineDirection = true
   ): GlobeLineAngleExtension[] {
     const isGlobeBillboard = isGlobeViewport(this.context?.viewport) && this.props.billboard;
-    if (!turnsWithLine || !isGlobeBillboard) {
+    const isMercatorBillboard = keepUpright === 'text-keep-upright' && this.usesMercatorLineBillboard();
+    if (!turnsWithLine || !(isGlobeBillboard || isMercatorBillboard)) {
       return [];
     }
     const upright =
       (this.getStyleProperty(keepUpright)?.evaluate(getZoomBucket(this.props.zoom || 0)) ??
         getStylePropertyDefault(keepUpright)) === true;
+    if (isMercatorBillboard) {
+      return [upright ? MERCATOR_TEXT_ANGLE_EXTENSIONS.upright : MERCATOR_TEXT_ANGLE_EXTENSIONS.free];
+    }
     if (!upright || !isLineDirection) {
       return [GLOBE_LINE_ANGLE_EXTENSIONS.free];
     }
@@ -3646,17 +3679,18 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     // pixel offsets turn with the bearing and are foreshortened by the pitch.
     const textInMapPlane = !isGlobe && Boolean(lineProps.getAngle) && lineProps.billboard === false;
     const iconInMapPlane = !isGlobe && iconAngleProps?.props.billboard === false;
+    const referenceDepth =
+      (lineProps.billboard ?? this.props.billboard) && isGeographicFirstPersonViewport(viewport)
+        ? getFirstPersonLabelReferenceDepth(viewport)
+        : 0;
     const toScreen = [1, 0, 0, 1];
     // Glyphs placed along lines, as drawn (see `getLineGlyphProps`).
     const curves = textInMapPlane && this.curvesLineText(viewport);
     const bearingStep = curves ? this.getBearingStep(viewport) : 0;
     const styleKey = curves ? this.getLineGlyphStyleKey() : '';
     const spritesLoading = rules.hasIconData && this.props.spriteAtlases === null;
-    // On a globe, billboards along lines are turned to their lines as the view draws them (see
-    // `getLineAngleExtensions`): they collide along that direction.
-    const textGlobeTurn = isGlobe
-      ? this.getLineAngleExtensions(Boolean(lineProps.getAngle), 'text-keep-upright')[0]
-      : undefined;
+    // Line billboards collide along the direction the shader draws them on screen.
+    const textBillboardTurn = this.getLineAngleExtensions(Boolean(lineProps.getAngle), 'text-keep-upright')[0];
     const iconGlobeTurn = isGlobe ? iconAngleProps?.extensions[0] : undefined;
 
     // `tiles` rows are in longitude/latitude: their common-space positions, which do not change
@@ -3665,15 +3699,15 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     const m = viewport.pixelProjectionMatrix as number[];
     const horizon = isGlobe ? this.getHorizonTest(viewport) : null;
     // The padded text box of row `j` at the grid point `x, y`.
-    const getTextBox = (j: number, x: number, y: number): PlacementShape => {
+    const getTextBox = (j: number, x: number, y: number, scale: number): PlacementShape => {
       const x1 = textBoxes[j * 4];
       const y1 = textBoxes[j * 4 + 1];
       return {
         box: [
-          x + x1 - textPadding,
-          y + y1 - textPadding,
-          x + x1 + textBoxes[j * 4 + 2] + textPadding,
-          y + y1 + textBoxes[j * 4 + 3] + textPadding
+          x + x1 * scale - textPadding,
+          y + y1 * scale - textPadding,
+          x + (x1 + textBoxes[j * 4 + 2]) * scale + textPadding,
+          y + (y1 + textBoxes[j * 4 + 3]) * scale + textPadding
         ]
       };
     };
@@ -3683,11 +3717,13 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       let sy: number;
       let occluded = false;
       let common: number[] | null = null;
+      let anchorDepth = 0;
       if (commons) {
         const cx = commons[i * 3];
         const cy = commons[i * 3 + 1];
         const cz = commons[i * 3 + 2];
         const w = m[3] * cx + m[7] * cy + m[11] * cz + m[15];
+        anchorDepth = w;
         sx = (m[0] * cx + m[4] * cy + m[8] * cz + m[12]) / w;
         sy = (m[1] * cx + m[5] * cy + m[9] * cz + m[13]) / w;
         occluded = horizon ? horizon(cx, cy, cz) : false;
@@ -3712,12 +3748,18 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       }
       const t = i * 4;
       const inMapPlane =
-        (textInMapPlane && !Number.isNaN(textBoxes[t + 2])) ||
+        ((textInMapPlane || textBillboardTurn?.opts.mercator) && !Number.isNaN(textBoxes[t + 2])) ||
         (iconInMapPlane && !Number.isNaN(iconBoxes[t]));
+      if (referenceDepth > 0 && !common) {
+        common = this.projectPosition(row.position as number[], {autoOffset: false});
+        anchorDepth = m[3] * common[0] + m[7] * common[1] + m[11] * common[2] + m[15];
+      }
       if (inMapPlane) {
         common ||= viewport.projectPosition(viewport.unproject([sx, sy])) as number[];
         getMapPlaneToScreen(viewport, common, sx, sy, toScreen);
       }
+      const textScale = getFirstPersonLabelPerspective(referenceDepth, anchorDepth);
+      occluded ||= referenceDepth > 0 && anchorDepth <= 0;
       let text: PlacementShape | null = null;
       let textAnchors: PlacementSymbol['textAnchors'];
       const w = textBoxes[t + 2];
@@ -3757,47 +3799,40 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
           // Circles along the turned label, as MapLibre's collision circles along a line, taken
           // to the screen when the text is drawn in the map plane.
           let angle = (lineProps.getAngle(row) * Math.PI) / 180;
-          if (textGlobeTurn) {
-            angle = getGlobeDrawnAngle(
-              viewport,
-              row.position as number[],
-              angle,
-              textGlobeTurn.opts.keepUpright
-            );
+          const toBillboardAngle = (radians: number, upright: boolean) =>
+            textBillboardTurn?.opts.mercator
+              ? getMercatorDrawnAngle(toScreen, radians, upright)
+              : getGlobeDrawnAngle(viewport, row.position as number[], radians, upright);
+          if (textBillboardTurn) {
+            angle = toBillboardAngle(angle, textBillboardTurn.opts.keepUpright);
           }
           const ux = Math.cos(angle);
           const uy = -Math.sin(angle);
-          const radius = h / 2 + textPadding;
+          const radius = (h / 2) * textScale + textPadding;
+          const textWidth = w * textScale;
           // The text turns with its upright angle, and its offset with the line (see
           // `withLineDirection`), as drawn.
           const dx = textOffsets[i * 2];
           const dy = textOffsets[i * 2 + 1];
-          // On a globe, along the line as the view draws it, never turned around.
+          // The offset follows the line's direction, even if the text is turned upright.
           const [ex, ey] = rotatePixelOffset(
-            [dx, dy],
-            textGlobeTurn
-              ? (getGlobeDrawnAngle(
-                  viewport,
-                  row.position as number[],
-                  ((row.angle ?? 0) * Math.PI) / 180,
-                  false
-                ) *
-                  180) /
-                  Math.PI
+            [dx * textScale, dy * textScale],
+            textBillboardTurn
+              ? (toBillboardAngle(((row.angle ?? 0) * Math.PI) / 180, false) * 180) / Math.PI
               : (row.angle ?? 0)
           );
-          const cx = x1 + w / 2 - dx;
-          const cy = y1 + h / 2 - dy;
+          const cx = (x1 + w / 2 - dx) * textScale;
+          const cy = (y1 + h / 2 - dy) * textScale;
           // A label without height has a single circle.
           const n =
             radius > 0
-              ? Math.max(1, Math.ceil(Math.max(0, w - 2 * radius) / (radius * 2.5)) + 1)
+              ? Math.max(1, Math.ceil(Math.max(0, textWidth - 2 * radius) / (radius * 2.5)) + 1)
               : 1;
           const [ax, ay, bx, by] = textInMapPlane ? toScreen : [1, 0, 0, 1];
           const screenRadius = radius * Math.sqrt(Math.abs(ax * by - ay * bx));
           const circles: number[] = [];
           for (let k = 0; k < n; k++) {
-            const along = n === 1 ? 0 : -w / 2 + radius + ((w - 2 * radius) * k) / (n - 1);
+            const along = n === 1 ? 0 : -textWidth / 2 + radius + ((textWidth - 2 * radius) * k) / (n - 1);
             const ox = cx + along;
             const mx = ox * ux - cy * uy + ex;
             const my = ox * uy + cy * ux + ey;
@@ -3805,7 +3840,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
           }
           text = {circles};
         } else {
-          text = getTextBox(i, x, y);
+          text = getTextBox(i, x, y, textScale);
           const textAnchorCount = row.textAnchorCount ?? 0;
           if (textAnchorCount > 1) {
             // The label's text at each of its anchors, from the rows that follow (see
@@ -3817,7 +3852,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
               if (labelData[j]?.textAnchorIndex !== k || Number.isNaN(textBoxes[j * 4 + 2])) {
                 break;
               }
-              shapes.push(getTextBox(j, x, y));
+              shapes.push(getTextBox(j, x, y, textScale));
               slots.push(slotBase + count - 1 - j);
             }
             // A tile's rows are kept while it is drawn, so the first row names the label across
@@ -3935,6 +3970,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
   renderLayers(): any {
     const {config, labelSizeUnits, billboard, renderGeometry} = this.props;
     const layers: any[] = [];
+    const firstPerson = isGeographicFirstPersonViewport(this.context?.viewport);
+    this.state.firstPersonText = firstPerson;
 
     if (renderGeometry) {
       layers.push(
@@ -3987,7 +4024,10 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
             LABEL_PLACEMENT_EXTENSION,
             GLOBE_HORIZON_EXTENSION,
             TEXT_HALO_BLUR_EXTENSION,
-            ...this.getLineAngleExtensions('getAngle' in lineLabelProps, 'text-keep-upright')
+            ...this.getLineAngleExtensions('getAngle' in lineLabelProps, 'text-keep-upright'),
+            ...(firstPerson && (lineLabelProps.billboard ?? billboard)
+              ? [FIRST_PERSON_LABEL_SIZE_EXTENSION]
+              : [])
           ],
           ...this.getPlacementProps(0),
           parameters: LABEL_PARAMETERS,
