@@ -5,7 +5,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import {LayerExtension, WebMercatorViewport} from '@deck.gl/core';
 import {describe, expect, test} from 'vitest';
-import {CircleBlurExtension} from '../src/circle-layer.ts';
+import {CircleBlurExtension, CircleTranslateExtension} from '../src/circle-layer.ts';
 import {getBasemapLayers} from '../src/index.ts';
 
 const SOURCES = {tiles: {type: 'vector', tiles: ['https://tiles.example.com/{z}/{x}/{y}.mvt']}};
@@ -26,7 +26,11 @@ function render(
   layers = [circle()],
   features = [point()],
   zoom = 12,
-  {mode = 'map', extensions}: {mode?: 'map' | 'globe'; extensions?: unknown[]} = {}
+  {
+    mode = 'map',
+    extensions,
+    webgpu = false
+  }: {mode?: 'map' | 'globe'; extensions?: unknown[]; webgpu?: boolean} = {}
 ): any[] {
   const vectorLayer: any = getBasemapLayers({
     idPrefix: 'test',
@@ -40,6 +44,8 @@ function render(
         id: 'test-tiles-tile',
         data: features,
         extensions,
+        // As the vector tile layer tells its tiles on WebGPU.
+        ...(webgpu ? {webgpuDevice: true} : {}),
         tile: {index: {x: 0, y: 0, z: 12}}
       })
       .filter(Boolean) ?? []
@@ -229,11 +235,44 @@ describe('circle layers', () => {
     expect(render([circle({}, {visibility: 'none'})])).toEqual([]);
   });
 
-  test('translates pixels with positive style y downward in both alignments', () => {
+  test('translates circles on the ground, with their anchor, in both alignments', () => {
     for (const alignment of ['viewport', 'map']) {
+      for (const anchor of [undefined, 'map', 'viewport']) {
+        const p = props({
+          'circle-translate': [3, 4],
+          'circle-pitch-alignment': alignment,
+          ...(anchor ? {'circle-translate-anchor': anchor} : {})
+        });
+        expect(p.extensions.some((e: unknown) => e instanceof CircleTranslateExtension)).toBe(
+          true
+        );
+        expect(p.fillTranslate).toEqual([3, 4]);
+        expect(p.fillTranslateAnchor).toBe(anchor ?? 'map');
+        expect(p.getPixelOffset).toEqual([0, 0]);
+      }
+    }
+  });
+
+  test('without circle-translate, adds no translation', () => {
+    const p = props({'circle-radius': 3});
+    expect((p.extensions || []).some((e: unknown) => e instanceof CircleTranslateExtension)).toBe(
+      false
+    );
+    expect(p.getPixelOffset).toEqual([0, 0]);
+  });
+
+  test('on WebGPU, translates by pixels with positive style y downward in both alignments', () => {
+    for (const alignment of ['viewport', 'map']) {
+      const [layer] = render(
+        [circle({'circle-translate': [3, 4], 'circle-pitch-alignment': alignment})],
+        [point()],
+        12,
+        {webgpu: true}
+      );
+      expect(layer.props.getPixelOffset).toEqual([3, -4]);
       expect(
-        props({'circle-translate': [3, 4], 'circle-pitch-alignment': alignment}).getPixelOffset
-      ).toEqual([3, -4]);
+        (layer.props.extensions || []).some((e: unknown) => e instanceof CircleTranslateExtension)
+      ).toBe(false);
     }
   });
 
@@ -297,6 +336,18 @@ describe('circle layers', () => {
       expect(inject[hook]).toContain('circleBlur_blur');
     }
   });
+
+  test.each(['webgl', 'webgpu'] as const)(
+    'the translate extension adds the globe module only to GLSL plugins on %s',
+    deviceType => {
+      const extension = new CircleTranslateExtension();
+      const layer: any = {context: {device: {type: deviceType}}};
+      const plugins: any[] = extension.getShaders.call(layer).plugins ?? [];
+      const names = plugins.map(plugin => plugin.name);
+      expect(names.includes('circleTranslateGlobe')).toBe(deviceType === 'webgl');
+      expect(plugins).toHaveLength(deviceType === 'webgl' ? 2 : 1);
+    }
+  );
 
   test('the blur extension adds a WGSL plugin on WebGPU', () => {
     const extension = new CircleBlurExtension();
