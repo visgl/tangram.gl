@@ -911,8 +911,7 @@ function basemapFor(id: BodyId, style: BasemapStyle) {
     id: `${id}-basemap`,
     style,
     loadOptions: {fetch: shimFetch},
-    mode: 'globe',
-    globe: {config: {atmosphere: false, basemap: true, labels: true}}
+    mode: 'globe'
   });
 }
 /**

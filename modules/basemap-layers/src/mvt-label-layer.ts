@@ -35,7 +35,22 @@ import {
   getStylePropertyDefault,
   type CompiledStyleProperty
 } from './style-expression';
-import {getSpriteImageNames, resolveSpriteIcon, warnMissingIcon} from './sprite';
+import {
+  getIconPartName,
+  getSpriteImageNames,
+  getStretchIconMapping,
+  isStretchableIcon,
+  resolveSpriteIcon,
+  warnMissingIcon
+} from './sprite';
+import {
+  fitIconToText,
+  getFittedIconCollisionBox,
+  getIconQuadBox,
+  getIconQuads
+} from './icon-text-fit';
+import type {FittedIcon, IconTextFit} from './icon-text-fit';
+import {StretchIconLayer} from './stretch-icon-layer';
 import type {ResolvedSpriteIcon, SpriteAtlas} from './sprite';
 import {GlobeHorizonExtension} from './globe-horizon-extension';
 import {GlobeLineAngleExtension} from './globe-line-angle-extension';
@@ -98,6 +113,13 @@ type FeatureLike = {
   geometry: FeatureGeometry;
   properties?: Record<string, any>;
 };
+
+/**
+ * One quad of a label row's icon, fitted to its text (`part`), or the whole icon at its own size
+ * for a row without text (`part` null). It inherits the row's fields, such as `position` and
+ * `__source`, so accessors of rows read it as its row.
+ */
+type FittedIconPiece = LabelRow & {row: LabelRow; rowIndex: number; part: number | null};
 
 type LabelRow = {
   position: number[];
@@ -306,7 +328,7 @@ export function filterRowsOnDrawnTiles(tiles: LabelTile[], rows: LabelRow[]): La
  * Their screen-space quads wind clockwise, so `GlobeView`'s default `cullMode: 'back'` would cull
  * every one of them; they are drawn with culling off, in every view.
  */
-const LABEL_PARAMETERS = {depthTest: false, cullMode: 'none'} as const;
+const LABEL_PARAMETERS = {depthCompare: 'always', cullMode: 'none'} as const;
 
 /**
  * Without a depth test, labels on the far side of a globe would draw through it. This extension
@@ -442,6 +464,18 @@ const GLOBE_LINE_ANGLE_EXTENSIONS = {
   uprightText: new GlobeLineAngleExtension({keepUpright: true, keepOffsetSide: true})
 };
 
+/** One quad of an icon stretched by `icon-text-fit`, as a `StretchIconLayer` draws it. */
+type FittedIconPart = {
+  /** The mapping entry of the quad's part of the image (see `getStretchIconMapping`). */
+  name: string;
+  /** Height in pixels. */
+  size: number;
+  /** `getIconStretch`: the width over the image part's aspect ratio at `size`. */
+  stretch: [number, number];
+  /** The quad's center in pixels from the anchor, before the icon turns. */
+  offset: [number, number];
+};
+
 /** `text-anchor` / `icon-anchor` as a horizontal and vertical fraction from the center. */
 const ANCHOR_FRACTIONS: Record<string, [number, number]> = {
   center: [0, 0],
@@ -534,6 +568,10 @@ type MVTLabelLayerState = {
   /** See `getPlacementGeometry`. */
   placementGeometry?: PlacementGeometry;
   placementRowBoxes?: {key: unknown[]; boxes: WeakMap<LabelRow, Float64Array>};
+  /** Each row's icon parts with `icon-text-fit` (see `getFittedIconParts`). */
+  fittedIconParts?: {key: unknown[]; parts: (FittedIconPart[] | null)[]; revision: number};
+  /** The data of each fitted icon layer, by its id (see `getFittedIconPieces`). */
+  fittedIconPieces?: Map<string, {key: unknown[]; pieces: FittedIconPiece[]}>;
   placementCommons?: {kind: string; positions: WeakMap<LabelRow, number[]>};
   /** The slot accessor of `getRows` from `placementSlotBase` (see `getPlacementSlotAccessor`). */
   placementSlots?: {rows: LabelRow[]; base: number; accessor: (row: LabelRow) => number};
@@ -1283,7 +1321,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
   /**
    * One `IconLayer` per sprite that this layer's icons come from. Each holds every label row, so
    * an icon has the same row index, and so the same placement slot, as its own label. Rows whose
-   * icon is in another sprite, or in none, draw nothing.
+   * icon is in another sprite, or in none, draw nothing. With `icon-text-fit`, a sprite's layer
+   * holds the quads of its rows' icons instead, each in its row's placement slot.
    *
    * `icon-image` is evaluated once per row. Each sprite's layer evaluates the other style
    * properties only for its own rows and gives every other row constants, so the style evaluation
@@ -1306,6 +1345,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     }
     const groups = this.getSymbolPartGroups('icon', () => this.getRowsWithText());
     const {props: angleProps, getAngle, extensions: angleExtensions} = this.getIconAngleProps();
+    const textFit = this.getStyleProperty('text-field') ? this.getIconTextFit() : 'none';
+    const fitted = textFit === 'none' ? null : this.getFittedIconParts(icons, textFit);
     // Sprite ids are arbitrary strings, so `${id}${idSuffix}` (and a copy's `-overlap`) can repeat
     // another sprite's id; a repeated id gets a number.
     const ids = new Set<string>();
@@ -1326,16 +1367,14 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
           return (row: LabelRow, info: {index: number}) =>
             isOwnRow(info.index) ? getValue(row, info) : fallback;
         };
-        const layer = new IconLayer({
-          ...this.getSubLayerProps({id: getUniqueId(`icons-${atlas.id}${idSuffix}`)}),
+        const props = {
           data: labelRows,
           iconAtlas: this.getIconAtlas(atlas) as any,
-          iconMapping: atlas.mapping,
           loadOptions: iconLoadOptions || undefined,
           billboard,
           ...angleProps,
           ...(getAngle ? {getAngle} : {}),
-          sizeUnits: 'pixels',
+          sizeUnits: 'pixels' as const,
           parameters: LABEL_PARAMETERS,
           extensions: [
             ...(this.props.extensions || []),
@@ -1345,26 +1384,123 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
           ],
           ...this.getPlacementProps(1),
           getPosition: (d: LabelRow) => d.position,
-          getIcon: ((_: LabelRow, {index}: {index: number}) =>
-            isOwnRow(index) ? icons[index]!.name : null) as any,
-          getSize: forOwnRows(feature => this.getIconSize(feature), 0) as any,
-          getColor: forOwnRows(feature => this.getIconColor(feature), [0, 0, 0, 0]) as any,
-          getPixelOffset: withIconAngle(
-            forOwnRows(feature => this.getIconPixelOffset(feature), [0, 0] as [number, number]),
-            getAngle
-          ) as any,
-          updateTriggers: {
-            ...this.getIconUpdateTriggers(),
-            getPlacementSlot: this.state.placementSlotBase,
-            // The sprite list decides which rows `icon-image` resolves into this sprite, and which
-            // rows have text decides the group's rows. The latter's change between split and
-            // unsplit groups also refreshes the rows masked out before.
-            all: [atlas, spriteAtlases, rows ? this.getLabelUpdateTriggers().getText : null]
-          }
-        });
-        return [layer];
+          getColor: forOwnRows(feature => this.getIconColor(feature), [0, 0, 0, 0]) as any
+        };
+        const iconTriggers = this.getIconUpdateTriggers();
+        const updateTriggers = {
+          ...iconTriggers,
+          getPlacementSlot: this.state.placementSlotBase,
+          // The sprite list decides which rows `icon-image` resolves into this sprite, and which
+          // rows have text decides the group's rows. The latter's change between split and
+          // unsplit groups also refreshes the rows masked out before.
+          all: [atlas, spriteAtlases, rows ? this.getLabelUpdateTriggers().getText : null]
+        };
+        const getIconSize = forOwnRows(feature => this.getIconSize(feature), 0);
+        const getIconOffset = forOwnRows(
+          feature => this.getIconPixelOffset(feature),
+          [0, 0] as [number, number]
+        );
+        if (!fitted) {
+          return [
+            new IconLayer({
+              ...this.getSubLayerProps({id: getUniqueId(`icons-${atlas.id}${idSuffix}`)}),
+              ...props,
+              iconMapping: atlas.mapping,
+              getIcon: ((_: LabelRow, {index}: {index: number}) =>
+                isOwnRow(index) ? icons[index]!.name : null) as any,
+              getSize: getIconSize as any,
+              getPixelOffset: withIconAngle(getIconOffset, getAngle) as any,
+              updateTriggers
+            })
+          ];
+        }
+        // One layer of the quads of the icons fitted to their text: each icon's quads one after the
+        // other, in row order, so that an icon is drawn whole before the next one, as MapLibre GL JS
+        // draws its icon quads. A row without a fitted icon draws its icon at its own size.
+        const {parts, revision} = fitted;
+        const id = getUniqueId(`icons-fit-${atlas.id}${idSuffix}`);
+        const pieces = this.getFittedIconPieces(id, parts, icons, rows, atlas);
+        const getPart = (piece: FittedIconPiece) =>
+          piece.part === null ? null : parts[piece.rowIndex]![piece.part]!;
+        // Row accessors, called with the piece's row and the row's index.
+        const onRow =
+          <T>(accessor: (row: LabelRow, info: {index: number}) => T) =>
+          (piece: FittedIconPiece, info: {index: number}) =>
+            accessor(piece.row, {...info, index: piece.rowIndex});
+        const getPlacementSlot = this.getPlacementSlotAccessor();
+        return [
+          new StretchIconLayer({
+            ...this.getSubLayerProps({id}),
+            ...props,
+            data: pieces,
+            getColor: onRow(props.getColor) as any,
+            getPlacementSlot:
+              typeof getPlacementSlot === 'function'
+                ? (piece: FittedIconPiece) => getPlacementSlot(piece.row)
+                : getPlacementSlot,
+            iconMapping: getStretchIconMapping(atlas),
+            getIcon: ((piece: FittedIconPiece) =>
+              getPart(piece)?.name ?? icons[piece.rowIndex]!.name) as any,
+            getSize: ((piece: FittedIconPiece, info: {index: number}) =>
+              getPart(piece)?.size ?? onRow(getIconSize)(piece, info)) as any,
+            getIconStretch: (piece: FittedIconPiece) => getPart(piece)?.stretch ?? [1, 1],
+            getPixelOffset: withIconAngle(
+              (piece, info) =>
+                getPart(piece as FittedIconPiece)?.offset ??
+                onRow(getIconOffset)(piece as FittedIconPiece, info),
+              getAngle
+            ) as any,
+            updateTriggers: {
+              ...updateTriggers,
+              getIcon: `${iconTriggers.getIcon}|${revision}`,
+              getSize: `${iconTriggers.getSize}|${revision}`,
+              getIconStretch: revision,
+              getPixelOffset: `${iconTriggers.getPixelOffset}|${revision}`
+            }
+          })
+        ];
       })
     );
+  }
+
+  /**
+   * The data of a fitted icon layer: the quads of each row whose icon is in `atlas`, and in the
+   * group's `rows`, in row order (see `FittedIconPiece`). It is kept while its inputs stay the
+   * same, so the layer's attributes are not made again at each render.
+   */
+  getFittedIconPieces(
+    id: string,
+    parts: (FittedIconPart[] | null)[],
+    icons: (ResolvedSpriteIcon | null)[],
+    rows: boolean[] | null | undefined,
+    atlas: SpriteAtlas
+  ): FittedIconPiece[] {
+    const labelRows = this.getRows();
+    // `parts` is made again whenever the rows' icons can change (see `getFittedIconParts`).
+    const key = [labelRows, parts, rows, atlas];
+    this.state.fittedIconPieces ||= new Map();
+    const cached = this.state.fittedIconPieces.get(id);
+    if (cached && cached.key.every((value, index) => value === key[index])) {
+      return cached.pieces;
+    }
+    const pieces: FittedIconPiece[] = [];
+    const addPiece = (row: LabelRow, rowIndex: number, part: number | null) =>
+      pieces.push(Object.assign(Object.create(row), {row, rowIndex, part}));
+    labelRows.forEach((row, rowIndex) => {
+      if (icons[rowIndex]?.atlas !== atlas || (rows && !rows[rowIndex])) {
+        return;
+      }
+      const rowParts = parts[rowIndex];
+      if (!rowParts) {
+        addPiece(row, rowIndex, null);
+        return;
+      }
+      for (let part = 0; part < rowParts.length; part++) {
+        addPiece(row, rowIndex, part);
+      }
+    });
+    this.state.fittedIconPieces.set(id, {key, pieces});
+    return pieces;
   }
 
   /**
@@ -1972,6 +2108,139 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       this.getStyleProperty('text-line-height')?.evaluate(getZoomBucket(this.props.zoom || 0)) ??
         getStylePropertyDefault('text-line-height')
     );
+  }
+
+  /**
+   * The width and height in pixels of a feature's label at its `text-size`: its widest line, with
+   * letter spacing between characters, by its lines at `text-line-height`.
+   */
+  measureLabel(
+    feature: FeatureLike,
+    measure: (character: string) => number,
+    lineHeight: number
+  ): [number, number] {
+    const label = this.getLabel(feature) || '';
+    const size = this.getLabelSize(feature);
+    const spacing = this.getLetterSpacing(feature, label);
+    const lines = label.split('\n');
+    let textWidth = 0;
+    for (const line of lines) {
+      const characters = Array.from(line);
+      let lineWidth = 0;
+      for (const character of characters) {
+        lineWidth += measure(character);
+      }
+      lineWidth += Math.max(0, characters.length - 1) * spacing;
+      textWidth = Math.max(textWidth, lineWidth);
+    }
+    return [textWidth * size, lines.length * lineHeight * size];
+  }
+
+  /** `icon-text-fit` at the stepped zoom. */
+  getIconTextFit(): IconTextFit {
+    const value = this.getStyleProperty('icon-text-fit')?.evaluate(
+      getZoomBucket(this.props.zoom || 0)
+    );
+    return value === 'width' || value === 'height' || value === 'both' ? value : 'none';
+  }
+
+  /**
+   * A row's icon stretched to its text by `icon-text-fit` (see `fitIconToText`), at `icon-size` 1.
+   * As in MapLibre, the text box is the one laid out for collision: at the collision text size, with
+   * `text-anchor` and `text-offset`. `icon-anchor` is not read.
+   */
+  getFittedIcon(
+    row: LabelRow,
+    icon: ResolvedSpriteIcon,
+    textFit: IconTextFit,
+    measure: (character: string) => number,
+    lineHeight: number
+  ): FittedIcon {
+    const feature = (row as any).__source?.object ?? row;
+    const size = this.getLabelSize(feature);
+    const [w, h] = this.measureLabel(feature, measure, lineHeight);
+    const [ax, ay] = ANCHOR_FRACTIONS[this.getRowAnchor(row)] || ANCHOR_FRACTIONS.center;
+    const [dx, dy] = this.getRowPixelOffset(row);
+    const linePlacement = isLinePlacement(this.getSymbolPlacement());
+    const scale = linePlacement || !(size > 0) ? 1 : this.getCollisionLabelSize(feature) / size;
+    const left = (-(ax + 0.5) * w + dx) * scale;
+    const top = (-(ay + 0.5) * h + dy) * scale;
+    const padding = ((this.getStyleProperty('icon-text-fit-padding')?.evaluate(
+      getZoomBucket(this.props.zoom || 0)
+    ) as number[] | undefined) ?? (getStylePropertyDefault('icon-text-fit-padding') as number[])).map(
+      value => Number(value) || 0
+    );
+    const offset = (this.evaluateStyleProperty('icon-offset', feature) as number[] | undefined) || [
+      0, 0
+    ];
+    return fitIconToText(
+      icon.entry,
+      {left, top, right: left + w * scale, bottom: top + h * scale},
+      textFit,
+      padding,
+      offset
+    );
+  }
+
+  /**
+   * The parts each label row's icon is drawn in with `icon-text-fit`, in `getRows` order: for a row
+   * with text, one per quad of its fitted icon (see `getIconQuads`); `null` for a row whose icon is
+   * drawn at its own size (it has no text) or that has no icon. Kept while the rows, their text,
+   * the sprites, the style's layout values, the font's measured widths and the zoom step are the
+   * same; `revision` changes when they are made again.
+   */
+  getFittedIconParts(
+    icons: (ResolvedSpriteIcon | null)[],
+    textFit: IconTextFit
+  ): {parts: (FittedIconPart[] | null)[]; revision: number} {
+    const {spriteAtlases, styleLayer, fontFamily} = this.props;
+    const rows = this.getRows();
+    const zoom = getZoomBucket(this.props.zoom || 0);
+    const key = [
+      rows,
+      this.state.labelText,
+      spriteAtlases,
+      styleLayer,
+      fontFamily,
+      this.getFontKey(),
+      this.getLineGlyphWidthsRevision()(),
+      zoom,
+      ...(styleLayer?.layout ? Object.entries(styleLayer.layout).flat() : [])
+    ];
+    const cached = this.state.fittedIconParts;
+    if (cached && isSameList(cached.key, key)) {
+      return cached;
+    }
+    const rowsWithText = this.getRowsWithText();
+    const measure = this.getCharacterMeasurer();
+    const lineHeight = this.getLineHeight();
+    const parts = rows.map((row, index) => {
+      const icon = icons[index];
+      if (!icon || !rowsWithText[index]) {
+        return null;
+      }
+      const feature = (row as any).__source?.object ?? row;
+      const iconSize = Number(this.evaluateStyleProperty('icon-size', feature) ?? 1);
+      const fitted = this.getFittedIcon(row, icon, textFit, measure, lineHeight);
+      const quads = getIconQuads(icon.entry, fitted);
+      const stretchable = isStretchableIcon(icon.entry);
+      return quads.map((quad, quadIndex): FittedIconPart => {
+        const box = getIconQuadBox(quad, iconSize);
+        const width = box.right - box.left;
+        const height = box.bottom - box.top;
+        // `IconLayer` sizes an icon by its height, keeping its image's aspect ratio unless stretched.
+        const imageAspect = quad.image.width / quad.image.height;
+        return {
+          name: stretchable ? getIconPartName(icon.name, quadIndex) : icon.name,
+          size: Math.max(0, height),
+          stretch: [height > 0 ? Math.max(0, width) / height / imageAspect : 1, 1],
+          offset: [(box.left + box.right) / 2, (box.top + box.bottom) / 2]
+        };
+      });
+    });
+    const result = {key, parts, revision: (cached?.revision ?? 0) + 1};
+    this.state.fittedIconParts = result;
+    return result;
   }
 
   /**
@@ -3242,6 +3511,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     const measure = this.getCharacterMeasurer();
     const lineHeight = this.getLineHeight();
     const linePlacement = isLinePlacement(this.getSymbolPlacement());
+    const textFit = hasIconData && hasTextData ? this.getIconTextFit() : 'none';
     const textBoxes = new Float64Array(count * 4).fill(Number.NaN);
     const textOffsets = new Float64Array(count * 2);
     const iconBoxes = new Float64Array(count * 4).fill(Number.NaN);
@@ -3264,22 +3534,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
         continue;
       }
       if (rowsWithText?.[rowIndex]) {
-        const label = this.getLabel(feature) || '';
         const size = this.getLabelSize(feature);
-        const spacing = this.getLetterSpacing(feature, label);
-        const lines = label.split('\n');
-        let textWidth = 0;
-        for (const line of lines) {
-          const characters = Array.from(line);
-          let lineWidth = 0;
-          for (const character of characters) {
-            lineWidth += measure(character);
-          }
-          lineWidth += Math.max(0, characters.length - 1) * spacing;
-          textWidth = Math.max(textWidth, lineWidth);
-        }
-        const w = textWidth * size;
-        const h = lines.length * lineHeight * size;
+        const [w, h] = this.measureLabel(feature, measure, lineHeight);
         const [ax, ay] = ANCHOR_FRACTIONS[this.getRowAnchor(row)] || ANCHOR_FRACTIONS.center;
         const [dx, dy] = this.getRowPixelOffset(row);
         // A point label's box, offset included, is laid out at its collision size; text along a
@@ -3311,17 +3567,26 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       const resolved = icons?.[rowIndex];
       if (resolved) {
         const scale = Number(this.evaluateStyleProperty('icon-size', feature) ?? 1);
-        const w = (resolved.entry.width / resolved.entry.pixelRatio) * scale;
-        const h = (resolved.entry.height / resolved.entry.pixelRatio) * scale;
-        const [ox, oy] = this.getIconPixelOffset(feature);
-        const [top, right, bottom, left] = (
+        const padding = (
           (this.evaluateStyleProperty('icon-padding', feature) as number[] | undefined) ??
           (getStylePropertyDefault('icon-padding') as number[])
         ).map(value => Math.max(0, Number(value)) || 0);
-        iconBoxes.set(
-          [ox - w / 2 - left, oy - h / 2 - top, ox + w / 2 + right, oy + h / 2 + bottom],
-          i * 4
-        );
+        const fitted =
+          textFit !== 'none' && rowsWithText?.[rowIndex]
+            ? this.getFittedIcon(row, resolved, textFit, measure, lineHeight)
+            : null;
+        if (fitted) {
+          iconBoxes.set(getFittedIconCollisionBox(resolved.entry, fitted, scale, padding), i * 4);
+        } else {
+          const w = (resolved.entry.width / resolved.entry.pixelRatio) * scale;
+          const h = (resolved.entry.height / resolved.entry.pixelRatio) * scale;
+          const [ox, oy] = this.getIconPixelOffset(feature);
+          const [top, right, bottom, left] = padding;
+          iconBoxes.set(
+            [ox - w / 2 - left, oy - h / 2 - top, ox + w / 2 + right, oy + h / 2 + bottom],
+            i * 4
+          );
+        }
       }
       const boxes = new Float64Array(10);
       boxes.set(textBoxes.subarray(i * 4, i * 4 + 4), 0);

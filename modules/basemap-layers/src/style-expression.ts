@@ -8,6 +8,7 @@ import {log} from '@deck.gl/core';
 import {
   Color,
   ColorArray,
+  Interpolate,
   NumberArray,
   Padding,
   VariableAnchorOffsetCollection,
@@ -30,11 +31,19 @@ export type CompiledStyleProperty = {
   isZoomDependent: boolean;
   /** True when the value depends on feature data (`["get", ...]`, `match`, ...). */
   isFeatureDependent: boolean;
+  /** True when the value depends on the feature's state (`["feature-state", ...]`). */
+  isStateDependent: boolean;
   /**
    * Evaluates the property. Colors are returned as `[r, g, b, a]`, with `a` in 0-1.
    * `availableImages` lists the loaded sprite image names, which `["image", ...]` checks.
+   * `featureState` is the feature's state, which `["feature-state", ...]` reads.
    */
-  evaluate: (zoom: number, feature?: StyleFeature, availableImages?: string[]) => unknown;
+  evaluate: (
+    zoom: number,
+    feature?: StyleFeature,
+    availableImages?: string[],
+    featureState?: Record<string, unknown>
+  ) => unknown;
   /**
    * Evaluates the property with every global input, such as `heatmapDensity` or `lineProgress`
    * as well as `zoom`. Colors are returned as in `evaluate`.
@@ -201,12 +210,13 @@ export function compileStylePropertyValue(
   return {
     isZoomDependent: kind === 'camera' || kind === 'composite',
     isFeatureDependent: kind === 'source' || kind === 'composite',
-    evaluate: (zoom, feature, availableImages) =>
+    isStateDependent: Boolean(compiled.isStateDependent),
+    evaluate: (zoom, feature, availableImages, featureState) =>
       toPlainValue(
         compiled.evaluate(
           {zoom},
           toEvaluationFeature(feature) as any,
-          undefined,
+          featureState as any,
           undefined,
           availableImages
         )
@@ -244,6 +254,46 @@ export function getCompiledStyleProperty(
     layerCache.set(propertyName, entry);
   }
   return entry.compiled;
+}
+
+/** The stops of an interpolated color ramp: each stop's input, and its color. */
+export type ColorRampStops = {
+  inputs: number[];
+  /** Premultiplied RGBA in 0-1, as MapLibre GL JS's `Color` stores it. */
+  colors: [number, number, number, number][];
+};
+
+/**
+ * The stops of a color ramp property, such as `color-relief-color`, as MapLibre GL JS reads them:
+ * the inputs of an `interpolate` (or `interpolate-hcl`, `interpolate-lab`) expression, and the
+ * colors it evaluates to at each. `null` for any other value, such as a `step` expression or a
+ * constant color, which MapLibre draws transparent. An invalid value logs a warning once.
+ */
+export function getColorRampStops(
+  propertyName: string,
+  value: unknown,
+  inputName: string
+): ColorRampStops | null {
+  if (value === undefined) {
+    return null;
+  }
+  const reference = getStylePropertyReference(propertyName);
+  const compiled = expression.createPropertyExpression(value as any, reference as any);
+  if (compiled.result !== 'success') {
+    warnInvalidValue(propertyName, value, compiled.value.map(error => error.message).join(', '));
+    return null;
+  }
+  const ramp = compiled.value as any;
+  const interpolate = ramp.kind === 'constant' ? ramp._styleExpression?.expression : null;
+  if (!(interpolate instanceof Interpolate)) {
+    return null;
+  }
+  const inputs = [...interpolate.labels];
+  const colors = inputs.map(input => {
+    const color = ramp.evaluate({[inputName]: input}) as Color;
+    return [color.r, color.g, color.b, color.a] as [number, number, number, number];
+  });
+  return {inputs, colors};
 }
 
 /**

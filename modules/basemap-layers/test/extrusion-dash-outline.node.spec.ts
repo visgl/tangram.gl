@@ -276,7 +276,7 @@ describe('fill-extrusion', () => {
 
   test('depth-tests extrusions against each other', () => {
     const sublayer = renderStyleLayer({id: 'building-3d', type: 'fill-extrusion'}, [polygon()]);
-    expect(sublayer.props.parameters).toMatchObject({depthTest: true, depthWriteEnabled: true});
+    expect(sublayer.props.parameters).toMatchObject({depthCompare: 'less-equal', depthWriteEnabled: true});
   });
 });
 

@@ -62,14 +62,15 @@ const patternGroupCache = new WeakMap<
  * pattern that does not depend on feature data keeps the tile's feature array, so deck.gl does not
  * re-tessellate the features at a new zoom step; per-feature groups are cached per tile, style
  * layer, sprite list and zoom. `propertyName` is `line-pattern` for a patterned line, which is
- * grouped the same way.
+ * grouped the same way, and `background-pattern` for a patterned background, whose features are the
+ * polygons that cover the map.
  */
 export function getFillPatternGroups(
   features: any[],
   styleLayer: StyleLayerLike,
   zoom: number,
   spriteAtlases: SpriteAtlas[] | null | undefined,
-  propertyName: 'fill-pattern' | 'line-pattern' = 'fill-pattern'
+  propertyName: 'fill-pattern' | 'line-pattern' | 'background-pattern' = 'fill-pattern'
 ): FillPatternGroup[] {
   const property = getCompiledStyleProperty(styleLayer, propertyName);
   if (!property || !spriteAtlases?.length) {
@@ -158,7 +159,9 @@ export function getFillPatternGroups(
   return result;
 }
 
-const PATTERN_TEXTURE_PARAMETERS = {mipmapFilter: 'none'} as const;
+// luma.gl's WebGPU sampler leaves `mipmapFilter: 'none'` out, which samples the nearest mipmap
+// level: the level of detail is clamped to the full-size image instead.
+const PATTERN_TEXTURE_PARAMETERS = {mipmapFilter: 'none', lodMaxClamp: 0} as const;
 
 type PatternAtlas = {
   image: SpriteAtlas['image'] | OffscreenCanvas | HTMLCanvasElement | ImageData;

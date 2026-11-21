@@ -63,12 +63,16 @@ function labelLayer(id: string, spriteAtlases: SpriteAtlas[], labels = true) {
   } as any);
 }
 
-/** Renders `layers` and resolves once every layer has loaded. */
+/**
+ * Renders `layers` and resolves once every layer has loaded.
+ *
+ * The test timeout bounds the wait. Concurrent browser test files share one GPU process, so a
+ * shorter limit here times out on a busy CI runner while the layers still load.
+ */
 function render(layers: any[]): Promise<any[]> {
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 10_000);
     deck = new TestDeck({
       parent,
       width: SIZE,
@@ -83,11 +87,9 @@ function render(layers: any[]): Promise<any[]> {
         if (!all.length || all.some((layer: {isLoaded: boolean}) => !layer.isLoaded)) {
           return;
         }
-        window.clearTimeout(timeout);
         resolve(all);
       },
       onError: error => {
-        window.clearTimeout(timeout);
         reject(error);
       }
     });
