@@ -15,6 +15,7 @@ import {getBasemapTilesetAdapter} from '../src/projected-tileset';
 import {getRasterTileLoader} from '../src/raster-tile-loader';
 import {getSourceTileBounds, getSourceTileTemplates, isTileInBounds} from '../src/source-tiles';
 import {resolveBasemapStyle} from '../src/style-resolver';
+import {ZoomLoadGate} from '../src/zoom-load-gate';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -413,7 +414,7 @@ describe('BasemapLayer source tilesets', () => {
       layers: [{id: 'water', type: 'fill', source: 'vector', 'source-layer': 'water'}]
     };
     const layer: any = new BasemapLayer({id: 'basemap', style} as any);
-    layer.state = {tilesets: new Map(), tilesetSourceLayers: new Map()};
+    layer.state = {tilesets: new Map(), tilesetSourceLayers: new Map(), zoomLoadGate: new ZoomLoadGate()};
     layer.context = {};
     layer.updateSourceTilesets(style);
     const tileset = layer.state.tilesets.get(source);
