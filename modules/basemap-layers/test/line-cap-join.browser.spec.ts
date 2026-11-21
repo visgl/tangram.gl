@@ -113,10 +113,15 @@ function isInked(image: ImageData, x: number, y: number): boolean {
 
 const CENTER = SIZE / 2;
 
-/** Renders a black line, 10 pixels wide by default, with the given layout. */
-function renderLine(coordinates: number[][], layout: Record<string, unknown>, width = 10) {
+/** Renders a black line, 10 pixels wide by default, with the given layout and paint. */
+function renderLine(
+  coordinates: number[][],
+  layout: Record<string, unknown>,
+  width = 10,
+  paint: Record<string, unknown> = {}
+) {
   return renderFlat(
-    styleSublayers({layout, paint: {'line-color': '#000000', 'line-width': width}}, [
+    styleSublayers({layout, paint: {'line-color': '#000000', 'line-width': width, ...paint}}, [
       feature('LineString', coordinates)
     ])
   );
@@ -142,8 +147,8 @@ describe('line-cap in the browser', () => {
     expect(capStart(await renderLine(LINE, {'line-cap': 'butt'}))).toBe(CENTER - 40);
   });
 
-  test('round caps reach half the line width beyond the endpoint', async () => {
-    const start = capStart(await renderLine(LINE, {'line-cap': 'round'}));
+  test.each(['round', 'square'])('%s caps reach half the line width beyond the endpoint', async cap => {
+    const start = capStart(await renderLine(LINE, {'line-cap': cap}));
     expect(start).toBeGreaterThanOrEqual(CENTER - 46);
     expect(start).toBeLessThanOrEqual(CENTER - 44);
   });
@@ -180,20 +185,39 @@ describe('line-join in the browser', () => {
     expect(reach).toBeLessThanOrEqual(12);
   });
 
-  test('a miter beyond line-miter-limit is cut at the limit', async () => {
-    // The default limit of 2 half widths: 10 pixels, and the antialiasing's fade, which MapLibre
-    // extrudes the join by too.
-    const reach = jointReach(await renderLine(CORNER, {'line-join': 'miter'}));
-    expect(reach).toBeGreaterThanOrEqual(9);
-    expect(reach).toBeLessThanOrEqual(11);
+  // A right angle at the center: a miter of 1.41 half widths, within the default limit of 2.
+  const RIGHT_ANGLE = [
+    [-40, 40],
+    [0, 0],
+    [40, 40]
+  ];
+
+  test('a bevel cuts along the chord between the outer corners', async () => {
+    // MapLibre bevels a miter longer than 1.05 half widths. The chord is 5 * sin(45) = 3.54 px
+    // above the vertex.
+    const reach = jointReach(await renderLine(RIGHT_ANGLE, {'line-join': 'bevel'}));
+    expect(reach).toBeGreaterThanOrEqual(3);
+    expect(reach).toBeLessThanOrEqual(4);
   });
 
-  test('a bevel is cut at half the line width', async () => {
-    // And the antialiasing's fade, as the miter.
-    const reach = jointReach(await renderLine(CORNER, {'line-join': 'bevel'}));
-    expect(reach).toBeGreaterThanOrEqual(4);
-    expect(reach).toBeLessThanOrEqual(6);
+  test('a miter beyond line-miter-limit is bevelled', async () => {
+    const reach = jointReach(
+      await renderLine(RIGHT_ANGLE, {'line-join': 'miter', 'line-miter-limit': 1.2})
+    );
+    expect(reach).toBeGreaterThanOrEqual(3);
+    expect(reach).toBeLessThanOrEqual(4);
   });
+
+  test.each(['bevel', 'miter'])(
+    'a %s join longer than two half widths is cut through the vertex',
+    async join => {
+      // The miter at CORNER is 2.24 half widths. MapLibre's "flip bevel" cuts it level with the
+      // vertex, inside the chord at 2.24 px.
+      const reach = jointReach(await renderLine(CORNER, {'line-join': join}));
+      expect(reach).toBeGreaterThanOrEqual(-1);
+      expect(reach).toBeLessThanOrEqual(1);
+    }
+  );
 
   test('a round join reaches half the line width', async () => {
     const reach = jointReach(await renderLine(CORNER, {'line-join': 'round'}));
@@ -202,13 +226,18 @@ describe('line-join in the browser', () => {
   });
 
   test('a bevel is cut flat where a round join curves away', async () => {
-    // A 30 pixel line: both reach 15 pixels above the vertex, but 8 pixels to the side the
-    // round join has curved down to sqrt(15^2 - 8^2) = 12.7 pixels, while the flat cut stays at 15.
-    const bevel = jointReach(await renderLine(CORNER, {'line-join': 'bevel'}, 30), CENTER + 8);
-    const round = jointReach(await renderLine(CORNER, {'line-join': 'round'}, 30), CENTER + 8);
-    expect(bevel).toBeGreaterThanOrEqual(14);
-    expect(bevel).toBeLessThanOrEqual(15);
-    expect(round).toBeGreaterThanOrEqual(12);
-    expect(round).toBeLessThanOrEqual(13);
+    // A 30 pixel line: the chord is 15 * sin(45) = 10.6 px above the vertex at both columns,
+    // while 8 px to the side a round join has curved down to sqrt(15^2 - 8^2) = 12.7 px.
+    const image = await renderLine(RIGHT_ANGLE, {'line-join': 'bevel'}, 30);
+    for (const x of [CENTER, CENTER + 8]) {
+      expect(jointReach(image, x)).toBeGreaterThanOrEqual(10);
+      expect(jointReach(image, x)).toBeLessThanOrEqual(11);
+    }
   });
+});
+
+test('line-dasharray draws both dash lengths and both gaps in one period', async () => {
+  const image = await renderLine([[-56, 0], [56, 0]], {}, 4, {'line-dasharray': [4, 1, 1, 1]});
+  const row = Array.from({length: 56}, (_, x) => (isInked(image, CENTER - 56 + x, CENTER) ? '#' : '.'));
+  expect(row.join('')).toBe('################....####....'.repeat(2));
 });

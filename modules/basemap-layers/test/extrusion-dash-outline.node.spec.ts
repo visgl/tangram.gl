@@ -9,7 +9,9 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import {PathStyleExtension} from '@deck.gl/extensions';
 import {describe, expect, test} from 'vitest';
+import {getDashArray} from '../src/globe-layers';
 import {getBasemapLayers} from '../src/index.ts';
+import {getDashPattern, LineDashExtension, MAX_DASH_INTERVALS} from '../src/line-dash-extension';
 
 const SOURCES = {
   tiles: {
@@ -293,7 +295,12 @@ describe('line-dasharray', () => {
     // Dashes run continuously along the line, as in MapLibre, rather than restarting per segment.
     expect(extension.opts.dashMode).toBe('path');
     // deck.gl's `widths` unit is half the line width; MapLibre's is the full width.
-    expect(sublayer.props.getDashArray).toEqual([4, 2]);
+    const [period, marker] = sublayer.props.getDashArray;
+    expect(period).toBe(6);
+    expect(marker).toBeLessThan(0);
+    expect(getDashPattern(-marker - 1)?.intervals).toEqual([[0, 4]]);
+    const extensionIndex = sublayer.props.extensions.indexOf(extension);
+    expect(sublayer.props.extensions[extensionIndex + 1]).toBeInstanceOf(LineDashExtension);
     expect(sublayer.props.dashJustified).toBe(false);
   });
 
@@ -321,6 +328,8 @@ describe('line-dasharray', () => {
     const second = renderStyleLayer(styleLayer, [line()], 16.2);
     expect(dashExtension(first)).toBeDefined();
     expect(dashExtension(first)).toBe(dashExtension(second));
+    expect(first.props.extensions.find((extension: unknown) => extension instanceof LineDashExtension))
+      .toBe(second.props.extensions.find((extension: unknown) => extension instanceof LineDashExtension));
   });
 
   test('joins the first and last dash of an odd-length pattern, as MapLibre does', () => {
@@ -329,20 +338,69 @@ describe('line-dasharray', () => {
       [line()]
     );
     // Dash 2, gap 1, then a dash of 1 that runs into the next period's first dash.
-    expect(sublayer.props.getDashArray).toEqual([6, 2]);
+    const [period, marker] = sublayer.props.getDashArray;
+    expect(period).toBe(8);
+    expect(getDashPattern(-marker - 1)).toEqual({
+      period: 8, intervals: [[0, 4], [6, 8]], dashLength: 6, merged: [6, 2]
+    });
     // A single length is all dash: a solid line.
     const single = renderStyleLayer({id: 'path', type: 'line', paint: {'line-dasharray': [3]}}, [
       line()
     ]);
-    expect(single.props.getDashArray).toEqual([6, 0]);
+    expect(single.props.getDashArray).toEqual([0, 0]);
   });
 
-  test('approximates a longer pattern by its total dash and gap lengths', () => {
+  test('stores each interval of a multi-dash pattern', () => {
     const sublayer = renderStyleLayer(
       {id: 'path', type: 'line', paint: {'line-dasharray': [2, 1, 1, 1]}},
       [line()]
     );
-    expect(sublayer.props.getDashArray).toEqual([6, 4]);
+    const [period, marker] = sublayer.props.getDashArray;
+    expect(period).toBe(10);
+    expect(getDashPattern(-marker - 1)).toEqual({
+      period: 10, intervals: [[0, 4], [6, 8]], dashLength: 6, merged: [6, 4]
+    });
+    expect(getDashArray(['2', 1, 1, 1])).toEqual([period, marker]);
+  });
+
+  test('keeps zero-length dash intervals for round dots', () => {
+    const [period, marker] = getDashArray([0, 2]);
+    expect(period).toBe(4);
+    expect(getDashPattern(-marker - 1)).toEqual({
+      period: 4, intervals: [[0, 0]], dashLength: 0, merged: [0, 4]
+    });
+  });
+
+  test('merges patterns beyond the interval limit', () => {
+    const pattern = Array.from({length: 2 * MAX_DASH_INTERVALS}, (_, index) => 1 + index % 2);
+    const [period, marker] = getDashArray(pattern);
+    expect(period).toBe(6 * MAX_DASH_INTERVALS);
+    expect(getDashPattern(-marker - 1)?.intervals).toHaveLength(MAX_DASH_INTERVALS);
+    expect(getDashArray([...pattern, 1])).toEqual([2 * (MAX_DASH_INTERVALS + 1), 4 * MAX_DASH_INTERVALS]);
+  });
+
+  test('substitutes merged dashes on WebGPU, keeping scale and update triggers', () => {
+    const [period, marker] = getDashArray([4, 1, 1, 1]);
+    const extension = new LineDashExtension();
+    const updateTriggers = {getDashArray: 15};
+    const accessor = (feature: {dashed: boolean}) => feature.dashed ? [period / 2, marker] : [0, 0];
+    const composite = (type: string, getDashArray: unknown): any => ({
+      context: {device: {type}},
+      props: {getDashArray, updateTriggers},
+      getSubLayerAccessor: (value: unknown) => value
+    });
+    const webgpu = extension.getSubLayerProps.call(composite('webgpu', accessor), extension);
+    expect(typeof webgpu.getDashArray).toBe('function');
+    if (typeof webgpu.getDashArray === 'function') {
+      const context = {index: 0, data: [], target: []};
+      expect(webgpu.getDashArray({dashed: true}, context)).toEqual([5, 2]);
+      expect(webgpu.getDashArray({dashed: false}, context)).toEqual([0, 0]);
+    }
+    expect(webgpu.updateTriggers).toEqual(updateTriggers);
+    expect(extension.getSubLayerProps.call(composite('webgpu', [period, marker]), extension).getDashArray)
+      .toEqual([10, 4]);
+    expect(extension.getSubLayerProps.call(composite('webgl', accessor), extension).getDashArray)
+      .toBe(accessor);
   });
 
   test('evaluates per feature', () => {
@@ -357,8 +415,8 @@ describe('line-dasharray', () => {
       },
       features
     );
-    expect(sublayer.props.getDashArray(features[0])).toEqual([4, 2]);
-    expect(sublayer.props.getDashArray(features[1])).toEqual([2, 2]);
+    expect(sublayer.props.getDashArray(features[0])).toEqual(getDashArray([2, 1]));
+    expect(sublayer.props.getDashArray(features[1])).toEqual(getDashArray([1, 1]));
     expect(sublayer.props.updateTriggers.getDashArray).toBeUndefined();
   });
 
@@ -380,9 +438,9 @@ describe('line-dasharray', () => {
     const at156 = renderStyleLayer(styleLayer, features, 15.6);
     const at162 = renderStyleLayer(styleLayer, features, 16.2);
     // z15.6 evaluates at z15, below the step.
-    expect(at156.props.getDashArray(features[0])).toEqual([2, 2]);
+    expect(at156.props.getDashArray(features[0])).toEqual(getDashArray([1, 1]));
     expect(at156.props.updateTriggers.getDashArray).toBe(15);
-    expect(at162.props.getDashArray(features[0])).toEqual([6, 6]);
+    expect(at162.props.getDashArray(features[0])).toEqual(getDashArray([3, 3]));
     expect(at162.props.updateTriggers.getDashArray).toBe(16);
   });
 
@@ -396,7 +454,9 @@ describe('line-dasharray', () => {
       {id: 'path', type: 'line', paint: {'line-dasharray': [2, 0]}},
       [line()]
     );
-    expect(zeroGaps.props.getDashArray).toEqual([4, 0]);
+    expect(zeroGaps.props.getDashArray).toEqual([0, 0]);
+    expect(getDashArray([0, 0])).toEqual([0, 0]);
+    expect(getDashArray(undefined)).toEqual([0, 0]);
   });
 });
 

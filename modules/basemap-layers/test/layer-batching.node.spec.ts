@@ -5,7 +5,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import {describe, expect, test} from 'vitest';
 import {getBasemapLayers} from '../src/index.ts';
-import {mergeStyleAccessors, sortTileSubLayers} from '../src/globe-layers';
+import {getDashArray, mergeStyleAccessors, sortTileSubLayers} from '../src/globe-layers';
 
 const SOURCES = {tiles: {type: 'vector', tiles: ['https://tiles.example.com/{z}/{x}/{y}.mvt']}};
 
@@ -183,11 +183,13 @@ describe('consecutive style layers share a sublayer', () => {
     // The dashes, and the fade of every line (see LineBlurExtension).
     expect(layers[0].props.extensions.map((extension: any) => extension.constructor.name)).toEqual([
       'PathStyleExtension',
-      'LineBlurExtension'
+      'LineDashExtension',
+      'LineBlurExtension',
+      'LineShapeExtension'
     ]);
     expect(valuesOf(layers[0], 'getDashArray')).toEqual([
       [0, 0],
-      [1, 8],
+      getDashArray([0.5, 4]),
       [0, 0]
     ]);
   });
@@ -348,6 +350,7 @@ describe('style layers that draw alone', () => {
 
   test.each([
     ['a different line-cap', {}, {'line-cap': 'round'}],
+    ['a square cap beside a butt cap', {}, {'line-cap': 'square'}],
     ['an offset', {'line-offset': 2}, {}],
     ['a gap', {'line-gap-width': 2}, {}]
   ])('a line with %s', (_, paint, layout) => {
