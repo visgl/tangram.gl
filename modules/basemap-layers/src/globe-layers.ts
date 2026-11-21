@@ -3941,6 +3941,22 @@ function getLabelPriorityRanges(
 }
 
 /** Whether a style layer is drawn from vector tiles: a `symbol` layer only with labels on. */
+/**
+ * Whether `getBasemapLayers` draws a style layer with these globe toggles: a supported type, with
+ * the basemap on, and labels on for a symbol layer. Style visibility and zoom are not checked.
+ */
+export function isDrawnStyleLayer(
+  layer: BasemapStyleLayer,
+  globe?: {config?: BasemapGlobeConfig}
+): boolean {
+  const config = getConfig(globe);
+  return (
+    config.basemap &&
+    SUPPORTED_TYPES.has(layer.type) &&
+    (layer.type !== 'symbol' || config.labels)
+  );
+}
+
 function isVectorStyleLayer(layer: BasemapStyleLayer, config: BasemapLayerConfig): boolean {
   return layer.type === 'symbol'
     ? config.labels

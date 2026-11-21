@@ -176,6 +176,49 @@ By default (`false`), the labels of every `BasemapLayer` in a deck are placed to
 
 The shared placement takes the `labelPlacementInterval` of the last `BasemapLayer` rendered: give layers that share it the same interval.
 
+### `onStyleLoad`
+
+Type: `((style: ResolvedBasemapStyle) => void) | null`
+
+Called with the resolved style each time a style resolves, as MapLibre GL JS's `style.load` event.
+The sprites, the glyphs and the tiles of the style can still be loading. An error that the
+function throws goes to deck.gl's `onError`, and the style stays loaded. Defaults to `null`.
+
+### `onTileLoad`
+
+Type: `((tile: BasemapTile) => void) | null`
+
+Called when a tile of a `vector`, `raster`, `raster-dem` or `geojson` source loads, with deck.gl's
+tile header, as `TileLayer.onTileLoad`. The style layers of one source share its tiles, so each
+load is reported once. Defaults to `null`.
+
+### `onViewportLoad`
+
+Type: `((tiles: BasemapTile[]) => void) | null`
+
+Called with the tiles of all sources in the current viewport when they have loaded, as deck.gl's
+`TileLayer.onViewportLoad` and MapLibre GL JS's `idle` event. The style and its sprites have
+loaded too. A tile that failed to load counts as loaded. Unlike `TileLayer`, a viewport that
+selects no tiles is not reported, and the same tiles are not reported again. Defaults to `null`.
+
+### `onAttributionChange`
+
+Type: `((attributions: string[]) => void) | null`
+
+Called with the `attribution` of the sources that the style draws, when they change, as
+`TangramLayer.onAttributionChange`. The list is collected as MapLibre GL JS's
+`AttributionControl` collects it: a source that only hidden layers draw at the current zoom is
+left out (also layers that `globe.config` turns off, and layer types that are not drawn), each attribution is given once, and one that another contains is left out. A change of
+style or zoom can change the list, and a style of `null` gives `[]`. The strings are the
+provider's HTML and are **not sanitized**: display them as safe linked text. `BasemapLayer` does
+not draw an attribution control. Defaults to `null`.
+
+### `isLoaded`
+
+`BasemapLayer.isLoaded`, and thus deck.gl's `Deck.isLoaded`, is `false` while the style resolves,
+while its sprites load, and while the tiles of the current viewport load, as `TileLayer.isLoaded`.
+A style, a sprite or a tile that failed to load counts as loaded.
+
 ## Methods
 
 ### `querySourceFeatures(sourceId, options?)`
