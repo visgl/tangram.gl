@@ -4,9 +4,11 @@
 
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
+import {Deck, FirstPersonView} from '@deck.gl/core';
 import {MVTWriter} from '@loaders.gl/tiles/mvt';
+import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import {createBasemapBackground} from '../../examples/deck/basemap-background';
-import {RenderingHarness, DEVICE_TYPE} from './harness';
+import {RenderingHarness, DEVICE_TYPE, readCanvasPixels} from './harness';
 import {getOpenMapTilesAnchor} from './openmaptiles-scene';
 
 let harness: RenderingHarness | undefined;
@@ -89,5 +91,51 @@ test('standalone comparison has a viewport-height canvas without relying on a pa
   } finally {
     root.remove(); stylesheet.remove(); document.body.classList.remove('tangram-deck-standalone');
     document.documentElement.style.height = previousHeight;
+  }
+});
+
+test(`${DEVICE_TYPE}: BasemapLayer's background stays visible along the first-person camera path`, async () => {
+  harness = new RenderingHarness('first-person');
+  await harness.initializeDevice();
+  const {canvas, device, errors} = harness;
+  const camera = {longitude: -122.4194, latitude: 37.7749, pitch: 60, bearing: 0};
+  const deck = new Deck({
+    canvas, device, width: 554, height: 480, useDevicePixels: false,
+    views: new FirstPersonView({fovy: 36.86989764584402, near: 0.1, far: 20000}),
+    viewState: {...camera, position: [0, 0, 600]},
+    layers: [new BasemapLayer({
+      id: 'background-fixture',
+      style: {version: 8, sources: {}, layers: [
+        {id: 'ground', type: 'background', paint: {'background-color': '#18202c'}}
+      ]}
+    })],
+    onError: error => {errors.push(error.message);}
+  });
+
+  try {
+    const positions: [number, number, number][] = [
+      [0, 0, 600], [0, 23.5, 600], [0, 43.5, 600], [0, 63.5, 600],
+      [2.2568, 12.1962, 600], [0, -20.5, 600], [40, 0, 600]
+    ];
+    for (const position of positions) {
+      deck.setProps({viewState: {...camera, position}});
+      await expect.poll(async () => {
+        const {data, width, height} = await readCanvasPixels(canvas);
+        let covered = 0;
+        for (let index = 0; index < data.length; index += 4) {
+          if (data[index] === 24 && data[index + 1] === 32 && data[index + 2] === 44) covered++;
+        }
+        return covered / (width * height);
+      }, {timeout: 3500, interval: 50, message: `Ground coverage at ${position.join(', ')}`}).toBeGreaterThan(0.999);
+    }
+    deck.setProps({viewState: {...camera, position: [0, 0, 600], pitch: 0}});
+    await expect.poll(async () => {
+      const {data, width, height} = await readCanvasPixels(canvas);
+      const sky = (Math.floor(height / 4) * width + Math.floor(width / 2)) * 4;
+      const ground = (Math.floor(height * 3 / 4) * width + Math.floor(width / 2)) * 4;
+      return [data[sky], data[sky + 1], data[sky + 2], data[ground], data[ground + 1], data[ground + 2]];
+    }, {timeout: 3500, interval: 50}).toEqual([0, 0, 0, 24, 32, 44]);
+  } finally {
+    deck.finalize();
   }
 });

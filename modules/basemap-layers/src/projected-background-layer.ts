@@ -4,6 +4,7 @@
 
 import {
   CompositeLayer,
+  FirstPersonViewport,
   type Color,
   type DefaultProps,
   type UpdateParameters,
@@ -35,11 +36,19 @@ type BackgroundViewport = Pick<Viewport, 'width' | 'height' | 'scale' | 'center'
   unprojectFlat: (common: number[]) => number[];
 };
 
+/** Identify a geospatial first-person camera across copies of deck.gl. */
+export function isGeographicFirstPersonViewport(viewport: unknown): viewport is FirstPersonViewport {
+  const candidate = viewport as FirstPersonViewport | undefined;
+  return (
+    candidate?.isGeospatial === true &&
+    (candidate.constructor as typeof FirstPersonViewport).displayName === FirstPersonViewport.displayName
+  );
+}
+
 /**
- * The square a background fills in a projected view: around the view center, several screens
- * wide. `previous` is kept while the view stays well inside it, at a similar scale. A fixed
- * polygon that covers every view down to the lowest zoom has coordinates too large for the
- * precision of the GPU when the view zooms in, and leaves parts of the screen empty.
+ * A square around the view center. Keep it while the view stays well inside it at a similar
+ * scale. A world-sized polygon can lose coverage when clipped against a first-person frustum
+ * or rendered at high zoom in a projected view.
  */
 export function getBackgroundSquare(
   viewport: BackgroundViewport,
@@ -54,15 +63,28 @@ export function getBackgroundSquare(
   if (!Number.isFinite(x) || !Number.isFinite(y) || !(screen > 0) || !Number.isFinite(screen)) {
     return previous ?? null;
   }
-  const viewReach = screen * (viewport.pitch ? PITCHED_BACKGROUND_REACH : BACKGROUND_REACH);
+  let viewReach = screen * (viewport.pitch ? PITCHED_BACKGROUND_REACH : BACKGROUND_REACH);
+  if (isGeographicFirstPersonViewport(viewport)) {
+    // The eye can look towards the horizon at any pitch. Cover the full depth of the frustum.
+    const {width, height} = viewport;
+    const farCorners = [[0, 0], [width, 0], [width, height], [0, height]];
+    const farReach = Math.max(...farCorners.map(([column, row]) => {
+      const [longitude, latitude] = viewport.unproject([column, row, 1]);
+      return Math.max(Math.abs(longitude - x), Math.abs(latitude - y));
+    }));
+    if (Number.isFinite(farReach)) {
+      viewReach = Math.max(screen * BACKGROUND_REACH, farReach);
+    }
+  }
   if (
     previous &&
     previous.viewReach >= viewReach / 2 &&
-    previous.viewReach <= viewReach * 2 &&
-    Math.abs(x - previous.center[0]) <= previous.reach * BACKGROUND_SLACK &&
-    Math.abs(y - previous.center[1]) <= previous.reach * BACKGROUND_SLACK
+    previous.viewReach <= viewReach * 2
   ) {
-    return previous;
+    const slack = Math.min(previous.reach * BACKGROUND_SLACK, previous.reach - viewReach);
+    if (Math.abs(x - previous.center[0]) <= slack && Math.abs(y - previous.center[1]) <= slack) {
+      return previous;
+    }
   }
   // Twice the reach of the view: the square also covers the view at half the scale.
   return {center: [x, y], reach: viewReach * 2, viewReach};
@@ -88,12 +110,9 @@ export type ProjectedBackgroundLayerProps = {
 };
 
 /**
- * The `background` style layer of a projected view (deck.gl's `_CustomProjectionView`): a fill
- * of the screen. In a Web Mercator view the background is a polygon of the world. A projected
- * view has no outline of the world in longitude and latitude, so this layer fills a square
- * around the view, in the units of the view's coordinate reference system, and moves it with the
- * view (see `getBackgroundSquare`). A patterned background of a map draws such a square too, in
- * longitude and latitude (see `geographic`).
+ * A background sized around a projected or first-person view. A geographic first-person view
+ * and a patterned Web Mercator background draw the square in longitude and latitude instead
+ * of projected coordinates (see `geographic`).
  */
 export class ProjectedBackgroundLayer extends CompositeLayer<ProjectedBackgroundLayerProps> {
   static layerName = 'ProjectedBackgroundLayer';

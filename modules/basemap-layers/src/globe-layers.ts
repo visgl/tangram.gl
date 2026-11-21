@@ -180,6 +180,8 @@ type BasemapLayerGroup = {
    * `background` layer fills the screen around the view (see `ProjectedBackgroundLayer`).
    */
   projected?: boolean;
+  /** Draw an ordinary background locally for a geographic first-person camera. */
+  firstPerson?: boolean;
   /**
    * The stretch limit of the tile selection in a projected view (see
    * `ProjectedTileSelectionOptions.maxStretch`). It applies to the tilesets these layers create.
@@ -907,6 +909,7 @@ function createBackgroundLayer({
   zoom,
   mode,
   projected,
+  firstPerson,
   spriteAtlases
 }: {
   idPrefix: string;
@@ -914,6 +917,7 @@ function createBackgroundLayer({
   zoom: number;
   mode: BasemapMode;
   projected?: boolean;
+  firstPerson?: boolean;
   spriteAtlases?: SpriteAtlas[] | null;
 }) {
   const paint = getPaint(layer, zoom);
@@ -936,7 +940,7 @@ function createBackgroundLayer({
       );
   // deck.gl adds an extension's attributes only to a new layer: the pattern draws in its own
   // layer, made once the sprites have loaded.
-  const id = `${idPrefix}-${layer.id}${pattern ? '-pattern' : ''}`;
+  const id = `${idPrefix}-${layer.id}${pattern ? '-pattern' : firstPerson ? '-ground' : ''}`;
   const parameters = getBackgroundParameters(mode);
 
   if (pattern) {
@@ -969,9 +973,14 @@ function createBackgroundLayer({
     return new ProjectedBackgroundLayer({id, geographic: !projected, ...patternProps});
   }
 
-  // A projected view has no outline of the world in longitude/latitude.
-  if (projected) {
-    return new ProjectedBackgroundLayer({id, getFillColor: getFillColor as Color, parameters});
+  // A local ground polygon avoids clipping world-scale triangles against the view.
+  if (projected || firstPerson) {
+    return new ProjectedBackgroundLayer({
+      id,
+      geographic: firstPerson,
+      getFillColor: getFillColor as Color,
+      parameters
+    });
   }
   return new SolidPolygonLayer({
     id,
@@ -2656,6 +2665,7 @@ export function getBasemapLayers({
   pickable,
   tilesets,
   projected,
+  firstPerson,
   projectedMaxStretch,
   styleLayerProps,
   insertLayers
@@ -2696,6 +2706,7 @@ export function getBasemapLayers({
         pickable,
         tilesets,
         projected,
+        firstPerson,
         projectedMaxStretch,
         styleLayerProps,
         insertions
@@ -4417,6 +4428,7 @@ function getStyleLayers({
   pickable,
   tilesets,
   projected,
+  firstPerson,
   projectedMaxStretch,
   styleLayerProps,
   insertions = []
@@ -4424,6 +4436,7 @@ function getStyleLayers({
   featureState?: BasemapFeatureState | null;
   pickable?: LayerProps['pickable'];
   projected?: boolean;
+  firstPerson?: boolean;
   projectedMaxStretch?: number;
   styleLayerProps?: StyleLayerPropsMap | null;
   /** deck.gl layers to draw between the runs, sorted by index (see `getStyleInsertions`). */
@@ -4474,7 +4487,7 @@ function getStyleLayers({
   const createRunLayer = (run: StyleLayerRun) => {
     const [layer] = run.styleLayers;
     if (run.type === 'background') {
-      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, spriteAtlases});
+      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, firstPerson, spriteAtlases});
     }
     if (run.type === 'raster' && run.source?.type === 'image') {
       return createImageLayer({
