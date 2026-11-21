@@ -117,7 +117,7 @@ import {
   createZoomPaintValues,
   getZoomPaintOffset
 } from './zoom-paint-extension';
-import type {BasemapGlobeConfig} from './basemap-layer';
+import type {BasemapGlobeConfig, BasemapInsertion, BasemapLayerProps} from './basemap-layer';
 import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
 import {getTileLoadOptions} from './pmtiles-source';
 import {DEFAULT_LAYER_FETCH, DEFAULT_MVT_FETCH, getBasemapLayerFetch} from './basemap-protocol';
@@ -184,6 +184,11 @@ type BasemapLayerGroup = {
    * the tiles regenerate when it changes.
    */
   styleLayerProps?: StyleLayerPropsMap | null;
+  /**
+   * deck.gl layers drawn inside the style order (see `BasemapLayerProps.insertLayers`). An
+   * insertion whose `beforeId` names no layer of the style throws an error.
+   */
+  insertLayers?: BasemapInsertion[] | null;
 };
 
 /**
@@ -2553,12 +2558,14 @@ export function getBasemapLayers({
   tilesets,
   projected,
   projectedMaxStretch,
-  styleLayerProps
+  styleLayerProps,
+  insertLayers
 }: BasemapLayerGroup) {
   const config = getConfig(globe);
   const styleLayers = (styleDefinition.layers || []).filter(layer =>
     SUPPORTED_TYPES.has(layer.type)
   );
+  const {insertions, topLayers} = getStyleInsertions(insertLayers, styleDefinition, styleLayers);
   const layers: any[] = [];
   logBasemapRuntimeEvent('Generating basemap layers', {
     mode,
@@ -2589,14 +2596,68 @@ export function getBasemapLayers({
         tilesets,
         projected,
         projectedMaxStretch,
-        styleLayerProps
+        styleLayerProps,
+        insertions
       })
     );
+  } else {
+    layers.push(...insertions.map(insertion => insertion.layers));
   }
 
   layers.push(...getGlobePostLayers({idPrefix, mode, config, styleLayers, zoom}));
+  layers.push(topLayers);
 
-  return layers.filter(layer => Boolean(layer));
+  return (layers.flat(Infinity) as unknown[]).filter(layer => Boolean(layer)) as any[];
+}
+
+/** The error of an insertion whose `beforeId` names no layer of the style. */
+export function getInsertionError(beforeId: string): Error {
+  return new Error(`Cannot insert layers before non-existing style layer "${beforeId}"`);
+}
+
+/** deck.gl layers to draw before the style layer at `index` of the drawn style layers. */
+type StyleInsertion = {index: number; layers: LayersList};
+
+/**
+ * Places each insertion of `insertLayers` in the style, as MapLibre GL JS's
+ * `addLayer(layer, beforeId)`: before the first drawn style layer at or after `beforeId`, or after
+ * the style's layers when none follows. Insertions without a `beforeId` draw over the whole basemap.
+ * Throws for a `beforeId` that names no layer of the style, as `addLayer` reports an error.
+ */
+export function getStyleInsertions(
+  insertLayers: BasemapInsertion[] | null | undefined,
+  styleDefinition: ResolvedBasemapStyle,
+  styleLayers: BasemapStyleLayer[]
+): {insertions: StyleInsertion[]; topLayers: LayersList} {
+  const insertions: StyleInsertion[] = [];
+  const topLayers: LayersList = [];
+  if (!insertLayers?.length) {
+    return {insertions, topLayers};
+  }
+  const allLayers = styleDefinition.layers || [];
+  const drawnIndex = new Map(styleLayers.map((layer, index) => [layer, index]));
+  for (const {beforeId, layers} of insertLayers) {
+    if (beforeId === undefined || beforeId === null) {
+      topLayers.push(layers);
+      continue;
+    }
+    const position = allLayers.findIndex(layer => layer.id === beforeId);
+    if (position < 0) {
+      throw getInsertionError(beforeId);
+    }
+    let index = styleLayers.length;
+    for (let i = position; i < allLayers.length; i++) {
+      const drawn = drawnIndex.get(allLayers[i]);
+      if (drawn !== undefined) {
+        index = drawn;
+        break;
+      }
+    }
+    insertions.push({index, layers});
+  }
+  // A stable sort: insertions before the same style layer keep their order in `insertLayers`.
+  insertions.sort((a, b) => a.index - b.index);
+  return {insertions, topLayers};
 }
 
 export function getGlobeBaseLayers({
@@ -4137,13 +4198,19 @@ export function getSourceLoadOptions(
  * hillshade and color-relief runs have their style layer's id. The first run of a source has the
  * source id as its id, unless such a run already has that id; later runs, and a first run whose source id is
  * taken, add the quoted id of their first style layer.
+ *
+ * A style layer in `cutBefore` starts a new run, so that deck.gl layers can draw between it and the
+ * layers before it (see `BasemapLayerProps.insertLayers`). A cut at a layer that draws nothing
+ * applies to the next layer that draws.
  */
 export function getStyleLayerRuns(
   styleLayers: BasemapStyleLayer[],
   styleDefinition: ResolvedBasemapStyle,
-  config: BasemapLayerConfig = DEFAULT_CONFIG
+  config: BasemapLayerConfig = DEFAULT_CONFIG,
+  cutBefore: ReadonlySet<BasemapStyleLayer> = new Set()
 ): StyleLayerRun[] {
   const runs: StyleLayerRun[] = [];
+  let cut = false;
   const sourceIds = new Set<string>();
   const reservedIds = new Set([
     ...Object.keys(styleDefinition.sources || {}),
@@ -4168,6 +4235,8 @@ export function getStyleLayerRuns(
   for (const layer of styleLayers) {
     const sourceId = layer.source as string | undefined;
     const source = getSource(layer);
+    const runCount = runs.length;
+    cut ||= cutBefore.has(layer);
     if (layer.type === 'background') {
       runs.push({type: 'background', id: layer.id, styleLayers: [layer]});
     } else if (layer.type === 'raster') {
@@ -4208,7 +4277,8 @@ export function getStyleLayerRuns(
         last?.type === 'vector' &&
         last.sourceId === sourceId &&
         !followsLabel &&
-        !isHeatmapRun
+        !isHeatmapRun &&
+        !cut
       ) {
         last.styleLayers.push(layer);
       } else {
@@ -4227,6 +4297,10 @@ export function getStyleLayerRuns(
         });
         sourceIds.add(sourceId);
       }
+    }
+    // The layer that the cut applies to starts a run.
+    if (runs.length !== runCount) {
+      cut = false;
     }
   }
   return runs;
@@ -4257,13 +4331,16 @@ function getStyleLayers({
   tilesets,
   projected,
   projectedMaxStretch,
-  styleLayerProps
+  styleLayerProps,
+  insertions = []
 }: {
   featureState?: BasemapFeatureState | null;
   pickable?: LayerProps['pickable'];
   projected?: boolean;
   projectedMaxStretch?: number;
   styleLayerProps?: StyleLayerPropsMap | null;
+  /** deck.gl layers to draw between the runs, sorted by index (see `getStyleInsertions`). */
+  insertions?: StyleInsertion[];
   idPrefix: string;
   styleLayers: BasemapStyleLayer[];
   styleDefinition: ResolvedBasemapStyle;
@@ -4284,10 +4361,14 @@ function getStyleLayers({
   const labelPriorityRanges = getLabelPriorityRanges(
     styleLayers.filter(layer => isVectorStyleLayer(layer, config))
   );
-  const allRuns = getStyleLayerRuns(styleLayers, styleDefinition, config);
+  const cutBefore = new Set(
+    insertions.map(insertion => styleLayers[insertion.index]).filter(layer => Boolean(layer))
+  );
+  const allRuns = getStyleLayerRuns(styleLayers, styleDefinition, config, cutBefore);
   const runs = allRuns.filter(run =>
     run.styleLayers.some(layer => isStyleLayerVisibleAtZoom(layer, zoom))
   );
+  const styleLayerIndex = new Map(styleLayers.map((layer, index) => [layer, index]));
 
   // On a globe, flat layers drawn after an extrusion are depth-tested against the buildings.
   const extrusionIndex =
@@ -4412,14 +4493,26 @@ function getStyleLayers({
       pickable
     });
   };
-  // A background, raster or hillshade run draws one style layer, in one layer that takes its
-  // extra props. A vector run gives them to the sublayers of each of its style layers.
-  return runs.map(run =>
-    withStyleLayerProps(
-      createRunLayer(run),
-      run.type === 'vector' ? undefined : styleLayerProps?.get(run.styleLayers[0])
-    )
-  );
+
+  const layers: LayersList = [];
+  let nextInsertion = 0;
+  for (const run of runs) {
+    // No run spans an insertion: runs are cut at each insertion's style layer.
+    const runIndex = styleLayerIndex.get(run.styleLayers[0])!;
+    while (nextInsertion < insertions.length && insertions[nextInsertion].index <= runIndex) {
+      layers.push(insertions[nextInsertion++].layers);
+    }
+    layers.push(
+      withStyleLayerProps(
+        createRunLayer(run),
+        run.type === 'vector' ? undefined : styleLayerProps?.get(run.styleLayers[0])
+      )
+    );
+  }
+  for (const insertion of insertions.slice(nextInsertion)) {
+    layers.push(insertion.layers);
+  }
+  return layers;
 }
 
 function getGlobePreLayers({

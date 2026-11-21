@@ -164,7 +164,7 @@ class DrapedBasemapLayer extends BasemapLayer {
   static layerName = 'DrapedBasemapLayer';
 
   renderLayers() {
-    return super.renderLayers().map(layer =>
+    return (super.renderLayers() as any[]).flat(Infinity).filter(Boolean).map(layer =>
       layer.clone({extensions: [...(layer.props.extensions || []), TERRAIN_EXTENSION]})
     );
   }

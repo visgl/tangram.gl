@@ -6,6 +6,7 @@
 export {BasemapLayer} from './basemap-layer';
 export type {BasemapTile} from './basemap-layer';
 export type {BasemapSourceData} from './basemap-layer';
+export type {BasemapInsertion} from './basemap-layer';
 export type {BasemapSourceFeature, QuerySourceFeaturesOptions} from './source-features';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';
