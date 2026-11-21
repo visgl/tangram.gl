@@ -64,6 +64,7 @@ import {getTileLoadOptions} from './pmtiles-source';
 import {getStyleZoomKey} from './style-accessor';
 import {getResolvedBasemapStyleBaseUrl, isResolvedBasemapStyle} from './style-resolver';
 import type {
+  BasemapLoadOptions,
   BasemapStyle,
   ResolvedBasemapStyle,
   ResolvedBasemapStyleLayer
@@ -136,6 +137,9 @@ export type BasemapInsertion = {
   layers: LayersList;
 };
 
+/** The `loadOptions` of {@link BasemapLayer}: basemap request options and loaders.gl options. */
+export type BasemapLayerLoadOptions = NonNullable<BasemapLoadOptions> & Record<string, unknown>;
+
 /**
  * Props accepted by {@link BasemapLayer}.
  */
@@ -143,13 +147,21 @@ export type BasemapLayerProps = {
   /** Optional deck.gl layer identifier. */
   id?: string;
   /**
-   * MapLibre or Mapbox style JSON, or a URL that resolves to one, or a style that
-   * `resolveBasemapStyle` or `MapStyleLoader` resolved. A resolved style draws at once, without a
-   * second fetch of its TileJSON and GeoJSON data. A copy of a resolved style resolves again.
+   * MapLibre or Mapbox style JSON, a URL that resolves to one, or a resolved style. A resolved
+   * style draws at once without fetching its TileJSON and GeoJSON data again. A copy resolves again.
+   * Default `null`.
    */
-  style: string | BasemapStyle | ResolvedBasemapStyle | null;
-  /** Load options forwarded to {@link resolveBasemapStyle}. */
-  loadOptions?: Record<string, unknown> | null;
+  style?: string | BasemapStyle | ResolvedBasemapStyle | null;
+  /**
+   * Options for the requests of the layer, and loaders.gl options for its tiles:
+   * - `baseUrl`, `fetch` and `fetchOptions` apply to the TileJSON, GeoJSON `data`, sprite and
+   *   glyph requests (see `resolveBasemapStyle`). With `rejectRasterTile`, they also apply to
+   *   raster tiles.
+   * - loaders.gl namespaces such as `mvt` and `core` go to the tile loaders, with the deck.gl
+   *   `fetch` prop.
+   * - A style URL loads with `MapStyleLoader`, with these options as its `mapStyle` options.
+   */
+  loadOptions?: BasemapLayerLoadOptions | null;
   /**
    * Selects whether the sublayers draw as a flat map or on a globe. `'auto'` (the default) reads
    * it from the viewport: globe sublayers in a deck.gl `GlobeView`, map sublayers in other views.
@@ -192,7 +204,9 @@ export type BasemapLayerProps = {
   /**
    * Milliseconds between two placements of the labels while the view keeps changing, as MapLibre
    * GL JS's `fadeDuration` (default 300). The view the map comes to rest in is always placed; 0
-   * places every frame.
+   * places every frame. The `BasemapLayer`s of a deck share one placement (see
+   * `separateLabelPlacement`), which takes the interval of the last of them rendered: give them
+   * the same interval.
    */
   labelPlacementInterval?: number;
   /**
@@ -423,11 +437,6 @@ type BasemapLayerState = {
 export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   ExtraPropsT & Required<BasemapLayerProps>
 > {
-  /** Query a caller-owned displayed terrain surface through the selected deck viewport. */
-  getTerrainAt(viewport: Viewport, pixel: readonly [number, number], surface: TerrainSurface,
-    commonToSurface: Readonly<ArrayLike<number>>): TerrainSurfaceHit | null {
-    return pickTerrainSurface(viewport, pixel, surface, commonToSurface);
-  }
   /** Deck.gl layer name. */
   static layerName = 'BasemapLayer';
 
@@ -458,6 +467,19 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
   /** Current layer state. */
   state: BasemapLayerState = undefined!;
+
+  /**
+   * Queries a caller-owned displayed terrain surface through the selected deck viewport. The
+   * layer adds nothing: this is `pickTerrainSurface(viewport, pixel, surface, commonToSurface)`.
+   */
+  getTerrainAt(
+    viewport: Viewport,
+    pixel: readonly [number, number],
+    surface: TerrainSurface,
+    commonToSurface: Readonly<ArrayLike<number>>
+  ): TerrainSurfaceHit | null {
+    return pickTerrainSurface(viewport, pixel, surface, commonToSurface);
+  }
 
   /** Initializes the asynchronous style-loading state. */
   initializeState(): void {
