@@ -65,11 +65,12 @@ export function vectorTile(
   styleLayer: Record<string, unknown>,
   features: unknown[],
   deviceType: 'webgl' | 'webgpu',
-  zoom = 5
+  zoom = 5,
+  mode: 'map' | 'globe' = 'map'
 ): any[] {
   const layers = getBasemapLayers({
     idPrefix: 'test',
-    mode: 'map',
+    mode,
     zoom,
     styleDefinition: {
       version: 8,

@@ -9,7 +9,7 @@
 import {LayerExtension, project} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
 import {FillStyleExtension} from '@deck.gl/extensions';
-import type {ShaderPlugin} from '@luma.gl/shaders';
+import type {ShaderModule, ShaderPlugin} from '@luma.gl/shaders';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /** Whether a layer's device runs the GLSL injections of these extensions. */
@@ -60,13 +60,11 @@ layout(std140) uniform fillTranslateUniforms {
   }
 });
 
-/** The WGSL of `fillTranslateModule`. */
-const fillTranslatePluginWGSL: ShaderPlugin = {
+/** The WGSL uniform and common-space offset shared by fill and circle translation. */
+export const fillTranslateModuleWGSL: ShaderModule = {
   name: 'fillTranslate',
-  module: {
-    name: 'fillTranslate',
-    dependencies: [project],
-    source: /* wgsl */ `\
+  dependencies: [project],
+  source: /* wgsl */ `\
 struct FillTranslateUniforms {
   offset: vec2<f32>,
 };
@@ -87,8 +85,13 @@ fn fillTranslate_getPosition(position: vec4<f32>) -> vec4<f32> {
   return vec4<f32>(position.xy + pixels / project.scale, position.zw);
 }
 `,
-    uniformTypes: {offset: 'vec2<f32>'}
-  },
+  uniformTypes: {offset: 'vec2<f32>'}
+};
+
+/** The WGSL of `fillTranslateModule`. */
+const fillTranslatePluginWGSL: ShaderPlugin = {
+  name: 'fillTranslate',
+  module: fillTranslateModuleWGSL,
   injections: [
     {
       stage: 'vertex',

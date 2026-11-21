@@ -650,12 +650,6 @@ function getStyleSubLayerId(parentId: string, styleLayerId: string | string[]): 
  */
 const ZOOM_PAINT_CONTEXT = 'zoomPaintContext';
 
-/**
- * The prop that tells a tile's `renderSubLayers` that its tile layer draws on WebGPU, where the
- * GLSL of `FillTranslateExtension` does not run.
- */
-const WEBGPU_DEVICE = 'webgpuDevice';
-
 /** Shared by every fill and line sublayer, so deck.gl does not see their extensions change. */
 const ZOOM_PAINT_EXTENSION = new ZoomPaintExtension();
 
@@ -1868,7 +1862,6 @@ class StyledMVTLayer extends SharedMVTLayer {
     const styledProps = {
       ...props,
       [ZOOM_PAINT_CONTEXT]: this.context.device?.type === 'webgpu' ? null : zoomPaintContext,
-      [WEBGPU_DEVICE]: this.context.device?.type === 'webgpu',
       [PREVIOUS_TILE_LAYERS]: previous
         ? new Map(previous.map((layer: Layer) => [layer.id, layer]))
         : undefined,
@@ -2193,7 +2186,6 @@ function createStyledVectorSubLayer({
       zoom,
       featureState,
       globe: mode === 'globe',
-      webgpu: Boolean(props[WEBGPU_DEVICE]),
       translate:
         styleLayer.paint?.['circle-translate'] === undefined
           ? null

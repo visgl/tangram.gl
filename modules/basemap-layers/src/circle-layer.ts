@@ -10,7 +10,11 @@ import {LayerExtension, project} from '@deck.gl/core';
 import type {Layer} from '@deck.gl/core';
 import {ScatterplotLayer} from '@deck.gl/layers';
 import type {ShaderPlugin} from '@luma.gl/shaders';
-import {FillTranslateExtension, type FillTranslateExtensionProps} from './fill-style-extensions';
+import {
+  FillTranslateExtension,
+  type FillTranslateExtensionProps,
+  fillTranslateModuleWGSL
+} from './fill-style-extensions';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 import {sortFeaturesByKey} from './sort-key';
 import type {FeatureStateLookup} from './feature-state';
@@ -108,22 +112,64 @@ const circleTranslateGlobeModule = createShaderInjectionPlugin({
   }
 });
 
+/** Translates the billboard center while preserving ScatterplotLayer's clip-space corner offset. */
+const circleTranslatePluginWGSL: ShaderPlugin = {
+  name: 'circleTranslate',
+  module: {
+    name: 'circleTranslate',
+    dependencies: [fillTranslateModuleWGSL],
+    source: /* wgsl */ `
+var<private> circleTranslate_center: vec4<f32>;
+`
+  },
+  injections: [
+    {
+      stage: 'vertex',
+      target: 'DECKGL_FILTER_SIZE',
+      wgsl: /* wgsl */ `
+  // Scatterplot's billboard geometry still holds the center at this hook.
+  circleTranslate_center = geometry.position;
+`
+    },
+    {
+      stage: 'vertex',
+      target: 'DECKGL_FILTER_GL_POSITION',
+      order: -1,
+      wgsl: /* wgsl */ `
+  if (any(fillTranslate.offset != vec2<f32>(0.0))) {
+    if (scatterplot.billboard == 0) {
+      *position = project_common_position_to_clipspace(fillTranslate_getPosition(geometry.position));
+    } else if (!project_globe_is_occluded(circleTranslate_center.xyz)) {
+      let center = circleTranslate_center;
+      let centerClip = project_globe_billboard_clipspace(
+        project_common_position_to_clipspace(center), center.xyz
+      );
+      let corner = *position - centerClip;
+      let moved = fillTranslate_getPosition(center);
+      *position = project_globe_billboard_clipspace(
+        project_common_position_to_clipspace(moved), moved.xyz
+      ) + corner;
+    }
+  }
+`
+    }
+  ]
+};
+
 /**
  * `circle-translate` and `circle-translate-anchor` for a `ScatterplotLayer`: the offset of
  * `FillTranslateExtension`, which moves a circle's center on the ground, turned with the map or
- * with the viewport, as MapLibre GL JS moves it in tile units. On WebGPU, the offset is on the
- * screen: `circle-translate-anchor` is not read.
+ * with the viewport, as MapLibre GL JS moves it in tile units, on WebGL and WebGPU.
  */
 export class CircleTranslateExtension extends FillTranslateExtension {
   static extensionName = 'CircleTranslateExtension';
 
   getShaders(this: Layer) {
+    if (this.context.device.type === 'webgpu') {
+      return {plugins: [circleTranslatePluginWGSL]};
+    }
     const {plugins} = FillTranslateExtension.prototype.getShaders.call(this);
-    // The globe billboard injection is GLSL; on WebGPU the offset is on the screen.
-    return {
-      plugins:
-        this.context.device.type === 'webgpu' ? plugins : [...plugins, circleTranslateGlobeModule]
-    };
+    return {plugins: [...plugins, circleTranslateGlobeModule]};
   }
 }
 
@@ -166,7 +212,6 @@ export function createCircleSubLayer({
   zoom,
   featureState,
   globe,
-  webgpu = false,
   translate = null,
   parameters
 }: {
@@ -182,8 +227,6 @@ export function createCircleSubLayer({
    * there.
    */
   globe: boolean;
-  /** Whether the circles draw on WebGPU, where `circle-translate-anchor` is not applied. */
-  webgpu?: boolean;
   /** `circle-translate` and its anchor, when the layer sets them, as `FillTranslateExtension` takes them. */
   translate?: FillTranslateExtensionProps | null;
   parameters: any;
@@ -234,22 +277,6 @@ export function createCircleSubLayer({
   const billboard = globe || alignment.value !== 'map';
 
   const hasBlur = styleLayer.paint?.['circle-blur'] !== undefined;
-  // On WebGL, `circle-translate` moves the circles on the ground, turned with the map or with the
-  // viewport by `circle-translate-anchor`, as in MapLibre (see `CircleTranslateExtension`). On
-  // WebGPU, where its GLSL does not run, the offset is deck.gl's pixel offset: on the screen for
-  // circles that face the viewer, on the map for those that lie on it, whatever the anchor.
-  const translatesOnGround = Boolean(translate) && !webgpu;
-  const pixelOffset = getStyleAccessor<[number, number]>(
-    styleLayer,
-    ['circle-translate'],
-    zoom,
-    ([value]) => {
-      const [x, y] = webgpu ? (value ?? [0, 0]) : [0, 0];
-      // Scatterplot adds offsets in clip space (billboard) or common space (map), both y-up.
-      return [x, y === 0 ? 0 : -y];
-    },
-    featureState
-  );
 
   return new ScatterplotLayer({
     ...baseProps,
@@ -263,11 +290,10 @@ export function createCircleSubLayer({
     extensions: [
       ...(baseProps.extensions || []),
       ...(hasBlur ? [CIRCLE_BLUR_EXTENSION] : []),
-      ...(translatesOnGround ? [CIRCLE_TRANSLATE_EXTENSION] : [])
+      ...(translate ? [CIRCLE_TRANSLATE_EXTENSION] : [])
     ],
     ...(hasBlur ? {getBlur: blur.value} : {}),
-    ...(translatesOnGround ? translate : {}),
-    getPixelOffset: pixelOffset.value,
+    ...translate,
     billboard,
     stroked: styleLayer.paint?.['circle-stroke-width'] !== undefined && lineWidth.value !== 0,
     updateTriggers: {
@@ -275,8 +301,7 @@ export function createCircleSubLayer({
       getLineWidth: lineWidth.updateTrigger,
       getFillColor: fillColor.updateTrigger,
       getLineColor: lineColor.updateTrigger,
-      getBlur: hasBlur ? blur.updateTrigger : undefined,
-      getPixelOffset: pixelOffset.updateTrigger
+      getBlur: hasBlur ? blur.updateTrigger : undefined
     },
     radiusUnits: 'pixels',
     lineWidthUnits: 'pixels',

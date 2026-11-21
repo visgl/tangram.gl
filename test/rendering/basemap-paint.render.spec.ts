@@ -7,6 +7,7 @@ import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {defineBackendPaintTests} from '../../modules/basemap-layers/test/backend-paint-tests';
 import {defineFillStyleTests} from '../../modules/basemap-layers/test/fill-style-tests';
+import {defineTranslateTests} from '../../modules/basemap-layers/test/translate-tests';
 
 declare const __TEST_DEVICE__: 'webgl' | 'webgpu';
 
@@ -19,3 +20,4 @@ const options = {
 };
 defineBackendPaintTests(options);
 defineFillStyleTests(options);
+defineTranslateTests(options);
