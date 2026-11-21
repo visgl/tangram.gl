@@ -4,6 +4,10 @@
 
 /** Runtime exports for `@tangram.gl/basemap-layers`. */
 export {BasemapLayer} from './basemap-layer';
+export type {BasemapTile} from './basemap-layer';
+export type {BasemapSourceData} from './basemap-layer';
+export type {BasemapInsertion} from './basemap-layer';
+
 export type {
   BasemapGlobeConfig,
   BasemapLayerLoadOptions,
@@ -33,6 +37,7 @@ export {
   getGlobeBaseLayers,
   getGlobeTopLayers
 } from './globe-layers';
+export type {StyleLayerSubLayerProps} from './globe-layers';
 export {getSpriteIconMapping, getSpriteSources, loadSpriteAtlases} from './sprite';
 export type {SpriteAtlas, SpriteIconMappingEntry, SpriteSource} from './sprite';
 export {getLabelFont} from './text-font';

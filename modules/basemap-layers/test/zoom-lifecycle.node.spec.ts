@@ -21,15 +21,6 @@ const STYLE = {
   ]
 };
 
-/** BasemapLayer counts as loaded only once its style has resolved. */
-class LoadedBasemapLayer extends BasemapLayer {
-  static layerName = 'LoadedBasemapLayer';
-
-  get isLoaded(): boolean {
-    return super.isLoaded && Boolean(this.state?.resolvedStyle);
-  }
-}
-
 function viewportAt(zoom: number) {
   return new WebMercatorViewport({width: 100, height: 100, longitude: 0, latitude: 0, zoom});
 }
@@ -46,7 +37,8 @@ describe('BasemapLayer zoom lifecycle', () => {
   test('regenerates sublayers at zoom steps and at fractional minzoom, not in between', async () => {
     const renderCounts: number[] = [];
     await testLayerAsync({
-      Layer: LoadedBasemapLayer,
+      // `testLayerAsync` waits for `isLoaded`, which is false until the style resolves.
+      Layer: BasemapLayer,
       createSpy: (obj: any, method: string) => vi.spyOn(obj, method),
       resetSpy: spy => {
         if ('mockClear' in spy && typeof spy.mockClear === 'function') spy.mockClear();

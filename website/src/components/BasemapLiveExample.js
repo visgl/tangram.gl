@@ -12,7 +12,11 @@ const EXAMPLES = {
   'custom-projection': () => import('../../../examples/layers/basemap-layer-custom-projection/app')
     .then(module => module.mountBasemapCustomProjectionExample),
   'masked-by-data': () => import('../../../examples/layers/basemap-masked-by-data/app')
-    .then(module => module.mountBasemapMaskedByDataExample)
+    .then(module => module.mountBasemapMaskedByDataExample),
+  'draped-terrain': () => import('../../../examples/layers/basemap-draped-terrain/app')
+    .then(module => module.mountBasemapDrapedTerrainExample),
+  'native-crs-raster': () => import('../../../examples/layers/basemap-native-crs-raster/app')
+    .then(module => module.mountBasemapNativeCrsRasterExample)
 };
 
 /** Mount the copied basemap examples directly in the documentation page. */
