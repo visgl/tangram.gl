@@ -347,6 +347,35 @@ A style, a sprite or a tile that failed to load counts as loaded.
 ## Draping on terrain (experimental)
 
 `BasemapLayer` makes deck.gl layers, so deck.gl's `_TerrainExtension` can drape them on a `TerrainLayer`. The [Draped on terrain example](/examples/basemap-layers/draped-terrain) adds the extension to the layers in a subclass, and draws data layers in the same depth buffer as the basemap and the terrain.
+### `sourceData`
+
+Type: `Record<string, BasemapSourceData | null | undefined> | null`
+
+The data of `geojson` sources of the style, by source id, in place of their `data` in the style. Each entry is a GeoJSON object or the URL of one. This is the declarative form of MapLibre GL JS's [`GeoJSONSource.setData`](https://maplibre.org/maplibre-gl-js/docs/API/classes/GeoJSONSource/#setdata). Defaults to `null`.
+
+Each entry is compared by identity. When one changes, only that source is indexed again and its tiles cut again. The style is not loaded again, and the other sources keep their tiles. A new object with the same entries changes nothing.
+
+- A URL is fetched with the `fetch` and `fetchOptions` of `loadOptions`, relative to the style URL or `loadOptions.baseUrl`. A URL is fetched again when the style URL, `loadOptions.baseUrl` or `loadOptions` change. As with `setData`, the source draws its previous data until the new data loads. If the fetch fails, an error is logged and the source keeps its previous data.
+- An entry that is removed, `null` or `undefined` gives the source its `data` in the style again.
+- An id that is not a `geojson` source of the style is ignored with a warning.
+- The entries also apply to a style that loads later.
+
+```ts
+const style = {
+  version: 8,
+  sources: {
+    // ...the basemap sources...
+    vehicles: {type: 'geojson', data: {type: 'FeatureCollection', features: []}}
+  },
+  layers: [
+    // ...the basemap layers...
+    {id: 'vehicles', type: 'circle', source: 'vehicles', paint: {'circle-color': '#e00'}}
+  ]
+};
+
+// On each update, give a new FeatureCollection: only the vehicles source is cut again.
+new BasemapLayer({style, sourceData: {vehicles: latestPositions}});
+```
 
 ## Projected views
 

@@ -18,7 +18,7 @@ import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {getSourceTileBounds, getSourceTileTemplates} from './source-tiles';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
-import {getSourceKey, type BasemapSource} from './style-resolver';
+import {getSourceKey, loadGeoJsonData, type BasemapSource} from './style-resolver';
 import type {BasemapFeatureState} from './feature-state';
 import {
   CompositeLayer,
@@ -108,6 +108,12 @@ export type BasemapGlobeConfig = {
 
 /** A tile given to `onTileLoad` and `onViewportLoad`: deck.gl's tile header. */
 export type BasemapTile = Tile2DHeader | SharedTile2DHeader;
+
+/**
+ * The data of a `geojson` source in {@link BasemapLayerProps.sourceData}: a GeoJSON object, or the
+ * URL of one, as the source's `data` in the style.
+ */
+export type BasemapSourceData = object | string;
 
 /**
  * Props accepted by {@link BasemapLayer}.
@@ -226,6 +232,37 @@ export type BasemapLayerProps = {
    * strings are the provider's HTML, not sanitized: display them as safe linked text.
    */
   onAttributionChange?: ((attributions: string[]) => void) | null;
+  /**
+   * The data of `geojson` sources of the style, by source id, in place of their `data` in the
+   * style, as MapLibre GL JS's `GeoJSONSource.setData`. Each entry is compared by identity: when
+   * one changes, only that source is indexed again and its tiles cut again. The style is not
+   * loaded again, and the other sources keep their tiles. A URL is fetched with the `fetch` and
+   * `fetchOptions` of `loadOptions`, relative to the style URL or `loadOptions.baseUrl`, and again
+   * when the style URL or `loadOptions` change; the source keeps its previous data until it
+   * loads. An entry that is removed, `null` or `undefined` gives the source its data in the style
+   * again. An id that is not a `geojson` source of the style is ignored with a warning.
+   */
+  sourceData?: Record<string, BasemapSourceData | null | undefined> | null;
+};
+
+/** A `sourceData` entry and its GeoJSON: the entry itself, or its URL's once it loads. */
+type SourceDataEntry = {
+  /** The entry of the `sourceData` prop. */
+  input: BasemapSourceData;
+  /** Its GeoJSON object, or the previous entry's until a URL loads, or null. */
+  data: object | null;
+  /** For a URL, the URL that it resolves against and the `loadOptions` that it loads with. */
+  context?: {baseUrl: string | undefined; loadOptions: BasemapLayerProps['loadOptions']};
+};
+
+/** A `geojson` source of the resolved style with the data of its `sourceData` entry. */
+type SourceDataSource = {
+  /** The source in the resolved style. */
+  base: BasemapSource;
+  /** The data of its `sourceData` entry. */
+  data: object;
+  /** `base` with `data`: the tileset key, kept while neither changes. */
+  source: BasemapSource;
 };
 
 const fractionalZoomLimitsCache = new WeakMap<ResolvedBasemapStyle, number[]>();
@@ -311,6 +348,12 @@ type BasemapLayerState = {
   viewportTiles: BasemapTile[] | null;
   /** The attributions last reported to `onAttributionChange`, as JSON. */
   attributions: string;
+  /** The entries of the `sourceData` prop, by source id. */
+  sourceData: Map<string, SourceDataEntry>;
+  /** The sources that the `sourceData` entries replace, by source id. */
+  sourceDataSources: Map<string, SourceDataSource>;
+  /** The resolved style with the `sourceData` sources, and the resolved style it was made from. */
+  styleWithSourceData: {base: ResolvedBasemapStyle; style: ResolvedBasemapStyle} | null;
   /** The config `getStyleConfig` last returned, kept while its inputs do not change. */
   styleConfig: {
     labels: unknown;
@@ -355,7 +398,9 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     onStyleLoad: {type: 'function', optional: true, value: null},
     onTileLoad: {type: 'function', optional: true, value: null},
     onViewportLoad: {type: 'function', optional: true, value: null},
-    onAttributionChange: {type: 'function', optional: true, value: null}
+    onAttributionChange: {type: 'function', optional: true, value: null},
+    // Compared by entry: a new object with the same entries changes nothing.
+    sourceData: {type: 'object', value: null, compare: 1}
   };
 
   /** Current layer state. */
@@ -391,6 +436,9 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       viewportTiles: null,
       // No style draws no sources: the first report is the first attribution.
       attributions: '[]',
+      sourceData: new Map(),
+      sourceDataSources: new Map(),
+      styleWithSourceData: null,
       styleConfig: null
     };
   }
@@ -506,6 +554,113 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         this.loadStyle(props.style, props.loadOptions);
       }
     }
+    if (
+      props.sourceData !== oldProps.sourceData ||
+      props.style !== oldProps.style ||
+      props.loadOptions !== oldProps.loadOptions
+    ) {
+      this.updateSourceData(props);
+    }
+  }
+
+  /**
+   * Takes the entries of the `sourceData` prop. An entry that is the same as before keeps its data;
+   * a GeoJSON object is used as it is, and a URL is fetched. A URL is fetched again when the URL
+   * that it resolves against or the `loadOptions` change.
+   */
+  private updateSourceData({sourceData, style, loadOptions}: BasemapLayerProps): void {
+    const previous = this.state.sourceData;
+    const entries = new Map<string, SourceDataEntry>();
+    const baseUrl = getStyleBaseUrl(style, ((loadOptions || {}) as {baseUrl?: string}).baseUrl);
+    for (const [sourceId, input] of Object.entries(sourceData || {})) {
+      if (input === null || input === undefined) {
+        continue;
+      }
+      const previousEntry = previous.get(sourceId);
+      if (
+        previousEntry?.input === input &&
+        (typeof input !== 'string' ||
+          (previousEntry.context?.baseUrl === baseUrl &&
+            previousEntry.context?.loadOptions === loadOptions))
+      ) {
+        entries.set(sourceId, previousEntry);
+      } else if (typeof input !== 'string') {
+        entries.set(sourceId, {input, data: input});
+      } else {
+        // As MapLibre's `setData`, the source keeps the data it has until the new data loads.
+        const entry: SourceDataEntry = {
+          input,
+          data: previousEntry?.data ?? null,
+          context: {baseUrl, loadOptions}
+        };
+        entries.set(sourceId, entry);
+        this.loadSourceData(sourceId, entry);
+      }
+    }
+    this.setState({sourceData: entries});
+  }
+
+  /** Fetches the GeoJSON of a `sourceData` URL, unless the entry has changed by then. */
+  private loadSourceData(sourceId: string, entry: SourceDataEntry): void {
+    const {baseUrl, loadOptions} = entry.context!;
+    const isCurrent = () => this.state.sourceData.get(sourceId) === entry;
+    loadGeoJsonData(entry.input as string, baseUrl, loadOptions)
+      .then(data => {
+        if (isCurrent()) {
+          const entries = new Map(this.state.sourceData);
+          entries.set(sourceId, {...entry, data});
+          this.setState({sourceData: entries});
+        }
+      })
+      .catch((error: Error) => {
+        if (isCurrent()) {
+          logBasemapLayerError(`Failed to load the data of GeoJSON source "${sourceId}"`, error);
+        }
+      });
+  }
+
+  /**
+   * The resolved style with the data of the `sourceData` entries in its `geojson` sources. A source
+   * is a new object only when its entry or its source in the resolved style changes, and the style
+   * only when one of its sources does: the tilesets are keyed by source object, so the other sources
+   * keep their tiles.
+   */
+  private getStyleWithSourceData(resolvedStyle: ResolvedBasemapStyle): ResolvedBasemapStyle {
+    const {sourceData, sourceDataSources: previous, styleWithSourceData} = this.state;
+    const replaced = new Map<string, SourceDataSource>();
+    let changed = styleWithSourceData?.base !== resolvedStyle;
+    for (const [sourceId, {data}] of sourceData) {
+      const base = resolvedStyle.sources?.[sourceId];
+      if (base?.type !== 'geojson') {
+        log.warn(`[BasemapLayer] sourceData "${sourceId}" is not a geojson source of the style`)();
+        continue;
+      }
+      if (!data) {
+        continue;
+      }
+      let entry = previous.get(sourceId);
+      if (!entry || entry.base !== base || entry.data !== data) {
+        entry = {base, data, source: {...base, data}};
+        changed = true;
+      }
+      replaced.set(sourceId, entry);
+    }
+    if (replaced.size !== previous.size) {
+      changed = true;
+    }
+    this.state.sourceDataSources = replaced;
+    if (!replaced.size) {
+      this.state.styleWithSourceData = null;
+      return resolvedStyle;
+    }
+    if (changed || !styleWithSourceData) {
+      const sources = {...resolvedStyle.sources};
+      for (const [sourceId, {source}] of replaced) {
+        sources[sourceId] = source;
+      }
+      this.state.styleWithSourceData = {base: resolvedStyle, style: {...resolvedStyle, sources}};
+    }
+    return this.state.styleWithSourceData!.style;
   }
 
   /**
@@ -726,7 +881,8 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     sourceId: string,
     options?: QuerySourceFeaturesOptions | null
   ): BasemapSourceFeature[] {
-    const source = this.state?.resolvedStyle?.sources?.[sourceId];
+    const style = this.state?.styleWithSourceData?.style || this.state?.resolvedStyle;
+    const source = style?.sources?.[sourceId];
     const tileset = source && isVectorTileSource(source) && this.state.tilesets.get(source);
     if (!tileset) {
       return [];
@@ -737,6 +893,8 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   /** The basemap owns caches; style-run consumers only attach/detach. */
   finalizeState(): void {
     this.state.loadToken++;
+    // Loads of `sourceData` URLs that finish later find no entry.
+    this.state.sourceData = new Map();
     this.clearSourceTilesets();
     this.releaseLabelPlacement();
   }
@@ -971,16 +1129,17 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
 
   /** Renders the sublayers generated from the resolved style definition. */
   renderLayers() {
-    const {resolvedStyle} = this.state;
+    const {resolvedStyle: baseStyle} = this.state;
     const {viewport} = this.context;
     // In a projected view, the zoom of the Web Mercator map of the same scale.
     const zoom = getStyleZoom(viewport);
-    this.updateAttributions(resolvedStyle, zoom);
+    this.updateAttributions(baseStyle, zoom);
     // Recorded without setState: this only tracks what the current sublayers were built from.
-    this.state.renderedStyle = resolvedStyle;
-    if (!resolvedStyle) {
+    this.state.renderedStyle = baseStyle;
+    if (!baseStyle) {
       return [];
     }
+    const resolvedStyle = this.getStyleWithSourceData(baseStyle);
 
     this.state.zoomLoadGate.delay = Math.max(0, Number(this.props.zoomLoadDelay) || 0);
     this.updateSourceTilesets(resolvedStyle);

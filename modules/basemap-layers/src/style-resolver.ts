@@ -230,12 +230,24 @@ async function resolveGeoJsonSource(
   if (typeof source.data !== 'string') {
     return {...source};
   }
-  const dataUrl = normalizeUrl(source.data, baseUrl) || source.data;
+  return {...source, data: await loadGeoJsonData(source.data, baseUrl, loadOptions)};
+}
+
+/**
+ * Fetches the GeoJSON of a `geojson` source's `data` URL, as MapLibre loads it. A relative URL
+ * resolves against `baseUrl`. Throws if the data cannot be fetched or is not a GeoJSON object.
+ */
+export async function loadGeoJsonData(
+  url: string,
+  baseUrl: string | undefined,
+  loadOptions?: BasemapLoadOptions
+): Promise<object> {
+  const dataUrl = normalizeUrl(url, baseUrl) || url;
   const data = await fetchJson(dataUrl, loadOptions);
   if (!data || typeof data !== 'object' || Array.isArray(data)) {
     throw new Error(`Invalid GeoJSON: ${dataUrl}`);
   }
-  return {...source, data};
+  return data;
 }
 
 /**
