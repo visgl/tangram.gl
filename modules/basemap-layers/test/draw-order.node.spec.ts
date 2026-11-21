@@ -368,7 +368,7 @@ describe('globe draw order', () => {
     // later one; back-face culling hides the far side.
     for (const parameters of [water, roads]) {
       expect(parameters).toMatchObject({
-        depthTest: false,
+        depthCompare: 'always',
         depthWriteEnabled: false,
         cullMode: 'back'
       });
@@ -380,7 +380,7 @@ describe('globe draw order', () => {
       styleDefinition: {version: 8, sources: SOURCES, layers: RASTER_FIRST_LAYERS} as any
     }).find((layer: any) => layer.id === 'test-background');
     // The globe background still writes depth, so the globe hides what is drawn behind it.
-    expect(background.props.parameters).toMatchObject({depthTest: true, depthWriteEnabled: true});
+    expect(background.props.parameters).toMatchObject({depthCompare: 'less-equal', depthWriteEnabled: true});
   });
 
   /** Water, buildings from z14, then a boundary line, a raster and roads from another source. */
@@ -465,14 +465,13 @@ describe('globe draw order', () => {
 
   test('flat layers after a drawn extrusion are depth-tested against the buildings', () => {
     const {water, building, boundary, relief, reliefTile, roads} = getExtrusionLayers('globe', 15);
-    expect(building).toMatchObject({depthTest: true, depthWriteEnabled: true});
+    expect(building).toMatchObject({depthCompare: 'less-equal', depthWriteEnabled: true});
     // Before the buildings, flat layers draw without depth.
-    expect(water).toMatchObject({depthTest: false, depthWriteEnabled: false});
+    expect(water).toMatchObject({depthCompare: 'always', depthWriteEnabled: false});
     // After them, the buildings hide them; they still write no depth, so they cannot hide each
     // other. This holds for the extrusion's own run, a raster, and a later run.
     for (const parameters of [boundary, relief, reliefTile, roads]) {
       expect(parameters).toMatchObject({
-        depthTest: true,
         depthCompare: 'less-equal',
         depthWriteEnabled: false,
         cullMode: 'back'
@@ -480,11 +479,27 @@ describe('globe draw order', () => {
     }
   });
 
+  test.each([
+    ['map', 15],
+    ['globe', 15],
+    ['globe', 13]
+  ] as const)('no layer sets the WebGL-only depthTest parameter, in %s mode at zoom %d', (mode, zoom) => {
+    // WebGPU has no `depthTest`: luma.gl logs an error for it. `depthCompare` sets the test there
+    // and on WebGL.
+    const {roadsTrigger, ...parameters} = getExtrusionLayers(mode, zoom);
+    for (const [id, value] of Object.entries(parameters)) {
+      if (value) {
+        expect(value, id).not.toHaveProperty('depthTest');
+        expect(value, id).toHaveProperty('depthCompare');
+      }
+    }
+  });
+
   test('below the extrusion zoom, flat layers draw without depth', () => {
     const z13 = getExtrusionLayers('globe', 13);
     expect(z13.building).toBeUndefined();
     for (const parameters of [z13.water, z13.boundary, z13.relief, z13.reliefTile, z13.roads]) {
-      expect(parameters).toMatchObject({depthTest: false, depthWriteEnabled: false});
+      expect(parameters).toMatchObject({depthCompare: 'always', depthWriteEnabled: false});
     }
   });
 
@@ -492,15 +507,133 @@ describe('globe draw order', () => {
     // Both zooms are in one style zoom step, and the roads' run has no zoom limits of its own.
     const before = getExtrusionLayers('globe', 14.05, 14.1);
     const after = getExtrusionLayers('globe', 14.15, 14.1);
-    expect(before.roads).toMatchObject({depthTest: false});
-    expect(after.roads).toMatchObject({depthTest: true});
+    expect(before.roads).toMatchObject({depthCompare: 'always'});
+    expect(after.roads).toMatchObject({depthCompare: 'less-equal'});
     expect(after.roadsTrigger).not.toEqual(before.roadsTrigger);
   });
 
   test('on a map, every flat layer is depth-tested', () => {
     const {water, boundary, relief, roads} = getExtrusionLayers('map', 15);
     for (const parameters of [water, boundary, relief, roads]) {
-      expect(parameters).toMatchObject({depthTest: true, depthWriteEnabled: false});
+      expect(parameters).toMatchObject({depthCompare: 'less-equal', depthWriteEnabled: false});
     }
+  });
+});
+
+describe('insertLayers', () => {
+  const LAYERS = [
+    {id: 'background', type: 'background', paint: {'background-color': '#fff'}},
+    {id: 'water', type: 'fill', source: 'tiles', 'source-layer': 'water'},
+    {id: 'roads', type: 'line', source: 'tiles', 'source-layer': 'road'},
+    {id: 'places', type: 'symbol', source: 'tiles', 'source-layer': 'place', layout: {}}
+  ];
+  const data = (id: string) => ({id}) as any;
+  const getIds = (insertLayers: unknown, layers: unknown[] = LAYERS, mode = 'map') =>
+    getBasemapLayers({
+      idPrefix: 'test',
+      mode: mode as any,
+      zoom: 4,
+      styleDefinition: {version: 8, sources: SOURCES, layers} as any,
+      insertLayers: insertLayers as any
+    }).map((layer: any) => layer.id);
+
+  test('a beforeId inside a vector run splits the run around the inserted layers', () => {
+    expect(getIds([{beforeId: 'roads', layers: [data('data')]}])).toEqual([
+      'test-background',
+      'test-tiles',
+      'data',
+      'test-tiles-"roads"'
+    ]);
+    expect(getIds(null)).toEqual(['test-background', 'test-tiles']);
+  });
+
+  test('a beforeId at the start of a run draws before it, and without one on top', () => {
+    expect(
+      getIds([
+        {layers: [data('top')]},
+        {beforeId: 'water', layers: [data('under-water')]},
+        {beforeId: 'background', layers: [data('first')]}
+      ])
+    ).toEqual(['first', 'test-background', 'under-water', 'test-tiles', 'top']);
+  });
+
+  test('insertions before one style layer draw in list order, nested and empty lists too', () => {
+    expect(
+      getIds([
+        {beforeId: 'places', layers: [data('a'), [null, data('b')]]},
+        {beforeId: 'places', layers: [false, data('c')]}
+      ])
+    ).toEqual(['test-background', 'test-tiles', 'a', 'b', 'c', 'test-tiles-"places"']);
+  });
+
+  test('labels before the cut draw in the first run, labels after it in the second', () => {
+    const runs = getStyleLayerRuns(
+      LAYERS as any,
+      {version: 8, sources: SOURCES, layers: LAYERS} as any,
+      undefined,
+      new Set([LAYERS[3] as any])
+    );
+    expect(runs.map(run => run.styleLayers.map(layer => layer.id))).toEqual([
+      ['background'],
+      ['water', 'roads'],
+      ['places']
+    ]);
+  });
+
+  test('a beforeId that draws nothing places the layers before the next layer that draws', () => {
+    const layers = [
+      LAYERS[1],
+      // No tiles: this layer draws nothing.
+      {id: 'untiled', type: 'fill', source: 'missing', 'source-layer': 'x'},
+      // Not a supported type.
+      {id: 'unknown-type', type: 'model', source: 'tiles'},
+      LAYERS[2]
+    ];
+    expect(getIds([{beforeId: 'untiled', layers: [data('data')]}], layers)).toEqual([
+      'test-tiles',
+      'data',
+      'test-tiles-"roads"'
+    ]);
+    expect(getIds([{beforeId: 'unknown-type', layers: [data('data')]}], layers)).toEqual([
+      'test-tiles',
+      'data',
+      'test-tiles-"roads"'
+    ]);
+    // After the last layer that draws, the layers draw after the style.
+    expect(getIds([{beforeId: 'unknown-type', layers: [data('data')]}], layers.slice(0, 3))).toEqual(
+      ['test-tiles', 'data']
+    );
+  });
+
+  test('a beforeId in a layer out of its zoom range keeps its place', () => {
+    const layers = [LAYERS[1], {...LAYERS[2], minzoom: 10}, LAYERS[3]];
+    expect(getIds([{beforeId: 'roads', layers: [data('data')]}], layers)).toEqual([
+      'test-tiles',
+      'data',
+      'test-tiles-"roads"'
+    ]);
+  });
+
+  test('moving the beforeId keeps the ids of the runs it does not cut', () => {
+    expect(getIds([{beforeId: 'roads', layers: [data('data')]}])[1]).toBe('test-tiles');
+    expect(getIds([{beforeId: 'places', layers: [data('data')]}])).toEqual([
+      'test-background',
+      'test-tiles',
+      'data',
+      'test-tiles-"places"'
+    ]);
+  });
+
+  test('on a globe, layers without a beforeId draw over the atmosphere and the pole', () => {
+    const ids = getIds([{layers: [data('top')]}, {beforeId: 'roads', layers: [data('mid')]}], LAYERS, 'globe');
+    expect(ids[ids.length - 1]).toBe('top');
+    expect(ids.indexOf('mid')).toBe(ids.indexOf('test-tiles-"roads"') - 1);
+    expect(ids.indexOf('test-background-north-pole')).toBeLessThan(ids.indexOf('top'));
+  });
+
+  test('an unknown beforeId throws, as MapLibre GL JS reports an error', () => {
+    expect(() => getIds([{beforeId: 'nope', layers: [data('data')]}])).toThrow(
+      'Cannot insert layers before non-existing style layer "nope"'
+    );
   });
 });

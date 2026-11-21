@@ -430,12 +430,16 @@ async function drawBasemapLayer(
             const layers = layerManager?.getLayers() || [];
             // A tile layer reports loaded before it has selected any tiles.
             const tileLayers = layers.filter((layer: any) => layer.state?.tileset);
+            // A style whose sources have no tiles (an image over a background) draws no tile layer.
+            const hasTiles = Object.values(resolvedStyle?.sources || {}).some(
+              (source: any) => source?.tiles || source?.type === 'geojson'
+            );
             frameDraws = draws;
             draws = 0;
             const ready =
               resolvedStyle &&
               (!resolvedStyle.sprite || basemap.state.spriteAtlases) &&
-              tileLayers.length > 0 &&
+              (tileLayers.length > 0 || !hasTiles) &&
               tileLayers.every((layer: any) => layer.state.tileset.selectedTiles) &&
               layers.every((layer: any) => layer.isLoaded) &&
               // Labels along lines are placed by a length estimate until their web font has

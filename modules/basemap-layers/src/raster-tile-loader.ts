@@ -8,6 +8,7 @@ import {parse} from '@loaders.gl/core';
 import {getBasemapFetch} from './basemap-protocol';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 import {BasemapFetchError} from './basemap-error';
+import {getSourceTileTemplates} from './source-tiles';
 
 /** The position of a tile in the tile pyramid. */
 export type RasterTileIndex = {x: number; y: number; z: number};
@@ -195,7 +196,7 @@ export function getRasterTileLoader(
   let loader = rasterTileLoaders.get(source);
   if (
     !loader ||
-    loader.options.tiles !== source.tiles ||
+    loader.options.tiles !== getSourceTileTemplates(source) ||
     loader.options.rejectTile !== options.rejectTile ||
     loader.options.loadOptions !== options.loadOptions ||
     loader.options.sourceId !== options.sourceId ||
@@ -203,7 +204,7 @@ export function getRasterTileLoader(
     loader.options.decodeImage !== options.decodeImage ||
     loader.options.cropImage !== options.cropImage
   ) {
-    loader = new RasterTileLoader({...options, tiles: source.tiles as string[]});
+    loader = new RasterTileLoader({...options, tiles: getSourceTileTemplates(source) as string[]});
     rasterTileLoaders.set(source, loader);
   }
   return loader;

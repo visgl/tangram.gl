@@ -156,6 +156,23 @@ describe('BasemapLayer onError', () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  test('a failed image source calls onError once', async () => {
+    const url = `${TILES_URL}/image.png`;
+    const {layer, onError} = basemap({
+      style: style({
+        sources: {image: {type: 'image', url, coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]]}},
+        layers: [{id: 'image-layer', type: 'raster', source: 'image'}]
+      })
+    });
+    await settled(layer);
+    const image = layer.renderLayers().flat(Infinity).find((item: any) => item.id === 'basemap-image-layer');
+    const cause = new Error('image load failed');
+    image.props.onError(cause);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError.mock.calls[0][0]).toBeInstanceOf(BasemapLoadError);
+    expect(onError.mock.calls[0][0]).toMatchObject({kind: 'image', sourceId: 'image', url, cause});
+  });
+
   describe('tiles', () => {
     const SOURCES = {
       streets: {type: 'vector', tiles: [`${TILES_URL}/streets/{z}/{x}/{y}.mvt`]},

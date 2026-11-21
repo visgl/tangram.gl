@@ -74,6 +74,8 @@ export class GlyphStore {
    */
   readonly id = ++lastStoreId;
   readonly url: string;
+  /** Whether a glyph range failed to load. Such a range holds no glyphs, and is not loaded again. */
+  failed = false;
   private readonly fetch: typeof fetch;
   private readonly fetchOptions?: RequestInit;
   private readonly onError?: BasemapLoadErrorHandler;
@@ -263,6 +265,7 @@ export class GlyphStore {
         }
       }
     } catch (error) {
+      this.failed = true;
       if (this.onError) {
         this.onError(
           getBasemapLoadError('glyphs', error, {url: this.getRangeUrl(fontStack, range)})
