@@ -7,6 +7,7 @@ import {SharedMVTLayer, SharedTile2DLayer, SharedTileset2D} from '@deck.gl-commu
 import {isGeographicViewport, isProjectedViewport} from './projected-viewport';
 import {getTileFeaturesInLngLat} from './projected-tile-data';
 import {getBasemapTilesetAdapter, ProjectedTileLayer} from './projected-tileset';
+import {getSourceTileBounds, getSourceTileTemplates} from './source-tiles';
 import {
   type Color,
   type Layer,
@@ -917,7 +918,7 @@ export function createDemTileset(
 ): SharedTileset2D<DemTile | null> {
   return createSharedDemTileset(source, getTileLoadOptions(source, loadOptions), {
     ...getTilePyramidProps(source),
-    adapter: getBasemapTilesetAdapter(projectedMaxStretch)
+    adapter: getBasemapTilesetAdapter(projectedMaxStretch, getSourceTileBounds(source))
   });
 }
 
@@ -961,9 +962,11 @@ function createRasterLayer({
   // Also selects tiles in a projected view.
   return new ProjectedTileLayer({
     id: `${idPrefix}-${layer.id}`,
-    data: source.tiles,
+    data: getSourceTileTemplates(source),
     ...(projectedMaxStretch === undefined ? {} : {maxStretch: projectedMaxStretch}),
     ...tilePyramidProps,
+    // Tiles outside the source's `bounds` are not requested.
+    tileBounds: getSourceTileBounds(source),
     // Tiles use the basemap fetch and load options, and registered protocol handlers.
     fetch: getBasemapLayerFetch(fetch || DEFAULT_LAYER_FETCH, 'image'),
     ...(tileLoadOptions ? {loadOptions: tileLoadOptions} : {}),
@@ -2151,7 +2154,7 @@ function createVectorLayerGroup({
 
   return new StyledMVTLayer({
     id: `${idPrefix}-${id}`,
-    data: tileset || source.tiles,
+    data: tileset || getSourceTileTemplates(source),
     ...{sourceTilesetOwner},
     ...(pickable ? {pickable} : {}),
     // Name the source of picked features (see `getPickingInfo`).
@@ -4210,7 +4213,7 @@ function getStyleLayers({
         // Tiles decode the source layers of all of the source's runs, at every zoom.
         sourceLayers ??= getRunSourceLayers(allRuns);
         const loader = new SharedMVTLayer({
-          data: run.source!.tiles!,
+          data: getSourceTileTemplates(run.source!)!,
           fetch: getBasemapLayerFetch(DEFAULT_MVT_FETCH, 'arrayBuffer'),
           loadOptions: getTileLoadOptions(
             run.source!,
@@ -4219,7 +4222,7 @@ function getStyleLayers({
         });
         const ownedTileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
-          adapter: getBasemapTilesetAdapter(projectedMaxStretch),
+          adapter: getBasemapTilesetAdapter(projectedMaxStretch, getSourceTileBounds(run.source!)),
           ...getTilePyramidProps(run.source!),
           tileSize: run.source!.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,

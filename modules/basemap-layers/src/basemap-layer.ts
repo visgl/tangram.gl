@@ -14,6 +14,7 @@ import {isGlobeViewport} from './is-globe-viewport';
 import {ZoomLoadGate} from './zoom-load-gate';
 import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {getBasemapTilesetAdapter} from './projected-tileset';
+import {getSourceTileBounds, getSourceTileTemplates} from './source-tiles';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
 import type {BasemapSource} from './style-resolver';
 import type {BasemapFeatureState} from './feature-state';
@@ -624,7 +625,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       if (!this.state.tilesets.has(source)) {
         const loader = new SharedMVTLayer({
           id: `${this.id}-loader`,
-          data: source.tiles!,
+          data: getSourceTileTemplates(source)!,
           fetch: getBasemapLayerFetch(this.props.fetch, 'arrayBuffer'),
           loadOptions: getTileLoadOptions(
             source,
@@ -636,7 +637,10 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         const loadTile = getVectorTileLoader(source, loader, geoJson);
         const tileset: SharedTileset2D = new SharedTileset2D({
           ...loader._getTilesetOptions(),
-          adapter: getZoomGatedAdapter(gate, getBasemapTilesetAdapter(this.props.projectedMaxStretch)),
+          adapter: getZoomGatedAdapter(
+            gate,
+            getBasemapTilesetAdapter(this.props.projectedMaxStretch, getSourceTileBounds(source))
+          ),
           ...getTilePyramidProps(source),
           tileSize: source.tileSize || 512,
           zoomOffset: VECTOR_TILE_ZOOM_OFFSET,
