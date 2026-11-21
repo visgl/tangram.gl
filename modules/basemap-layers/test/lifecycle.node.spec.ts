@@ -297,13 +297,13 @@ describe('BasemapLayer onAttributionChange', () => {
       {
         terrain: {type: 'raster', tiles: TILES, attribution: '© Terrain'},
         places: {type: 'vector', tiles: TILES, attribution: '© Places'},
-        // A layer type that is not drawn draws no source.
+        // A source drawn only by hidden layers is not reported.
         heat: {type: 'geojson', data: {type: 'FeatureCollection', features: []}, attribution: '© Heat'}
       },
       [
         {id: 'terrain', type: 'raster', source: 'terrain'},
         {id: 'places', type: 'symbol', source: 'places', 'source-layer': 'places'},
-        {id: 'heat', type: 'heatmap', source: 'heat'}
+        {id: 'heat', type: 'heatmap', source: 'heat', layout: {visibility: 'none'}}
       ]
     );
     const props = {id: 'basemap', style: labelled, fetch: neverFetch, onAttributionChange};
