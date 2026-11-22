@@ -20,6 +20,7 @@ import {
   type SettingsState
 } from '@deck.gl-community/panels';
 import {BoxPanelWidget} from '@deck.gl-community/widgets';
+import {normalizeViewportProps} from '@math.gl/web-mercator';
 
 import '@deck.gl/widgets/stylesheet.css';
 
@@ -328,6 +329,14 @@ export function mountBasemapLayerMapViewExample(container: HTMLElement): () => v
       const styleView = getStyleView(style);
       nextProjection = styleView.projection;
       initialViewState = styleView.viewState;
+      if (nextProjection === 'mercator') {
+        // The controller limits the camera to the world only after the first interaction.
+        const {width, height} = rootElement.getBoundingClientRect();
+        initialViewState = {
+          ...initialViewState,
+          ...normalizeViewportProps({...initialViewState, width, height})
+        };
+      }
     }
 
     projection = nextProjection;
