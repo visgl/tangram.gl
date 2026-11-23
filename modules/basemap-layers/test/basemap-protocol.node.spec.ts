@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 /* eslint-disable import/no-extraneous-dependencies */
-import {Layer, log} from '@deck.gl/core';
+import {Layer} from '@deck.gl/core';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer, registerBasemapProtocol, unregisterBasemapProtocol} from '../src/index.ts';
 import type {BasemapProtocolHandler, BasemapRequestParameters} from '../src/index.ts';
@@ -12,6 +12,7 @@ import {
   getBasemapFetch,
   getBasemapLayerFetch
 } from '../src/basemap-protocol';
+import {getBasemapTileFetch} from '../src/basemap-request';
 import {GlyphStore} from '../src/glyph-store';
 import {loadDemTile} from '../src/hillshade-layer';
 import {RasterTileLoader} from '../src/raster-tile-loader';
@@ -145,6 +146,31 @@ describe('BasemapLayer resources with a registered scheme', () => {
     ]);
   });
 
+  test('transformed resource and tile URLs reach the registered protocol with request fields', async () => {
+    const {requests} = registerMemoryProtocol({
+      'mem://basemap/style.json': {version: 8, sources: {}, layers: []},
+      'mem://tiles/0/0/0.png': new ArrayBuffer(0)
+    });
+    const transformRequest = (url: string) => ({
+      url: url.replace('https://', 'mem://'),
+      headers: {Authorization: 'token'},
+      credentials: 'include' as const
+    });
+    await resolveBasemapStyle('https://basemap/style.json', {transformRequest});
+    await getBasemapTileFetch(DEFAULT_MVT_FETCH, 'image', transformRequest)(
+      'https://tiles/0/0/0.png',
+      {propName: 'data', layer: {props: {loaders: []}, getLoadOptions: () => null} as any}
+    );
+    expect(requests.map(({url, credentials, headers}) => ({
+      url,
+      credentials,
+      authorization: new Headers(headers).get('Authorization')
+    }))).toEqual([
+      {url: 'mem://basemap/style.json', credentials: 'include', authorization: 'token'},
+      {url: 'mem://tiles/0/0/0.png', credentials: 'include', authorization: 'token'}
+    ]);
+  });
+
   test('a source URL with a registered scheme reaches the handler as written', async () => {
     // The form of MapLibre GL JS's `pmtiles` protocol: the archive URL follows the scheme.
     const url = 'pmtiles://https://example.com/archive.pmtiles';
@@ -247,12 +273,8 @@ describe('BasemapLayer resources with a registered scheme', () => {
   });
 
   test('a style URL with an unknown scheme fails the style with a clear error', async () => {
-    const errors: string[] = [];
-    vi.spyOn(log, 'error').mockImplementation(((message: string) => {
-      errors.push(message);
-      return () => {};
-    }) as any);
-    const layer = new BasemapLayer({style: 'foo://basemap/style.json'});
+    const onError = vi.fn();
+    const layer = new BasemapLayer({style: 'foo://basemap/style.json', onError});
     layer.initializeState();
     layer.setState = (state: object) => Object.assign(layer.state, state);
     layer.loadStyle('foo://basemap/style.json', null);
@@ -260,6 +282,8 @@ describe('BasemapLayer resources with a registered scheme', () => {
     expect(layer.state.loadError!.message).toMatch(
       /No basemap protocol is registered for "foo:\/\/" \(foo:\/\/basemap\/style\.json\)/
     );
-    expect(errors[0]).toMatch(/Failed to resolve basemap style/);
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({kind: 'style', url: 'foo://basemap/style.json'})
+    );
   });
 });

@@ -10,13 +10,9 @@ SPDX-License-Identifier: MIT
 Copyright (c) vis.gl contributors
  */}
 
-![From v9.3](https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square)
-
 The map-style loader converts a MapLibre / Mapbox style document into the validated `ResolvedBasemapStyle` structure consumed by the basemap runtime. It can be used independently of `BasemapLayer` when you need a loaders.gl-compatible way to fetch and normalize style JSON plus TileJSON-backed sources.
 
 ## Importing
-
-![From v9.3](https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square)
 
 ```ts
 import {

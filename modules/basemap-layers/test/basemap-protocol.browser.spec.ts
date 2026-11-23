@@ -198,7 +198,8 @@ describe('a basemap that loads through a registered protocol', () => {
   }, 60_000);
 
   test('a style URL with an unknown scheme fails to load with an error that names the scheme', async () => {
-    const layer = new BasemapLayer({id: 'basemap', style: 'unknown://basemap/style.json'});
+    const onError = vi.fn(() => true);
+    const layer = new BasemapLayer({id: 'basemap', style: 'unknown://basemap/style.json', onError});
     createDeck([layer]);
     await vi.waitFor(
       () => {
@@ -208,6 +209,9 @@ describe('a basemap that loads through a registered protocol', () => {
         );
       },
       {timeout: 10_000}
+    );
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({kind: 'style', url: 'unknown://basemap/style.json'})
     );
   }, 30_000);
 });
