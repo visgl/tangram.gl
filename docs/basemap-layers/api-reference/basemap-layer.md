@@ -642,6 +642,8 @@ Notes:
 - `http`, `https` and `file` URLs always load with `fetch`, as in MapLibre GL JS, and cannot be registered. A URL with another scheme and no handler fails with an error that names the scheme, unless a custom `fetch` in `loadOptions` loads it.
 - The registry is global, as MapLibre GL JS's is. A second registration of the same scheme replaces the first.
 
+The [made-up world example](/examples/basemap-layers/made-up-world) registers a handler that generates its vector tiles in web workers, so its basemap needs no tile server.
+
 ### `unregisterBasemapProtocol(scheme)`
 
 Removes the handler of `scheme`. Requests of its URLs then fail.

@@ -16,7 +16,9 @@ const EXAMPLES = {
   'draped-terrain': () => import('../../../examples/layers/basemap-draped-terrain/app')
     .then(module => module.mountBasemapDrapedTerrainExample),
   'native-crs-raster': () => import('../../../examples/layers/basemap-native-crs-raster/app')
-    .then(module => module.mountBasemapNativeCrsRasterExample)
+    .then(module => module.mountBasemapNativeCrsRasterExample),
+  'made-up-world': () => import('../../../examples/layers/basemap-made-up-world/app')
+    .then(module => module.mountBasemapMadeUpWorldExample)
 };
 
 /** Mount the copied basemap examples directly in the documentation page. */

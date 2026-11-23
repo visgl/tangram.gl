@@ -20,7 +20,8 @@ const sidebars = {
         {type: 'doc', id: 'basemap-layers/split-view', label: 'MapLibre comparison'},
         {type: 'doc', id: 'basemap-layers/masked-by-data', label: 'Basemap masked by data'},
         {type: 'doc', id: 'basemap-layers/custom-projection', label: 'CustomProjectionView (experimental)'},
-        {type: 'doc', id: 'basemap-layers/native-crs-raster', label: 'Native CRS raster (experimental)'}
+        {type: 'doc', id: 'basemap-layers/native-crs-raster', label: 'Native CRS raster (experimental)'},
+        {type: 'doc', id: 'basemap-layers/made-up-world', label: 'A made-up world'}
       ]
     },
     {
