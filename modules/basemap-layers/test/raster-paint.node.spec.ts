@@ -6,6 +6,7 @@
 import {describe, expect, test} from 'vitest';
 import {getBasemapLayers} from '../src/index.ts';
 import {RasterColorExtension, getRasterColorUniforms} from '../src/raster-color-extension.ts';
+import {RasterFadeExtension} from '../src/raster-fade.ts';
 
 const SOURCES = {
   raster: {type: 'raster', tiles: ['https://tiles.example.com/{z}/{x}/{y}.png'], tileSize: 256}
@@ -85,8 +86,10 @@ describe('raster color adjustments', () => {
   test('are passed to each tile with the color extension, defaults filled in', () => {
     const rasterLayer = getRasterLayer({'raster-saturation': -1, 'raster-hue-rotate': 90});
     const tile = renderTile(rasterLayer);
-    expect(tile.props.extensions).toHaveLength(1);
+    // The default `raster-fade-duration` adds the fade after the color adjustments.
+    expect(tile.props.extensions).toHaveLength(2);
     expect(tile.props.extensions[0]).toBeInstanceOf(RasterColorExtension);
+    expect(tile.props.extensions[1]).toBeInstanceOf(RasterFadeExtension);
     expect(tile.props.rasterColorAdjustments).toEqual({
       brightnessMin: 0,
       brightnessMax: 1,
@@ -96,28 +99,30 @@ describe('raster color adjustments', () => {
     });
   });
 
-  test('tiles blend premultiplied colors on WebGL, where the shader premultiplies them', () => {
-    const tile = renderTile(getRasterLayer({'raster-contrast': 0.5}), 'webgl');
-    expect(tile.props.parameters).toMatchObject({
-      blendColorSrcFactor: 'one',
-      blendColorDstFactor: 'one-minus-src-alpha',
-      blendAlphaSrcFactor: 'one',
-      blendAlphaDstFactor: 'one-minus-src-alpha',
-      depthTest: true
-    });
-  });
+  test.each(['webgl', 'webgpu'])(
+    'tiles blend premultiplied colors on %s, where the shader premultiplies them',
+    deviceType => {
+      const tile = renderTile(getRasterLayer({'raster-contrast': 0.5}), deviceType);
+      expect(tile.props.parameters).toMatchObject({
+        blendColorSrcFactor: 'one',
+        blendColorDstFactor: 'one-minus-src-alpha',
+        blendAlphaSrcFactor: 'one',
+        blendAlphaDstFactor: 'one-minus-src-alpha',
+        depthCompare: 'less-equal'
+      });
+    }
+  );
 
-  test('tiles keep the default blending on WebGPU, where the shader does not run', () => {
-    const rasterLayer = getRasterLayer({'raster-contrast': 0.5});
-    const tile = renderTile(rasterLayer, 'webgpu');
-    expect(tile.props.parameters).not.toHaveProperty('blendColorSrcFactor');
-    expect(tile.props.parameters).not.toHaveProperty('blendAlphaSrcFactor');
-    expect(tile.props.parameters).toEqual(
-      renderTile(getRasterLayer(undefined), 'webgpu').props.parameters
-    );
-    // The extension adds no shader code there either.
-    const extension = tile.props.extensions[0];
-    expect(extension.getShaders.call({context: {device: {type: 'webgpu'}}}, extension)).toEqual({});
+  test('the extension adds GLSL on WebGL and WGSL on WebGPU', () => {
+    const extension = renderTile(getRasterLayer({'raster-contrast': 0.5})).props.extensions[0];
+    const getShaders = (type: string) =>
+      extension.getShaders.call({context: {device: {type}}}, extension);
+    const webgl = getShaders('webgl');
+    const webgpu = getShaders('webgpu');
+    expect(webgl.modules).toEqual(webgpu.modules);
+    expect(webgl.modules[0].source).toContain('fn rasterColor_adjust');
+    expect(webgl.inject['fs:DECKGL_FILTER_COLOR']).toContain('color.rgb = rasterColor_adjust');
+    expect(webgpu.inject['fs:DECKGL_FILTER_COLOR']).toContain('*color = vec4<f32>(rasterColor_adjust');
   });
 
   test('tiles without adjustments keep the default blending', () => {

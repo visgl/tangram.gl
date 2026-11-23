@@ -645,11 +645,9 @@ test(`${DEVICE_TYPE}: UTM zone 32N shows style layers by the zoom of the Web Mer
 });
 
 if (DEVICE_TYPE === 'webgl') {
-  // Hillshade layers are drawn on WebGL only.
-  test(`${DEVICE_TYPE}: UTM zone 32N draws a hillshade on the tiles of the zone`, async () => {
-    const projection = PROJECTIONS[0];
-    // Terrarium elevation tiles of a plane that rises to the east: 20 meters for each kilometer.
-    const requests = serveFiles(path => {
+  // Terrarium elevation tiles of a plane that rises to the east: 20 meters for each kilometer.
+  const serveEastwardSlope = () =>
+    serveFiles(path => {
       const [z, x] = path.replace('.png', '').split('/').map(Number);
       const tile = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
       const context = tile.getContext('2d')!;
@@ -668,6 +666,11 @@ if (DEVICE_TYPE === 'webgl') {
       context.putImageData(pixels, 0, 0);
       return toPngResponse(tile);
     });
+
+  // Hillshade and color-relief layers are drawn on WebGL only.
+  test(`${DEVICE_TYPE}: UTM zone 32N draws a hillshade on the tiles of the zone`, async () => {
+    const projection = PROJECTIONS[0];
+    const requests = serveEastwardSlope();
     harness = createHarness(projection, {
       version: 8,
       sources: {
@@ -696,6 +699,109 @@ if (DEVICE_TYPE === 'webgl') {
     const columns = Array.from({length: WIDTH}, (_, x) => x).filter(x => isShaded(getPixel(image, x, row)));
     expect(Math.abs(columns[0] - zoneEdges[0])).toBeLessThan(3);
     expect(Math.abs(columns[columns.length - 1] + 1 - zoneEdges[1])).toBeLessThan(3);
+    // Outside the zone the background shows.
+    expect(isBackground(getPixel(image, 8, HEIGHT / 2))).toBe(true);
+    expect(isBackground(getPixel(image, WIDTH - 8, HEIGHT / 2))).toBe(true);
+  });
+
+  /**
+   * The mean shade, in red, at the center of an equirectangular view of a sphere of `radius`
+   * at the scale of zoom 6 on the Earth, over a plane that rises to the east by `slope` meters
+   * for each meter of ground of that sphere.
+   */
+  const renderSlopeShade = async (radius: number, slope: number): Promise<number> => {
+    const requests = serveFiles(path => {
+      const [z, x] = path.replace('.png', '').split('/').map(Number);
+      const tile = new OffscreenCanvas(TILE_SIZE, TILE_SIZE);
+      const context = tile.getContext('2d')!;
+      const pixels = context.createImageData(TILE_SIZE, TILE_SIZE);
+      for (let column = 0; column < TILE_SIZE; column++) {
+        const longitude = ((x + (column + 0.5) / TILE_SIZE) / 2 ** z) * 360 - 180;
+        const ground = (radius * Math.max(-6, Math.min(6, longitude)) * Math.PI) / 180;
+        const elevation = 32768 + slope * ground;
+        for (let row = 0; row < TILE_SIZE; row++) {
+          const offset = (row * TILE_SIZE + column) * 4;
+          pixels.data[offset] = Math.floor(elevation / 256);
+          pixels.data[offset + 1] = Math.floor(elevation) % 256;
+          pixels.data[offset + 2] = Math.floor((elevation % 1) * 256);
+          pixels.data[offset + 3] = 255;
+        }
+      }
+      context.putImageData(pixels, 0, 0);
+      return toPngResponse(tile);
+    });
+    const sphere: Projection = {
+      name: `sphere R=${radius}`,
+      crs: `+proj=eqc +R=${radius} +units=m +no_defs`,
+      project: ([lng, lat]) => [(radius * lng * Math.PI) / 180, (radius * lat * Math.PI) / 180],
+      center: [0, 0]
+    };
+    harness = createHarness(sphere, {
+      version: 8,
+      sources: {
+        dem: {type: 'raster-dem', tiles: [`${TILE_URL}{z}/{x}/{y}.png`], tileSize: TILE_SIZE,
+          encoding: 'terrarium', maxzoom: 10}
+      },
+      layers: [
+        BACKGROUND,
+        {id: 'relief', type: 'hillshade', source: 'dem',
+          paint: {'hillshade-shadow-color': '#ff0000', 'hillshade-highlight-color': '#ff0000',
+            'hillshade-accent-color': '#ff0000', 'hillshade-exaggeration': 1}}
+      ]
+    }, 6 + Math.log2(6378137 / radius));
+    const image = await harness.render();
+    expect(requests.length).toBeGreaterThan(0);
+    expect(harness.errors).toEqual([]);
+    let sum = 0;
+    let count = 0;
+    for (let y = HEIGHT / 2 - 40; y < HEIGHT / 2 + 40; y++) {
+      for (let x = WIDTH / 2 - 40; x < WIDTH / 2 + 40; x++) {
+        sum += getPixel(image, x, y)[0];
+        count++;
+      }
+    }
+    harness.destroy();
+    harness = undefined;
+    globalThis.fetch = realFetch;
+    return sum / count;
+  };
+
+  test(`${DEVICE_TYPE}: a hillshade shades a slope by the radius of the sphere of the CRS`, async () => {
+    const earth = await renderSlopeShade(6378137, 0.05);
+    // The Moon: the same slope, on a sphere 3.67 times smaller, at the same degrees per pixel.
+    const moon = await renderSlopeShade(1737400, 0.05);
+    expect(earth).toBeGreaterThan(30);
+    expect(Math.abs(moon - earth)).toBeLessThan(3);
+  });
+
+  test(`${DEVICE_TYPE}: UTM zone 32N colors the elevations of the zone by a ramp`, async () => {
+    const projection = PROJECTIONS[0];
+    const requests = serveEastwardSlope();
+    harness = createHarness(projection, {
+      version: 8,
+      sources: {
+        dem: {type: 'raster-dem', tiles: [`${TILE_URL}{z}/{x}/{y}.png`], tileSize: TILE_SIZE,
+          encoding: 'terrarium', maxzoom: 10}
+      },
+      layers: [
+        BACKGROUND,
+        {id: 'relief', type: 'color-relief', source: 'dem',
+          paint: {'color-relief-color':
+            ['interpolate', ['linear'], ['elevation'], 0, '#0000ff', 12000, '#ff0000']}}
+      ]
+    }, 5);
+    const image = await harness.render();
+    expect(requests.length).toBeGreaterThan(0);
+    // At 9°E the plane is 7500 meters high: 5/8 of the way from blue to red.
+    const middle = getProjectedPixel(projection.project, [9, 48], harness.view);
+    const [r, g, b] = getPixel(image, middle[0], middle[1]);
+    expect(Math.abs(r - 159)).toBeLessThanOrEqual(8);
+    expect(g).toBeLessThanOrEqual(2);
+    expect(Math.abs(b - 96)).toBeLessThanOrEqual(8);
+    // Red grows to the east across the zone.
+    const west = getProjectedPixel(projection.project, [7, 48], harness.view);
+    const east = getProjectedPixel(projection.project, [11, 48], harness.view);
+    expect(getPixel(image, east[0], east[1])[0]).toBeGreaterThan(getPixel(image, west[0], west[1])[0] + 60);
     // Outside the zone the background shows.
     expect(isBackground(getPixel(image, 8, HEIGHT / 2))).toBe(true);
     expect(isBackground(getPixel(image, WIDTH - 8, HEIGHT / 2))).toBe(true);
