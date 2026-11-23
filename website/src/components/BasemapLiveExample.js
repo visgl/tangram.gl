@@ -13,6 +13,10 @@ const EXAMPLES = {
     .then(module => module.mountBasemapCustomProjectionExample),
   'masked-by-data': () => import('../../../examples/layers/basemap-masked-by-data/app')
     .then(module => module.mountBasemapMaskedByDataExample),
+  'draped-terrain': () => import('../../../examples/layers/basemap-draped-terrain/app')
+    .then(module => module.mountBasemapDrapedTerrainExample),
+  'native-crs-raster': () => import('../../../examples/layers/basemap-native-crs-raster/app')
+    .then(module => module.mountBasemapNativeCrsRasterExample),
   'antique-style': () => import('../../../examples/layers/basemap-antique-style/app')
     .then(module => module.mountBasemapAntiqueStyleExample)
 };

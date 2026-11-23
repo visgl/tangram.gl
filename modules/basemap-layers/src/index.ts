@@ -2,8 +2,28 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-/** Runtime exports for `@deck.gl-community/basemap-layers`. */
+/** Runtime exports for `@tangram.gl/basemap-layers`. */
 export {BasemapLayer} from './basemap-layer';
+export type {BasemapTile} from './basemap-layer';
+export type {BasemapSourceData} from './basemap-layer';
+export type {BasemapInsertion} from './basemap-layer';
+
+export type {
+  BasemapGlobeConfig,
+  BasemapLayerLoadOptions,
+  BasemapLayerProps
+} from './basemap-layer';
+export type {
+  BasemapLoadOptions,
+  BasemapSource,
+  BasemapStyle,
+  BasemapStyleLayer,
+  ResolvedBasemapStyle,
+  ResolvedBasemapStyleLayer
+} from './style-resolver';
+
+export {BasemapLoadError} from './basemap-error';
+export type {BasemapLoadErrorDetails, BasemapLoadErrorKind} from './basemap-error';
 export type {BasemapSourceFeature, QuerySourceFeaturesOptions} from './source-features';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';
@@ -19,6 +39,7 @@ export {
   getGlobeBaseLayers,
   getGlobeTopLayers
 } from './globe-layers';
+export type {StyleLayerSubLayerProps} from './globe-layers';
 export {getSpriteIconMapping, getSpriteSources, loadSpriteAtlases} from './sprite';
 export type {SpriteAtlas, SpriteIconMappingEntry, SpriteSource} from './sprite';
 export {getLabelFont} from './text-font';
@@ -28,6 +49,11 @@ export {
   getRasterTileFingerprint
 } from './raster-tile-fingerprint';
 export type {RasterTileIndex, RasterTileResponse, RejectRasterTile} from './raster-tile-loader';
+export type {
+  BasemapResourceType,
+  BasemapTransformedRequest,
+  BasemapTransformRequest
+} from './basemap-request';
 export {GlyphStore} from './glyph-store';
 export type {GlyphStoreOptions} from './glyph-store';
 export {ProjectedBitmapLayer} from './projected-bitmap-layer';

@@ -357,7 +357,6 @@ function createBasemapLayer(
 
   return new BasemapLayer({
     id: 'map-basemap',
-    mode: settings.view.mode === 'globe' ? 'globe' : 'map',
     style: styleOption.style,
     loadOptions: {
       fetch: trackedFetch,

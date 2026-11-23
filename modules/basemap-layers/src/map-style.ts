@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-/** Map-style helpers exported from `@deck.gl-community/basemap-layers/map-style`. */
+/** Map-style helpers exported from `@tangram.gl/basemap-layers/map-style`. */
 export {filterFeatures, findFeaturesStyledByLayer, parseProperties} from './mapbox-style';
 export {
   BasemapSourceSchema,
