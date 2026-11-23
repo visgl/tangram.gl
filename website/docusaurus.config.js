@@ -71,7 +71,10 @@ const config = {
               path.resolve(__dirname, '../examples/basemap-layers'),
               path.resolve(__dirname, '../examples/layers/basemap-layer-map-view'),
               path.resolve(__dirname, '../examples/layers/basemap-layer-custom-projection'),
+              path.resolve(__dirname, '../examples/layers/basemap-masked-by-data'),
+              path.resolve(__dirname, '../examples/layers/basemap-native-crs-raster'),
               path.resolve(__dirname, '../examples/layers/terrain-contract'),
+              path.resolve(__dirname, '../examples/layers/basemap-draped-terrain'),
               path.resolve(__dirname, '../examples/utils')
             ],
             use: [getJSLoader({isServer})]

@@ -71,14 +71,16 @@
  * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-import {log} from '@deck.gl/core';
 import type {Layer, LayersList, UpdateParameters} from '@deck.gl/core';
 import {SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import type {SharedTile2DLayerProps, SharedTileset2DProps} from '@deck.gl-community/geo-layers';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
 import {basemapTilesetAdapter} from './projected-tileset';
+import {getSourceTileTemplates} from './source-tiles';
 import {isProjectedViewport} from './projected-viewport';
+import {getBasemapResourceFetch} from './basemap-request';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
+import {BasemapFetchError} from './basemap-error';
 
 /**
  * `hillshade` style layers over `raster-dem` sources, drawn as MapLibre GL JS draws them.
@@ -149,19 +151,14 @@ export function decodeDemTile(
 export type DemNeighbors = (dx: number, dy: number) => DemTile | null;
 
 /**
- * The slope texture of MapLibre GL JS's hillshade "prepare" pass, `dim + 2` pixels square: the
- * tile and a one-pixel border, RGBA, with the scaled east-west and north-south slopes in red and
- * green (128 is flat). Pixels past the tile's edges come from its loaded neighbors, and where a
- * neighbor is missing, from the tile's nearest edge pixel, as MapLibre fills them.
- *
- * `zoom` is the tile's zoom, also where it is scaled up past its source's `maxzoom`. MapLibre
- * scales the slopes by it, and exaggerates them below zoom 15.
+ * The elevation at a pixel `(x, y)` of a DEM tile or of a border around it, up to one tile wide.
+ * Pixels past the tile's edges come from its loaded neighbors (of the same size), and where a
+ * neighbor is missing, from the tile's nearest edge pixel, as MapLibre GL JS backfills them.
  */
-export function prepareHillshadeTexture(
+export function getBorderedElevations(
   dem: DemTile,
-  zoom: number,
-  getNeighbor: DemNeighbors = () => null
-): Uint8ClampedArray<ArrayBuffer> {
+  getNeighbor: DemNeighbors
+): (x: number, y: number) => number {
   const {dim} = dem;
   const neighbors: (DemTile | null)[] = [];
   for (let dy = -1; dy <= 1; dy++) {
@@ -170,8 +167,7 @@ export function prepareHillshadeTexture(
       neighbors.push(neighbor && neighbor.dim === dim ? neighbor : null);
     }
   }
-  // The elevation at a pixel of the tile or of its two-pixel border.
-  const getElevation = (x: number, y: number): number => {
+  return (x, y) => {
     const dx = x < 0 ? -1 : x >= dim ? 1 : 0;
     const dy = y < 0 ? -1 : y >= dim ? 1 : 0;
     const neighbor = neighbors[(dy + 1) * 3 + dx + 1];
@@ -182,10 +178,32 @@ export function prepareHillshadeTexture(
     const clampedY = Math.min(Math.max(y, 0), dim - 1);
     return dem.elevations[clampedY * dim + clampedX];
   };
+}
+
+/**
+ * The slope texture of MapLibre GL JS's hillshade "prepare" pass, `dim + 2` pixels square: the
+ * tile and a one-pixel border, RGBA, with the scaled east-west and north-south slopes in red and
+ * green (128 is flat). Pixels past the tile's edges come from its loaded neighbors, and where a
+ * neighbor is missing, from the tile's nearest edge pixel, as MapLibre fills them.
+ *
+ * `zoom` is the tile's zoom, also where it is scaled up past its source's `maxzoom`. MapLibre
+ * scales the slopes by it, and exaggerates them below zoom 15. `bodyRadius` is the radius, in
+ * meters, of the body the tile covers (see `getBodyRadius`): a tile pixel spans less ground on a
+ * smaller body, so the same elevations make steeper slopes. The default is the Earth's, as MapLibre.
+ */
+export function prepareHillshadeTexture(
+  dem: DemTile,
+  zoom: number,
+  getNeighbor: DemNeighbors = () => null,
+  bodyRadius: number = EARTH_RADIUS
+): Uint8ClampedArray<ArrayBuffer> {
+  const {dim} = dem;
+  const getElevation = getBorderedElevations(dem, getNeighbor);
 
   const exaggerationFactor = zoom < 2 ? 0.4 : zoom < 4.5 ? 0.35 : 0.3;
   const exaggeration = zoom < 15 ? (zoom - 15) * exaggerationFactor : 0;
-  const scale = dim / 2 ** (exaggeration + (28.2562 - zoom)) / 8;
+  // 28.2562 is 3 plus log2 of the Earth's circumference in meters, the ground a zoom 0 tile spans.
+  const scale = ((dim / 2 ** (exaggeration + (28.2562 - zoom)) / 8) * EARTH_RADIUS) / bodyRadius;
   const flat = 128 / 255;
 
   const size = dim + 2;
@@ -216,6 +234,20 @@ export function prepareHillshadeTexture(
     }
   }
   return texture;
+}
+
+/** The radius, in meters, of the Earth that MapLibre's slope scale assumes. */
+const EARTH_RADIUS = 6378137;
+
+/**
+ * The radius, in meters, of the body a viewport draws: in a projected view the semi-major axis of
+ * its CRS, which can be the Moon or Mars, and otherwise the Earth's.
+ */
+export function getBodyRadius(viewport: unknown): number {
+  const radius = isProjectedViewport(viewport)
+    ? (viewport as {crs?: {ellipsoid?: {semiMajorAxis?: number}}}).crs?.ellipsoid?.semiMajorAxis
+    : undefined;
+  return typeof radius === 'number' && radius > 0 ? radius : EARTH_RADIUS;
 }
 
 /** `hillshade-method`, as the shader's `method` uniform. */
@@ -478,6 +510,147 @@ vec4 hillshade_getColor(sampler2D slopes, vec2 uv) {
   return hillshade_standard(deriv);
 }
 `,
+  source: /* wgsl */ `\
+struct HillshadeUniforms {
+  accent: vec4<f32>,
+  altitudes: vec4<f32>,
+  azimuths: vec4<f32>,
+  shadows: mat4x4<f32>,
+  highlights: mat4x4<f32>,
+  latRange: vec2<f32>,
+  exaggeration: f32,
+  method: f32,
+  lightCount: f32,
+};
+
+@group(0) @binding(auto) var<uniform> hillshade: HillshadeUniforms;
+
+// The GLSL functions above, in WGSL.
+const HILLSHADE_PI: f32 = 3.141592653589793;
+
+// GLSL's \`mod\`, which rounds down. WGSL's \`%\` rounds toward zero.
+fn hillshade_mod(x: f32, y: f32) -> f32 {
+  return x - y * floor(x / y);
+}
+
+fn hillshade_getAspect(deriv: vec2<f32>) -> f32 {
+  if (deriv.x != 0.0) {
+    return atan2(deriv.y, -deriv.x);
+  }
+  return HILLSHADE_PI / 2.0 * select(-1.0, 1.0, deriv.y > 0.0);
+}
+
+fn hillshade_igor(derivIn: vec2<f32>) -> vec4<f32> {
+  let deriv = derivIn * hillshade.exaggeration * 2.0;
+  let aspect = hillshade_getAspect(deriv);
+  let azimuth = hillshade.azimuths[0] + HILLSHADE_PI;
+  let slopeStrength = atan(length(deriv)) * 2.0 / HILLSHADE_PI;
+  let aspectStrength = 1.0 - abs(hillshade_mod((aspect + azimuth) / HILLSHADE_PI + 0.5, 2.0) - 1.0);
+  let shadowStrength = slopeStrength * aspectStrength;
+  let highlightStrength = slopeStrength * (1.0 - aspectStrength);
+  return hillshade.shadows[0] * shadowStrength + hillshade.highlights[0] * highlightStrength;
+}
+
+fn hillshade_standard(deriv: vec2<f32>) -> vec4<f32> {
+  let azimuth = hillshade.azimuths[0] + HILLSHADE_PI;
+  let slope = atan(0.625 * length(deriv));
+  let aspect = hillshade_getAspect(deriv);
+  let intensity = hillshade.exaggeration;
+  let base = 1.875 - intensity * 1.75;
+  let maxValue = 0.5 * HILLSHADE_PI;
+  var scaledSlope = slope;
+  if (intensity != 0.5) {
+    scaledSlope = ((pow(base, slope) - 1.0) / (pow(base, maxValue) - 1.0)) * maxValue;
+  }
+  let accent = cos(scaledSlope);
+  let accentColor = (1.0 - accent) * hillshade.accent * clamp(intensity * 2.0, 0.0, 1.0);
+  let shade = abs(hillshade_mod((aspect + azimuth) / HILLSHADE_PI + 0.5, 2.0) - 1.0);
+  let shadeColor = mix(hillshade.shadows[0], hillshade.highlights[0], shade) *
+    sin(scaledSlope) * clamp(intensity * 2.0, 0.0, 1.0);
+  return accentColor * (1.0 - shadeColor.a) + shadeColor;
+}
+
+fn hillshade_basic(derivIn: vec2<f32>) -> vec4<f32> {
+  let deriv = derivIn * hillshade.exaggeration * 2.0;
+  let azimuth = hillshade.azimuths[0] + HILLSHADE_PI;
+  let cosAz = cos(azimuth);
+  let sinAz = sin(azimuth);
+  let cosAlt = cos(hillshade.altitudes[0]);
+  let sinAlt = sin(hillshade.altitudes[0]);
+  let cang = (sinAlt - (deriv.y * cosAz * cosAlt - deriv.x * sinAz * cosAlt)) /
+    sqrt(1.0 + dot(deriv, deriv));
+  let shade = clamp(cang, 0.0, 1.0);
+  if (shade > 0.5) {
+    return hillshade.highlights[0] * (2.0 * shade - 1.0);
+  }
+  return hillshade.shadows[0] * (1.0 - 2.0 * shade);
+}
+
+fn hillshade_multidirectional(derivIn: vec2<f32>) -> vec4<f32> {
+  let deriv = derivIn * hillshade.exaggeration * 2.0;
+  var color = vec4<f32>(0.0);
+  for (var i = 0; i < 4; i++) {
+    if (f32(i) >= hillshade.lightCount) {
+      break;
+    }
+    let cosAlt = cos(hillshade.altitudes[i]);
+    let sinAlt = sin(hillshade.altitudes[i]);
+    let cosAz = -cos(hillshade.azimuths[i]);
+    let sinAz = -sin(hillshade.azimuths[i]);
+    let cang = (sinAlt - (deriv.y * cosAz * cosAlt - deriv.x * sinAz * cosAlt)) /
+      sqrt(1.0 + dot(deriv, deriv));
+    let shade = clamp(cang, 0.0, 1.0);
+    var lightColor = hillshade.shadows[i] * (1.0 - 2.0 * shade);
+    if (shade > 0.5) {
+      lightColor = hillshade.highlights[i] * (2.0 * shade - 1.0);
+    }
+    color += lightColor / hillshade.lightCount;
+  }
+  return color;
+}
+
+fn hillshade_combined(derivIn: vec2<f32>) -> vec4<f32> {
+  let deriv = derivIn * hillshade.exaggeration * 2.0;
+  let azimuth = hillshade.azimuths[0] + HILLSHADE_PI;
+  let cosAz = cos(azimuth);
+  let sinAz = sin(azimuth);
+  let cosAlt = cos(hillshade.altitudes[0]);
+  let sinAlt = sin(hillshade.altitudes[0]);
+  let cang = clamp(
+    acos((sinAlt - (deriv.y * cosAz * cosAlt - deriv.x * sinAz * cosAlt)) /
+      sqrt(1.0 + dot(deriv, deriv))),
+    0.0,
+    HILLSHADE_PI / 2.0
+  );
+  let shade = cang * atan(length(deriv)) * 4.0 / HILLSHADE_PI / HILLSHADE_PI;
+  let highlight = (HILLSHADE_PI / 2.0 - cang) * atan(length(deriv)) * 4.0 / HILLSHADE_PI / HILLSHADE_PI;
+  return hillshade.shadows[0] * shade + hillshade.highlights[0] * highlight;
+}
+
+// The premultiplied color of a pixel of the slope texture, at \`uv\` in the tile. The slopes are
+// sampled from the first mip level, as MapLibre samples them.
+fn hillshade_getColor(slopes: texture_2d<f32>, slopesSampler: sampler, uv: vec2<f32>) -> vec4<f32> {
+  let size = vec2<f32>(textureDimensions(slopes, 0));
+  let pixel = textureSampleLevel(slopes, slopesSampler, (uv * (size - 2.0) + 1.0) / size, 0.0);
+  let scaleFactor = cos(radians(
+    (hillshade.latRange[0] - hillshade.latRange[1]) * (1.0 - uv.y) + hillshade.latRange[1]
+  ));
+  let deriv = (pixel.rg - 128.0 / 255.0) * 8.0 / scaleFactor;
+  if (hillshade.method > 3.5) {
+    return hillshade_basic(deriv);
+  }
+  if (hillshade.method > 2.5) {
+    return hillshade_multidirectional(deriv);
+  }
+  if (hillshade.method > 1.5) {
+    return hillshade_igor(deriv);
+  }
+  if (hillshade.method > 0.5) {
+    return hillshade_combined(deriv);
+  }
+  return hillshade_standard(deriv);
+}
+`,
   uniformTypes: {
     accent: 'vec4<f32>',
     altitudes: 'vec4<f32>',
@@ -495,7 +668,7 @@ vec4 hillshade_getColor(sampler2D slopes, vec2 uv) {
  * The blending of the hillshade's premultiplied colors, as MapLibre blends them (and as
  * `RASTER_COLOR_BLEND_PARAMETERS`).
  */
-const PREMULTIPLIED_BLEND_PARAMETERS = {
+export const PREMULTIPLIED_BLEND_PARAMETERS = {
   blendColorOperation: 'add',
   blendColorSrcFactor: 'one',
   blendColorDstFactor: 'one-minus-src-alpha',
@@ -510,9 +683,32 @@ type HillshadeBitmapLayerProps = {
   hillshadeLatRange: [number, number];
 };
 
+const GLSL_INJECTION = {
+  // At the end of main(), where the bitmap's sampler is in scope.
+  'fs:#main-end': /* glsl */ `
+  if (!bool(picking.isActive)) {
+    fragColor = hillshade_getColor(bitmapTexture, geometry.uv) * layer.opacity;
+  }
+`
+};
+
+const WGSL_INJECTION = {
+  // deck.gl's WGSL bitmap shader has no hook after its color, but its textures are module-scope.
+  // It premultiplies the filtered color itself, so the premultiplied hillshade is divided by its
+  // alpha here. In picking, the shader returns its own color and ignores this one.
+  'fs:DECKGL_FILTER_COLOR': /* wgsl */ `
+  let hillshadeColor = hillshade_getColor(bitmapTexture, bitmapTextureSampler, geometry.uv) *
+    layer.opacity;
+  *color = vec4<f32>(
+    select(vec3<f32>(0.0), hillshadeColor.rgb / hillshadeColor.a, hillshadeColor.a > 0.0),
+    hillshadeColor.a
+  );
+`
+};
+
 /**
  * A `BitmapLayer` whose image is a tile's slope texture (see `prepareHillshadeTexture`), drawn as
- * MapLibre GL JS shades it. WebGL only.
+ * MapLibre GL JS shades it, on WebGL and on WebGPU.
  */
 class HillshadeBitmapLayer extends ProjectedBitmapLayer<HillshadeBitmapLayerProps> {
   static layerName = 'HillshadeBitmapLayer';
@@ -524,12 +720,7 @@ class HillshadeBitmapLayer extends ProjectedBitmapLayer<HillshadeBitmapLayerProp
       modules: [...shaders.modules, hillshadeModule],
       inject: {
         ...shaders.inject,
-        // At the end of main(), where the bitmap's sampler is in scope.
-        'fs:#main-end': /* glsl */ `
-  if (!bool(picking.isActive)) {
-    fragColor = hillshade_getColor(bitmapTexture, geometry.uv) * layer.opacity;
-  }
-`
+        ...(this.context.device.type === 'webgpu' ? WGSL_INJECTION : GLSL_INJECTION)
       }
     };
   }
@@ -569,10 +760,14 @@ export async function loadDemTile(
   unpack: DemUnpackVector,
   {signal, loadOptions}: {signal?: AbortSignal; loadOptions?: BasemapLoadOptions} = {}
 ): Promise<DemTile | null> {
-  const fetchFn = loadOptions?.fetch || fetch;
+  const fetchFn = getBasemapResourceFetch('Tile', 'image', loadOptions || undefined);
   const response = await fetchFn(url, {...loadOptions?.fetchOptions, signal});
   if (!response.ok) {
-    throw new Error(`Failed to load DEM tile: ${url} (${response.status})`);
+    throw new BasemapFetchError(
+      `Failed to load DEM tile: ${url} (${response.status})`,
+      url,
+      response.status
+    );
   }
   const blob = await response.blob();
   if (blob.size === 0) {
@@ -589,11 +784,12 @@ export async function loadDemTile(
   }
 }
 
-/** The slope texture of a DEM tile, with the neighbors it was prepared with. */
+/** The slope texture of a DEM tile, with the neighbors and the body radius it was prepared with. */
 const preparedTextures = new WeakMap<DemTile, {key: string; image: ImageData}>();
 
 type TileIndex = {x: number; y: number; z: number};
-type DemTileHeader = {
+/** A tile of a `raster-dem` source's tileset. */
+export type DemTileHeader = {
   id: string;
   index: TileIndex;
   bbox: unknown;
@@ -603,7 +799,7 @@ type DemTileHeader = {
 
 /**
  * Creates the tileset of a `raster-dem` source: each tile is fetched and decoded once, and shared
- * by every `HillshadeTileLayer` drawn from it, as the tiles of a vector source are shared by its
+ * by every `DemTileLayer` drawn from it, as the tiles of a vector source are shared by its
  * style runs. `tilesetProps` are the source's tile pyramid (see `getTilePyramidProps`).
  */
 export function createSharedDemTileset(
@@ -614,7 +810,7 @@ export function createSharedDemTileset(
   const unpack = getDemUnpackVector(source);
   // Expands the source's URL template for a tile, as the layer does for its own tileset.
   const loader = new SharedTile2DLayer<DemTile | null>({
-    data: source.tiles as string[],
+    data: getSourceTileTemplates(source) as string[],
     getTileData: ({url, signal}) => (url ? loadDemTile(url, unpack, {signal, loadOptions}) : null)
   });
   return new SharedTileset2D<DemTile | null>({
@@ -627,34 +823,34 @@ export function createSharedDemTileset(
 }
 
 /**
- * A tileset shared by the `HillshadeTileLayer`s of one `raster-dem` source, finalized when the
- * last of them is. `BasemapLayer` owns its sources' tilesets itself; this is for the layers that
+ * A tileset shared by the `DemTileLayer`s of one `raster-dem` source, finalized when the last of
+ * them is. `BasemapLayer` owns its sources' tilesets itself; this is for the layers that
  * `getBasemapLayers` creates without it.
  */
 export type DemTilesetOwner = {tileset: SharedTileset2D; consumers: Set<object>};
 
-/** Props of a `HillshadeTileLayer`. */
-export type HillshadeTileLayerProps = SharedTile2DLayerProps<DemTile | null> & {
-  hillshadeParameters: HillshadeParameters;
-  /** Extra props of every tile's bitmap layer, such as `parameters`. */
-  hillshadeSubLayerProps?: Record<string, unknown>;
+/** Props of a `DemTileLayer`. */
+export type DemTileLayerProps = SharedTile2DLayerProps<DemTile | null> & {
   /** The owner of a shared `data` tileset that the layer releases when finalized. */
   demTilesetOwner?: DemTilesetOwner | null;
 };
 
+/** The loaded neighbors of a DEM tile, and a key that changes when a neighbor loads. */
+export type DemTileNeighbors = {getNeighbor: DemNeighbors; key: string};
+
 /**
- * The tiles of a `raster-dem` source, shaded by one `hillshade` style layer. The decoded tiles
- * come from the source's tileset, shared with the source's other hillshade layers (see
- * `createSharedDemTileset`); the slopes and the shading are the layer's own. Each tile's slopes are
- * prepared from its elevations and those of its loaded neighbors, so that tiles join without
- * seams. Draws nothing on WebGPU: the shader is GLSL.
+ * The tiles of a `raster-dem` source, drawn by one style layer (`hillshade` or `color-relief`).
+ * The decoded tiles come from the source's tileset, shared with the source's other such layers
+ * (see `createSharedDemTileset`). A tile is drawn from its elevations and the edge pixels of its
+ * loaded neighbors, so that tiles join without seams: when a tile loads, its neighbors are drawn
+ * again.
  */
-export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, HillshadeTileLayerProps> {
-  static layerName = 'HillshadeTileLayer';
+export abstract class DemTileLayer<
+  PropsT extends DemTileLayerProps = DemTileLayerProps
+> extends SharedTile2DLayer<DemTile | null, PropsT> {
+  static layerName = 'DemTileLayer';
   static defaultProps = {
     ...SharedTile2DLayer.defaultProps,
-    hillshadeParameters: {type: 'object', value: null, compare: false},
-    hillshadeSubLayerProps: {type: 'object', value: null, compare: false},
     demTilesetOwner: {type: 'object', value: null, compare: false}
   };
 
@@ -726,22 +922,9 @@ export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, Hillsh
     super._onTileLoad(tile);
   }
 
-  renderLayers(): Layer | null | LayersList {
-    if (this.context.device.type === 'webgpu') {
-      log.once(1, '[BasemapLayer] hillshade layers are not drawn on WebGPU')();
-      return null;
-    }
-    return super.renderLayers();
-  }
-
-  renderSubLayers(props: any): Layer | null | LayersList {
-    const dem = props.data as DemTile | null;
-    const tile = props.tile as DemTileHeader;
-    if (!dem || typeof ImageData === 'undefined') {
-      return null;
-    }
+  /** The loaded neighbors of a tile, which wrap around the antimeridian. */
+  protected getDemNeighbors(tile: DemTileHeader): DemTileNeighbors {
     const {x, y, z} = tile.index;
-
     const loaded = new Map<string, DemTile>();
     for (const other of (this.state.tileset?.tiles || []) as DemTileHeader[]) {
       if (other.index.z === z && other.isLoaded && other.content) {
@@ -752,15 +935,47 @@ export class HillshadeTileLayer extends SharedTile2DLayer<DemTile | null, Hillsh
     const getNeighbor: DemNeighbors = (dx, dy) =>
       loaded.get(`${(x + dx + count) % count}/${y + dy}`) ?? null;
     // Which neighbors are loaded decides the texture's border.
-    const present = [-1, 0, 1]
+    const key = [-1, 0, 1]
       .flatMap(dy => [-1, 0, 1].map(dx => ((dx || dy) && getNeighbor(dx, dy) ? 1 : 0)))
       .join('');
-    const key = present;
+    return {getNeighbor, key};
+  }
+}
+
+/** Props of a `HillshadeTileLayer`. */
+export type HillshadeTileLayerProps = DemTileLayerProps & {
+  hillshadeParameters: HillshadeParameters;
+  /** Extra props of every tile's bitmap layer, such as `parameters`. */
+  hillshadeSubLayerProps?: Record<string, unknown>;
+};
+
+/**
+ * The tiles of a `raster-dem` source, shaded by one `hillshade` style layer (see `DemTileLayer`).
+ * Each tile's slopes are prepared from its elevations and those of its loaded neighbors.
+ */
+export class HillshadeTileLayer extends DemTileLayer<HillshadeTileLayerProps> {
+  static layerName = 'HillshadeTileLayer';
+  static defaultProps = {
+    ...DemTileLayer.defaultProps,
+    hillshadeParameters: {type: 'object', value: null, compare: false},
+    hillshadeSubLayerProps: {type: 'object', value: null, compare: false}
+  };
+
+  renderSubLayers(props: any): Layer | null | LayersList {
+    const dem = props.data as DemTile | null;
+    const tile = props.tile as DemTileHeader;
+    if (!dem || typeof ImageData === 'undefined') {
+      return null;
+    }
+    const {getNeighbor, key: neighborKey} = this.getDemNeighbors(tile);
+    // The body decides how steep the slopes are: a view can change it.
+    const bodyRadius = getBodyRadius(this.context.viewport);
+    const key = `${neighborKey}:${bodyRadius}`;
     // Kept with the decoded tile, so the source's hillshade layers prepare its slopes once.
     let prepared = preparedTextures.get(dem);
     if (prepared?.key !== key) {
       const size = dem.dim + 2;
-      const pixels = prepareHillshadeTexture(dem, z, getNeighbor);
+      const pixels = prepareHillshadeTexture(dem, tile.index.z, getNeighbor, bodyRadius);
       prepared = {key, image: new ImageData(pixels, size, size)};
       preparedTextures.set(dem, prepared);
     }

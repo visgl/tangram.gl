@@ -5,7 +5,10 @@
 import {_getURLFromTemplate as getURLFromTemplate} from '@deck.gl/geo-layers';
 import type {_TileLoadProps as TileLoadProps} from '@deck.gl/geo-layers';
 import {parse} from '@loaders.gl/core';
+import {getBasemapResourceFetch} from './basemap-request';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
+import {BasemapFetchError} from './basemap-error';
+import {getSourceTileTemplates} from './source-tiles';
 
 /** The position of a tile in the tile pyramid. */
 export type RasterTileIndex = {x: number; y: number; z: number};
@@ -44,7 +47,7 @@ export type RasterTileLoaderOptions = {
   minZoom?: number;
   /** Tiles for which this returns `true` have no data. */
   rejectTile: RejectRasterTile;
-  /** The `fetch` and `fetchOptions` that tiles are requested with. */
+  /** The `fetch`, `fetchOptions` and `transformRequest` that tiles are requested with. */
   loadOptions?: BasemapLoadOptions;
   /** Decodes the bytes of a tile. Default: the image loader that deck.gl registers. */
   decodeImage?: (arrayBuffer: ArrayBuffer) => Promise<TileImage>;
@@ -141,10 +144,14 @@ export class RasterTileLoader {
     if (!url) {
       return null;
     }
-    const fetchFn = loadOptions?.fetch || fetch;
+    const fetchFn = getBasemapResourceFetch('Tile', 'image', loadOptions || undefined);
     const response = await fetchFn(url, {...loadOptions?.fetchOptions, signal});
     if (!response.ok) {
-      throw new Error(`Failed to load raster tile: ${url} (${response.status})`);
+      throw new BasemapFetchError(
+        `Failed to load raster tile: ${url} (${response.status})`,
+        url,
+        response.status
+      );
     }
     const arrayBuffer = await response.arrayBuffer();
     if (arrayBuffer.byteLength === 0 || (await rejectTile({url, sourceId, index, arrayBuffer}))) {
@@ -189,7 +196,7 @@ export function getRasterTileLoader(
   let loader = rasterTileLoaders.get(source);
   if (
     !loader ||
-    loader.options.tiles !== source.tiles ||
+    loader.options.tiles !== getSourceTileTemplates(source) ||
     loader.options.rejectTile !== options.rejectTile ||
     loader.options.loadOptions !== options.loadOptions ||
     loader.options.sourceId !== options.sourceId ||
@@ -197,7 +204,7 @@ export function getRasterTileLoader(
     loader.options.decodeImage !== options.decodeImage ||
     loader.options.cropImage !== options.cropImage
   ) {
-    loader = new RasterTileLoader({...options, tiles: source.tiles as string[]});
+    loader = new RasterTileLoader({...options, tiles: getSourceTileTemplates(source) as string[]});
     rasterTileLoaders.set(source, loader);
   }
   return loader;

@@ -6,8 +6,6 @@ Copyright (c) vis.gl contributors
 
 # `map-style` Export
 
-![From v9.3](https://img.shields.io/badge/from-v9.3-green.svg?style=flat-square)
-
 The map-style helpers are exported from the separate package entrypoint:
 
 ```ts
@@ -17,6 +15,7 @@ import {
   findFeaturesStyledByLayer,
   MapStyleLoader,
   parseProperties,
+  isResolvedBasemapStyle,
   resolveBasemapStyle,
   ResolvedBasemapStyleSchema
 } from '@tangram.gl/basemap-layers/map-style';
@@ -32,6 +31,7 @@ Use `@tangram.gl/basemap-layers/map-style` when you want map-style validation, r
 - `findFeaturesStyledByLayer`
 - `parseProperties`
 - `resolveBasemapStyle`
+- `isResolvedBasemapStyle`
 - `MapStyleLoader`
 - `BasemapSourceSchema`
 - `BasemapStyleLayerSchema`
@@ -56,6 +56,10 @@ const parsed = BasemapStyleSchema.parse(styleJson);
 always contain concrete layer types.
 
 Use `ResolvedBasemapStyleSchema` when validating the result of `resolveBasemapStyle` or `MapStyleLoader`.
+
+## `isResolvedBasemapStyle(style)`
+
+Returns `true` for a style that `resolveBasemapStyle` or `MapStyleLoader` returned. `BasemapLayer` draws such a style without resolving it again. The mark is not a field of the style: a copy of a resolved style returns `false`.
 
 ## `filterFeatures({features, filter, globalProperties})`
 
@@ -93,6 +97,6 @@ Resolves a style URL or in-memory style document into a fully normalized style d
 - fetches the data of GeoJSON sources whose `data` is a URL, through the same `fetch` and `fetchOptions`; if it cannot be fetched, a warning is logged and the source's layers are skipped
 - normalizes relative URLs against the style URL or provided `baseUrl`
 - dereferences legacy Mapbox `ref` layers before output validation
-- returns a `ResolvedBasemapStyle`
+- returns a `ResolvedBasemapStyle`, marked as resolved: `BasemapLayer` draws it without resolving it again
 
 If you want a loaders.gl-compatible wrapper around the same behavior, use [`MapStyleLoader`](./map-style-loader).
