@@ -32,7 +32,7 @@ import {
 import {testLayer} from '@deck.gl/test-utils/vitest';
 import type {ShaderInjection, ShaderPlugin} from '@luma.gl/shaders';
 import {describe, expect, test} from 'vitest';
-import {CircleBlurExtension} from '../src/circle-layer';
+import {CircleBlurExtension, createCircleSubLayer} from '../src/circle-layer';
 import {FillExtrusionLightingExtension} from '../src/fill-extrusion-lighting-extension';
 import {FillPatternExtension, FillTranslateExtension} from '../src/fill-style-extensions';
 import {GlobeHorizonExtension} from '../src/globe-horizon-extension';
@@ -482,6 +482,30 @@ describe('shader injection targets in the installed deck.gl', () => {
     expect(padding).toBeGreaterThan(width);
   });
 
+  test.each([false, true])(
+    'initializes composite path width before the size hook (packed: %s)',
+    packedPath => {
+      const [shaders] = getModelShaders(PathLayer, {
+        getPath: (datum: typeof POINT) => datum.path,
+        extensions: [
+          ...(packedPath ? [new PathStyleExtension({dash: true, dashMode: 'path'})] : []),
+          new ZoomPaintExtension({composite: true, packedPath})
+        ]
+      });
+      const sizeHook = getHookBody(shaders.vs, 'DECKGL_FILTER_SIZE');
+      expect(sizeHook).toContain('float currentWidth = zoomPaint_currentWidth;');
+      expect(sizeHook).toContain('project_size_to_pixel(width * path.widthScale, path.widthUnits)');
+      const declared = shaders.vs.indexOf('in float instanceStrokeWidths;');
+      const assigned = shaders.vs.indexOf('zoomPaint_currentWidth = instanceStrokeWidths;');
+      const used = shaders.vs.indexOf('DECKGL_FILTER_SIZE(width, geometry);');
+      expect(declared).toBeGreaterThanOrEqual(0);
+      expect(assigned).toBeGreaterThan(declared);
+      expect(used).toBeGreaterThan(assigned);
+      expect(shaders.vs.includes('in float instanceNextLineWidths;')).toBe(!packedPath);
+      expect(shaders.vs.includes('in vec4 instanceNextDashedPaint;')).toBe(packedPath);
+    }
+  );
+
   test('FillPatternExtension: DECKGL_FILTER_GL_POSITION of SolidPolygonLayer', () => {
     const extension = new FillPatternExtension();
     const props = {getPolygon: (d: any) => d.polygon};
@@ -615,6 +639,36 @@ describe('shader injection targets in the installed deck.gl', () => {
         'FillTranslateExtension must move the vertex before FillStyleExtension reads it'
       ).toBeLessThan(fillAt);
     }
+  });
+
+  test('resolves continuous circle paint before the scatterplot size and color calculations', () => {
+    const circle = createCircleSubLayer({
+      baseProps: {},
+      id: 'continuous-circle',
+      styleLayer: {
+        id: 'circle',
+        type: 'circle',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, ['get', 'radius'], 16, 8],
+          'circle-blur': 0.25
+        }
+      },
+      features: [{geometry: {type: 'Point', coordinates: [0, 0]}, properties: {radius: 4}}],
+      zoom: 15,
+      globe: false,
+      parameters: {}
+    })!;
+    const [{vs, fs}] = getModelShaders(circle.constructor, {...circle.props, id: 'circle-shaders'});
+    const declaration = vs.indexOf('in float instanceRadius;');
+    const resolved = vs.indexOf('float instanceRadius = resolvedSize.x + instanceLineWidths / 2.0;');
+    const clamped = vs.indexOf('outerRadiusPixels = clamp(');
+    const colors = vs.indexOf('vFillColor = vec4(instanceFillColors.rgb');
+    expect(declaration).toBeGreaterThanOrEqual(0);
+    expect(resolved).toBeGreaterThan(declaration);
+    expect(clamped).toBeGreaterThan(resolved);
+    expect(colors).toBeGreaterThan(resolved);
+    expect(vs).toContain('circleBlur_blur = instanceCircleBlur;');
+    expect(fs).toContain('length(geometry.uv)');
   });
 
   test('CircleBlurExtension: ScatterplotLayer', () => {
