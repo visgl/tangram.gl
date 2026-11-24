@@ -105,6 +105,8 @@ style applies in the same update, without a load, and the next frame draws it. A
 source, the sprite or the glyphs loads the style as above. Give a new style object for each
 change: the same object again does nothing, also when it was changed in place.
 
+On WebGL, the line dash atlas holds up to 4,096 distinct patterns per loaded module, with up to 32 dashes per pattern. When the atlas is full, the layer logs a warning once and new patterns draw as one dash and one gap per period. Each keeps the total dash and gap lengths. Patterns longer than 32 dashes and all WebGPU patterns use the same merged rendering.
+
 ### `mode`
 
 Type: `'auto' | 'map' | 'globe'`
@@ -554,6 +556,18 @@ The layer calls the function one time for each style layer when the style or the
 The props go to the fill, line, circle, extrusion and label sublayers of each tile, and to the layer of a background, raster or hillshade style layer. A fill or line style layer with extra props draws in a sublayer of its own: it does not share a sublayer with its neighbors in the style. A style layer that the function gives props for can thus cost one more draw call for each tile.
 
 The function receives the resolved style layer. Select style layers by `id`, `type`, `source` or `source-layer`, not by the deck.gl ids of the sublayers: those change when the style changes. The deck.gl form of this prop for other composite layers is `_subLayerProps`, keyed by sublayer id.
+
+## First-person views
+
+In a geospatial `FirstPersonView`, map-aligned line text with `text-pitch-alignment` set to
+`viewport` faces the camera and follows the line's screen direction. In a WebGL `MapView`,
+pixel-sized, map-aligned text follows the line glyph by glyph wherever it fits.
+
+The first-person distance adjustment applies to billboard symbols when `labelSizeUnits` is
+`'pixels'` (the default). Billboard text and icons, including `icon-text-fit` shields,
+use the same adjustment for drawing and collision. Symbols behind the camera are excluded
+from collision placement. The ground horizon bounds the background's reach as the far plane
+increases.
 
 ## Projected views
 

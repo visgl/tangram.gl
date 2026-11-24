@@ -67,6 +67,7 @@ import {
 } from './fill-style-extensions';
 import {FillOutlineExtension} from './fill-outline-extension';
 import {LineBlurExtension, getBlurredLineWidth} from './line-blur-extension';
+import {LineDashExtension, getDashPattern, getDashPatternRow} from './line-dash-extension';
 import {
   LineGradientExtension,
   type LineGradientRamp,
@@ -74,6 +75,11 @@ import {
   getLineGradientRamp
 } from './line-gradient-extension';
 import {LinePatternExtension} from './line-pattern-extension';
+import {
+  GapCapOffsetExtension,
+  LineShapeExtension,
+  MAX_LINE_SHAPE_MITER_RATIO
+} from './line-shape-extension';
 import {
   HillshadeTileLayer,
   createSharedDemTileset,
@@ -192,6 +198,8 @@ type BasemapLayerGroup = {
    * `background` layer fills the screen around the view (see `ProjectedBackgroundLayer`).
    */
   projected?: boolean;
+  /** Draw an ordinary background locally for a geographic first-person camera. */
+  firstPerson?: boolean;
   /**
    * The stretch limit of the tile selection in a projected view (see
    * `ProjectedTileSelectionOptions.maxStretch`). It applies to the tilesets these layers create.
@@ -417,8 +425,10 @@ const DASH_EXTENSION = new PathStyleExtension({dash: true, dashMode: 'path'});
 /** The dash array of a solid line in a dashed sublayer: no gaps. */
 const SOLID_DASH_ARRAY: StyleAccessor<[number, number]> = {value: [0, 0]};
 /** `line-offset` and `line-gap-width`, alone and with dashes; shared for the same reason. */
-const OFFSET_EXTENSION = new PathStyleExtension({offset: true});
-const DASH_OFFSET_EXTENSION = new PathStyleExtension({dash: true, dashMode: 'path', offset: true});
+const OFFSET_EXTENSION = new GapCapOffsetExtension({offset: true});
+const DASH_OFFSET_EXTENSION = new GapCapOffsetExtension({dash: true, dashMode: 'path', offset: true});
+const LINE_DASH_EXTENSION = new LineDashExtension();
+const LINE_SHAPE_EXTENSION = new LineShapeExtension();
 /** `line-blur`, shared for the same reason: by layer, and per feature. */
 const LINE_BLUR_EXTENSION = new LineBlurExtension();
 const LINE_BLUR_PER_FEATURE_EXTENSION = new LineBlurExtension({perFeature: true});
@@ -963,6 +973,7 @@ function createBackgroundLayer({
   zoom,
   mode,
   projected,
+  firstPerson,
   spriteAtlases
 }: {
   idPrefix: string;
@@ -970,6 +981,7 @@ function createBackgroundLayer({
   zoom: number;
   mode: BasemapMode;
   projected?: boolean;
+  firstPerson?: boolean;
   spriteAtlases?: SpriteAtlas[] | null;
 }) {
   const paint = getPaint(layer, zoom);
@@ -992,7 +1004,7 @@ function createBackgroundLayer({
       );
   // deck.gl adds an extension's attributes only to a new layer: the pattern draws in its own
   // layer, made once the sprites have loaded.
-  const id = `${idPrefix}-${layer.id}${pattern ? '-pattern' : ''}`;
+  const id = `${idPrefix}-${layer.id}${pattern ? '-pattern' : firstPerson ? '-ground' : ''}`;
   const parameters = getBackgroundParameters(mode);
 
   if (pattern) {
@@ -1025,9 +1037,14 @@ function createBackgroundLayer({
     return new ProjectedBackgroundLayer({id, geographic: !projected, ...patternProps});
   }
 
-  // A projected view has no outline of the world in longitude/latitude.
-  if (projected) {
-    return new ProjectedBackgroundLayer({id, getFillColor: getFillColor as Color, parameters});
+  // A local ground polygon avoids clipping world-scale triangles against the view.
+  if (projected || firstPerson) {
+    return new ProjectedBackgroundLayer({
+      id,
+      geographic: firstPerson,
+      getFillColor: getFillColor as Color,
+      parameters
+    });
   }
   return new SolidPolygonLayer({
     id,
@@ -2749,6 +2766,7 @@ export function getBasemapLayers({
   pickable,
   tilesets,
   projected,
+  firstPerson,
   projectedMaxStretch,
   styleLayerProps,
   insertLayers
@@ -2789,6 +2807,7 @@ export function getBasemapLayers({
         pickable,
         tilesets,
         projected,
+        firstPerson,
         projectedMaxStretch,
         styleLayerProps,
         insertions
@@ -2935,11 +2954,9 @@ function createSymbolSubLayer({
 }
 
 /**
- * Converts a style `line-dasharray` into deck.gl's `[dash, gap]`. MapLibre measures dashes in line
- * widths; deck.gl's `widths` unit is half the line width, so lengths double. deck.gl draws one dash
- * and one gap per period, so a longer pattern keeps its period and total dash length, but merges
- * its dashes. In an odd-length pattern the last dash runs into the first, as in MapLibre. An empty
- * pattern, or one without gaps, draws a solid line.
+ * Encodes a style `line-dasharray` as a period and a negative atlas row marker for WebGL.
+ * Lengths double because deck.gl uses half line widths. An empty pattern or one without
+ * gaps draws solid. Patterns beyond the atlas limits fall back to a single dash and gap.
  */
 export function getDashArray(dasharray: unknown): [number, number] {
   if (!Array.isArray(dasharray)) {
@@ -2947,15 +2964,22 @@ export function getDashArray(dasharray: unknown): [number, number] {
   }
   let dash = 0;
   let gap = 0;
-  dasharray.forEach((value, index) => {
-    const length = Math.max(0, Number(value) || 0);
+  const pattern = Array.from(dasharray, (value, index) => {
+    const number = Number(value);
+    const length = Number.isFinite(number) ? Math.max(0, number) : 0;
     if (index % 2 === 0) {
       dash += length;
     } else {
       gap += length;
     }
+    return length;
   });
-  return [dash * 2, gap * 2];
+  if (gap <= 0 || !Number.isFinite(Math.fround(2 * (dash + gap)))) {
+    return [0, 0];
+  }
+  const row = getDashPatternRow(pattern);
+  const registered = getDashPattern(row);
+  return registered ? [registered.period, -(row + 1)] : [dash * 2, gap * 2];
 }
 
 /** The least distance, in pixels, of a gap's line from the gap's center: see getLineOffset. */
@@ -2995,9 +3019,9 @@ export function getLineOffset(
 }
 
 /**
- * Scales a blurred gap's `getDashArray` by `width / drawnWidth` (see `getBlurredLineWidth`), so
- * that its dashes keep the pixel lengths MapLibre gives them in `line-width`s. `shape` is the
- * `[offset, gap, width, blur]` accessor of `getLineOffset`.
+ * Scales a blurred gap's dash lengths by `width / drawnWidth` so it keeps the pixel lengths
+ * MapLibre gives it in `line-width`s. The negative atlas row marker stays fixed.
+ * `shape` is the `[offset, gap, width, blur]` accessor of `getLineOffset`.
  */
 export function getBlurredDashArray(
   dashArray: StyleAccessor<[number, number]>,
@@ -3009,7 +3033,7 @@ export function getBlurredDashArray(
   ): [number, number] => {
     const drawnWidth = getBlurredLineWidth(width, gapWidth, blur);
     const ratio = drawnWidth > 0 ? width / drawnWidth : 1;
-    return [dash * ratio, gap * ratio];
+    return [dash * ratio, gap < 0 ? gap : gap * ratio];
   };
   const dashValue = dashArray.value;
   const shapeValue = shape.value;
@@ -3033,6 +3057,8 @@ export function getBlurredDashArray(
 /** deck.gl path props for a line's `line-cap`, `line-join` and `line-miter-limit`. */
 export type LineShape = {
   lineCapRounded: boolean;
+  /** Whether WebGL extends the flat cap past each path endpoint. */
+  lineCapSquare: boolean;
   lineJointRounded: boolean;
   lineMiterLimit: number;
 };
@@ -3040,22 +3066,19 @@ export type LineShape = {
 /**
  * Converts `line-cap`, `line-join` and `line-miter-limit` into deck.gl path props.
  *
- * - `round` caps and joins are drawn round. `butt` caps end at the endpoint. deck.gl has no square
- *   cap, so `square` is drawn as `butt`: the line ends half its width short of MapLibre's.
- * - deck.gl cuts a joint flat at `miterLimit + 1` half widths from the vertex. MapLibre draws a
- *   `miter` join in full while its tip is within `line-miter-limit` half widths of the vertex, so
- *   passing `line-miter-limit - 1` draws the same joins in full. A sharper corner, which MapLibre
- *   bevels, is cut flat at that distance instead.
- * - deck.gl has no bevel join. A `bevel` join is cut flat half the line width from the vertex,
- *   which matches a bevel at shallow corners; at sharp corners a true bevel cuts closer.
+ * LineShapeExtension extends square caps and bevels corners that exceed the miter limit.
+ * deck.gl expresses that limit as `miterLimit + 1` half widths. MapLibre uses a limit of
+ * 1.05 half widths for an explicit bevel, retaining the miter at shallow turns.
  */
 export function getLineShape([cap, join, miterLimit]: unknown[]): LineShape {
   const lineJoin = join ?? getStylePropertyDefault('line-join');
   const limit = Number(miterLimit ?? getStylePropertyDefault('line-miter-limit'));
+  const deckMiterLimit = lineJoin === 'miter' && Number.isFinite(limit) ? Math.max(0, limit - 1) : 0;
   return {
     lineCapRounded: (cap ?? getStylePropertyDefault('line-cap')) === 'round',
+    lineCapSquare: cap === 'square',
     lineJointRounded: lineJoin === 'round',
-    lineMiterLimit: lineJoin === 'miter' && Number.isFinite(limit) ? Math.max(0, limit - 1) : 0
+    lineMiterLimit: lineJoin === 'bevel' ? 0.05 : deckMiterLimit
   };
 }
 
@@ -3217,7 +3240,7 @@ function getLineShapeGroups(
   const groups = new Map<string, LineShapeGroup>();
   for (const feature of features) {
     const shape = getShape(feature);
-    const groupKey = `${shape.lineCapRounded}-${shape.lineJointRounded}-${shape.lineMiterLimit}`;
+    const groupKey = getLineShapeKey(shape);
     let group = groups.get(groupKey);
     if (!group) {
       group = {key: groupKey, shape, features: []};
@@ -3734,8 +3757,18 @@ function getBatchKey(style: GeometryStyle): string | null {
   ) {
     return null;
   }
-  const {lineCapRounded, lineJointRounded, lineMiterLimit} = style.lineShape;
-  return `line-${lineCapRounded}-${lineJointRounded}-${lineMiterLimit}`;
+  return `line-${getLineShapeKey(style.lineShape)}`;
+}
+
+function getLineShapeKey({
+  lineCapRounded,
+  lineCapSquare,
+  lineJointRounded,
+  lineMiterLimit
+}: LineShape): string {
+  // Keep the existing sublayer ID suffixes for butt and round caps.
+  const cap = lineCapSquare ? 'square' : lineCapRounded;
+  return `${cap}-${lineJointRounded}-${lineMiterLimit}`;
 }
 
 /** Whether features include polygons and lines, per tile content and style layer. */
@@ -3993,11 +4026,20 @@ function createGeometrySubLayer({
     : undefined;
 
   const offsetValue = lineOffset?.value;
+  const drawsGap = gapWidth && (typeof gapWidth.value === 'function' || gapWidth.value > 0);
+  const takesSquareGapCap = drawsGap && lineShape?.lineCapSquare;
+  const getOffsetValues = (feature: any) =>
+    typeof offsetValue === 'function' ? offsetValue(feature) : offsetValue!;
   const getOffset = (side: number) => (feature: any) => {
-    const [offset, gap, width, blur] =
-      typeof offsetValue === 'function' ? offsetValue(feature) : offsetValue!;
+    const [offset, gap, width, blur] = getOffsetValues(feature);
     return getLineOffset(offset, gap, width, side, blur);
   };
+  const getSquareGapCap = (feature: any) => {
+    const [, gap, width] = getOffsetValues(feature);
+    return gap > 0 && width > 0 ? gap / 2 + width : 0;
+  };
+  const offsetTrigger =
+    typeof offsetValue === 'function' ? lineOffset?.updateTrigger : offsetValue;
   const getBlurGap = (side: number) =>
     gapOffset && typeof gapOffset.value !== 'function'
       ? {blurGapSide: side, blurGapOffset: gapOffset.value}
@@ -4017,11 +4059,19 @@ function createGeometrySubLayer({
   const drawsOutline = drawsLines && isFill;
   // `line-translate` takes the extension of `fill-translate`, which moves any vertex.
   const translatesLine = !isFill && hasLineTranslate;
+  // Offset joins keep PathLayer's cut. The default miter limit is reachable, so sharp turns
+  // still need the shape shader to change that cut to a flip bevel.
+  const needsLineShape =
+    fadesLines && lineShape &&
+    (lineShape.lineCapSquare ||
+      (!lineOffset && !lineShape.lineJointRounded && lineShape.lineMiterLimit + 1 < MAX_LINE_SHAPE_MITER_RATIO));
   const geometryExtensions =
     dashArray || lineOffset || fadesLines || drawsOutline || zoomPaint || translatesLine
       ? [
           ...(baseProps.extensions || []),
-          ...(dashArray ? [lineOffset ? DASH_OFFSET_EXTENSION : DASH_EXTENSION] : []),
+          ...(dashArray
+            ? [lineOffset ? DASH_OFFSET_EXTENSION : DASH_EXTENSION, LINE_DASH_EXTENSION]
+            : []),
           ...(!dashArray && lineOffset ? [OFFSET_EXTENSION] : []),
           // Before the fade, which widens the stroke once its width is final.
           ...(zoomPaint ? [zoomPaintExtension] : []),
@@ -4033,6 +4083,7 @@ function createGeometrySubLayer({
               ]
             : []),
           ...(drawsOutline ? [FILL_OUTLINE_EXTENSION] : []),
+          ...(needsLineShape ? [LINE_SHAPE_EXTENSION] : []),
           ...(lineGradient ? [LINE_GRADIENT_EXTENSION] : []),
           ...(linePattern ? [LINE_PATTERN_EXTENSION] : []),
           ...(translatesLine ? [FILL_TRANSLATE_EXTENSION] : [])
@@ -4104,6 +4155,7 @@ function createGeometrySubLayer({
       : {}),
     ...(translatesLine ? getTranslateProps(first.styleLayer, zoom, 'line') : {}),
     ...(offsetValue ? {getOffset: getOffset(1)} : {}),
+    ...(takesSquareGapCap ? {getSquareGapCap} : {}),
     ...(lineDashArray
       ? {
           getDashArray: lineDashArray.value as any,
@@ -4137,7 +4189,8 @@ function createGeometrySubLayer({
           }
         : {}),
       getDashArray: lineDashArray?.updateTrigger,
-      getOffset: typeof offsetValue === 'function' ? lineOffset?.updateTrigger : offsetValue,
+      getOffset: offsetTrigger,
+      getSquareGapCap: takesSquareGapCap ? offsetTrigger : undefined,
       getBlur: lineBlur?.updateTrigger,
       getLinePattern: linePattern ? Math.floor(zoom) : undefined,
       getLinePatternWidth: linePatternWidth?.updateTrigger,
@@ -4153,7 +4206,7 @@ function createGeometrySubLayer({
     parameters: getTileParameters(mode, depthTested)
   };
   const layer = getTileGeoJsonLayer(props, layerProps, zoomPaint ? zoom : undefined);
-  if (!gapWidth || (typeof gapWidth.value !== 'function' && !(gapWidth.value > 0))) {
+  if (!drawsGap) {
     return layer;
   }
 
@@ -4654,6 +4707,7 @@ function getStyleLayers({
   pickable,
   tilesets,
   projected,
+  firstPerson,
   projectedMaxStretch,
   styleLayerProps,
   insertions = []
@@ -4661,6 +4715,7 @@ function getStyleLayers({
   featureState?: BasemapFeatureState | null;
   pickable?: LayerProps['pickable'];
   projected?: boolean;
+  firstPerson?: boolean;
   projectedMaxStretch?: number;
   styleLayerProps?: StyleLayerPropsMap | null;
   /** deck.gl layers to draw between the runs, sorted by index (see `getStyleInsertions`). */
@@ -4711,7 +4766,7 @@ function getStyleLayers({
   const createRunLayer = (run: StyleLayerRun) => {
     const [layer] = run.styleLayers;
     if (run.type === 'background') {
-      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, spriteAtlases});
+      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, firstPerson, spriteAtlases});
     }
     if (run.type === 'raster' && run.source?.type === 'image') {
       return createImageLayer({

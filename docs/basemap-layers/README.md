@@ -267,15 +267,14 @@ Approximations:
 - `fill-extrusion-opacity` scales each surface's opacity. MapLibre composites the layer as a
   whole, so with an opacity below 1 MapLibre hides the walls behind a building, which deck.gl can
   show.
-- deck.gl draws one dash and one gap per period. A pattern longer than two values keeps its period
-  and its total dash length, but its dashes merge into one. In an odd-length pattern the last
-  dash runs into the first, as in MapLibre.
-- deck.gl has no square cap or bevel join. A `square` cap is drawn as `butt`, so the line ends
-  half its width short, and a zero-length dash, which MapLibre draws as a square, draws nothing.
-  A `bevel` join is cut flat half the line width from the vertex, which reaches slightly further
-  than a bevel at sharp corners. A `miter` join sharper than `line-miter-limit` is cut flat at the
-  limit, where MapLibre bevels it. `line-round-limit` is not applied, which makes no visible
-  difference.
+- On WebGL, dash patterns have up to 32 dashes and share an atlas of 4,096 distinct patterns
+  per loaded module. Longer patterns, new patterns beyond the atlas limit and WebGPU patterns
+  draw one dash and one gap per period with the same total dash and gap lengths.
+- On WebGL, a square cap extends half the line width past an endpoint, or half the gap plus
+  the line width for `line-gap-width`. Bevel joins and miters beyond `line-miter-limit` use
+  MapLibre's bevel on paths without offsets. On WebGPU, square caps draw as butt caps and
+  bevel joins are cut flat at 1.05 half widths. The renderer uses deck.gl's round joins at every
+  angle for `line-join: round`.
 - A flat layer that comes after a `fill-extrusion` layer in the style is hidden behind the
   buildings; MapLibre draws it over them.
 - MapLibre cross-fades a zoom-dependent `line-dasharray` between integer zooms; here it switches

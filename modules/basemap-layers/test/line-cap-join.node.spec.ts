@@ -7,8 +7,13 @@
 // Copyright (c) vis.gl contributors
 
 /* eslint-disable import/no-extraneous-dependencies */
+import {testLayer} from '@deck.gl/test-utils/vitest';
+import {NullDevice} from '@luma.gl/core/test-utils';
 import {describe, expect, test} from 'vitest';
+import {getLineShape} from '../src/globe-layers';
 import {getBasemapLayers} from '../src/index.ts';
+import {LineDashExtension} from '../src/line-dash-extension';
+import {LineShapeExtension} from '../src/line-shape-extension';
 
 const SOURCES = {tiles: {type: 'vector', tiles: ['https://tiles.example.com/{z}/{x}/{y}.mvt']}};
 
@@ -60,27 +65,124 @@ function lineSublayerFor(layout?: Record<string, unknown>): any {
 
 /** The cap, join and miter limit props of a sublayer. */
 function shapeOf(sublayer: any) {
-  const {lineCapRounded, lineJointRounded, lineMiterLimit} = sublayer.props;
-  return {lineCapRounded, lineJointRounded, lineMiterLimit};
+  const {lineCapRounded, lineCapSquare, lineJointRounded, lineMiterLimit} = sublayer.props;
+  return {lineCapRounded, lineCapSquare, lineJointRounded, lineMiterLimit};
 }
+
+const webglPath = {context: {device: {type: 'webgl'}}, state: {pathTesselator: {}}};
+
+test('square cap shifts are gated by the path endpoint flags', () => {
+  const extension = new LineShapeExtension();
+  const {plugins} = Reflect.apply(extension.getShaders, webglPath, []);
+  const vertex = plugins[0].injections.find(({target}: {target: string}) => target === '#main-end').glsl;
+  expect(vertex).toContain('if (!endVertex && isPathStart)');
+  expect(vertex).toContain('else if (endVertex && isPathEnd)');
+});
+
+test('round dash shaders intersect the resolved cap with the stroke fade', () => {
+  const extension = new LineDashExtension();
+  const {plugins} = Reflect.apply(extension.getShaders, webglPath, [extension]);
+  const fragment = plugins[0].injections.find(
+    ({stage, target}: {stage: string; target: string}) => stage === 'fragment' && target === '#main-end'
+  ).glsl;
+  expect(fragment).toContain('strokeCoverage = lineBlur_fade;');
+  expect(fragment).toContain('min(strokeCoverage, lineDash_coverage)');
+});
 
 describe('line-cap and line-join', () => {
   test('defaults to butt caps and miter joins with a miter limit of 2', () => {
     // deck.gl cuts joins at miterLimit + 1 half widths, MapLibre at line-miter-limit.
     expect(shapeOf(lineSublayerFor())).toEqual({
       lineCapRounded: false,
+      lineCapSquare: false,
       lineJointRounded: false,
       lineMiterLimit: 1
     });
   });
 
   test.each([
-    ['round', true],
-    ['butt', false],
-    // deck.gl has no square cap; the closest is butt.
-    ['square', false]
-  ])('line-cap %s', (cap, rounded) => {
-    expect(lineSublayerFor({'line-cap': cap}).props.lineCapRounded).toBe(rounded);
+    ['round', true, false],
+    ['butt', false, false],
+    ['square', false, true]
+  ])('line-cap %s', (cap, lineCapRounded, lineCapSquare) => {
+    expect(shapeOf(lineSublayerFor({'line-cap': cap}))).toMatchObject({lineCapRounded, lineCapSquare});
+  });
+
+  test('installs the shape extension for square caps even with round joins', () => {
+    const square = lineSublayerFor({'line-cap': 'square', 'line-join': 'round'});
+    const round = lineSublayerFor({'line-cap': 'round', 'line-join': 'round'});
+    expect(square.props.extensions.some((extension: unknown) => extension instanceof LineShapeExtension))
+      .toBe(true);
+    expect(round.props.extensions.some((extension: unknown) => extension instanceof LineShapeExtension))
+      .toBe(false);
+  });
+
+  test('keeps default miter bevels and skips joins the shape shader cannot change', () => {
+    expect(lineSublayerFor().props.extensions).toContainEqual(new LineShapeExtension());
+    const [offset] = sublayersFor({
+      type: 'line',
+      layout: {'line-join': 'bevel'},
+      paint: {'line-offset': 3}
+    });
+    expect(offset.props.extensions).not.toContainEqual(new LineShapeExtension());
+    const unlimited = lineSublayerFor({'line-miter-limit': 1000});
+    expect(unlimited.props.extensions).not.toContainEqual(new LineShapeExtension());
+  });
+
+  test('square gap caps use the per-feature gap and unblurred width on both sides', () => {
+    const features = [lineFeature({gap: 10}), lineFeature({gap: 0})];
+    const layers = sublayersFor(
+      {
+        type: 'line',
+        layout: {'line-cap': 'square'},
+        paint: {
+          'line-width': 2,
+          'line-gap-width': ['get', 'gap'],
+          'line-offset': 3,
+          'line-blur': 4,
+          'line-dasharray': [2, 2]
+        }
+      },
+      features
+    );
+    expect(layers).toHaveLength(2);
+    for (const layer of layers) {
+      expect(features.map(layer.props.getSquareGapCap)).toEqual([7, 0]);
+    }
+    const device = new NullDevice({_cachePipelines: false});
+    Object.defineProperty(device, 'type', {value: 'webgl'});
+    try {
+      testLayer({
+        Layer: layers[0].constructor,
+        device,
+        draw: false,
+        onError: error => { throw error; },
+        testCases: [{
+          title: 'assembles the dashed square gap line',
+          props: {
+            ...layers[0].props,
+            data: features,
+            coordinateOrigin: [0, 0, 0],
+            coordinateSystem: 'default',
+            opacity: 1,
+            visible: true
+          },
+          onAfterUpdate: ({subLayer}) => {
+            const offset = subLayer?.getAttributeManager()?.getAttributes().instanceOffsets;
+            expect(offset?.size).toBe(2);
+            expect(offset?.value?.[0]).toBeCloseTo(7 / 6);
+            expect(offset?.value?.[1]).toBe(7);
+            const [model] = subLayer?.getModels() ?? [];
+            expect(model.vs).toContain('in vec2 instanceOffsetAndCap;');
+            expect(model.vs).toContain('#define instanceOffsets instanceOffsetAndCap.x');
+            expect(model.vs).toContain('capLength = project_pixel_size(instanceOffsetAndCap.y);');
+            expect(model.vs).not.toContain('in float instanceOffsets;');
+          }
+        }]
+      });
+    } finally {
+      device.destroy();
+    }
   });
 
   test('line-join round', () => {
@@ -88,10 +190,14 @@ describe('line-cap and line-join', () => {
     expect(sublayer.props.lineJointRounded).toBe(true);
   });
 
-  test('line-join bevel cuts the joint at half the line width', () => {
-    const sublayer = lineSublayerFor({'line-join': 'bevel', 'line-miter-limit': 10});
-    expect(sublayer.props.lineJointRounded).toBe(false);
-    expect(sublayer.props.lineMiterLimit).toBe(0);
+  test('bevel joins use the fixed 1.05 miter limit', () => {
+    const shape = getLineShape(['square', 'bevel', 10]);
+    expect(shape).toEqual({
+      lineCapRounded: false, lineCapSquare: true, lineJointRounded: false, lineMiterLimit: 0.05
+    });
+    expect(shapeOf(lineSublayerFor({
+      'line-cap': 'square', 'line-join': 'bevel', 'line-miter-limit': 10
+    }))).toEqual(shape);
   });
 
   test.each([
@@ -120,29 +226,31 @@ describe('line-cap and line-join', () => {
       lineFeature({kind: 'rail'}),
       lineFeature({kind: 'road'}),
       lineFeature({kind: 'rail'}),
-      lineFeature({kind: 'path'})
+      lineFeature({kind: 'path'}),
+      lineFeature({kind: 'square'})
     ];
     const sublayers = sublayersFor(
       {
         type: 'line',
         layout: {
-          'line-cap': ['match', ['get', 'kind'], 'road', 'round', 'butt'],
+          'line-cap': ['match', ['get', 'kind'], 'road', 'round', 'square', 'square', 'butt'],
           'line-join': ['match', ['get', 'kind'], 'path', 'bevel', 'round']
         }
       },
       features
     );
 
-    expect(sublayers).toHaveLength(3);
+    expect(sublayers).toHaveLength(4);
     expect(
       sublayers.map(sublayer => sublayer.props.data.map((f: any) => f.properties.kind))
-    ).toEqual([['rail', 'rail'], ['road'], ['path']]);
+    ).toEqual([['rail', 'rail'], ['road'], ['path'], ['square']]);
     expect(sublayers.map(shapeOf)).toEqual([
-      {lineCapRounded: false, lineJointRounded: true, lineMiterLimit: 0},
-      {lineCapRounded: true, lineJointRounded: true, lineMiterLimit: 0},
-      {lineCapRounded: false, lineJointRounded: false, lineMiterLimit: 0}
+      {lineCapRounded: false, lineCapSquare: false, lineJointRounded: true, lineMiterLimit: 0},
+      {lineCapRounded: true, lineCapSquare: false, lineJointRounded: true, lineMiterLimit: 0},
+      {lineCapRounded: false, lineCapSquare: false, lineJointRounded: false, lineMiterLimit: 0.05},
+      {lineCapRounded: false, lineCapSquare: true, lineJointRounded: true, lineMiterLimit: 0}
     ]);
-    expect(new Set(sublayers.map(sublayer => sublayer.id)).size).toBe(3);
+    expect(new Set(sublayers.map(sublayer => sublayer.id)).size).toBe(4);
   });
 
   describe('per-feature shape groups across zoom steps', () => {
@@ -236,5 +344,7 @@ describe('line-cap and line-join', () => {
     ]);
     expect(sublayer.props.lineCapRounded).toBe(false);
     expect(sublayer.props.lineJointRounded).toBe(false);
+    expect(sublayer.props.extensions.some((extension: unknown) => extension instanceof LineShapeExtension))
+      .toBe(false);
   });
 });

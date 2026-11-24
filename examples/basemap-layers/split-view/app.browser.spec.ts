@@ -65,6 +65,9 @@ vi.mock('maplibre-gl', () => ({
     }
     on() {}
     jumpTo() {}
+    getStyle() {
+      return {};
+    }
     setProjection() {}
     resize() {}
     getMaxZoom() {
