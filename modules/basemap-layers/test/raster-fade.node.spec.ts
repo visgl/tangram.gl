@@ -37,6 +37,24 @@ function createClock(time = 0) {
   return clock;
 }
 
+/** A stub bitmap sublayer that records its fade uniforms and redraw requests. */
+function createFadeSublayer(props: Record<string, unknown>, deviceType = 'webgl') {
+  const calls = {uniforms: null as any, redraws: 0};
+  const layer = {
+    context: {device: {type: deviceType}},
+    props: {image: 'tile-texture', ...props},
+    state: {},
+    isLoaded: true,
+    setShaderModuleProps: (moduleProps: any) => {
+      calls.uniforms = moduleProps.rasterFade;
+    },
+    setNeedsRedraw: () => {
+      calls.redraws++;
+    }
+  };
+  return {layer, calls, draw: () => RasterFadeExtension.prototype.draw.call(layer as any)};
+}
+
 describe('getRasterFadeValues', () => {
   test('a tile with an ancestor cross-fades from it, staying opaque', () => {
     expect(getRasterFadeValues(0, 300, true)).toEqual({opacity: 1, mix: 1});
@@ -92,19 +110,9 @@ describe('the ancestor a tile fades from', () => {
 describe('RasterFadeExtension', () => {
   /** Draws the extension on a stub layer and returns its uniforms and redraw requests. */
   function draw(props: Record<string, unknown>, deviceType = 'webgl') {
-    const calls = {uniforms: null as any, redraws: 0};
-    const layer = {
-      context: {device: {type: deviceType}},
-      props: {image: 'tile-texture', ...props},
-      setShaderModuleProps: (moduleProps: any) => {
-        calls.uniforms = moduleProps.rasterFade;
-      },
-      setNeedsRedraw: () => {
-        calls.redraws++;
-      }
-    };
-    RasterFadeExtension.prototype.draw.call(layer as any);
-    return calls;
+    const sublayer = createFadeSublayer(props, deviceType);
+    sublayer.draw();
+    return sublayer.calls;
   }
 
   const parent = {topLeft: [0.5, 0], scale: 0.5};
@@ -150,6 +158,7 @@ describe('RasterFadeExtension', () => {
       const layer = {
         context: {device: {type: 'webgl'}},
         props: {image: 'tile-texture', ...layerProps},
+        state: {},
         parent: {setNeedsUpdate: () => updates++},
         setShaderModuleProps: () => {},
         setNeedsRedraw: () => {}
@@ -222,13 +231,24 @@ describe('RasterFadeTileLayer', () => {
   }
 
   const root = {index: {x: 0, y: 0, z: 0}, parent: null, isLoaded: true, content: 'root-image'};
-  const child = () => ({
-    index: {x: 1, y: 0, z: 1},
+  const child = (x = 1) => ({
+    index: {x, y: 0, z: 1},
     parent: root,
     isLoaded: true,
     content: 'child-image',
-    layers: []
+    layers: [] as ReturnType<typeof createFadeSublayer>['layer'][]
   });
+
+  /** Attaches a tile's drawing sublayer and starts its fade. */
+  function addFadeSublayer(layer: RasterFadeTileLayer, tile: ReturnType<typeof child>) {
+    const sublayer = createFadeSublayer({
+      ...layer.props,
+      ...layer.getSubLayerPropsByTile(tile as any),
+      image: tile.content
+    });
+    tile.layers.push(sublayer.layer);
+    return sublayer;
+  }
 
   test('a tile fades from the ancestor loaded when it is first drawn, once', () => {
     const clock = createClock(500);
@@ -258,22 +278,45 @@ describe('RasterFadeTileLayer', () => {
     clock.set(800);
     const done = layer.getSubLayerPropsByTile(tile as any) as any;
     expect(done).toEqual({rasterFade: {start: 500, parent: null}, rasterFadeParentImage: null});
-    // The fade's own record keeps no image either, and the layer stays loaded.
+    // The fade's own record keeps no image either.
     expect((layer.state as any).tileFades.get(tile)).toBe(done);
     expect(layer.getSubLayerPropsByTile(tile as any)).toBe(done);
+    addFadeSublayer(layer, tile).draw();
     expect(layer.isLoaded).toBe(true);
   });
 
-  test('is loaded once its selected tiles have faded in', () => {
+  test('is loaded once its selected tiles have been drawn faded in', () => {
+    const clock = createClock(500);
+    const tile = child();
+    const otherTile = child(0);
+    const layer = createLayer(300, clock, [tile, otherTile]);
+    // Neither tile has a fade record yet.
+    expect(layer.isLoaded).toBe(true);
+    const first = addFadeSublayer(layer, tile);
+    const second = addFadeSublayer(layer, otherTile);
+    clock.set(799);
+    first.draw();
+    second.draw();
+    expect(layer.isLoaded).toBe(false);
+    clock.set(800);
+    first.draw();
+    expect(layer.isLoaded).toBe(false);
+    second.draw();
+    expect(layer.isLoaded).toBe(true);
+  });
+
+  test('stays loading when the clock reaches the end of a fade between draws', () => {
     const clock = createClock(500);
     const tile = child();
     const layer = createLayer(300, clock, [tile]);
-    // Not drawn yet: nothing to wait for.
-    expect(layer.isLoaded).toBe(true);
-    layer.getSubLayerPropsByTile(tile as any);
-    clock.set(799);
-    expect(layer.isLoaded).toBe(false);
+    const sublayer = addFadeSublayer(layer, tile);
+    clock.set(750);
+    sublayer.draw();
+    expect(sublayer.calls.uniforms.parentMix).toBeCloseTo(1 - 250 / 300);
     clock.set(800);
+    expect(layer.isLoaded).toBe(false);
+    sublayer.draw();
+    expect(sublayer.calls.uniforms).toMatchObject({opacity: 1, parentMix: 0});
     expect(layer.isLoaded).toBe(true);
   });
 

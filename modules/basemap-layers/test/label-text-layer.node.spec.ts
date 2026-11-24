@@ -9,7 +9,8 @@ import {
   WebMercatorViewport,
   _GlobeViewport as GlobeViewport
 } from '@deck.gl/core';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
+import {FirstPersonLabelSizeExtension} from '../src/globe-line-angle-extension';
 import {LabelTextLayer, getLabelForeshortening} from '../src/label-text-layer';
 
 function filter(props: Record<string, unknown>, renderPass: string, isPicking = false) {
@@ -82,4 +83,20 @@ describe('getLabelForeshortening', () => {
       expect(getLabelForeshortening(viewport, false), viewport.constructor.name).toBe(1);
     }
   });
+});
+
+test('first-person pixel sizing is disabled when the same layer draws in a MapView', () => {
+  const camera = {width: 400, height: 200, longitude: 0, latitude: 0};
+  const layer = new LabelTextLayer({id: 'text'});
+  const setUniforms = vi.spyOn(layer, 'setShaderModuleProps').mockImplementation(() => {});
+  const extension = new FirstPersonLabelSizeExtension();
+  layer.context = {...layer.context, viewport: new FirstPersonViewport({...camera, position: [0, 0, 100], pitch: 30})};
+  extension.draw.call(layer);
+  expect(setUniforms).toHaveBeenLastCalledWith({
+    firstPersonLabelSize: {referenceDepth: expect.closeTo(200)}
+  });
+
+  layer.context.viewport = new WebMercatorViewport({...camera, zoom: 14});
+  extension.draw.call(layer);
+  expect(setUniforms).toHaveBeenLastCalledWith({firstPersonLabelSize: {referenceDepth: 0}});
 });

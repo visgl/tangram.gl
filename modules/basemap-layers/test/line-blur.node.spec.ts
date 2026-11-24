@@ -14,9 +14,12 @@ import {
   MIN_GAP_LINE_CENTER,
   getBasemapLayers,
   getBlurredDashArray,
+  getDashArray,
   getLineOffset
 } from '../src/globe-layers';
 import {LineBlurExtension, getBlurredLineWidth} from '../src/line-blur-extension';
+import {LineDashExtension} from '../src/line-dash-extension';
+import {LineShapeExtension} from '../src/line-shape-extension';
 
 function line(properties: Record<string, unknown> = {}) {
   return {
@@ -136,12 +139,14 @@ describe('line-blur', () => {
     const paint = {'line-blur': 3, 'line-dasharray': [2, 1]};
     const [layer] = renderLines(paint, [line()], 12, [tileExtension]);
     const {extensions} = layer.props;
-    expect(extensions).toHaveLength(3);
+    expect(extensions).toHaveLength(5);
     expect(extensions[0]).toBe(tileExtension);
     expect(extensions[1]).toBeInstanceOf(PathStyleExtension);
-    expect(extensions[2]).toBeInstanceOf(LineBlurExtension);
+    expect(extensions[2]).toBeInstanceOf(LineDashExtension);
+    expect(extensions[3]).toBeInstanceOf(LineBlurExtension);
+    expect(extensions[4]).toBeInstanceOf(LineShapeExtension);
     // Shared, so deck.gl does not see the extensions change.
-    expect(extensions[2]).toBe(getBlurExtensions(renderLines({'line-blur': 1})[0])[0]);
+    expect(extensions[3]).toBe(getBlurExtensions(renderLines({'line-blur': 1})[0])[0]);
     expect(layer.props.getBlur).toBe(3);
     expect(layer.props.lineAntialiasing).toBe(true);
   });
@@ -288,7 +293,7 @@ describe('line-blur', () => {
       expect(getBlurExtensions(layer).map(extension => extension.opts.perFeature)).toEqual([false]);
       expect(layer.props.getBlur).toBe(0);
       expect(evaluate(layer, 'getLineWidth', features)).toEqual([4]);
-      expect(layer.props.getDashArray).toEqual([4, 2]);
+      expect(layer.props.getDashArray).toEqual(getDashArray([2, 1]));
     }
     expect(layers[0].props.getOffset(features[0])).toBe(6 / 4);
     // Either alone keeps the blur.
@@ -320,8 +325,7 @@ describe('line-blur', () => {
   });
 
   test('keeps the dash lengths of a blurred gap in line-widths', () => {
-    // deck.gl dashes in drawn widths: [2, 1] line-widths are [4, 2] half widths of 4, so of the
-    // 6 pixels each line is drawn, [4 * 4 / 6, 2 * 4 / 6].
+    // The line is drawn 6 pixels wide, so scale the 6-half-width period by 4 / 6.
     const paint = {
       'line-width': 4,
       'line-gap-width': 8,
@@ -329,13 +333,15 @@ describe('line-blur', () => {
       'line-dasharray': [2, 1]
     };
     const layers = renderLines(paint);
+    const encoded = getDashArray([2, 1]);
+    const rowMarker = encoded[1];
     expect(layers.map(layer => layer.props.getDashArray)).toEqual([
-      [16 / 6, 8 / 6],
-      [16 / 6, 8 / 6]
+      [4, rowMarker],
+      [4, rowMarker]
     ]);
     // Without a gap the line is not widened, nor its dashes shortened.
     const [plain] = renderLines({'line-width': 4, 'line-blur': 2, 'line-dasharray': [2, 1]});
-    expect(plain.props.getDashArray).toEqual([4, 2]);
+    expect(plain.props.getDashArray).toEqual(encoded);
 
     // Per feature, with the triggers of both parts.
     const features = [line({blur: 4, gap: 8}), line({blur: 4, gap: 0})];
@@ -347,14 +353,8 @@ describe('line-blur', () => {
     };
     const [low] = renderLines(perFeature, features, 10);
     const [high] = renderLines(perFeature, features, 14);
-    expect(evaluate(high, 'getDashArray', features)).toEqual([
-      [2, 1],
-      [4, 2]
-    ]);
-    expect(evaluate(low, 'getDashArray', features)).toEqual([
-      [4, 2],
-      [4, 2]
-    ]);
+    expect(evaluate(high, 'getDashArray', features)).toEqual([[3, rowMarker], encoded]);
+    expect(evaluate(low, 'getDashArray', features)).toEqual([encoded, encoded]);
     expect(high.props.updateTriggers.getDashArray).not.toEqual(
       low.props.updateTriggers.getDashArray
     );
@@ -363,6 +363,8 @@ describe('line-blur', () => {
   test('getBlurredDashArray', () => {
     const shape = {value: [0, 8, 4, 4] as [number, number, number, number]};
     expect(getBlurredDashArray({value: [4, 2]}, shape)).toEqual({value: [2, 1]});
+    const value = getDashArray([2, 1]);
+    expect(getBlurredDashArray({value}, shape)).toEqual({value: [3, value[1]]});
     const perFeature = getBlurredDashArray(
       {value: [4, 2]},
       {value: feature => [0, Number(feature.properties?.gap), 4, 4], updateTrigger: 12}
