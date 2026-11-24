@@ -137,7 +137,12 @@ const STYLE_AT_3_75 = makeStyle(
   })
 );
 
-/** Resolves with the frame drawn once every sublayer has loaded and the frame stops changing. */
+/**
+ * Resolves with the frame drawn once every sublayer has loaded and the frame stops changing. The
+ * deck draws every frame itself (`_animate`), after it has updated its layers: a frame drawn with
+ * `deck.redraw()` does not update the layers, and a tile that has loaded before its sublayers exist
+ * counts as loaded.
+ */
 function nextFrame(): Promise<ImageData> {
   return new Promise((resolve, reject) => {
     let previous: ImageData | null = null;
@@ -147,14 +152,12 @@ function nextFrame(): Promise<ImageData> {
       same = previous && countDifferent(previous, image) === 0 ? same + 1 : 0;
       previous = image;
       if (same < 5) {
-        window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
         return;
       }
       onFrame = null;
       window.clearTimeout(timeout);
       resolve(image);
     };
-    window.requestAnimationFrame(() => deck?.redraw('frame'));
   });
 }
 
@@ -182,9 +185,16 @@ function createDeck(
     views: new MapView({id: 'map'}),
     viewState: {...center, zoom},
     layers: [new BasemapLayer({id: 'basemap', mode: 'map', fetch, style})],
+    _animate: true,
     onAfterRender: () => {
-      const layers = (deck as any)?.layerManager?.getLayers() || [];
-      if (!onFrame || layers.length < 2 || layers.some((l: any) => !l.isLoaded)) {
+      const layerManager = (deck as any)?.layerManager;
+      const layers = layerManager?.getLayers() || [];
+      if (
+        !onFrame ||
+        layerManager?.needsUpdate() ||
+        layers.length < 2 ||
+        layers.some((l: any) => !l.isLoaded)
+      ) {
         return;
       }
       const copy = document.createElement('canvas');
