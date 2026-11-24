@@ -10,6 +10,7 @@ import {webgpuAdapter} from '@luma.gl/core/webgpu';
 import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import {defineBackendPaintTests} from '../../modules/basemap-layers/test/backend-paint-tests';
 import {defineFillStyleTests} from '../../modules/basemap-layers/test/fill-style-tests';
+import {defineTranslateTests} from '../../modules/basemap-layers/test/translate-tests';
 import {RenderingHarness, readCanvasPixels} from './harness';
 
 declare const __TEST_DEVICE__: 'webgl' | 'webgpu';
@@ -23,6 +24,7 @@ const options = {
 };
 defineBackendPaintTests(options);
 defineFillStyleTests(options);
+defineTranslateTests(options);
 
 test(`${__TEST_DEVICE__}: viewport-pitched road text billboards and follows the line in FirstPersonView`, async () => {
   const harness = new RenderingHarness('first-person');

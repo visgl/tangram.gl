@@ -371,18 +371,31 @@ describe('circle layers', () => {
     expect(p.getPixelOffset).toEqual([0, 0]);
   });
 
-  test('on WebGPU, translates by pixels with positive style y downward in both alignments', () => {
+  test('on WebGPU, translates on the ground with a viewport anchor in both alignments', () => {
     for (const alignment of ['viewport', 'map']) {
       const [layer] = render(
-        [circle({'circle-translate': [3, 4], 'circle-pitch-alignment': alignment})],
-        [point()],
-        12,
-        {webgpu: true}
+        [
+          circle({
+            'circle-translate': [3, 4],
+            'circle-translate-anchor': 'viewport',
+            'circle-pitch-alignment': alignment
+          })
+        ]
       );
-      expect(layer.props.getPixelOffset).toEqual([3, -4]);
+      layer.context = {
+        viewport: new WebMercatorViewport(),
+        device: {type: 'webgpu'},
+        defaultShaderModules: []
+      };
       expect(
         (layer.props.extensions || []).some((e: unknown) => e instanceof CircleTranslateExtension)
-      ).toBe(false);
+      ).toBe(true);
+      expect(layer.props.fillTranslate).toEqual([3, 4]);
+      expect(layer.props.fillTranslateAnchor).toBe('viewport');
+      expect(layer.props.getPixelOffset).toEqual([0, 0]);
+      expect(layer.getShaders().plugins.map((plugin: {name: string}) => plugin.name)).toContain(
+        'circleTranslate'
+      );
     }
   });
 
@@ -447,17 +460,43 @@ describe('circle layers', () => {
     }
   });
 
-  test.each(['webgl', 'webgpu'] as const)(
-    'the translate extension adds the globe module only to GLSL plugins on %s',
-    deviceType => {
-      const extension = new CircleTranslateExtension();
-      const layer: any = {context: {device: {type: deviceType}}};
-      const plugins: any[] = extension.getShaders.call(layer).plugins ?? [];
-      const names = plugins.map(plugin => plugin.name);
-      expect(names.includes('circleTranslateGlobe')).toBe(deviceType === 'webgl');
-      expect(plugins).toHaveLength(deviceType === 'webgl' ? 2 : 1);
-    }
-  );
+  test('the translate extension adds the fill and globe GLSL plugins on WebGL', () => {
+    const extension = new CircleTranslateExtension();
+    const layer: any = {context: {device: {type: 'webgl'}}};
+    const {plugins} = extension.getShaders.call(layer);
+    expect(plugins.map(plugin => plugin.name)).toEqual(['fillTranslate', 'circleTranslateGlobe']);
+  });
+
+  test('the translate extension adds the circle WGSL plugin on WebGPU', () => {
+    const extension = new CircleTranslateExtension();
+    const layer: any = {context: {device: {type: 'webgpu'}}};
+    const {plugins} = extension.getShaders.call(layer);
+    expect(plugins.map(plugin => plugin.name)).toEqual(['circleTranslate']);
+    const [plugin] = plugins;
+    expect(plugin.module?.dependencies?.map(module => module.name)).toEqual(['fillTranslate']);
+    expect(plugin.injections).toMatchObject([
+      {stage: 'vertex', target: 'DECKGL_FILTER_SIZE', wgsl: expect.any(String)},
+      {stage: 'vertex', target: 'DECKGL_FILTER_GL_POSITION', order: -1, wgsl: expect.any(String)}
+    ]);
+  });
+
+  test.each([
+    ['webgl', 'circleTranslateGlobe', 'glsl'],
+    ['webgpu', 'circleTranslate', 'wgsl']
+  ] as const)('circle translation clips an occluded moved billboard on %s', (type, name, language) => {
+    const extension = new CircleTranslateExtension();
+    const layer: any = {context: {device: {type}}};
+    const {plugins} = extension.getShaders.call(layer);
+    const plugin = plugins.find(candidate => candidate.name === name);
+    expect(plugin?.injections).toContainEqual(
+      expect.objectContaining({
+        target: 'DECKGL_FILTER_GL_POSITION',
+        [language]: expect.stringMatching(
+          /if \(project_globe_is_occluded\(moved\.xyz\)\)\s*\{\s*\*?position = vec4(?:<f32>)?\(0\.0, 0\.0, 2\.0, 1\.0\);/
+        )
+      })
+    );
+  });
 
   test('the blur extension adds a WGSL plugin on WebGPU', () => {
     const extension = new CircleBlurExtension();

@@ -673,8 +673,8 @@ function getStyleSubLayerId(parentId: string, styleLayerId: string | string[]): 
 const ZOOM_PAINT_CONTEXT = 'zoomPaintContext';
 
 /**
- * The prop that tells a tile's `renderSubLayers` that its tile layer draws on WebGPU, where the
- * GLSL of `FillTranslateExtension` does not run.
+ * The prop that tells a tile's `renderSubLayers` that its tile layer draws on WebGPU, where
+ * zoom-dependent paint is not interpolated on the GPU.
  */
 const WEBGPU_DEVICE = 'webgpuDevice';
 

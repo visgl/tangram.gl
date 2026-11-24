@@ -280,8 +280,5 @@ Approximations:
 - MapLibre cross-fades a zoom-dependent `line-dasharray` between integer zooms; here it switches
   at each integer zoom.
 - The outline is 1 CSS pixel wide; MapLibre's is one device pixel.
-- `fill-translate`, `line-translate` and `fill-extrusion-translate` (and their `-anchor`
-  properties) are not applied. They offset geometry in screen pixels, which deck.gl's polygon
-  and path layers have no prop for.
 
 [maplibre-style-spec-js]: https://github.com/maplibre/maplibre-style-spec
