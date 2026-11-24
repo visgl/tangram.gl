@@ -75,7 +75,11 @@ import {
   getLineGradientRamp
 } from './line-gradient-extension';
 import {LinePatternExtension} from './line-pattern-extension';
-import {LineShapeExtension} from './line-shape-extension';
+import {
+  GapCapOffsetExtension,
+  LineShapeExtension,
+  MAX_LINE_SHAPE_MITER_RATIO
+} from './line-shape-extension';
 import {
   HillshadeTileLayer,
   createSharedDemTileset,
@@ -407,8 +411,8 @@ const DASH_EXTENSION = new PathStyleExtension({dash: true, dashMode: 'path'});
 /** The dash array of a solid line in a dashed sublayer: no gaps. */
 const SOLID_DASH_ARRAY: StyleAccessor<[number, number]> = {value: [0, 0]};
 /** `line-offset` and `line-gap-width`, alone and with dashes; shared for the same reason. */
-const OFFSET_EXTENSION = new PathStyleExtension({offset: true});
-const DASH_OFFSET_EXTENSION = new PathStyleExtension({dash: true, dashMode: 'path', offset: true});
+const OFFSET_EXTENSION = new GapCapOffsetExtension({offset: true});
+const DASH_OFFSET_EXTENSION = new GapCapOffsetExtension({dash: true, dashMode: 'path', offset: true});
 const LINE_DASH_EXTENSION = new LineDashExtension();
 const LINE_SHAPE_EXTENSION = new LineShapeExtension();
 /** `line-blur`, shared for the same reason: by layer, and per feature. */
@@ -2949,7 +2953,7 @@ export function getBlurredDashArray(
 /** deck.gl path props for a line's `line-cap`, `line-join` and `line-miter-limit`. */
 export type LineShape = {
   lineCapRounded: boolean;
-  /** Whether WebGL extends the flat cap by half the line width. */
+  /** Whether WebGL extends the flat cap past each path endpoint. */
   lineCapSquare: boolean;
   lineJointRounded: boolean;
   lineMiterLimit: number;
@@ -3803,11 +3807,20 @@ function createGeometrySubLayer({
     : null;
 
   const offsetValue = lineOffset?.value;
+  const drawsGap = gapWidth && (typeof gapWidth.value === 'function' || gapWidth.value > 0);
+  const takesSquareGapCap = drawsGap && lineShape?.lineCapSquare;
+  const getOffsetValues = (feature: any) =>
+    typeof offsetValue === 'function' ? offsetValue(feature) : offsetValue!;
   const getOffset = (side: number) => (feature: any) => {
-    const [offset, gap, width, blur] =
-      typeof offsetValue === 'function' ? offsetValue(feature) : offsetValue!;
+    const [offset, gap, width, blur] = getOffsetValues(feature);
     return getLineOffset(offset, gap, width, side, blur);
   };
+  const getSquareGapCap = (feature: any) => {
+    const [, gap, width] = getOffsetValues(feature);
+    return gap > 0 && width > 0 ? gap / 2 + width : 0;
+  };
+  const offsetTrigger =
+    typeof offsetValue === 'function' ? lineOffset?.updateTrigger : offsetValue;
   const getBlurGap = (side: number) =>
     gapOffset && typeof gapOffset.value !== 'function'
       ? {blurGapSide: side, blurGapOffset: gapOffset.value}
@@ -3827,6 +3840,12 @@ function createGeometrySubLayer({
   const drawsOutline = drawsLines && isFill;
   // `line-translate` takes the extension of `fill-translate`, which moves any vertex.
   const translatesLine = !isFill && hasLineTranslate;
+  // Offset joins keep PathLayer's cut. The default miter limit is reachable, so sharp turns
+  // still need the shape shader to change that cut to a flip bevel.
+  const needsLineShape =
+    fadesLines && lineShape &&
+    (lineShape.lineCapSquare ||
+      (!lineOffset && !lineShape.lineJointRounded && lineShape.lineMiterLimit + 1 < MAX_LINE_SHAPE_MITER_RATIO));
   const geometryExtensions =
     dashArray || lineOffset || fadesLines || drawsOutline || zoomPaint || translatesLine
       ? [
@@ -3845,9 +3864,7 @@ function createGeometrySubLayer({
               ]
             : []),
           ...(drawsOutline ? [FILL_OUTLINE_EXTENSION] : []),
-          ...(fadesLines && lineShape && (!lineShape.lineJointRounded || lineShape.lineCapSquare)
-            ? [LINE_SHAPE_EXTENSION]
-            : []),
+          ...(needsLineShape ? [LINE_SHAPE_EXTENSION] : []),
           ...(lineGradient ? [LINE_GRADIENT_EXTENSION] : []),
           ...(linePattern ? [LINE_PATTERN_EXTENSION] : []),
           ...(translatesLine ? [FILL_TRANSLATE_EXTENSION] : [])
@@ -3910,6 +3927,7 @@ function createGeometrySubLayer({
       : {}),
     ...(translatesLine ? getTranslateProps(first.styleLayer, zoom, 'line') : {}),
     ...(offsetValue ? {getOffset: getOffset(1)} : {}),
+    ...(takesSquareGapCap ? {getSquareGapCap} : {}),
     ...(lineDashArray
       ? {
           getDashArray: lineDashArray.value as any,
@@ -3923,7 +3941,8 @@ function createGeometrySubLayer({
       getLineColor: lineColor.updateTrigger,
       getLineWidth: lineWidth.updateTrigger,
       getDashArray: lineDashArray?.updateTrigger,
-      getOffset: typeof offsetValue === 'function' ? lineOffset?.updateTrigger : offsetValue,
+      getOffset: offsetTrigger,
+      getSquareGapCap: takesSquareGapCap ? offsetTrigger : undefined,
       getBlur: lineBlur?.updateTrigger,
       getLinePattern: linePattern ? Math.floor(zoom) : undefined,
       getLinePatternWidth: linePatternWidth?.updateTrigger,
@@ -3939,7 +3958,7 @@ function createGeometrySubLayer({
     parameters: getTileParameters(mode, depthTested)
   };
   const layer = getTileGeoJsonLayer(props, layerProps);
-  if (!gapWidth || (typeof gapWidth.value !== 'function' && !(gapWidth.value > 0))) {
+  if (!drawsGap) {
     return layer;
   }
 

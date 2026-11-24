@@ -8,7 +8,8 @@
 
 /* eslint-disable import/no-extraneous-dependencies */
 import {PathStyleExtension} from '@deck.gl/extensions';
-import {describe, expect, test} from 'vitest';
+import {log} from '@deck.gl/core';
+import {describe, expect, test, vi} from 'vitest';
 import {getDashArray} from '../src/globe-layers';
 import {getBasemapLayers} from '../src/index.ts';
 import {getDashPattern, LineDashExtension, MAX_DASH_INTERVALS} from '../src/line-dash-extension';
@@ -19,6 +20,25 @@ const SOURCES = {
     tiles: ['https://tiles.example.com/{z}/{x}/{y}.mvt']
   }
 };
+
+test('the dash registry warns once when it falls back for new patterns', async () => {
+  // Isolate the atlas so filling it does not change which patterns later tests can register.
+  vi.resetModules();
+  const {getDashPatternRow} = await import('../src/line-dash-extension');
+  const warn = vi.spyOn(log, 'warn').mockReturnValue(() => {});
+  try {
+    for (let row = 0; row < 4096; row++) {
+      expect(getDashPatternRow([row, 1])).toBe(row);
+    }
+    expect(warn).not.toHaveBeenCalled();
+    expect(getDashPatternRow([4096, 1])).toBe(-1);
+    expect(getDashPatternRow([4097, 1])).toBe(-1);
+    expect(getDashPatternRow([0, 1])).toBe(0);
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining('4096'));
+  } finally {
+    warn.mockRestore();
+  }
+});
 
 const SQUARE = [
   [

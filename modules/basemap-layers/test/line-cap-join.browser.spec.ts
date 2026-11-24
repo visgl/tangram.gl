@@ -111,6 +111,10 @@ function isInked(image: ImageData, x: number, y: number): boolean {
   return image.data[i] + image.data[i + 1] + image.data[i + 2] < 600;
 }
 
+function redAt(image: ImageData, x: number, y: number): number {
+  return image.data[(y * SIZE + x) * 4];
+}
+
 const CENTER = SIZE / 2;
 
 /** Renders a black line, 10 pixels wide by default, with the given layout and paint. */
@@ -155,6 +159,39 @@ describe('line-cap in the browser', () => {
 
   test('the default cap is butt', async () => {
     expect(capStart(await renderLine(LINE, {}))).toBe(CENTER - 40);
+  });
+
+  test('square caps on a gap extend by half the gap plus the line width', async () => {
+    const image = await renderLine(LINE, {'line-cap': 'square'}, 2, {
+      'line-gap-width': 10,
+      'line-offset': 3,
+      'line-dasharray': [50, 5]
+    });
+    const end = CENTER + 40;
+    for (const x of [CENTER - 46, end + 5]) {
+      // Offsetting by 3px puts the two strokes 3px and 9px from the original center,
+      // on opposite sides. Both should have ink 6px past the endpoint.
+      const inkedRows = Array.from({length: SIZE}, (_, y) => y).filter(y => isInked(image, x, y));
+      expect(inkedRows).toHaveLength(4);
+    }
+    for (const x of [CENTER - 48, end + 7]) {
+      expect(Array.from({length: SIZE}, (_, y) => y).some(y => isInked(image, x, y))).toBe(false);
+    }
+  });
+
+  test('square caps do not overlap at a repeated interior vertex', async () => {
+    const image = await renderLine(
+      [LINE[0], [0, 0], [0, 0], LINE[1]],
+      {'line-cap': 'square'},
+      10,
+      {'line-opacity': 0.5}
+    );
+    const body = redAt(image, CENTER - 10, CENTER);
+    expect(body).toBeGreaterThan(60);
+    expect(body).toBeLessThan(200);
+    for (const x of [CENTER - 2, CENTER, CENTER + 2]) {
+      expect(redAt(image, x, CENTER)).toBe(body);
+    }
   });
 });
 
@@ -240,4 +277,22 @@ test('line-dasharray draws both dash lengths and both gaps in one period', async
   const image = await renderLine([[-56, 0], [56, 0]], {}, 4, {'line-dasharray': [4, 1, 1, 1]});
   const row = Array.from({length: 56}, (_, x) => (isInked(image, CENTER - 56 + x, CENTER) ? '#' : '.'));
   expect(row.join('')).toBe('################....####....'.repeat(2));
+});
+
+test('a round dash shoulder intersects the stroke fade', async () => {
+  const image = await renderLine(
+    [[-40.5, 0.5], [40, 0.5]],
+    {'line-cap': 'round'},
+    8,
+    {'line-dasharray': [2, 2]}
+  );
+  // The stroke edge crosses a pixel center on each side of the line. At 2px past the
+  // first dash, the round cap's own coverage is also about half at that edge.
+  const [edge] = [CENTER - 5, CENTER - 4, CENTER + 4, CENTER + 5].filter(y => {
+    const red = redAt(image, CENTER - 32, y);
+    return red > 110 && red < 145;
+  });
+  expect(edge).toBeDefined();
+  const stroke = redAt(image, CENTER - 32, edge);
+  expect(redAt(image, CENTER - 23, edge)).toBeLessThanOrEqual(stroke + 18);
 });

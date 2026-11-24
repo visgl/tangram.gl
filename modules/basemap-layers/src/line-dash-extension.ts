@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {LayerExtension} from '@deck.gl/core';
+import {LayerExtension, log} from '@deck.gl/core';
 import type {Accessor, CompositeLayer, Layer} from '@deck.gl/core';
 import type {Device, Texture} from '@luma.gl/core';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
@@ -23,6 +23,7 @@ type DashPattern = {
 const patternRows = new Map<string, number>();
 const patterns: DashPattern[] = [];
 const patternTextures = new WeakMap<Device, {texture: Texture; rows: number}>();
+let warnedAboutFullAtlas = false;
 
 /**
  * Registers normalized lengths in line widths and returns their stable row, or -1 if the
@@ -38,6 +39,12 @@ export function getDashPatternRow(pattern: number[]): number {
     return existing;
   }
   if (patterns.length >= MAX_DASH_ROWS) {
+    if (!warnedAboutFullAtlas) {
+      warnedAboutFullAtlas = true;
+      log.warn(
+        `[BasemapLayer] The dash atlas holds ${MAX_DASH_ROWS} patterns. New line-dasharray patterns draw as one dash and one gap per period.`
+      )();
+    }
     return -1;
   }
 
@@ -145,6 +152,7 @@ flat in float lineDash_offset;
   bool lineDash_round = path.capType > 0.5;
   float lineDash_nearest = 0.0;
   float lineDash_duty = 1.0;
+  float lineDash_subPixelBlend = 0.0;
   if (lineDash_valid) {
     int row = int(lineDash_row);
     vec3 header = texelFetch(lineDash_patterns, ivec2(0, row), 0).xyz;
@@ -203,9 +211,8 @@ flat in float lineDash_offset;
     if (bool(picking.isActive)) {
       lineDash_discard = lineDash_distance > 1.0;
     } else {
-      float capCoverage = lineDash_nearest > 0.0 ? smoothedge(0.0, lineDash_edgePixels) : 1.0;
-      float blend = smoothstep(lineDash_period, 2.0 * lineDash_period, lineDash_filterWidth);
-      lineDash_coverage = mix(capCoverage, lineDash_duty, blend);
+      lineDash_coverage = lineDash_nearest > 0.0 ? smoothedge(0.0, lineDash_edgePixels) : 1.0;
+      lineDash_subPixelBlend = smoothstep(lineDash_period, 2.0 * lineDash_period, lineDash_filterWidth);
     }
   }
 #endif
@@ -216,6 +223,21 @@ flat in float lineDash_offset;
       injection: /* glsl */ `
 #ifdef HIGH_PRECISION_DASH
   if (lineDash_valid) {
+    if (lineDash_round && !bool(picking.isActive)) {
+#ifdef ANTIALIASING
+      // The resolved cap and stroke bound the same silhouette. Replace the stroke's coverage
+      // with their intersection while preserving the line's opacity and color.
+      float strokeCoverage = smoothedge(0.0, edgePixels);
+#ifdef LINE_BLUR_ENABLED
+      strokeCoverage = lineBlur_fade;
+#endif
+      if (strokeCoverage > 0.0) {
+        lineDash_coverage = min(strokeCoverage, lineDash_coverage) / strokeCoverage;
+      }
+#endif
+      // Unresolved periods still scale the stroke by the dash duty cycle.
+      lineDash_coverage = mix(lineDash_coverage, lineDash_duty, lineDash_subPixelBlend);
+    }
     if (lineDash_discard || lineDash_coverage <= 0.0) {
       discard;
     }

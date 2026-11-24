@@ -3,10 +3,17 @@
 // Copyright (c) vis.gl contributors
 
 import {LayerExtension} from '@deck.gl/core';
-import type {Layer, UpdateParameters} from '@deck.gl/core';
+import type {Accessor, CompositeLayer, Layer, LayerContext, UpdateParameters} from '@deck.gl/core';
+import {PathStyleExtension} from '@deck.gl/extensions';
+import type {PathStyleExtensionProps} from '@deck.gl/extensions';
+import type {ShaderPlugin} from '@luma.gl/shaders';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 type LineShapeProps = {lineCapSquare?: boolean};
+
+const MIN_JOINT_SIN_HALF_ANGLE = 0.001;
+/** The largest miter ratio that the line shape shader can measure. */
+export const MAX_LINE_SHAPE_MITER_RATIO = 1 / MIN_JOINT_SIN_HALF_ANGLE;
 
 const UNIFORMS = /* glsl */ `
 layout(std140) uniform lineShapeUniforms {
@@ -31,7 +38,7 @@ vec3 lineShape_getJoint(vec2 deltaA, vec2 deltaB, bool isCap, bool isRound, floa
   vec2 dirA = deltaA / lenA;
   vec2 dirB = deltaB / lenB;
   float sinHalfAngle = sqrt(max(0.5 + 0.5 * dot(dirA, dirB), 0.0));
-  float miterSize = 1.0 / max(sinHalfAngle, 0.001);
+  float miterSize = 1.0 / max(sinHalfAngle, ${MIN_JOINT_SIN_HALF_ANGLE});
   vec2 outward = dirA - dirB;
   if (miterSize <= miterLimit || length(outward) == 0.0) {
     return vec3(0.0, 0.0, 1e6);
@@ -84,16 +91,21 @@ in vec2 lineShape_cut;
       // MapLibre extends the cap's vertices beyond the endpoint and keeps the endpoint's line
       // distance on them, so the dashes of the first and last segments stretch over the caps.
       float capDirection = 0.0;
-      if (!endVertex && (isPathStart || length(beforeStart) == 0.0)) {
+      if (!endVertex && isPathStart) {
         capDirection = -1.0;
-      } else if (endVertex && (isPathEnd || length(afterEnd) == 0.0)) {
+      } else if (endVertex && isPathEnd) {
         capDirection = 1.0;
       }
-      float capHalfWidth = width.x;
+      float capLength = width.x;
 #ifdef PATH_STYLE_OFFSET
-      capHalfWidth /= abs(instanceOffsets * 2.0) + 1.0;
+      capLength /= abs(instanceOffsets * 2.0) + 1.0;
+#ifdef LINE_SHAPE_GAP_CAP
+      if (instanceOffsetAndCap.y > 0.0) {
+        capLength = project_pixel_size(instanceOffsetAndCap.y);
+      }
 #endif
-      vec3 shift = vec3(normalize(segment) * capDirection * capHalfWidth, 0.0);
+#endif
+      vec3 shift = vec3(normalize(segment) * capDirection * capLength, 0.0);
       if (needsRotation) {
         shift = rotationMatrix * shift;
       }
@@ -123,9 +135,11 @@ in vec2 lineShape_cut;
       order: 1,
       injection: /* glsl */ `
   // Both are affine in the fragment's position, so they interpolate exactly.
+#ifndef PATH_STYLE_OFFSET
   if (lineShape_beyond.x > lineShape_cut.x || lineShape_beyond.y > lineShape_cut.y) {
     discard;
   }
+#endif
 `
     }
   }
@@ -137,9 +151,10 @@ function isPathLayer(layer: Layer): boolean {
 
 /**
  * Draws a `PathLayer`'s caps and joins as MapLibre GL JS draws `line-cap` and `line-join`, which
- * deck.gl does not: with `lineCapSquare`, each end of a path extends half the line's width past
- * its endpoint, and a join whose miter exceeds `miterLimit + 1` half widths is bevelled (see
- * `GET_JOINT_CUT`). Set `capRounded: false` for a square cap. Adds no vertex attribute. WebGL
+ * deck.gl does not: with `lineCapSquare`, each end of a path extends past its endpoint by half
+ * the line's width, or by half the gap plus the line width for a gap. A join whose miter exceeds
+ * `miterLimit + 1` half widths is bevelled (see `GET_JOINT_CUT`). Set `capRounded: false` for
+ * a square cap. Adds no vertex attribute. WebGL
  * only, and not on billboard paths; joins of paths with `PathStyleExtension`'s offsets keep
  * deck.gl's flat cut.
  */
@@ -157,5 +172,101 @@ export class LineShapeExtension extends LayerExtension {
   /** Install the shape shader on supported PathLayers. */
   getShaders(this: Layer) {
     return isPathLayer(this) ? {plugins: [LINE_SHAPE_PLUGIN]} : {};
+  }
+}
+
+/**
+ * Carries the distance to a square gap cap alongside the lateral offset. WebGL2 only guarantees
+ * 16 vertex attributes, all of which a dashed and offset path already uses.
+ */
+export class GapCapOffsetExtension extends PathStyleExtension {
+  static extensionName = 'GapCapOffsetExtension';
+  static defaultProps = {
+    ...PathStyleExtension.defaultProps,
+    getSquareGapCap: {type: 'accessor', value: 0}
+  };
+
+  /** Pack the lateral offset and the per-feature square cap length into one accessor on WebGL. */
+  getSubLayerProps(this: CompositeLayer, extension: this) {
+    const props: {
+      getOffset: Accessor<unknown, number>;
+      getSquareGapCap: Accessor<unknown, number>;
+      updateTriggers: Record<string, unknown>;
+    } = LayerExtension.prototype.getSubLayerProps.call(this, extension);
+    if (this.context.device.type !== 'webgl') {
+      return props;
+    }
+    const {getOffset, getSquareGapCap, updateTriggers} = props;
+    const packed: Accessor<unknown, [number, number]> = (feature, info) => [
+      typeof getOffset === 'function' ? getOffset(feature, info) : getOffset,
+      typeof getSquareGapCap === 'function' ? getSquareGapCap(feature, info) : getSquareGapCap
+    ];
+    return {
+      ...props,
+      getOffset: packed,
+      updateTriggers: {
+        ...updateTriggers,
+        getOffset: [updateTriggers.getOffset, updateTriggers.getSquareGapCap]
+      }
+    };
+  }
+
+  /** Use the packed buffer from the first model build. */
+  initializeState(this: Layer<PathStyleExtensionProps>, context: LayerContext, extension: this) {
+    addGapCapOffsetAttribute(this);
+    super.initializeState.call(this, context, extension);
+  }
+
+  /** Refresh the layout if an existing path starts drawing with an offset. */
+  updateState(
+    this: Layer<PathStyleExtensionProps>,
+    params: UpdateParameters<Layer<PathStyleExtensionProps>>,
+    extension: this
+  ) {
+    if (params.changeFlags.extensionsChanged) {
+      addGapCapOffsetAttribute(this);
+    }
+    super.updateState.call(this, params, extension);
+  }
+
+  /** Adapt the existing PathStyle shader to read the first component for lateral offsets. */
+  getShaders(this: Layer<PathStyleExtensionProps>, extension: this) {
+    const shaders = super.getShaders.call(this, extension);
+    if (!isPathLayer(this)) {
+      return shaders;
+    }
+    const plugins = (shaders.plugins as ShaderPlugin[]).map(plugin => {
+      const vertexInputs = {...plugin.vertexInputs};
+      delete vertexInputs.instanceOffsets;
+      vertexInputs.instanceOffsetAndCap = 'vec2<f32>';
+      return {
+        ...plugin,
+        vertexInputs,
+        module: {
+          ...plugin.module,
+          name: plugin.name,
+          vs: `${plugin.module?.vs ?? ''}\n#define instanceOffsets instanceOffsetAndCap.x\n`
+        }
+      };
+    });
+    return {...shaders, plugins, defines: {...shaders.defines, LINE_SHAPE_GAP_CAP: true}};
+  }
+}
+
+function addGapCapOffsetAttribute(layer: Layer): void {
+  if (!isPathLayer(layer)) {
+    return;
+  }
+  const attributes = layer.getAttributeManager();
+  if (attributes && attributes.getAttributes().instanceOffsets?.size !== 2) {
+    attributes.remove(['instanceOffsets']);
+    attributes.addInstanced({
+      instanceOffsets: {
+        size: 2,
+        accessor: 'getOffset',
+        shaderAttributes: {instanceOffsetAndCap: {}}
+      }
+    });
+    attributes.getAttributes().instanceOffsets.setLayoutChanged();
   }
 }
