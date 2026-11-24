@@ -109,6 +109,8 @@ style applies in the same update, without a load, and the next frame draws it. A
 source, the sprite or the glyphs loads the style as above. Give a new style object for each
 change: the same object again does nothing, also when it was changed in place.
 
+On WebGL, the line dash atlas holds up to 4,096 distinct patterns per loaded module, with up to 32 dashes per pattern. When the atlas is full, the layer logs a warning once and new patterns draw as one dash and one gap per period. Each keeps the total dash and gap lengths. Patterns longer than 32 dashes and all WebGPU patterns use the same merged rendering.
+
 ### `mode`
 
 Type: `'auto' | 'map' | 'globe'`
