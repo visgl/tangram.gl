@@ -5,10 +5,8 @@
 import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test, vi} from 'vitest';
-import {BasemapLayer, type BasemapLayerProps} from '../src/basemap-layer';
-import {BasemapLoadError} from '../src/basemap-error';
-import {DemPixelReadError} from '../src/dem-pixels';
 import {DemTileLayer} from '../src/hillshade-layer';
+import {BasemapLayer, type BasemapLayerProps, BasemapLoadError, DemPixelReadError} from '../src/index';
 import {
   KNOWN_TILE_SIZE,
   encodePng,

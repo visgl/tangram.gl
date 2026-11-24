@@ -314,7 +314,7 @@ A `BasemapLoadError` is an `Error` with these fields, which match those of the `
 - `url`: the URL that failed, when it is known
 - `status`: the HTTP status of the response, when the server answered
 - `tile`: the `{x, y, z}` index of the tile, for a `tile`
-- `cause`: the error the load failed with
+- `cause`: the error the load failed with. For a `raster-dem` tile, this can be a `DemPixelReadError` when the browser changes canvas reads and `VideoFrame` is missing or also changes the pixels. Import `DemPixelReadError` from `@tangram.gl/basemap-layers` to identify this case.
 
 The layer draws what it can without the failed resource: a source that fails has no layers, a tile that fails is not drawn, and the icons of a sprite that fails are skipped.
 

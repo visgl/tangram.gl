@@ -97,9 +97,9 @@ describe('DEM pixel reads', () => {
     expect((error as Error).message).toMatch(/VideoFrame is not available/);
   });
 
-  test('fail where canvas reads have noise and VideoFrame throws', async () => {
+  test('preserve a VideoFrame constructor error during the probe', async () => {
     installCanvasNoise();
-    const failure = new Error('WebCodecs is off');
+    const failure = new Error('frame could not be created');
     vi.stubGlobal(
       'VideoFrame',
       class {
@@ -110,9 +110,7 @@ describe('DEM pixel reads', () => {
     );
     const read = createDemPixelReader();
 
-    const error = await read(await getKnownImage()).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(DemPixelReadError);
-    expect((error as Error).cause).toBe(failure);
+    await expect(read(await getKnownImage())).rejects.toBe(failure);
   });
 
   test('fail where VideoFrame also changes the pixels', async () => {
@@ -144,18 +142,16 @@ describe('DEM pixel reads', () => {
       'VideoFrame',
       class extends NativeVideoFrame {
         constructor(...args: ConstructorParameters<typeof VideoFrame>) {
-          super(...args);
           if (++frames > 1) {
             throw failure;
           }
+          super(...args);
         }
       }
     );
     const read = createDemPixelReader();
 
-    const error = await read(await getKnownImage()).catch((caught: unknown) => caught);
-    expect(error).toBeInstanceOf(DemPixelReadError);
-    expect((error as Error).cause).toBe(failure);
+    await expect(read(await getKnownImage())).rejects.toBe(failure);
   });
 
   test.each(['RGBA', 'RGBX', 'BGRA', 'BGRX'])('read %s video frames as RGBA', async format => {

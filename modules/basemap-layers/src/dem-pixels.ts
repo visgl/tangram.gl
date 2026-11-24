@@ -29,11 +29,11 @@ export class DemPixelReadError extends Error {
 }
 
 /** The side of the square test image. */
-const TEST_SIZE = 16;
+const TEST_SIZE = 256;
 
 /**
- * An opaque test image whose color bytes count up 0, 1, 2… and repeat, so every byte value
- * appears three times. Opaque pixels keep their bytes through a premultiplied canvas.
+ * An opaque test image whose color bytes count up 0, 1, 2… and repeat through every byte value.
+ * Opaque pixels keep their bytes through a premultiplied canvas.
  */
 function getTestPixels(): Uint8ClampedArray<ArrayBuffer> {
   const pixels = new Uint8ClampedArray(TEST_SIZE * TEST_SIZE * 4);
@@ -44,6 +44,11 @@ function getTestPixels(): Uint8ClampedArray<ArrayBuffer> {
     pixels[pixel * 4 + 3] = 255;
   }
   return pixels;
+}
+
+/** Creates a DEM bitmap with its color and alpha bytes preserved. */
+export function createDemImageBitmap(image: Blob | ImageData): Promise<ImageBitmap> {
+  return createImageBitmap(image, {premultiplyAlpha: 'none', colorSpaceConversion: 'none'});
 }
 
 function createCanvas(width: number, height: number): HTMLCanvasElement | OffscreenCanvas {
@@ -112,20 +117,13 @@ export async function readPixelsWithVideoFrame(image: DemPixelSource): Promise<U
 }
 
 /** Whether `read` gives the test image's bytes back unchanged. */
-async function readsExactly(read: DemPixelReader): Promise<boolean> {
-  const expected = getTestPixels();
-  const canvas = createCanvas(TEST_SIZE, TEST_SIZE);
-  get2DContext(canvas).putImageData(new ImageData(expected, TEST_SIZE, TEST_SIZE), 0, 0);
-  // Tiles are image bitmaps: test one where the browser can make it without a decode.
-  const image = 'transferToImageBitmap' in canvas ? canvas.transferToImageBitmap() : canvas;
-  try {
-    const actual = await read(image);
-    return actual.length === expected.length && actual.every((byte, i) => byte === expected[i]);
-  } finally {
-    if ('close' in image) {
-      image.close();
-    }
-  }
+async function readsExactly(
+  read: DemPixelReader,
+  image: ImageBitmap,
+  expected: Uint8ClampedArray
+): Promise<boolean> {
+  const actual = await read(image);
+  return actual.length === expected.length && actual.every((byte, i) => byte === expected[i]);
 }
 
 /**
@@ -134,46 +132,43 @@ async function readsExactly(read: DemPixelReader): Promise<boolean> {
  * with a {@link DemPixelReadError}. Each method is tested on a known image before it is chosen.
  */
 export async function chooseDemPixelReadMethod(): Promise<DemPixelReadMethod> {
-  if (await readsExactly(readPixelsWithCanvas)) {
-    return 'canvas';
-  }
-  if (typeof VideoFrame === 'undefined') {
-    throw new DemPixelReadError('VideoFrame is not available');
-  }
-  let exact: boolean;
+  const expected = getTestPixels();
+  const image = await createDemImageBitmap(new ImageData(expected, TEST_SIZE, TEST_SIZE));
   try {
-    exact = await readsExactly(readPixelsWithVideoFrame);
-  } catch (error) {
-    throw new DemPixelReadError(`VideoFrame failed (${(error as Error).message})`, {
-      cause: error
-    });
+    if (await readsExactly(readPixelsWithCanvas, image, expected)) {
+      return 'canvas';
+    }
+    if (typeof VideoFrame === 'undefined') {
+      throw new DemPixelReadError('VideoFrame is not available');
+    }
+    if (!(await readsExactly(readPixelsWithVideoFrame, image, expected))) {
+      throw new DemPixelReadError('VideoFrame also changes the pixels');
+    }
+    return 'video-frame';
+  } finally {
+    image.close();
   }
-  if (!exact) {
-    throw new DemPixelReadError('VideoFrame also changes the pixels');
-  }
-  return 'video-frame';
 }
 
 /**
- * A reader of exact DEM pixels. The read method is chosen on the first read and kept for every
- * later one (see {@link chooseDemPixelReadMethod}).
+ * A reader of exact DEM pixels. Later reads reuse the chosen method or a definitive exactness
+ * failure. An interrupted probe can be retried by the next read.
  */
 export function createDemPixelReader(): DemPixelReader {
   let method: Promise<DemPixelReadMethod> | undefined;
   return async image => {
-    method ||= chooseDemPixelReadMethod();
+    method ||= chooseDemPixelReadMethod().catch((error: unknown) => {
+      if (!(error instanceof DemPixelReadError)) {
+        method = undefined;
+      }
+      throw error;
+    });
     if ((await method) === 'canvas') {
       return readPixelsWithCanvas(image);
     }
-    try {
-      return await readPixelsWithVideoFrame(image);
-    } catch (error) {
-      throw new DemPixelReadError(`VideoFrame failed (${(error as Error).message})`, {
-        cause: error
-      });
-    }
+    return readPixelsWithVideoFrame(image);
   };
 }
 
-/** Reads the exact pixels of DEM tiles for the page; the read method is chosen once. */
+/** Reads exact DEM tile pixels and shares the method selection across the page. */
 export const readDemPixels: DemPixelReader = createDemPixelReader();

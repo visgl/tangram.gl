@@ -81,7 +81,7 @@ import {isProjectedViewport} from './projected-viewport';
 import {getBasemapResourceFetch} from './basemap-request';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 import {BasemapFetchError} from './basemap-error';
-import {readDemPixels} from './dem-pixels';
+import {createDemImageBitmap, readDemPixels} from './dem-pixels';
 
 /**
  * `hillshade` style layers over `raster-dem` sources, drawn as MapLibre GL JS draws them.
@@ -761,10 +761,7 @@ export async function loadDemTile(
   if (blob.size === 0) {
     return null;
   }
-  const image = await createImageBitmap(blob, {
-    premultiplyAlpha: 'none',
-    colorSpaceConversion: 'none'
-  });
+  const image = await createDemImageBitmap(blob);
   try {
     return decodeDemTile(await readDemPixels(image), image.width, image.height, unpack);
   } finally {
