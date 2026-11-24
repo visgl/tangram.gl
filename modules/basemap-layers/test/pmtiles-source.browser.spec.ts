@@ -13,7 +13,7 @@
 import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import mvtWorkerUrl from '@loaders.gl/tiles/mvt/mvt-worker.js?url';
-import {afterEach, describe, expect, test, vi} from 'vitest';
+import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/index';
 
 const SIZE = 192;
@@ -23,50 +23,37 @@ const HOST = 'https://tiles.test';
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
 
+/** Ends `holdLayerUpdates`. */
+let releaseLayerUpdates: (() => void) | null = null;
+
+/**
+ * Makes the deck's layer manager skip its layer updates for `milliseconds`, while the deck still
+ * draws its frames: the layers keep the state of their last update.
+ */
+function holdLayerUpdates(milliseconds: number): void {
+  const prototype = Object.getPrototypeOf((deck as any).layerManager);
+  const updateLayers = prototype.updateLayers;
+  prototype.updateLayers = () => {};
+  const timer = window.setTimeout(() => releaseLayerUpdates?.(), milliseconds);
+  releaseLayerUpdates = () => {
+    window.clearTimeout(timer);
+    prototype.updateLayers = updateLayers;
+    releaseLayerUpdates = null;
+  };
+}
+
 afterEach(() => {
-  vi.restoreAllMocks();
+  releaseLayerUpdates?.();
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
 });
 
-/** The bytes of each fixture, read from the page server once (see `readFixture`). */
-const fixtures = new Map<string, Promise<Uint8Array<ArrayBuffer>>>();
-
-/** Reads of a fixture that can come back empty before the test fails. */
-const FIXTURE_READS = 3;
-
-/**
- * The bytes of a fixture. Each fixture is read from the page server once and kept, so the two
- * renders of a test read the same bytes. Every fixture has bytes, but a busy page server can send
- * an empty body: a DEM tile without bytes is a tile without data, and a render draws it as such.
- * An empty read is made again, and a fixture that stays empty fails the test.
- */
-function readFixture(path: string): Promise<Uint8Array<ArrayBuffer>> {
-  let bytes = fixtures.get(path);
-  if (!bytes) {
-    bytes = fetchFixture(path);
-    fixtures.set(path, bytes);
-    bytes.catch(() => fixtures.delete(path));
-  }
-  return bytes;
-}
-
-async function fetchFixture(path: string): Promise<Uint8Array<ArrayBuffer>> {
-  for (let read = 1; ; read++) {
-    const response = await fetch(`${FIXTURES}/${path}`, {cache: 'no-store'});
-    if (!response.ok) {
-      throw new Error(`Fixture ${path}: status ${response.status}`);
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > 0) {
-      return bytes;
-    }
-    if (read >= FIXTURE_READS) {
-      throw new Error(`Fixture ${path}: empty after ${read} reads`);
-    }
-  }
+async function readFixture(path: string): Promise<Uint8Array<ArrayBuffer>> {
+  const response = await fetch(`${FIXTURES}/${path}`);
+  expect(response.ok, path).toBe(true);
+  return new Uint8Array(await response.arrayBuffer());
 }
 
 /** A `fetch` that counts the requests it has not answered yet. */
@@ -176,9 +163,15 @@ const STABLE_MILLISECONDS = 1000;
 
 /**
  * Renders a style and returns the frame drawn once every layer has loaded its tiles: no request
- * is pending, every layer is loaded, the frame draws more than the background, and the pixels
- * have not changed for `STABLE_FRAMES` frames and `STABLE_MILLISECONDS`. A hillshade tile decodes
- * after its request has been answered, so a frame can show the background alone for a while.
+ * is pending, no layer update is pending, every layer is loaded, the frame draws more than the
+ * background, and the pixels have not changed for `STABLE_FRAMES` frames and
+ * `STABLE_MILLISECONDS`. A hillshade tile decodes after its request has been answered, so a frame
+ * can show the background alone for a while.
+ *
+ * The deck draws every frame itself (`_animate`), after it has updated its layers. A frame drawn
+ * with `deck.redraw()` does not update the layers: a tile that has loaded, but whose sublayers are
+ * not rendered yet, counts as loaded (as in deck.gl's `TileLayer`), and such frames show the map
+ * without it.
  */
 function render(style: object, loadOptions: object, server: TrackedFetch): Promise<ImageData> {
   parent = document.createElement('div');
@@ -195,6 +188,7 @@ function render(style: object, loadOptions: object, server: TrackedFetch): Promi
       height: SIZE,
       useDevicePixels: false,
       deviceProps: {adapters: [webgl2Adapter]},
+      _animate: true,
       views: new MapView({id: 'map', repeat: false}),
       initialViewState: {longitude: -10, latitude: 15, zoom: 1.2},
       layers: [
@@ -205,11 +199,13 @@ function render(style: object, loadOptions: object, server: TrackedFetch): Promi
         } as any)
       ],
       onAfterRender: () => {
-        const all = (deck as any)?.layerManager?.getLayers() || [];
+        const layerManager = (deck as any)?.layerManager;
+        const all = layerManager?.getLayers() || [];
         const loaded =
           ++frames >= 20 &&
           server.requests.length > 0 &&
           server.pending() === 0 &&
+          !layerManager?.needsUpdate() &&
           all.length > 2 &&
           all.every((layer: any) => layer.isLoaded);
         const frame = loaded ? readFrame() : null;
@@ -225,9 +221,7 @@ function render(style: object, loadOptions: object, server: TrackedFetch): Promi
         ) {
           window.clearTimeout(timeout);
           resolve(frame);
-          return;
         }
-        requestAnimationFrame(() => deck?.redraw('waiting'));
       },
       onError: error => {
         window.clearTimeout(timeout);
@@ -305,26 +299,32 @@ describe('pmtiles:// sources', () => {
   }
 
   test(
-    'a fixture that the test server reads once with an empty body draws as the archive',
+    'a frame is taken only after the layers have been updated with the last tile',
     async () => {
       // The raster-dem test failed on CI with 4916, 13174 and 22451 different pixels: the counts
-      // when the last one, two or three tiles of the {z}/{x}/{y} render have no data. A DEM tile
-      // read with an empty body is such a tile, and the render takes its frame without it.
+      // of a frame drawn after the last one, two or three tiles loaded, but before the hillshade
+      // layer was updated with them. Here the layer updates wait 3 seconds after the last tile is
+      // answered, 1.5 seconds after the other tiles, as on a busy machine, and the frame must
+      // still show the tile.
       const kind = KINDS[2];
-      const emptyTile = `${FIXTURES}/tiles/dem/1/1/1.png`;
-      fixtures.clear();
-      const pageFetch = globalThis.fetch.bind(globalThis);
-      let emptyReads = 0;
-      vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
-        if (String(input) === emptyTile && emptyReads++ === 0) {
-          return Promise.resolve(new Response(new Uint8Array(0)));
-        }
-        return pageFetch(input, init);
-      });
       const options = {mvt: {workerUrl: mvtWorkerUrl}};
       const expected = await renderOnce(getStyle(kind, false), createServer(), options);
-      const actual = await renderOnce(getStyle(kind, true), createServer(), options);
-      expect(emptyReads).toBeGreaterThan(0);
+      const server = createServer();
+      const fetchTile = server.fetchTile;
+      const lastTile = `${HOST}/${kind.name}/1/1/1.${kind.extension}`;
+      let held = false;
+      server.fetchTile = (async (input: string | URL | Request, init?: RequestInit) => {
+        const response = await fetchTile(input, init);
+        if (String(input) === lastTile) {
+          // The other tiles are drawn first.
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          held = true;
+          holdLayerUpdates(3000);
+        }
+        return response;
+      }) as typeof fetch;
+      const actual = await renderOnce(getStyle(kind, false), server, options);
+      expect(held).toBe(true);
       expect(countDifferentPixels(actual, expected)).toBe(0);
     },
     TEST_TIMEOUT
