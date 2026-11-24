@@ -4,7 +4,8 @@
 
 /* eslint-disable import/no-extraneous-dependencies */
 import {LayerExtension, WebMercatorViewport} from '@deck.gl/core';
-import {describe, expect, test} from 'vitest';
+import {ScatterplotLayer} from '@deck.gl/layers';
+import {describe, expect, test, vi} from 'vitest';
 import {CircleBlurExtension, CircleTranslateExtension} from '../src/circle-layer.ts';
 import {getBasemapLayers} from '../src/index.ts';
 
@@ -26,12 +27,23 @@ function render(
   layers = [circle()],
   features = [point()],
   zoom = 12,
-  {mode = 'map', extensions}: {mode?: 'map' | 'globe'; extensions?: unknown[]} = {}
+  {
+    mode = 'map',
+    extensions,
+    webgpu = false,
+    styleProps
+  }: {
+    mode?: 'map' | 'globe';
+    extensions?: unknown[];
+    webgpu?: boolean;
+    styleProps?: Record<string, unknown>;
+  } = {}
 ): any[] {
   const vectorLayer: any = getBasemapLayers({
     idPrefix: 'test',
     mode,
     zoom,
+    styleLayerProps: styleProps ? new Map([[layers[0], styleProps]]) : undefined,
     styleDefinition: {version: 8, sources: SOURCES, layers} as any
   }).find(layer => layer.id === 'test-tiles');
   return (
@@ -40,6 +52,8 @@ function render(
         id: 'test-tiles-tile',
         data: features,
         extensions,
+        // As the vector tile layer tells its tiles on WebGPU.
+        ...(webgpu ? {webgpuDevice: true} : {}),
         tile: {index: {x: 0, y: 0, z: 12}}
       })
       .filter(Boolean) ?? []
@@ -59,7 +73,8 @@ function props(paint = {}, layout = {}): any {
 describe('circle layers', () => {
   test('creates a ScatterplotLayer with pixel units', () => {
     const [layer] = render();
-    expect(layer.constructor.layerName).toBe('ScatterplotLayer');
+    expect(layer).toBeInstanceOf(ScatterplotLayer);
+    expect(layer.constructor.layerName).toBe('ZoomPaintScatterplotLayer');
     expect(layer.props.radiusUnits).toBe('pixels');
     expect(layer.props.lineWidthUnits).toBe('pixels');
   });
@@ -107,6 +122,107 @@ describe('circle layers', () => {
     expect(
       props({'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 10]}).getRadius
     ).toBe(6);
+  });
+
+  test('evaluates layer-wide sizes and colors at the viewport zoom on WebGL', () => {
+    const interpolate = (a: unknown, b: unknown) => ['interpolate', ['linear'], ['zoom'], 15, a, 16, b];
+    const layers = [circle({
+      'circle-radius': interpolate(2, 12),
+      'circle-stroke-width': interpolate(0, 20),
+      'circle-color': interpolate('#000000', '#ffffff'),
+      'circle-opacity': interpolate(0, 1),
+      'circle-stroke-color': interpolate('#ff0000', '#00ff00'),
+      'circle-stroke-opacity': interpolate(0, 1)
+    })];
+    const [layer] = render(layers, [point()], 15);
+    const {size, fillColor, lineColor, blend} = layer.props.circleZoomPaint(15.1);
+    expect(size[0]).toBeCloseTo(3);
+    expect(size[1]).toBeCloseTo(2);
+    expect(fillColor[0]).toBeCloseTo(0.1);
+    expect(fillColor[3]).toBeCloseTo(0.1);
+    expect(lineColor[0]).toBeCloseTo(0.9);
+    expect(lineColor[1]).toBeCloseTo(0.1);
+    expect(lineColor[3]).toBeCloseTo(0.1);
+    expect(blend).toEqual([0, 0, 0, 0]);
+    expect(layer.props.stroked).toBe(true);
+    expect(layer.props.getNextCircleSize).toEqual([0, 0]);
+
+    const [webgpu] = render(layers, [point()], 15.1, {webgpu: true});
+    expect(webgpu.props.circleZoomPaint).toBeNull();
+    expect(webgpu.props.getRadius).toBe(2);
+    expect(webgpu.props.getFillColor[3]).toBe(0);
+    expect(webgpu.props.stroked).toBe(false);
+  });
+
+  test('uses the supplied circle paint zoom when the viewport is in another style step', () => {
+    const [layer] = render([circle({
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 2, 6, 10]
+    })], [point()], 5.5);
+    expect(layer.props.circleZoomPaint(0).size[0]).toBe(6);
+    expect(layer.props.circleZoomPaint(5.625).size[0]).toBe(7);
+  });
+
+  test('omits continuous circle shaders and attributes on a WebGPU device', () => {
+    const [layer] = render([circle({
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, ['get', 'size'], 16, 8]
+    })], [point({size: 4})], 15);
+    layer.context = {viewport: new WebMercatorViewport(), device: {type: 'webgpu'}, defaultShaderModules: []};
+    const attributeManager = {getAttributes: () => ({}), addInstanced: vi.fn()};
+    const getAttributeManager = vi.spyOn(layer, 'getAttributeManager').mockReturnValue(attributeManager);
+    const updateState = vi.spyOn(ScatterplotLayer.prototype, 'updateState').mockImplementation(() => {});
+    try {
+      expect(layer.props.circleZoomPaint).toBeTypeOf('function');
+      const {plugins} = layer.getShaders();
+      layer.updateState({props: layer.props, changeFlags: {}});
+      expect.soft(plugins?.map(({name}: {name: string}) => name) ?? []).not.toContain('circleZoomPaint');
+      expect.soft(attributeManager.addInstanced).not.toHaveBeenCalled();
+    } finally {
+      getAttributeManager.mockRestore();
+      updateState.mockRestore();
+    }
+  });
+
+  test('keeps the next composite samples and their triggers within the attribute zoom step', () => {
+    const datum = point({r0: 4, r1: 24, a0: 0.2, a1: 1});
+    const interpolate = (a: unknown, b: unknown) => ['interpolate', ['linear'], ['zoom'], 15, a, 16, b];
+    const layers = [circle({
+      'circle-radius': interpolate(['get', 'r0'], ['get', 'r1']),
+      'circle-stroke-width': interpolate(0, 20),
+      'circle-opacity': interpolate(['get', 'a0'], ['get', 'a1']),
+      'circle-blur': 0.5,
+      'circle-translate': [3, 4]
+    })];
+    const [first] = render(layers, [datum], 15);
+    const [inside] = render(layers, [datum], 15.2);
+    const [next] = render(layers, [datum], 15.25);
+    expect(first.props.getRadius(datum)).toBe(4);
+    expect(first.props.getNextCircleSize(datum)).toEqual([9, 5]);
+    expect(first.props.getFillColor(datum)).toEqual([0, 0, 0, 51]);
+    expect(first.props.getNextCircleFillColor(datum)).toEqual([0, 0, 0, 102]);
+    expect(first.props.circleZoomPaint(15.1).size[1]).toBeCloseTo(2);
+    const [radius, width, fill, stroke] = first.props.circleZoomPaint(15.1).blend;
+    expect(radius).toBeCloseTo(0.4);
+    expect(fill).toBeCloseTo(0.4);
+    expect(width).toBe(0);
+    expect(stroke).toBe(0);
+    expect(inside.props.updateTriggers).toEqual(first.props.updateTriggers);
+    expect(next.props.updateTriggers.getNextCircleSize).not.toBe(first.props.updateTriggers.getNextCircleSize);
+    expect(next.props.updateTriggers.getNextCircleFillColor).not.toBe(first.props.updateTriggers.getNextCircleFillColor);
+    expect(next.props.getRadius(datum)).toBe(9);
+    expect(next.props.getNextCircleSize(datum)).toEqual([14, 10]);
+    expect(hasBlurExtension(first.props)).toBe(true);
+    expect(first.props.extensions.some((extension: unknown) => extension instanceof CircleTranslateExtension)).toBe(true);
+  });
+
+  test('keeps stepped style paint when the sublayer overrides a paint accessor', () => {
+    const layers = [circle({
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, 4, 16, 8],
+      'circle-stroke-width': 2
+    })];
+    const [layer] = render(layers, [point()], 15.1, {styleProps: {getLineColor: [255, 0, 0, 255]}});
+    expect(layer.props.circleZoomPaint).toBeNull();
+    expect(layer.props.getRadius).toBe(5);
+    expect(layer.props.getLineColor).toEqual([255, 0, 0, 255]);
   });
 
   test('keeps fill and stroke opacity independent', () => {
@@ -304,8 +420,8 @@ describe('circle layers', () => {
   test('disables a constant zero stroke at the evaluation zoom', () => {
     expect(props({'circle-stroke-width': 0}).stroked).toBe(false);
     const layers = [circle({'circle-stroke-width': ['step', ['zoom'], 0, 13, 2]})];
-    expect(render(layers, [point()], 12)[0].props.stroked).toBe(false);
-    expect(render(layers, [point()], 13)[0].props.stroked).toBe(true);
+    expect(render(layers, [point()], 12, {webgpu: true})[0].props.stroked).toBe(false);
+    expect(render(layers, [point()], 13, {webgpu: true})[0].props.stroked).toBe(true);
   });
 
   test('passes zoom-dependent feature accessor update triggers', () => {

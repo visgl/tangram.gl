@@ -3,12 +3,16 @@
 // Copyright (c) vis.gl contributors
 
 /* eslint-disable import/no-extraneous-dependencies */
+import {OrthographicView} from '@deck.gl/core';
 import {describe, expect, test, vi} from 'vitest';
 import {getBasemapLayers} from '../src/index.ts';
+import type {BasemapFeatureState} from '../src/feature-state';
 import {ZoomPaintContext, getZoomPaintValues} from '../src/globe-layers';
-import {getZoomBucket} from '../src/style-accessor';
+import {getStyleAccessor} from '../src/style-accessor';
+import {compileStylePropertyValue, getZoomInterpolationFactor} from '../src/style-expression';
 import {
   ZOOM_PAINT_FILL_COLOR_ROW,
+  ZOOM_PAINT_INTERPOLATION_ROW,
   ZOOM_PAINT_LINE_COLOR_ROW,
   ZOOM_PAINT_WIDTH_ROW,
   ZoomPaintExtension,
@@ -48,19 +52,25 @@ function makeStyle(styleLayers: Record<string, unknown>[]): any {
 }
 
 /** The tile layer state that tiles share, as in `StyledMVTLayer`. */
-let context = new ZoomPaintContext();
+const context = new ZoomPaintContext();
 
 /**
  * Renders one tile's sublayers, with paint from `ZoomPaintExtension` as `StyledMVTLayer` does on
  * WebGL, or without it.
  */
-function renderTile(style: any, features: unknown[], zoom: number, webgl = true): any[] {
+function renderTile(
+  style: any,
+  features: unknown[],
+  zoom: number,
+  webgl = true,
+  featureState?: BasemapFeatureState
+): any[] {
   const vectorLayer: any = getBasemapLayers({
     idPrefix: 'test',
     zoom,
+    featureState,
     styleDefinition: Array.isArray(style) ? makeStyle(style) : style
   }).find(layer => layer.id === 'test-tiles');
-  context.zoom = getZoomBucket(zoom);
   return vectorLayer.props
     .renderSubLayers({
       id: 'tile',
@@ -73,8 +83,7 @@ function renderTile(style: any, features: unknown[], zoom: number, webgl = true)
 
 /** A sublayer's zoom paint values at a zoom. */
 function valuesAt(layer: any, zoom: number): Float32Array {
-  context.zoom = getZoomBucket(zoom);
-  return layer.props.zoomPaint.getValues();
+  return layer.props.zoomPaint.getValues(zoom, layer.props.zoomPaintBucket);
 }
 
 /** An accessor's value for each of a sublayer's features. */
@@ -152,10 +161,159 @@ describe('fills and lines take zoom-dependent paint from a texture', () => {
     }
   });
 
+  test('evaluates the width at the exact viewport zoom', () => {
+    const width = ['interpolate', ['linear'], ['zoom'], 15, 3, 16, 6];
+    const style = makeStyle([line('road', {'line-width': width})]).layers;
+    expect(texel(getZoomPaintValues(style, 'map', 15.6), ZOOM_PAINT_WIDTH_ROW, 0)[0]).toBeCloseTo(4.8, 6);
+    const accessor = (exactZoom: boolean) =>
+      getStyleAccessor(style[0], ['line-width'], 15.6, ([value]) => value, undefined, {exactZoom}).value;
+    expect(accessor(true)).toBeCloseTo(4.8, 6);
+    expect(accessor(false)).toBe(4.5);
+  });
+
+  test('draws at the supplied zoom when the viewport is in another style step', () => {
+    const width = ['interpolate', ['linear'], ['zoom'], 5, 2, 6, 10];
+    const [layer] = renderTile([line('road', {'line-width': width})], [feature('LineString')], 5.5);
+    const path = layer.getSubLayerProps({id: 'linestrings'});
+    const extension = path.extensions.find((e: unknown) => e instanceof ZoomPaintExtension);
+    const texture = vi.spyOn(layer.props.zoomPaint, 'getTexture').mockReturnValue({});
+    const view = new OrthographicView();
+    const draw = (zoom: number) => extension.draw.call({
+      props: path,
+      context: {device: {}, viewport: view.makeViewport({width: 64, height: 64, viewState: {zoom}})},
+      state: {pathTesselator: {}},
+      getModels: () => []
+    }, {}, extension);
+
+    try {
+      draw(0);
+      draw(5.625);
+      const drawnWidths = texture.mock.calls.map(([, zoom, bucket]) =>
+        texel(layer.props.zoomPaint.getValues(zoom, bucket ?? undefined), ZOOM_PAINT_WIDTH_ROW, 0)[0]
+      );
+      expect(drawnWidths).toEqual([6, 7]);
+    } finally {
+      texture.mockRestore();
+    }
+  });
+
+  test('composite widths get a second sample and keep their triggers inside the step', () => {
+    const features = [feature('LineString', {w0: 0, w1: 8})];
+    const style = makeStyle([
+      line('composite', {
+        'line-width': ['interpolate', ['linear'], ['zoom'], 15, ['get', 'w0'], 16, ['get', 'w1']]
+      }),
+      line('fixed', {'line-width': ['get', 'w1']})
+    ]);
+    const [early] = renderTile(style, features, 15);
+    const [later] = renderTile(style, features, 15.2);
+    const [nextStep] = renderTile(style, features, 15.25);
+    expect(valuesOf(early, 'getLineWidth')).toEqual([0, 8]);
+    expect(valuesOf(early, 'getNextLineWidth')).toEqual([2, 8]);
+    expect(later.props.updateTriggers).toEqual(early.props.updateTriggers);
+    expect(early.props.updateTriggers.getNextLineWidth).toEqual(early.props.updateTriggers.getLineWidth);
+    expect(nextStep.props.updateTriggers.getNextLineWidth).not.toEqual(early.props.updateTriggers.getNextLineWidth);
+    expect(valuesOf(nextStep, 'getLineWidth')).toEqual([2, 8]);
+    expect(valuesOf(nextStep, 'getNextLineWidth')).toEqual([4, 8]);
+    expect(texel(valuesAt(early, 15.1), ZOOM_PAINT_INTERPOLATION_ROW, 0)[0]).toBeCloseTo(0.4, 6);
+    expect(texel(valuesAt(early, 15.3), ZOOM_PAINT_INTERPOLATION_ROW, 0)[0]).toBe(1);
+    expect(texel(valuesAt(early, 15.1), ZOOM_PAINT_INTERPOLATION_ROW, 1)[0]).toBe(0);
+  });
+
+  test('a composite fill and its outline share the feature-state trigger across both endpoints', () => {
+    const style = makeStyle([
+      fill('land', {
+        'fill-color': '#000',
+        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['number', ['feature-state', 'alpha'], 0], 16, 1]
+      })
+    ]);
+    const features = [{...feature('Polygon'), id: 1}];
+    const [first] = renderTile(style, features, 15, true, {tiles: {land: {1: {alpha: 0}}}});
+    const [second] = renderTile(style, features, 15.1, true, {tiles: {land: {1: {alpha: 0.5}}}});
+    expect(valuesOf(first, 'getFillColor')).toEqual([[0, 0, 0, 0]]);
+    expect(valuesOf(first, 'getNextFillColor')).toEqual([[0, 0, 0, 64]]);
+    expect(valuesOf(second, 'getNextFillColor')).toEqual([[0, 0, 0, 159]]);
+    expect(valuesOf(second, 'getNextLineColor')).toEqual(valuesOf(second, 'getNextFillColor'));
+    expect(second.props.updateTriggers.getNextFillColor).toEqual(second.props.updateTriggers.getFillColor);
+    expect(second.props.updateTriggers.getNextLineColor).toEqual(second.props.updateTriggers.getLineColor);
+    expect(second.props.updateTriggers.getNextFillColor).not.toEqual(first.props.updateTriggers.getNextFillColor);
+    expect(second.props.data).toBe(first.props.data);
+  });
+
+  test('retains a fill that gains opacity inside the step', () => {
+    const style = makeStyle([
+      fill('land', {
+        'fill-antialias': false,
+        'fill-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 1]
+      })
+    ]);
+    const features = [feature('Polygon')];
+    const [layer] = renderTile(style, features, 15);
+    expect(layer.props.filled).toBe(true);
+    expect(layer.filterSubLayer({viewport: {zoom: 15}})).toBe(false);
+    expect(layer.filterSubLayer({viewport: {zoom: 15.1}})).toBe(true);
+    expect(layer.filterSubLayer({viewport: {zoom: 16}})).toBe(false);
+    expect(renderTile(style, features, 15, false)).toEqual([]);
+    expect(renderTile(style, features, 14.5)).toEqual([]);
+  });
+
+  test('uses a linear blend when the color and opacity have different curves', () => {
+    const style = makeStyle([
+      line('road', {
+        'line-color': ['interpolate', ['exponential', 2], ['zoom'], 15, ['to-color', ['get', 'color']], 16, '#fff'],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 1]
+      })
+    ]);
+    const values = getZoomPaintValues(style.layers, 'map', 15.1);
+    expect(texel(values, ZOOM_PAINT_INTERPOLATION_ROW, 0)[1]).toBeCloseTo(0.4, 6);
+    expect(texel(values, ZOOM_PAINT_LINE_COLOR_ROW, 0)[3]).toBe(-1);
+  });
+
+  test('holds a composite line color step while opacity interpolates', () => {
+    const style = makeStyle([
+      line('road', {
+        'line-color': ['step', ['zoom'], ['to-color', ['get', 'color']], 15.25, '#00f'],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 1]
+      })
+    ]);
+    const features = [feature('LineString', {color: '#f00'})];
+    const [layer] = renderTile(style, features, 15);
+    const [next] = renderTile(style, features, 15.25);
+    expect(valuesOf(layer, 'getLineColor')).toEqual([[255, 0, 0, 0]]);
+    expect(valuesOf(layer, 'getNextLineColor')).toEqual([[255, 0, 0, 64]]);
+    expect(texel(valuesAt(layer, 15.05), ZOOM_PAINT_INTERPOLATION_ROW, 0)[1]).toBeCloseTo(0.2);
+    expect(valuesOf(next, 'getLineColor')).toEqual([[0, 0, 255, 64]]);
+  });
+
+  test('keeps the packed dashed paint trigger stable until an endpoint changes', () => {
+    const style = makeStyle([
+      line('road', {
+        'line-dasharray': [2, 1],
+        'line-width': ['get', 'width'],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['get', 'opacity'], 16, 1]
+      })
+    ]);
+    const features = [feature('LineString', {width: 4, opacity: 0.25})];
+    const [first] = renderTile(style, features, 15);
+    const [same] = renderTile(style, features, 15);
+    const [next] = renderTile(style, features, 15.25);
+    const trigger = (layer: any) => layer.props.updateTriggers.getNextDashedPaint;
+    expect(first.props.getNextDashedPaint).toBeTypeOf('function');
+    expect(valuesOf(same, 'getNextDashedPaint')).toEqual(valuesOf(first, 'getNextDashedPaint'));
+    expect(trigger(same)).toEqual(trigger(first));
+    expect(valuesOf(next, 'getNextDashedPaint')).not.toEqual(valuesOf(first, 'getNextDashedPaint'));
+    expect(trigger(next)).not.toEqual(trigger(first));
+    style.layers[0].paint['line-width'] = ['*', 2, ['get', 'width']];
+    const [edited] = renderTile(style, features, 15);
+    expect((valuesOf(edited, 'getNextDashedPaint')[0] as number[])[1]).toBe(8);
+    expect(trigger(edited)).not.toEqual(trigger(first));
+  });
+
   test('a per-feature width stays in the attribute, with a part width of 1', () => {
     const styleLayers = [line('a', {'line-width': ['get', 'w']}), line('b', {'line-width': 4})];
     const [layer] = renderTile(styleLayers, [feature('LineString', {w: 7})], 12);
     expect(valuesOf(layer, 'getLineWidth')).toEqual([7, 1]);
+    expect(layer.props.zoomPaintBucket).toBeNull();
     const values = valuesAt(layer, 12);
     expect(texel(values, ZOOM_PAINT_WIDTH_ROW, 0)[0]).toBe(1);
     expect(texel(values, ZOOM_PAINT_WIDTH_ROW, 1)[0]).toBe(4);
@@ -189,7 +347,7 @@ describe('fills and lines take zoom-dependent paint from a texture', () => {
     const style = makeStyle([line('a', {'line-width': 2}), line('b', {'line-width': 3})]);
     const [layer] = renderTile(style, [feature('LineString')], 12);
     const before = valuesAt(layer, 12);
-    expect(valuesAt(layer, 12)).toBe(before);
+    expect(valuesAt(layer, 12.1)).toBe(before);
     style.layers[0].paint['line-width'] = 5;
     const after = valuesAt(layer, 12);
     expect(texel(after, ZOOM_PAINT_WIDTH_ROW, 0)[0]).toBe(5);
@@ -294,17 +452,16 @@ describe('zoom paint textures', () => {
     const zoomPaint = zoomPaintContext.get(styleLayers, 'map');
     expect(zoomPaintContext.get(styleLayers, 'map')).toBe(zoomPaint);
     const device = fakeDevice();
-    zoomPaintContext.zoom = 12;
-    const texture = zoomPaint.getTexture(device) as any;
-    expect(zoomPaint.getTexture(device)).toBe(texture);
+    const texture = zoomPaint.getTexture(device, 12) as any;
+    expect(zoomPaint.getTexture(device, 12)).toBe(texture);
     expect(texture.writeData).toHaveBeenCalledTimes(1);
-    zoomPaintContext.zoom = 12.25;
-    zoomPaint.getTexture(device);
+    zoomPaint.getTexture(device, 12.1);
+    expect(zoomPaint.getTexture(device, 12.1)).toBe(texture);
     expect(texture.writeData).toHaveBeenCalledTimes(2);
     expect(device.createTexture).toHaveBeenCalledTimes(1);
 
     const other = fakeDevice();
-    zoomPaint.getTexture(other);
+    zoomPaint.getTexture(other, 12.1);
     expect(texture.destroy).toHaveBeenCalled();
     expect(other.createTexture).toHaveBeenCalledTimes(1);
   });
@@ -313,14 +470,14 @@ describe('zoom paint textures', () => {
     const zoomPaintContext = new ZoomPaintContext();
     const device = fakeDevice();
     const first = zoomPaintContext.get([line('a', {})] as any[], 'map');
-    first.getTexture(device);
+    first.getTexture(device, 12);
     // The same ids in a new style.
     const second = zoomPaintContext.get([line('a', {})] as any[], 'map');
     expect(second).not.toBe(first);
     expect(device.textures[0].destroy).toHaveBeenCalled();
-    second.getTexture(device);
+    second.getTexture(device, 12);
     const third = zoomPaintContext.get([line('b', {})] as any[], 'globe');
-    third.getTexture(device);
+    third.getTexture(device, 12);
     zoomPaintContext.destroy();
     expect(device.textures[1].destroy).toHaveBeenCalled();
     expect(device.textures[2].destroy).toHaveBeenCalled();
@@ -330,11 +487,11 @@ describe('zoom paint textures', () => {
     const zoomPaintContext = new ZoomPaintContext();
     const device = fakeDevice();
     zoomPaintContext.setStyle('first');
-    zoomPaintContext.get([line('a', {})] as any[], 'map').getTexture(device);
+    zoomPaintContext.get([line('a', {})] as any[], 'map').getTexture(device, 12);
     // A new style without 'a': its sublayers ask for 'b' only.
     zoomPaintContext.setStyle('second');
     const b = [line('b', {})] as any[];
-    zoomPaintContext.get(b, 'map').getTexture(device);
+    zoomPaintContext.get(b, 'map').getTexture(device, 12);
     expect(device.textures[0].destroy).not.toHaveBeenCalled();
     // At the next change, 'a' was not asked for since the previous one; 'b' was.
     zoomPaintContext.setStyle('third');
@@ -375,5 +532,23 @@ describe('zoom paint textures', () => {
     } finally {
       setStyle.mockRestore();
     }
+  });
+});
+
+describe('composite interpolation factors', () => {
+  test.each([
+    [['interpolate', ['linear'], ['zoom'], 15, ['get', 'w'], 16, 8], 0.5],
+    [['interpolate', ['exponential', 2], ['zoom'], 15, ['get', 'w'], 16, 8], (2 ** 0.125 - 1) / (2 ** 0.25 - 1)],
+    [['interpolate', ['cubic-bezier', 0, 0, 1, 0], ['zoom'], 15, ['get', 'w'], 16, 8], 0.125],
+    [['step', ['zoom'], ['get', 'w'], 16, 8], 0],
+    [{property: 'rank', base: 2, stops: [[{zoom: 15, value: 0}, 2], [{zoom: 16, value: 0}, 8]]}, (2 ** 0.125 - 1) / (2 ** 0.25 - 1)]
+  ])('uses the outer zoom curve of %j', (value, expected) => {
+    const property = compileStylePropertyValue('line-width', value);
+    expect(property?.isZoomDependent).toBe(true);
+    expect(property?.isFeatureDependent).toBe(true);
+    const curve = property!.zoomInterpolation;
+    expect(getZoomInterpolationFactor(curve, 15.125, 15, 15.25)).toBeCloseTo(expected, 6);
+    expect(getZoomInterpolationFactor(curve, 14, 15, 15.25)).toBe(0);
+    expect(getZoomInterpolationFactor(curve, 16, 15, 15.25)).toBe(curve ? 1 : 0);
   });
 });

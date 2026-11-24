@@ -76,6 +76,9 @@ function createGlobeLabelLayer(
  * Renders `layers` in a `GlobeView` centered at longitude/latitude 0, 0 and returns the frame. A
  * label at 0, 0 draws at the canvas center; one at 180, 0 is behind the globe, at the same point
  * of the canvas.
+ *
+ * The test timeout bounds the wait. Concurrent browser test files share one GPU process, so a
+ * shorter limit here times out on a busy CI runner while the layers still load.
  */
 function renderGlobe(
   layers: MVTLabelLayer[],
@@ -85,7 +88,6 @@ function renderGlobe(
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise<ImageData>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 10_000);
     deck = new Deck({
       parent,
       width: SIZE,
@@ -98,6 +100,9 @@ function renderGlobe(
       onAfterRender: () => {
         const allLayers = (deck as any)?.layerManager?.getLayers() || [];
         if (!allLayers.length || allLayers.some((layer: any) => !layer.isLoaded)) {
+          // Draw again in the next frame, so that the wait never depends on a frame that deck draws
+          // by itself.
+          window.requestAnimationFrame(() => deck?.redraw('load'));
           return;
         }
         // Read the frame back in the render callback, before the drawing buffer is cleared.
@@ -106,11 +111,9 @@ function renderGlobe(
         copy.height = SIZE;
         const context = copy.getContext('2d')!;
         context.drawImage(deck!.getCanvas()!, 0, 0);
-        window.clearTimeout(timeout);
         resolve(context.getImageData(0, 0, SIZE, SIZE));
       },
       onError: error => {
-        window.clearTimeout(timeout);
         reject(error);
       }
     });

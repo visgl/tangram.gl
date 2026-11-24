@@ -117,9 +117,9 @@ describe('tile sublayers across a zoom step', () => {
     const second = renderAt(8.3, first.state);
     expect([...second.layers.keys()]).toEqual([...first.layers.keys()]);
     for (const [id, layer] of second.layers) {
-      // The road's zoom-dependent width, which changes from 8 to 8.25, is not a prop.
       expect(layer, id).toBe(first.layers.get(id));
     }
+    expect(second.layers.get('test-tiles-a-"road"').props.zoomPaintGeneration.zoom).toBe(8.3);
   });
 
   test('are new when a zoom-dependent value changes, where it is a prop', () => {

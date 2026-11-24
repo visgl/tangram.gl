@@ -191,7 +191,9 @@ export class RasterFadeExtension extends LayerExtension {
         rasterFadeParentTexture: (parent ? rasterFadeParentImage : image) as Texture
       }
     } as any);
-    if (values.mix > 0 || values.opacity < 1) {
+    const drawnFadedIn = values.opacity === FADED_IN.opacity && values.mix === FADED_IN.mix;
+    this.state.rasterFadeDrawnFadedIn = drawnFadedIn;
+    if (!drawnFadedIn) {
       this.setNeedsRedraw();
     } else if (parent && rasterFadeDuration > 0) {
       // The cross-fade has ended: the tile layer renders the tile again without the ancestor's
@@ -216,8 +218,8 @@ type TileFadeProps = {rasterFade: RasterFade; rasterFadeParentImage: unknown};
  * A `ProjectedTileLayer` of raster tiles that fade in over `rasterFadeDuration` (see
  * `RasterFadeExtension`, which `renderSubLayers` adds to the tiles' layers). A tile's fade starts
  * when it is first drawn, from the nearest ancestor that was loaded then. When the fade ends, the
- * tile lets go of the ancestor's image. The layer is loaded once its selected tiles have faded in,
- * as MapLibre GL JS is idle only once its raster tiles have.
+ * tile lets go of the ancestor's image. The layer is loaded once its selected tiles have been
+ * drawn faded in, as MapLibre GL JS is idle only once its raster tiles have.
  */
 export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> extends ProjectedTileLayer<
   DataT,
@@ -261,13 +263,14 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
       fade.rasterFadeParentImage &&
       this.props.rasterFadeClock!() - fade.rasterFade.start >= this.props.rasterFadeDuration!
     ) {
-      // The fade has ended: keep only its start, for `isLoaded`.
+      // Keep the fade record so `isLoaded` still checks what the sublayers last drew.
       fade = {rasterFade: {start: fade.rasterFade.start, parent: null}, rasterFadeParentImage: null};
       this.state.tileFades.set(tile, fade);
     }
     return fade as Partial<LayerProps>;
   }
 
+  /** Whether the selected tiles are loaded and their fades have been drawn to completion. */
   get isLoaded(): boolean {
     if (!super.isLoaded) {
       return false;
@@ -275,11 +278,12 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
     if (!this.fades()) {
       return true;
     }
-    const now = this.props.rasterFadeClock!();
-    const duration = this.props.rasterFadeDuration!;
     return (this.state.tileset?.selectedTiles || []).every(tile => {
-      const fade = this.state.tileFades?.get(tile);
-      return !fade || now - fade.rasterFade.start >= duration;
+      const layers = tile.layers;
+      return (
+        !this.state.tileFades?.has(tile) ||
+        Boolean(layers?.length && layers.every(layer => layer.state?.rasterFadeDrawnFadedIn === true))
+      );
     });
   }
 }

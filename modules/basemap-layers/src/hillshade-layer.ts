@@ -81,6 +81,7 @@ import {isProjectedViewport} from './projected-viewport';
 import {getBasemapResourceFetch} from './basemap-request';
 import type {BasemapLoadOptions, BasemapSource} from './style-resolver';
 import {BasemapFetchError} from './basemap-error';
+import {createDemImageBitmap, readDemPixels} from './dem-pixels';
 
 /**
  * `hillshade` style layers over `raster-dem` sources, drawn as MapLibre GL JS draws them.
@@ -737,23 +738,10 @@ class HillshadeBitmapLayer extends ProjectedBitmapLayer<HillshadeBitmapLayerProp
   }
 }
 
-/** Reads the pixels of a decoded image. */
-function readImagePixels(image: ImageBitmap): Uint8ClampedArray {
-  const {width, height} = image;
-  const canvas =
-    typeof OffscreenCanvas === 'undefined'
-      ? Object.assign(document.createElement('canvas'), {width, height})
-      : new OffscreenCanvas(width, height);
-  const context = canvas.getContext('2d', {willReadFrequently: true}) as
-    | CanvasRenderingContext2D
-    | OffscreenCanvasRenderingContext2D;
-  context.drawImage(image, 0, 0);
-  return context.getImageData(0, 0, width, height).data;
-}
-
 /**
  * Fetches and decodes a DEM tile. Colors are read as stored, without color space conversion or
- * premultiplication, which would change the elevations. An empty response is a tile without data.
+ * premultiplication, which would change the elevations, and without the noise that some browsers
+ * add to canvas reads (see `readDemPixels`). An empty response is a tile without data.
  */
 export async function loadDemTile(
   url: string,
@@ -773,12 +761,9 @@ export async function loadDemTile(
   if (blob.size === 0) {
     return null;
   }
-  const image = await createImageBitmap(blob, {
-    premultiplyAlpha: 'none',
-    colorSpaceConversion: 'none'
-  });
+  const image = await createDemImageBitmap(blob);
   try {
-    return decodeDemTile(readImagePixels(image), image.width, image.height, unpack);
+    return decodeDemTile(await readDemPixels(image), image.width, image.height, unpack);
   } finally {
     image.close();
   }

@@ -146,6 +146,14 @@ function createStyle({
 
 const VIEW = {longitude: 0, latitude: 0, zoom: 1, pitch: 0, bearing: 0};
 
+/**
+ * The time limit of a `vi.waitFor` for a change that comes in a later deck frame. Deck applies
+ * new layers in its frame loop, not in `setProps`. Concurrent browser test files share one GPU
+ * process, so on a busy CI runner one frame can come later than the 1 s default of `vi.waitFor`.
+ * The test timeout also bounds the wait.
+ */
+const DECK_UPDATE = {timeout: 30_000};
+
 /** The props of one test's layers: the same `loadOptions` and `fetch` for each style. */
 function createProps(requests: Requests) {
   return {
@@ -413,13 +421,22 @@ describe('a style update by diff', () => {
     const slow = {...props, loadOptions: {fetch: createResourceFetch(requests, {ready})}};
     const previousToken = getBasemapState().loadToken;
     deck!.setProps({layers: [createLayer(style, slow)]});
-    await vi.waitFor(() => expect(getBasemapState().loadToken).toBeGreaterThan(previousToken));
+    await vi.waitFor(
+      () => expect(getBasemapState().loadToken).toBeGreaterThan(previousToken),
+      DECK_UPDATE
+    );
     const paintedLayer = createLayer(createStyle({water: '#0000ff'}), slow);
     deck!.setProps({layers: [paintedLayer]});
-    await vi.waitFor(() => expect((deck as any).layerManager.getLayers()).toContain(paintedLayer));
+    await vi.waitFor(
+      () => expect((deck as any).layerManager.getLayers()).toContain(paintedLayer),
+      DECK_UPDATE
+    );
     release();
     // The load with the new loadOptions ends.
-    await vi.waitFor(() => expect(getBasemapState().styleLoadOptions).toBe(slow.loadOptions));
+    await vi.waitFor(
+      () => expect(getBasemapState().styleLoadOptions).toBe(slow.loadOptions),
+      DECK_UPDATE
+    );
     const colors = countColors(await settledFrame());
     expect([colors.blue > 1000, colors.red]).toEqual([true, 0]);
   }, 60_000);
