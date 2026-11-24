@@ -90,7 +90,7 @@ import {
   DEFAULT_POLE_SEARCH_SEGMENT_TESTS,
   getPoleOfInaccessibility,
   type PoleSearchBudget
-} from './polylabel';
+} from '@math.gl/geometry';
 import type {LabelFont, LabelFontFamily} from './text-font';
 import {
   DEFAULT_LINE_ANCHOR_STEPS,

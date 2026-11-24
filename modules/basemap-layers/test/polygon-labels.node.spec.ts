@@ -4,7 +4,7 @@
 
 import {expect, test} from 'vitest';
 import {MVTLabelLayer} from '../src/mvt-label-layer';
-import {getPoleOfInaccessibility} from '../src/polylabel';
+import {getPoleOfInaccessibility} from '@math.gl/geometry';
 
 // A U shape in tile-local units: a thin base and two long arms, 0.2 wide. Its centroid,
 // (0.5, 0.46), falls in the notch, outside the polygon.
