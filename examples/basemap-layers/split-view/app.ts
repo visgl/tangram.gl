@@ -40,7 +40,7 @@ const STYLE_OPTIONS = ['liberty', 'positron', 'dark'] as const;
 /** Mount two independently rendered maps sharing one camera and style selection. */
 export function mountBasemapSplitViewExample(container: HTMLElement): () => void {
   const root = document.createElement('div');
-  root.style.cssText = 'position:absolute;inset:0;display:flex;background:#eee;';
+  root.style.cssText = 'position:absolute;inset:0;display:flex;';
   container.appendChild(root);
   const createPane = (label: string): HTMLDivElement => {
     const pane = document.createElement('div');
@@ -69,6 +69,11 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
     option.textContent = `OpenFreeMap ${style}`;
     select.appendChild(option);
   }
+  select.value = container.ownerDocument.documentElement.dataset.theme === 'dark' ? 'dark' : 'liberty';
+  const updateBackground = () => {
+    root.style.backgroundColor = select.value === 'dark' ? '#111' : '#eee';
+  };
+  updateBackground();
   deckPane.appendChild(select);
   const attribution = document.createElement('div');
   attribution.style.cssText =
@@ -159,7 +164,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
   const getStyleUrl = () => `https://tiles.openfreemap.org/styles/${select.value}`;
   const getBasemapLayer = () =>
     new BasemapLayer({
-      id: `basemap-${select.value}-${viewMode}`,
+      id: `basemap-${select.value}`,
       style: getStyleUrl()
     });
   const getFirstPersonCamera = () =>
@@ -203,8 +208,12 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
       deck.setProps({viewState});
     }
   };
-  const applyProjection = () =>
-    map?.setProjection({type: viewMode === 'globe' ? 'globe' : 'mercator'});
+  const applyProjection = () => {
+    // The selector is usable while the style request is still in flight.
+    if (map?.getStyle()) {
+      map.setProjection({type: viewMode === 'globe' ? 'globe' : 'mercator'});
+    }
+  };
   const createMap = () => {
     const createdMap = new MapLibreMap({
       container: mapHost,
@@ -302,6 +311,7 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
     });
     syncMapCamera();
     const changeStyle = () => {
+      updateBackground();
       map?.setStyle(getStyleUrl());
       deck.setProps({layers: [getBasemapLayer()]});
     };
@@ -348,9 +358,17 @@ export function mountBasemapSplitViewExample(container: HTMLElement): () => void
         hint.textContent = 'Drag to pan; shift/right-drag to rotate and tilt.';
       }
       applyProjection();
-      deck.setProps({layers: [getBasemapLayer()]});
       syncMapCamera();
     };
+    deckPane.addEventListener('keydown', event => {
+      if (
+        viewMode === 'first-person' &&
+        event.target instanceof HTMLCanvasElement &&
+        event.code.startsWith('Arrow')
+      ) {
+        event.preventDefault();
+      }
+    });
     select.addEventListener('change', changeStyle);
     viewSelect.addEventListener('change', changeView);
     observer = new ResizeObserver(() => {
