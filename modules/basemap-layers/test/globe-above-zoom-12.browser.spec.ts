@@ -280,13 +280,19 @@ describe('a globe basemap above zoom 12', () => {
     ['a fill', FILL, 0],
     ['a fill-extrusion', EXTRUSION, 40]
   ] as const) {
+    // Two decks draw five views, each for five frames. On CI with SwiftShader, runs that passed
+    // took up to 55 s of the former 60 s limit.
     test(`draws ${name} across zoom 12 and back, reusing the shared tiles`, async () => {
       const ring = footprint(12.1);
       const extruded = styleLayer === EXTRUSION;
       const atGlobe = viewAt(12, pitch);
       const atMap = viewAt(12.1, pitch);
       const expectedGlobe = await renderReference(ring, extruded, atGlobe);
-      const expectedMap = await renderReference(ring, extruded, atMap);
+      // One deck draws both references: a new deck creates a new context and compiles the
+      // shaders again, which takes many seconds with SwiftShader on CI.
+      const toReferenceMap = nextFrame();
+      deck!.setProps({viewState: atMap as any});
+      const expectedMap = await toReferenceMap;
       cleanup();
 
       const fetched: string[] = [];
@@ -335,6 +341,6 @@ describe('a globe basemap above zoom 12', () => {
       expectSameExtent(globe, expectedGlobe);
       expectSameExtent(map, expectedMap);
       expectSameExtent(globeAgain, expectedGlobe);
-    }, 60_000);
+    }, 120_000);
   }
 });
