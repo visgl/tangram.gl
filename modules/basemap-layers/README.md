@@ -15,7 +15,9 @@ An implementation of a subset of the [Mapbox Style
 Specification][mapbox_style_spec] with the intention of visualizing it using deck.gl.
 
 The runtime API is exported from `@tangram.gl/basemap-layers`, and the map-style
-helpers are exported from `@tangram.gl/basemap-layers/map-style`.
+helpers are exported from `@tangram.gl/basemap-layers/map-style`. Basemaps of other worlds
+(open map sources of the Moon, Mars, Mercury, Venus and the Earth) are exported from
+`@tangram.gl/basemap-layers/bodies`.
 
 Install the eight peer dependencies alongside this package:
 

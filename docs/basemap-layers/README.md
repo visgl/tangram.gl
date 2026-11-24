@@ -36,12 +36,14 @@ when you tilt down. Differences in rendering show the module's current style sup
 
 ## Overview
 
-The package is split into two surfaces:
+The package is split into three surfaces:
 
 - `@tangram.gl/basemap-layers`
   Runtime helpers and the `BasemapLayer` `CompositeLayer`
 - `@tangram.gl/basemap-layers/map-style`
   Map-style parsing, validation, loading, and style-expression helpers
+- `@tangram.gl/basemap-layers/bodies`
+  Basemaps of other worlds: open map sources, CRS codes and radii of the Moon, Mars, Mercury, Venus and the Earth
 
 Exported runtime helpers:
 

@@ -33,6 +33,12 @@
       "require": "./dist/map-style.cjs",
       "import": "./dist/map-style.js",
       "default": "./dist/map-style.js"
+    },
+    "./bodies": {
+      "types": "./dist/types/bodies.d.ts",
+      "require": "./dist/bodies.cjs",
+      "import": "./dist/bodies.js",
+      "default": "./dist/bodies.js"
     }
   },
   "files": [
@@ -42,8 +48,8 @@
   ],
   "scripts": {
     "build": "yarn build:types && yarn build:bundle && yarn build:worker",
-    "build:types": "yarn workspace @tangram.gl/map-utils build:types && node ../../scripts/build-package-types.mjs modules/basemap-layers index.ts map-style.ts",
-    "build:bundle": "ocular-bundle src/index.ts --env=dev --format=esm --output=dist/index.js --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,pmtiles,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=esm --output=dist/map-style.js --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,pmtiles,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/index.ts --env=dev --format=cjs --output=dist/index.cjs --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,pmtiles,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=cjs --output=dist/map-style.cjs --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,pmtiles,zod --sourcemap=true --sourcesContent=false",
+    "build:types": "yarn workspace @tangram.gl/map-utils build:types && node ../../scripts/build-package-types.mjs modules/basemap-layers index.ts map-style.ts bodies.ts",
+    "build:bundle": "ocular-bundle src/index.ts --env=dev --format=esm --output=dist/index.js --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,pmtiles,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=esm --output=dist/map-style.js --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,pmtiles,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/index.ts --env=dev --format=cjs --output=dist/index.cjs --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,pmtiles,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/map-style.ts --env=dev --format=cjs --output=dist/map-style.cjs --externals=@math.gl/tasks,@loaders.gl/core/loader-utils,@loaders.gl/tiles/mvt,@mapbox/tiny-sdf,@maplibre/geojson-vt,@maplibre/maplibre-gl-style-spec,@turf/polygon-to-line,bidi-js,pmtiles,zod --sourcemap=true --sourcesContent=false && ocular-bundle src/bodies.ts --env=dev --format=esm --output=dist/bodies.js --sourcemap=true --sourcesContent=false && ocular-bundle src/bodies.ts --env=dev --format=cjs --output=dist/bodies.cjs --sourcemap=true --sourcesContent=false",
     "build:worker": "ocular-bundle src/geojson-worker.ts --env=dev --format=iife --output=dist/geojson-worker.js --sourcemap=true --sourcesContent=false && ocular-bundle src/geojson-task-worker.ts --env=dev --format=iife --output=dist/geojson-task-worker.js --sourcemap=true --sourcesContent=false",
     "prepack": "yarn build"
   },

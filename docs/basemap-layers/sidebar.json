@@ -18,7 +18,8 @@
       "items": [
         "modules/basemap-layers/api-reference/basemap-layer",
         "modules/basemap-layers/api-reference/map-style",
-        "modules/basemap-layers/api-reference/map-style-loader"
+        "modules/basemap-layers/api-reference/map-style-loader",
+        "modules/basemap-layers/api-reference/bodies"
       ]
     }
   ]
