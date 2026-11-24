@@ -6,6 +6,7 @@ import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
+import {isFrameReady} from './stable-frame';
 
 // `querySourceFeatures` reads the features of the tiles a deck draws, as MapLibre GL JS's
 // `Map#querySourceFeatures` reads those it renders.
@@ -72,21 +73,21 @@ function getBasemap(): BasemapLayer {
   return (deck as any).layerManager.getLayers().find((layer: any) => layer.id === 'basemap');
 }
 
-/** Resolves once every sublayer of the basemap has loaded, and its tiles drawn. */
+/**
+ * Resolves once every sublayer of the basemap has loaded, and its tiles drawn. The deck draws every
+ * frame, after it has updated its layers, and a frame counts only when no layer update is pending
+ * (see `./stable-frame`).
+ */
 function whenLoaded(predicate: () => boolean = () => true): Promise<void> {
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => reject(new Error('Timed out loading')), 30_000);
     const check = () => {
-      const layers = (deck as any)?.layerManager?.getLayers() || [];
-      if (layers.length > 2 && layers.every((layer: any) => layer.isLoaded) && predicate()) {
+      if (isFrameReady(deck, {minLayers: 3}) && predicate()) {
         window.clearTimeout(timeout);
         resolve();
-        return;
       }
-      window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('load')), 20);
     };
     deck!.setProps({onAfterRender: check});
-    window.requestAnimationFrame(() => deck?.redraw('load'));
   });
 }
 
@@ -102,6 +103,7 @@ function createDeck(viewState: ViewState): Promise<void> {
     views: new MapView({id: 'map'}),
     viewState: viewState as any,
     layers: [new BasemapLayer({id: 'basemap', mode: 'map', fetch: fetchTile, style: STYLE} as any)],
+    _animate: true,
     onError: error => {
       throw error;
     }

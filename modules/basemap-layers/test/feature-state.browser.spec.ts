@@ -7,6 +7,7 @@ import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import type {BasemapFeatureState} from '../src/feature-state';
+import {createStableFrameWait} from './stable-frame';
 
 // A hover state set with `featureState` recolors the hovered feature, and only its paint
 // attributes are computed again: no polygon or path is tessellated again. A picked feature names
@@ -16,14 +17,14 @@ const SIZE = 256;
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
-let onFrame: ((image: ImageData) => void) | null = null;
+const stableFrames = createStableFrameWait({getDeck: () => deck, width: SIZE, minLayers: 2});
 
 function cleanup() {
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
-  onFrame = null;
+  stableFrames.cancel();
 }
 
 afterEach(cleanup);
@@ -110,22 +111,10 @@ const STYLE = {
 
 /** Resolves with the frame drawn once every sublayer has loaded and the frame stops changing. */
 function nextFrame(): Promise<ImageData> {
-  return new Promise((resolve, reject) => {
-    let previous: ImageData | null = null;
-    let same = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
-    onFrame = image => {
-      same = previous && countDifferent(previous, image) === 0 ? same + 1 : 0;
-      previous = image;
-      if (same < 5) {
-        window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
-        return;
-      }
-      onFrame = null;
-      window.clearTimeout(timeout);
-      resolve(image);
-    };
-    window.requestAnimationFrame(() => deck?.redraw('frame'));
+  return stableFrames.waitForStableFrame({
+    frames: 5,
+    isSame: (a, b) => countDifferent(a, b) === 0,
+    timeout: 30_000
   });
 }
 
@@ -153,18 +142,7 @@ function createDeck(featureState: BasemapFeatureState | null): Promise<ImageData
     views: new MapView({id: 'map'}),
     viewState: {longitude: 0, latitude: 0, zoom: 3.6} as any,
     layers: [getBasemap(featureState)],
-    onAfterRender: () => {
-      const layers = (deck as any)?.layerManager?.getLayers() || [];
-      if (!onFrame || layers.length < 2 || layers.some((l: any) => !l.isLoaded)) {
-        return;
-      }
-      const copy = document.createElement('canvas');
-      copy.width = SIZE;
-      copy.height = SIZE;
-      const context = copy.getContext('2d')!;
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, SIZE, SIZE));
-    },
+    ...stableFrames.deckProps,
     onError: error => {
       throw error;
     }

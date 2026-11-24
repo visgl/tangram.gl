@@ -19,6 +19,7 @@ import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {lngLatToWorld, worldToLngLat} from '@math.gl/web-mercator';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
+import {createStableFrameWait} from './stable-frame';
 
 const SIZE = 256;
 const ZOOM = 11;
@@ -30,6 +31,7 @@ let parent: HTMLDivElement | null = null;
 function cleanup() {
   deck?.finalize();
   deck = null;
+  stableFrames.cancel();
   parent?.remove();
   parent = null;
 }
@@ -141,24 +143,16 @@ function getFaceColors(image: ImageData, share = 0.05): number[][] {
     .map(([key]) => [key >> 16, (key >> 8) & 255, key & 255]);
 }
 
-let onFrame: ((image: ImageData) => void) | null = null;
+const stableFrames = createStableFrameWait({
+  getDeck: () => deck,
+  width: SIZE,
+  background: '#ffffff',
+  minLayers: 2
+});
 
 /** Resolves with a frame drawn a few frames after every sublayer has loaded. */
 function nextFrame(): Promise<ImageData> {
-  return new Promise((resolve, reject) => {
-    let frames = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 20_000);
-    onFrame = image => {
-      if (++frames < 5) {
-        window.requestAnimationFrame(() => deck?.redraw('settle'));
-        return;
-      }
-      onFrame = null;
-      window.clearTimeout(timeout);
-      resolve(image);
-    };
-    window.requestAnimationFrame(() => deck?.redraw('frame'));
-  });
+  return stableFrames.waitForStableFrame({frames: 5, timeout: 20_000});
 }
 
 function render(layer: unknown, view: unknown, longitude: number, latitude: number) {
@@ -175,20 +169,7 @@ function render(layer: unknown, view: unknown, longitude: number, latitude: numb
     views: view as any,
     viewState: {longitude, latitude, zoom: ZOOM, pitch: PITCH, bearing: 0} as any,
     layers: [layer] as any,
-    onAfterRender: () => {
-      const loaded = (deck as any)?.layerManager?.getLayers() || [];
-      if (!onFrame || loaded.length < 2 || loaded.some((layer: any) => !layer.isLoaded)) {
-        return;
-      }
-      const copy = document.createElement('canvas');
-      copy.width = SIZE;
-      copy.height = SIZE;
-      const context = copy.getContext('2d')!;
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, SIZE, SIZE);
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, SIZE, SIZE));
-    },
+    ...stableFrames.deckProps,
     onError: error => {
       throw error;
     }

@@ -8,6 +8,7 @@ import {SolidPolygonLayer} from '@deck.gl/layers';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
+import {createStableFrameWait} from './stable-frame';
 
 // The `extensions` of a `BasemapLayer`, and their props, reach the layers that draw the basemap:
 // a mask layer masks its background, fills, lines and labels.
@@ -18,14 +19,15 @@ const LABEL_REACH = 48;
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
-let onFrame: ((image: ImageData) => void) | null = null;
+// A basemap draws no sublayers until its style resolves: wait for more than it and the mask.
+const stableFrames = createStableFrameWait({getDeck: () => deck, width: SIZE, minLayers: 3});
 
 afterEach(() => {
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
-  onFrame = null;
+  stableFrames.cancel();
 });
 
 /** Each tile holds a square, two lines across it and four labelled points, in tile-local coordinates. */
@@ -126,29 +128,7 @@ const createMask = () =>
 function render(layers: unknown[]): Promise<ImageData> {
   parent = document.createElement('div');
   document.body.append(parent);
-  const frame = new Promise<ImageData>((resolve, reject) => {
-    let previous: ImageData | null = null;
-    let same = 0;
-    const timeout = window.setTimeout(() => {
-      const loading = ((deck as any)?.layerManager?.getLayers() || [])
-        .filter((layer: any) => !layer.isLoaded)
-        .map((layer: any) => layer.id);
-      reject(new Error(`Timed out rendering: ${same} equal frames, loading ${loading}`));
-    }, 60_000);
-    onFrame = image => {
-      same = previous && isSame(previous, image) ? same + 1 : 0;
-      previous = image;
-      if (same < 10) {
-        // `redraw` draws at once, so wait for the browser's next frame first.
-        window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
-        return;
-      }
-      onFrame = null;
-      window.clearTimeout(timeout);
-      resolve(image);
-    };
-  });
-  window.requestAnimationFrame(() => deck?.redraw('frame'));
+  const frame = stableFrames.waitForStableFrame({frames: 10, isSame, timeout: 60_000});
   deck = new Deck({
     parent,
     width: SIZE,
@@ -158,19 +138,7 @@ function render(layers: unknown[]): Promise<ImageData> {
     views: new MapView({id: 'map'}),
     viewState: {longitude: 0, latitude: 0, zoom: 4.05} as any,
     layers: layers as any,
-    onAfterRender: () => {
-      const loaded = (deck as any)?.layerManager?.getLayers() || [];
-      // A basemap draws no sublayers until its style resolves: wait for more than it and the mask.
-      if (!onFrame || loaded.length < 3 || loaded.some((layer: any) => !layer.isLoaded)) {
-        return;
-      }
-      const copy = document.createElement('canvas');
-      copy.width = SIZE;
-      copy.height = SIZE;
-      const context = copy.getContext('2d')!;
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, SIZE, SIZE));
-    },
+    ...stableFrames.deckProps,
     onError: error => {
       throw error;
     }
