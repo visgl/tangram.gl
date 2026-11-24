@@ -13,7 +13,7 @@
 import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import mvtWorkerUrl from '@loaders.gl/tiles/mvt/mvt-worker.js?url';
-import {afterEach, describe, expect, test} from 'vitest';
+import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/index';
 
 const SIZE = 192;
@@ -24,16 +24,49 @@ let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
 });
 
-async function readFixture(path: string): Promise<Uint8Array<ArrayBuffer>> {
-  const response = await fetch(`${FIXTURES}/${path}`);
-  expect(response.ok, path).toBe(true);
-  return new Uint8Array(await response.arrayBuffer());
+/** The bytes of each fixture, read from the page server once (see `readFixture`). */
+const fixtures = new Map<string, Promise<Uint8Array<ArrayBuffer>>>();
+
+/** Reads of a fixture that can come back empty before the test fails. */
+const FIXTURE_READS = 3;
+
+/**
+ * The bytes of a fixture. Each fixture is read from the page server once and kept, so the two
+ * renders of a test read the same bytes. Every fixture has bytes, but a busy page server can send
+ * an empty body: a DEM tile without bytes is a tile without data, and a render draws it as such.
+ * An empty read is made again, and a fixture that stays empty fails the test.
+ */
+function readFixture(path: string): Promise<Uint8Array<ArrayBuffer>> {
+  let bytes = fixtures.get(path);
+  if (!bytes) {
+    bytes = fetchFixture(path);
+    fixtures.set(path, bytes);
+    bytes.catch(() => fixtures.delete(path));
+  }
+  return bytes;
+}
+
+async function fetchFixture(path: string): Promise<Uint8Array<ArrayBuffer>> {
+  for (let read = 1; ; read++) {
+    const response = await fetch(`${FIXTURES}/${path}`, {cache: 'no-store'});
+    if (!response.ok) {
+      throw new Error(`Fixture ${path}: status ${response.status}`);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > 0) {
+      return bytes;
+    }
+    if (read >= FIXTURE_READS) {
+      throw new Error(`Fixture ${path}: empty after ${read} reads`);
+    }
+  }
 }
 
 /** A `fetch` that counts the requests it has not answered yet. */
@@ -270,6 +303,32 @@ describe('pmtiles:// sources', () => {
       TEST_TIMEOUT
     );
   }
+
+  test(
+    'a fixture that the test server reads once with an empty body draws as the archive',
+    async () => {
+      // The raster-dem test failed on CI with 4916, 13174 and 22451 different pixels: the counts
+      // when the last one, two or three tiles of the {z}/{x}/{y} render have no data. A DEM tile
+      // read with an empty body is such a tile, and the render takes its frame without it.
+      const kind = KINDS[2];
+      const emptyTile = `${FIXTURES}/tiles/dem/1/1/1.png`;
+      fixtures.clear();
+      const pageFetch = globalThis.fetch.bind(globalThis);
+      let emptyReads = 0;
+      vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+        if (String(input) === emptyTile && emptyReads++ === 0) {
+          return Promise.resolve(new Response(new Uint8Array(0)));
+        }
+        return pageFetch(input, init);
+      });
+      const options = {mvt: {workerUrl: mvtWorkerUrl}};
+      const expected = await renderOnce(getStyle(kind, false), createServer(), options);
+      const actual = await renderOnce(getStyle(kind, true), createServer(), options);
+      expect(emptyReads).toBeGreaterThan(0);
+      expect(countDifferentPixels(actual, expected)).toBe(0);
+    },
+    TEST_TIMEOUT
+  );
 
   test(
     'an archive on the page origin loads with HTTP range requests to the test server',
