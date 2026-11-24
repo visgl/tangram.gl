@@ -21,6 +21,7 @@ import {
   compileZoomPaintProperty,
   getStyleAccessor,
   getZoomBucket,
+  getZoomPaintZoom,
   withOpacity
 } from './style-accessor';
 import {getStylePropertyDefault, getZoomInterpolationFactor} from './style-expression';
@@ -170,7 +171,7 @@ class ZoomPaintScatterplotLayer extends ScatterplotLayer<any, CircleZoomPaintPro
   /** Adds the paint plugin alongside all of the inherited extension shaders. */
   getShaders() {
     const shaders = super.getShaders();
-    if (this.props.circleZoomPaint) {
+    if (this.props.circleZoomPaint && this.context.device.type !== 'webgpu') {
       shaders.plugins = [...(shaders.plugins || []), circleZoomPaintPlugin];
     }
     return shaders;
@@ -178,7 +179,7 @@ class ZoomPaintScatterplotLayer extends ScatterplotLayer<any, CircleZoomPaintPro
 
   /** Updates the attribute layout before a style edit switches the model's shader. */
   updateState(params: UpdateParameters<this>): void {
-    const enabled = Boolean(params.props.circleZoomPaint);
+    const enabled = Boolean(params.props.circleZoomPaint) && this.context.device.type !== 'webgpu';
     const manager = this.getAttributeManager();
     const hadAttributes = Boolean(manager?.getAttributes().instanceNextCircleSize);
     if (enabled !== hadAttributes) {
@@ -194,7 +195,7 @@ class ZoomPaintScatterplotLayer extends ScatterplotLayer<any, CircleZoomPaintPro
 
   /** Evaluates layer-wide paint and composite factors for the viewport being drawn. */
   draw(options: Parameters<ScatterplotLayer['draw']>[0]): void {
-    if (this.props.circleZoomPaint) {
+    if (this.props.circleZoomPaint && this.context.device.type !== 'webgpu') {
       this.setShaderModuleProps({
         circleZoomPaint: this.props.circleZoomPaint(getStyleZoom(this.context.viewport))
       });
@@ -232,15 +233,16 @@ function getCircleZoomPaint(
   // The color, picking and highlight passes of a frame draw at the same zoom: evaluate once.
   let last: {zoom: number; paint: CircleZoomPaint} | null = null;
   const evaluate = (viewportZoom: number): CircleZoomPaint => {
-    if (last?.zoom !== viewportZoom) {
+    const paintZoom = getZoomPaintZoom(viewportZoom, zoom);
+    if (last?.zoom !== paintZoom) {
       last = {
-        zoom: viewportZoom,
+        zoom: paintZoom,
         paint: {
-          size: [atZoom(radius, viewportZoom) ?? -1, atZoom(width, viewportZoom) ?? -1],
-          fillColor: normalize(atZoom(fill, viewportZoom)),
-          lineColor: normalize(atZoom(line, viewportZoom)),
+          size: [atZoom(radius, paintZoom) ?? -1, atZoom(width, paintZoom) ?? -1],
+          fillColor: normalize(atZoom(fill, paintZoom)),
+          lineColor: normalize(atZoom(line, paintZoom)),
           blend: properties.map(property =>
-            getZoomInterpolationFactor(property.interpolation, viewportZoom, bucket, upper)
+            getZoomInterpolationFactor(property.interpolation, paintZoom, bucket, upper)
           )
         }
       };
@@ -249,7 +251,10 @@ function getCircleZoomPaint(
   };
   /** Builds a per-feature accessor at the upper endpoint. */
   const next = <T>(property: PaintProperty<T>) =>
-    getStyleAccessor(styleLayer, property.names, upper, property.combine, featureState, {exactZoom: true});
+    getStyleAccessor(styleLayer, property.names, upper, property.combine, featureState, {
+      exactZoom: true,
+      stepZoom: bucket
+    });
 
   return {
     evaluate,

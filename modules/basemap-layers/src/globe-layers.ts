@@ -101,6 +101,7 @@ import {
   getStyleAccessor,
   getStyleZoomKey,
   getZoomBucket,
+  getZoomPaintZoom,
   withOpacity
 } from './style-accessor';
 import {
@@ -122,6 +123,7 @@ import {
   ZOOM_PAINT_WIDTH_ROW,
   ZoomPaint,
   ZoomPaintExtension,
+  type ZoomPaintExtensionProps,
   type ZoomPaintValues,
   createZoomPaintValues,
   getZoomPaintOffset,
@@ -156,6 +158,7 @@ type BasemapLayerGroup = {
   mode?: BasemapMode;
   globe?: {config?: BasemapGlobeConfig};
   styleDefinition: ResolvedBasemapStyle;
+  /** Builds the style at this zoom, also used for WebGL paint outside its viewport zoom step. */
   zoom?: number;
   loadOptions?: BasemapLoadOptions;
   /** Loads the tiles of raster sources (see deck.gl's `fetch` layer prop). */
@@ -2034,14 +2037,10 @@ class StyledMVTLayer extends SharedMVTLayer {
  * `drawsLineStrings: false` leaves out line strings, which a fill without an outline would draw
  * zero pixels wide. Every sublayer left out would otherwise be updated and drawn at every frame.
  */
-class StyledGeoJsonLayer extends GeoJsonLayer<any, {
+class StyledGeoJsonLayer extends GeoJsonLayer<any, ZoomPaintExtensionProps & {
   drawsLineStrings?: boolean;
   /** Whether to check the paint at draw and pick time before rendering retained geometry. */
   deferredZoomPaint?: boolean;
-  /** The paint shared by sublayers drawing this sequence of style layers. */
-  zoomPaint?: ZoomPaint;
-  /** The stepped zoom at which the lower composite attributes were evaluated. */
-  zoomPaintBucket?: number;
 }> {
   static layerName = 'StyledGeoJsonLayer';
   static defaultProps = {...GeoJsonLayer.defaultProps, drawsLineStrings: true};
@@ -2068,10 +2067,15 @@ class StyledGeoJsonLayer extends GeoJsonLayer<any, {
 
   /** Keeps the geometry resident while its layer-constant paint is invisible. */
   filterSubLayer(context: Parameters<GeoJsonLayer['filterSubLayer']>[0]): boolean {
-    const {deferredZoomPaint, zoomPaint, zoomPaintBucket, filled, stroked} = this.props;
+    const {deferredZoomPaint, zoomPaint, zoomPaintGeneration, zoomPaintBucket, filled, stroked} = this.props;
     return (
       (!deferredZoomPaint ||
-        Boolean(zoomPaint?.isVisible(getStyleZoom(context.viewport), zoomPaintBucket ?? undefined, filled, stroked))) &&
+        Boolean(zoomPaint?.isVisible(
+          getZoomPaintZoom(getStyleZoom(context.viewport), zoomPaintGeneration?.zoom),
+          zoomPaintBucket ?? undefined,
+          filled,
+          stroked
+        ))) &&
       super.filterSubLayer(context)
     );
   }
@@ -2168,14 +2172,27 @@ export function isSameProps(
  * rendered, which deck.gl then neither diffs nor updates; a new one would be created, cloned by
  * `TileLayer`, matched and diffed, only to change nothing.
  */
-function getTileGeoJsonLayer(tileProps: any, props: Record<string, any>): StyledGeoJsonLayer {
+function getTileGeoJsonLayer(
+  tileProps: any,
+  props: Record<string, any>,
+  zoomPaintGenerationZoom?: number
+): StyledGeoJsonLayer {
   const previous = (tileProps[PREVIOUS_TILE_LAYERS] as Map<string, any> | undefined)?.get(props.id);
   const inputs = previous && tileLayerInputs.get(previous);
   if (inputs && isSameProps(props, inputs)) {
+    const generation = previous.props.zoomPaintGeneration;
+    if (generation && zoomPaintGenerationZoom !== undefined) {
+      // The drawing layers share this value, so reusing them still updates their fallback zoom.
+      generation.zoom = zoomPaintGenerationZoom;
+    }
     keptTileLayers.add(previous);
     return previous;
   }
-  const layer = new StyledGeoJsonLayer(props);
+  const layer = new StyledGeoJsonLayer(
+    zoomPaintGenerationZoom === undefined
+      ? props
+      : {...props, zoomPaintGeneration: {zoom: zoomPaintGenerationZoom}}
+  );
   tileLayerInputs.set(layer, props);
   return layer;
 }
@@ -3414,13 +3431,14 @@ function getNextGeometryPaint(
       compiled.some(value => value?.isFeatureDependent) &&
       compiled.some(value => value?.isZoomDependent)
     ) {
+      const bucket = getZoomBucket(zoom);
       const {value} = getStyleAccessor(
         styleLayer,
         property.names,
-        getZoomBucket(zoom) + STYLE_ZOOM_STEP,
+        bucket + STYLE_ZOOM_STEP,
         property.combine,
         featureState,
-        {exactZoom: true}
+        {exactZoom: true, stepZoom: bucket}
       );
       return {value, updateTrigger: current.updateTrigger};
     }
@@ -4106,8 +4124,13 @@ function createGeometrySubLayer({
             ...(packPath
               ? {
                   getNextDashedPaint: [
-                    nextLineWidth?.updateTrigger ?? nextLineWidth?.value,
-                    nextLineColor?.updateTrigger ?? nextLineColor?.value
+                    nextLineWidth?.updateTrigger,
+                    nextLineColor?.updateTrigger,
+                    ...styles.flatMap(({styleLayer: {paint}}) => [
+                      paint?.['line-width'],
+                      paint?.['line-color'],
+                      paint?.['line-opacity']
+                    ])
                   ]
                 }
               : {})
@@ -4129,7 +4152,7 @@ function createGeometrySubLayer({
     pointRadiusMinPixels: 0,
     parameters: getTileParameters(mode, depthTested)
   };
-  const layer = getTileGeoJsonLayer(props, layerProps);
+  const layer = getTileGeoJsonLayer(props, layerProps, zoomPaint ? zoom : undefined);
   if (!gapWidth || (typeof gapWidth.value !== 'function' && !(gapWidth.value > 0))) {
     return layer;
   }

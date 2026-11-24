@@ -6,7 +6,7 @@ import {LayerExtension} from '@deck.gl/core';
 import type {Accessor, AttributeManager, Layer, LayerContext, UpdateParameters} from '@deck.gl/core';
 import type {Device, Texture} from '@luma.gl/core';
 import {getStyleZoom} from './projected-viewport';
-import {getZoomBucket} from './style-accessor';
+import {getZoomBucket, getZoomPaintZoom} from './style-accessor';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /** The most style layers whose paint one layer can take from `ZoomPaintExtension`. */
@@ -123,6 +123,8 @@ export class ZoomPaint {
 export type ZoomPaintExtensionProps = {
   /** The paint to apply; the layer draws its attributes as they are without it. */
   zoomPaint?: ZoomPaint | null;
+  /** The zoom option used to build this sublayer, shared with its drawing layers. */
+  zoomPaintGeneration?: {zoom: number} | null;
   /** The lower endpoint of the composite paint attributes. */
   zoomPaintBucket?: number;
   /** Which of `zoomPaint`'s style layers each object belongs to. */
@@ -295,6 +297,7 @@ export class ZoomPaintExtension extends LayerExtension<{composite: boolean; pack
   static extensionName = 'ZoomPaintExtension';
   static defaultProps = {
     zoomPaint: {type: 'object', value: null},
+    zoomPaintGeneration: {type: 'object', value: null},
     zoomPaintBucket: {type: 'number', value: null, optional: true},
     getStylePart: {type: 'accessor', value: 0},
     getNextLineWidth: {type: 'accessor', value: 1},
@@ -382,14 +385,14 @@ export class ZoomPaintExtension extends LayerExtension<{composite: boolean; pack
   }
 
   draw(this: Layer<ZoomPaintExtensionProps>, params: any, extension: this) {
-    const {zoomPaint} = this.props;
+    const {zoomPaint, zoomPaintGeneration, zoomPaintBucket} = this.props;
     if (!zoomPaint || !extension.isEnabled(this)) {
       return;
     }
     const texture = zoomPaint.getTexture(
       this.context.device,
-      getStyleZoom(this.context.viewport),
-      this.props.zoomPaintBucket ?? undefined
+      getZoomPaintZoom(getStyleZoom(this.context.viewport), zoomPaintGeneration?.zoom),
+      zoomPaintBucket ?? undefined
     );
     const models = this.getModels();
     if (models.some(model => boundTextures.get(model) !== texture)) {

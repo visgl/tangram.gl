@@ -20,12 +20,19 @@ export const STYLE_ZOOM_STEP = 0.25;
  * Zoom at which stepped paint and layout values are evaluated: the zoom rounded down to a
  * `STYLE_ZOOM_STEP`.
  *
- * On WebGL, supported zoom-only paint is evaluated at the viewport zoom, and composite paint
- * blends attributes evaluated at the enclosing style zoom steps on the GPU. Stepping keeps every
- * tile on the same evaluation zoom, so neighbouring tiles agree at their seams.
+ * On WebGL, supported composite paint blends attributes evaluated at the enclosing style zoom
+ * steps on the GPU. Stepping keeps every tile on the same evaluation zoom, so neighbouring
+ * tiles agree at their seams.
  */
 export function getZoomBucket(zoom: number): number {
   return Math.floor(zoom / STYLE_ZOOM_STEP) * STYLE_ZOOM_STEP;
+}
+
+/** Uses the viewport zoom while it is within the style step of the generated sublayer. */
+export function getZoomPaintZoom(viewportZoom: number, generationZoom?: number): number {
+  return generationZoom === undefined || getZoomBucket(viewportZoom) === getZoomBucket(generationZoom)
+    ? viewportZoom
+    : generationZoom;
 }
 
 /** Zoom at which filters are evaluated: the integer zoom, as the style spec specifies. */
@@ -68,8 +75,8 @@ type ZoomPaintProperty<T> = {
 
 /**
  * Compiles the properties that supply a layer-wide value or a composite blend factor.
- * When the inputs use different zoom curves, the composite values blend linearly between
- * their sampled zooms.
+ * Discrete inputs are held at the lower sample's zoom. When interpolating inputs use different
+ * zoom curves, the composite values blend linearly between their sampled zooms.
  */
 export function compileZoomPaintProperty<T>(
   styleLayer: StyleLayerLike,
@@ -78,9 +85,10 @@ export function compileZoomPaintProperty<T>(
   const properties = definition.names.map(name => getCompiledStyleProperty(styleLayer, name));
   const zoomProperties = properties.filter(property => property?.isZoomDependent);
   const perFeature = properties.some(property => property?.isFeatureDependent);
-  const curve = zoomProperties[0]?.zoomInterpolation ?? null;
+  const interpolated = zoomProperties.filter(property => property?.zoomInterpolation);
+  const curve = interpolated[0]?.zoomInterpolation ?? null;
   const curveKey = JSON.stringify(curve);
-  const matchesCurve = zoomProperties.every(property => JSON.stringify(property?.zoomInterpolation) === curveKey);
+  const matchesCurve = interpolated.every(property => JSON.stringify(property?.zoomInterpolation) === curveKey);
   const constants = perFeature
     ? []
     : properties.map(property => property?.isZoomDependent ? undefined : property?.evaluate(0));
@@ -122,7 +130,8 @@ export type StyleAccessor<T> = {
  * trigger of a value that reads it changes with the states: only that attribute is computed
  * again, and the geometry is kept.
  *
- * With `exactZoom`, the accessor evaluates the properties at the supplied zoom.
+ * With `exactZoom`, the accessor evaluates the properties at the supplied zoom. With `stepZoom`,
+ * discrete zoom-dependent properties are sampled at that zoom instead.
  */
 export function getStyleAccessor<T>(
   styleLayer: StyleLayerLike,
@@ -130,35 +139,33 @@ export function getStyleAccessor<T>(
   zoom: number,
   combine: (values: any[]) => T,
   featureState?: FeatureStateLookup,
-  {exactZoom = false}: {exactZoom?: boolean} = {}
+  {exactZoom = false, stepZoom}: {exactZoom?: boolean; stepZoom?: number} = {}
 ): StyleAccessor<T> {
   const properties = propertyNames.map(name => getCompiledStyleProperty(styleLayer, name));
   const isFeatureDependent = properties.some(property => property?.isFeatureDependent);
   const zoomBucket = exactZoom ? zoom : getZoomBucket(zoom);
+  const evaluationZooms = properties.map(property =>
+    property?.isZoomDependent && !property.zoomInterpolation ? stepZoom ?? zoomBucket : zoomBucket
+  );
 
   if (!isFeatureDependent) {
-    return {value: combine(properties.map(property => property?.evaluate(zoomBucket)))};
+    return {value: combine(properties.map((property, index) => property?.evaluate(evaluationZooms[index])))};
   }
 
   const isZoomDependent = properties.some(property => property?.isZoomDependent);
   const state = properties.some(property => property?.isStateDependent) ? featureState : undefined;
-  if (state) {
-    return {
-      value: (feature: StyleFeature) => {
-        const featureValues = state.get(feature);
-        return combine(
-          properties.map(property =>
-            property?.evaluate(zoomBucket, feature, undefined, featureValues)
-          )
-        );
-      },
-      updateTrigger: `${isZoomDependent ? zoomBucket : ''}:state-${state.token}`
-    };
-  }
   return {
-    value: (feature: StyleFeature) =>
-      combine(properties.map(property => property?.evaluate(zoomBucket, feature))),
-    updateTrigger: isZoomDependent ? zoomBucket : undefined
+    value: (feature: StyleFeature) => {
+      const featureValues = state?.get(feature);
+      return combine(
+        properties.map((property, index) =>
+          property?.evaluate(evaluationZooms[index], feature, undefined, featureValues)
+        )
+      );
+    },
+    updateTrigger: state
+      ? `${isZoomDependent ? zoomBucket : ''}:state-${state.token}`
+      : isZoomDependent ? zoomBucket : undefined
   };
 }
 

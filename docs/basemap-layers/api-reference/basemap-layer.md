@@ -683,6 +683,8 @@ Returns the zoom at which a Web Mercator map has the scale of a projected viewpo
 
 Generates the deck.gl sublayers for an already-resolved style definition. Use this when you want the sublayers without creating a `BasemapLayer` instance.
 
+The `zoom` option defaults to 0 and controls style evaluation. Supported WebGL fill, line and circle paint follows the viewport zoom within the same 0.25 zoom step as the supplied zoom. Outside that step, the paint uses the supplied zoom.
+
 `BasemapLayer` keeps each source's tiles in a shared tileset across renders. A direct caller that calls `getBasemapLayers` on every render keeps them by passing its own `tilesets` map, keyed by source, and finalizes those tilesets when done.
 
 `getBasemapLayers` accepts the same `insertLayers` option. There, an unknown `beforeId` throws an `Error`.

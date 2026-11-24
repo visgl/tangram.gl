@@ -5,7 +5,7 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import {LayerExtension, WebMercatorViewport} from '@deck.gl/core';
 import {ScatterplotLayer} from '@deck.gl/layers';
-import {describe, expect, test} from 'vitest';
+import {describe, expect, test, vi} from 'vitest';
 import {CircleBlurExtension, CircleTranslateExtension} from '../src/circle-layer.ts';
 import {getBasemapLayers} from '../src/index.ts';
 
@@ -152,6 +152,34 @@ describe('circle layers', () => {
     expect(webgpu.props.getRadius).toBe(2);
     expect(webgpu.props.getFillColor[3]).toBe(0);
     expect(webgpu.props.stroked).toBe(false);
+  });
+
+  test('uses the supplied circle paint zoom when the viewport is in another style step', () => {
+    const [layer] = render([circle({
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 2, 6, 10]
+    })], [point()], 5.5);
+    expect(layer.props.circleZoomPaint(0).size[0]).toBe(6);
+    expect(layer.props.circleZoomPaint(5.625).size[0]).toBe(7);
+  });
+
+  test('omits continuous circle shaders and attributes on a WebGPU device', () => {
+    const [layer] = render([circle({
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 15, ['get', 'size'], 16, 8]
+    })], [point({size: 4})], 15);
+    layer.context = {viewport: new WebMercatorViewport(), device: {type: 'webgpu'}, defaultShaderModules: []};
+    const attributeManager = {getAttributes: () => ({}), addInstanced: vi.fn()};
+    const getAttributeManager = vi.spyOn(layer, 'getAttributeManager').mockReturnValue(attributeManager);
+    const updateState = vi.spyOn(ScatterplotLayer.prototype, 'updateState').mockImplementation(() => {});
+    try {
+      expect(layer.props.circleZoomPaint).toBeTypeOf('function');
+      const {plugins} = layer.getShaders();
+      layer.updateState({props: layer.props, changeFlags: {}});
+      expect.soft(plugins?.map(({name}: {name: string}) => name) ?? []).not.toContain('circleZoomPaint');
+      expect.soft(attributeManager.addInstanced).not.toHaveBeenCalled();
+    } finally {
+      getAttributeManager.mockRestore();
+      updateState.mockRestore();
+    }
   });
 
   test('keeps the next composite samples and their triggers within the attribute zoom step', () => {

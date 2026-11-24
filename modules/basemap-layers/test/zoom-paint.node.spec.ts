@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 /* eslint-disable import/no-extraneous-dependencies */
+import {OrthographicView} from '@deck.gl/core';
 import {describe, expect, test, vi} from 'vitest';
 import {getBasemapLayers} from '../src/index.ts';
 import type {BasemapFeatureState} from '../src/feature-state';
@@ -170,6 +171,32 @@ describe('fills and lines take zoom-dependent paint from a texture', () => {
     expect(accessor(false)).toBe(4.5);
   });
 
+  test('draws at the supplied zoom when the viewport is in another style step', () => {
+    const width = ['interpolate', ['linear'], ['zoom'], 5, 2, 6, 10];
+    const [layer] = renderTile([line('road', {'line-width': width})], [feature('LineString')], 5.5);
+    const path = layer.getSubLayerProps({id: 'linestrings'});
+    const extension = path.extensions.find((e: unknown) => e instanceof ZoomPaintExtension);
+    const texture = vi.spyOn(layer.props.zoomPaint, 'getTexture').mockReturnValue({});
+    const view = new OrthographicView();
+    const draw = (zoom: number) => extension.draw.call({
+      props: path,
+      context: {device: {}, viewport: view.makeViewport({width: 64, height: 64, viewState: {zoom}})},
+      state: {pathTesselator: {}},
+      getModels: () => []
+    }, {}, extension);
+
+    try {
+      draw(0);
+      draw(5.625);
+      const drawnWidths = texture.mock.calls.map(([, zoom, bucket]) =>
+        texel(layer.props.zoomPaint.getValues(zoom, bucket ?? undefined), ZOOM_PAINT_WIDTH_ROW, 0)[0]
+      );
+      expect(drawnWidths).toEqual([6, 7]);
+    } finally {
+      texture.mockRestore();
+    }
+  });
+
   test('composite widths get a second sample and keep their triggers inside the step', () => {
     const features = [feature('LineString', {w0: 0, w1: 8})];
     const style = makeStyle([
@@ -225,6 +252,7 @@ describe('fills and lines take zoom-dependent paint from a texture', () => {
     expect(layer.props.filled).toBe(true);
     expect(layer.filterSubLayer({viewport: {zoom: 15}})).toBe(false);
     expect(layer.filterSubLayer({viewport: {zoom: 15.1}})).toBe(true);
+    expect(layer.filterSubLayer({viewport: {zoom: 16}})).toBe(false);
     expect(renderTile(style, features, 15, false)).toEqual([]);
     expect(renderTile(style, features, 14.5)).toEqual([]);
   });
@@ -239,6 +267,46 @@ describe('fills and lines take zoom-dependent paint from a texture', () => {
     const values = getZoomPaintValues(style.layers, 'map', 15.1);
     expect(texel(values, ZOOM_PAINT_INTERPOLATION_ROW, 0)[1]).toBeCloseTo(0.4, 6);
     expect(texel(values, ZOOM_PAINT_LINE_COLOR_ROW, 0)[3]).toBe(-1);
+  });
+
+  test('holds a composite line color step while opacity interpolates', () => {
+    const style = makeStyle([
+      line('road', {
+        'line-color': ['step', ['zoom'], ['to-color', ['get', 'color']], 15.25, '#00f'],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, 0, 16, 1]
+      })
+    ]);
+    const features = [feature('LineString', {color: '#f00'})];
+    const [layer] = renderTile(style, features, 15);
+    const [next] = renderTile(style, features, 15.25);
+    expect(valuesOf(layer, 'getLineColor')).toEqual([[255, 0, 0, 0]]);
+    expect(valuesOf(layer, 'getNextLineColor')).toEqual([[255, 0, 0, 64]]);
+    expect(texel(valuesAt(layer, 15.05), ZOOM_PAINT_INTERPOLATION_ROW, 0)[1]).toBeCloseTo(0.2);
+    expect(valuesOf(next, 'getLineColor')).toEqual([[0, 0, 255, 64]]);
+  });
+
+  test('keeps the packed dashed paint trigger stable until an endpoint changes', () => {
+    const style = makeStyle([
+      line('road', {
+        'line-dasharray': [2, 1],
+        'line-width': ['get', 'width'],
+        'line-opacity': ['interpolate', ['linear'], ['zoom'], 15, ['get', 'opacity'], 16, 1]
+      })
+    ]);
+    const features = [feature('LineString', {width: 4, opacity: 0.25})];
+    const [first] = renderTile(style, features, 15);
+    const [same] = renderTile(style, features, 15);
+    const [next] = renderTile(style, features, 15.25);
+    const trigger = (layer: any) => layer.props.updateTriggers.getNextDashedPaint;
+    expect(first.props.getNextDashedPaint).toBeTypeOf('function');
+    expect(valuesOf(same, 'getNextDashedPaint')).toEqual(valuesOf(first, 'getNextDashedPaint'));
+    expect(trigger(same)).toEqual(trigger(first));
+    expect(valuesOf(next, 'getNextDashedPaint')).not.toEqual(valuesOf(first, 'getNextDashedPaint'));
+    expect(trigger(next)).not.toEqual(trigger(first));
+    style.layers[0].paint['line-width'] = ['*', 2, ['get', 'width']];
+    const [edited] = renderTile(style, features, 15);
+    expect((valuesOf(edited, 'getNextDashedPaint')[0] as number[])[1]).toBe(8);
+    expect(trigger(edited)).not.toEqual(trigger(first));
   });
 
   test('a per-feature width stays in the attribute, with a part width of 1', () => {
