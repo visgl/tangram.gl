@@ -5,6 +5,7 @@
 import {LayerExtension, project32} from '@deck.gl/core';
 import type {FirstPersonViewport, Layer} from '@deck.gl/core';
 import type {ShaderPlugin} from '@luma.gl/shaders';
+import {isGeographicFirstPersonViewport} from './projected-background-layer';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
 
 /**
@@ -227,12 +228,12 @@ layout(std140) uniform firstPersonLabelSizeUniforms {
     'vs:DECKGL_FILTER_SIZE': {
       order: 1,
       injection: `
-  vec4 firstPersonLabelClip = project_common_position_to_clipspace(geometry.position);
-  float anchorDepth = firstPersonLabelClip.w;
   float referenceDepth = firstPersonLabelSize.referenceDepth;
-  float perspective = referenceDepth > 0.0 && anchorDepth > 0.0
-    ? min(4.0, 0.5 + 0.5 * referenceDepth / anchorDepth) : 1.0;
-  size.xy *= perspective * max(0.0, anchorDepth) / project.focalDistance;
+  if (referenceDepth > 0.0) {
+    float anchorDepth = project_common_position_to_clipspace(geometry.position).w;
+    float perspective = anchorDepth > 0.0 ? min(4.0, 0.5 + 0.5 * referenceDepth / anchorDepth) : 1.0;
+    size.xy *= perspective * max(0.0, anchorDepth) / project.focalDistance;
+  }
 `
     }
   }
@@ -255,20 +256,21 @@ struct FirstPersonLabelSizeUniforms {
     target: 'DECKGL_FILTER_SIZE',
     order: 1,
     wgsl: `
-  let firstPersonLabelClip = project_common_position_to_clipspace(geometry.position);
-  let anchorDepth = firstPersonLabelClip.w;
   let referenceDepth = firstPersonLabelSize.referenceDepth;
-  var perspective = 1.0;
-  if (referenceDepth > 0.0 && anchorDepth > 0.0) {
-    perspective = min(4.0, 0.5 + 0.5 * referenceDepth / anchorDepth);
+  if (referenceDepth > 0.0) {
+    let anchorDepth = project_common_position_to_clipspace(geometry.position).w;
+    var perspective = 1.0;
+    if (anchorDepth > 0.0) {
+      perspective = min(4.0, 0.5 + 0.5 * referenceDepth / anchorDepth);
+    }
+    let firstPersonLabelScale = perspective * max(0.0, anchorDepth) / project.focalDistance;
+    *size = vec3<f32>((*size).xy * firstPersonLabelScale, (*size).z);
   }
-  let firstPersonLabelScale = perspective * max(0.0, anchorDepth) / project.focalDistance;
-  *size = vec3<f32>((*size).xy * firstPersonLabelScale, (*size).z);
 `
   }]
 };
 
-/** Size first-person text in screen pixels with MapLibre's distance falloff. */
+/** Size first-person billboard symbols in screen pixels with MapLibre's distance falloff. */
 export class FirstPersonLabelSizeExtension extends LayerExtension {
   static extensionName = 'FirstPersonLabelSizeExtension';
 
@@ -277,9 +279,13 @@ export class FirstPersonLabelSizeExtension extends LayerExtension {
   }
 
   draw(this: Layer) {
-    const viewport = this.context.viewport as FirstPersonViewport;
+    const {viewport} = this.context;
     this.setShaderModuleProps({
-      firstPersonLabelSize: {referenceDepth: getFirstPersonLabelReferenceDepth(viewport)}
+      firstPersonLabelSize: {
+        referenceDepth: isGeographicFirstPersonViewport(viewport)
+          ? getFirstPersonLabelReferenceDepth(viewport)
+          : 0
+      }
     });
   }
 }

@@ -485,6 +485,19 @@ describe('MVTLabelLayer glyphs along lines', () => {
     const point = lineLayer({'symbol-placement': 'point'});
     expect(point.curvesLineText({zoom: 14})).toBe(false);
   });
+
+  test('viewport-pitched line text keeps the default curved glyph placement in MapView', () => {
+    const viewport = new WebMercatorViewport({width: 400, height: 200, zoom: 14, pitch: 45});
+    const glyphs = (layout: Record<string, unknown>) => {
+      const layer = lineLayer(layout);
+      const [row] = rowsOf(layer, EAST);
+      layer.context = {...layer.context, viewport};
+      return layer.getLineGlyphProps().getLineGlyphs?.(row, viewport);
+    };
+    const expected = glyphs({});
+    expect(expected?.length).toBeGreaterThan(0);
+    expect(glyphs({'text-pitch-alignment': 'viewport'})).toEqual(expected);
+  });
 });
 
 describe('LabelCharactersLayer glyphs along lines', () => {

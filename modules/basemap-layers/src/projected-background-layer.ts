@@ -19,6 +19,8 @@ const BACKGROUND_REACH = 4;
 const PITCHED_BACKGROUND_REACH = 64;
 /** The share of the reach by which the view may move before the background is made again. */
 const BACKGROUND_SLACK = 0.5;
+/** WGS84 equatorial radius, in meters. */
+const EARTH_RADIUS = 6_378_137;
 
 /** A square in the units of a view's coordinate reference system. */
 export type BackgroundSquare = {
@@ -65,12 +67,24 @@ export function getBackgroundSquare(
   }
   let viewReach = screen * (viewport.pitch ? PITCHED_BACKGROUND_REACH : BACKGROUND_REACH);
   if (isGeographicFirstPersonViewport(viewport)) {
-    // The eye can look towards the horizon at any pitch. Cover the full depth of the frustum.
+    // Cover the frustum up to the ground horizon, even when the far plane extends beyond it.
     const {width, height} = viewport;
+    const altitude = Math.max(0, viewport.cameraPosition[2] / viewport.distanceScales.unitsPerMeter[2]);
+    const horizon = Math.acos(EARTH_RADIUS / (EARTH_RADIUS + altitude));
+    const latitudeRadians = (y * Math.PI) / 180;
+    const latitudeReach = (horizon * 180) / Math.PI;
+    const longitudeReach = horizon >= Math.PI / 2 - Math.abs(latitudeRadians)
+      ? 180
+      : (Math.asin(Math.sin(horizon) / Math.cos(latitudeRadians)) * 180) / Math.PI;
     const farCorners = [[0, 0], [width, 0], [width, height], [0, height]];
     const farReach = Math.max(...farCorners.map(([column, row]) => {
       const [longitude, latitude] = viewport.unproject([column, row, 1]);
-      return Math.max(Math.abs(longitude - x), Math.abs(latitude - y));
+      const delta = longitude - x;
+      const wrappedDelta = delta - 360 * Math.round(delta / 360);
+      return Math.max(
+        Math.min(Math.abs(wrappedDelta), longitudeReach),
+        Math.min(Math.abs(latitude - y), latitudeReach)
+      );
     }));
     if (Number.isFinite(farReach)) {
       viewReach = Math.max(screen * BACKGROUND_REACH, farReach);

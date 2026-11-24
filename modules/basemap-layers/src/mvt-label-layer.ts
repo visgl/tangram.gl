@@ -1353,7 +1353,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
    * data cannot.
    */
   renderIconLayers(icons: (ResolvedSpriteIcon | null)[] = this.getRowIcons()): any[] {
-    const {iconLoadOptions, billboard, spriteAtlases} = this.props;
+    const {iconLoadOptions, billboard, labelSizeUnits, spriteAtlases} = this.props;
     const labelRows = this.getRows();
     const atlases = new Set<SpriteAtlas>();
     for (const icon of icons) {
@@ -1367,6 +1367,10 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     }
     const groups = this.getSymbolPartGroups('icon', () => this.getRowsWithText());
     const {props: angleProps, getAngle, extensions: angleExtensions} = this.getIconAngleProps();
+    const scaleBillboard =
+      labelSizeUnits === 'pixels' &&
+      (angleProps.billboard ?? billboard) &&
+      isGeographicFirstPersonViewport(this.context?.viewport);
     const textFit = this.getStyleProperty('text-field') ? this.getIconTextFit() : 'none';
     const fitted = textFit === 'none' ? null : this.getFittedIconParts(icons, textFit);
     // Sprite ids are arbitrary strings, so `${id}${idSuffix}` (and a copy's `-overlap`) can repeat
@@ -1402,7 +1406,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
             ...(this.props.extensions || []),
             LABEL_PLACEMENT_EXTENSION,
             GLOBE_HORIZON_EXTENSION,
-            ...angleExtensions
+            ...angleExtensions,
+            ...(scaleBillboard ? [FIRST_PERSON_LABEL_SIZE_EXTENSION] : [])
           ],
           ...this.getPlacementProps(1),
           getPosition: (d: LabelRow) => d.position,
@@ -2684,10 +2689,10 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     );
   }
 
-  /** Explicit viewport pitch can be combined with map-relative rotation. */
+  /** First-person viewport pitch can be combined with map-relative rotation. */
   usesMercatorLineBillboard(viewport: unknown = this.context?.viewport): boolean {
     return this.props.billboard !== false &&
-      !isGeographicViewport(viewport) &&
+      isGeographicFirstPersonViewport(viewport) &&
       this.getStyleProperty('text-pitch-alignment')?.evaluate(getZoomBucket(this.props.zoom || 0)) === 'viewport';
   }
 
@@ -2695,7 +2700,8 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
    * Text layer props for labels along lines: each label is turned to its line, upright when
    * `text-keep-upright` is set (the default). On a flat map they are drawn in the map plane, as
    * MapLibre does with the `auto` `text-rotation-alignment` and `text-pitch-alignment` of line
-   * placement. On a globe or with viewport pitch alignment, they follow the line in screen space.
+   * placement. On a globe or in first-person with viewport pitch alignment, they follow the line
+   * in screen space.
    */
   getLineLabelProps(): Record<string, unknown> {
     const placement = this.getSymbolPlacement();
@@ -3675,14 +3681,17 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     const padding = PLACEMENT_VIEWPORT_PADDING;
     const {width, height} = viewport;
     const isGlobe = isGlobeViewport(viewport);
+    const firstPerson = isGeographicFirstPersonViewport(viewport);
     // Text along lines and icons aligned to the map are drawn in the map plane on a flat map: their
     // pixel offsets turn with the bearing and are foreshortened by the pitch.
     const textInMapPlane = !isGlobe && Boolean(lineProps.getAngle) && lineProps.billboard === false;
     const iconInMapPlane = !isGlobe && iconAngleProps?.props.billboard === false;
+    const scaleBillboards = firstPerson && this.props.labelSizeUnits === 'pixels';
+    const scaleText = scaleBillboards && (lineProps.billboard ?? this.props.billboard);
+    const scaleIcon = scaleBillboards && iconAngleProps &&
+      (iconAngleProps.props.billboard ?? this.props.billboard);
     const referenceDepth =
-      (lineProps.billboard ?? this.props.billboard) && isGeographicFirstPersonViewport(viewport)
-        ? getFirstPersonLabelReferenceDepth(viewport)
-        : 0;
+      (scaleText || scaleIcon) && firstPerson ? getFirstPersonLabelReferenceDepth(viewport) : 0;
     const toScreen = [1, 0, 0, 1];
     // Glyphs placed along lines, as drawn (see `getLineGlyphProps`).
     const curves = textInMapPlane && this.curvesLineText(viewport);
@@ -3718,16 +3727,16 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       let occluded = false;
       let common: number[] | null = null;
       let anchorDepth = 0;
-      if (commons) {
-        const cx = commons[i * 3];
-        const cy = commons[i * 3 + 1];
-        const cz = commons[i * 3 + 2];
+      if (commons || firstPerson) {
+        common = commons
+          ? [commons[i * 3], commons[i * 3 + 1], commons[i * 3 + 2]]
+          : this.projectPosition(row.position, {viewport, autoOffset: false});
+        const [cx, cy, cz] = common;
         const w = m[3] * cx + m[7] * cy + m[11] * cz + m[15];
         anchorDepth = w;
         sx = (m[0] * cx + m[4] * cy + m[8] * cz + m[12]) / w;
         sy = (m[1] * cx + m[5] * cy + m[9] * cz + m[13]) / w;
-        occluded = horizon ? horizon(cx, cy, cz) : false;
-        common = [cx, cy, cz];
+        occluded = (firstPerson && w <= 0) || Boolean(horizon?.(cx, cy, cz));
       } else {
         [sx, sy] = this.project(row.position as any) as number[];
         occluded = isGlobe && this.isBeyondHorizon(viewport, row.position);
@@ -3750,16 +3759,12 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       const inMapPlane =
         ((textInMapPlane || textBillboardTurn?.opts.mercator) && !Number.isNaN(textBoxes[t + 2])) ||
         (iconInMapPlane && !Number.isNaN(iconBoxes[t]));
-      if (referenceDepth > 0 && !common) {
-        common = this.projectPosition(row.position as number[], {autoOffset: false});
-        anchorDepth = m[3] * common[0] + m[7] * common[1] + m[11] * common[2] + m[15];
-      }
       if (inMapPlane) {
         common ||= viewport.projectPosition(viewport.unproject([sx, sy])) as number[];
         getMapPlaneToScreen(viewport, common, sx, sy, toScreen);
       }
-      const textScale = getFirstPersonLabelPerspective(referenceDepth, anchorDepth);
-      occluded ||= referenceDepth > 0 && anchorDepth <= 0;
+      const perspective = getFirstPersonLabelPerspective(referenceDepth, anchorDepth);
+      const textScale = scaleText ? perspective : 1;
       let text: PlacementShape | null = null;
       let textAnchors: PlacementSymbol['textAnchors'];
       const w = textBoxes[t + 2];
@@ -3863,6 +3868,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
       }
       let icon: PlacementShape | null = null;
       if (!Number.isNaN(iconBoxes[t])) {
+        const iconScale = scaleIcon ? perspective : 1;
         let iconAngle = getIconAngle ? getIconAngle(row) : 0;
         if (iconGlobeTurn) {
           iconAngle =
@@ -3876,7 +3882,12 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
             Math.PI;
         }
         const [bx1, by1, bx2, by2] = getTurnedBounds(
-          [iconBoxes[t], iconBoxes[t + 1], iconBoxes[t + 2], iconBoxes[t + 3]],
+          [
+            iconBoxes[t] * iconScale,
+            iconBoxes[t + 1] * iconScale,
+            iconBoxes[t + 2] * iconScale,
+            iconBoxes[t + 3] * iconScale
+          ],
           iconAngle,
           iconInMapPlane ? toScreen : null
         );
@@ -4025,7 +4036,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
             GLOBE_HORIZON_EXTENSION,
             TEXT_HALO_BLUR_EXTENSION,
             ...this.getLineAngleExtensions('getAngle' in lineLabelProps, 'text-keep-upright'),
-            ...(firstPerson && (lineLabelProps.billboard ?? billboard)
+            ...(firstPerson && labelSizeUnits === 'pixels' && (lineLabelProps.billboard ?? billboard)
               ? [FIRST_PERSON_LABEL_SIZE_EXTENSION]
               : [])
           ],

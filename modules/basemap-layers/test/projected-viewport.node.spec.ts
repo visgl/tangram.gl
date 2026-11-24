@@ -4,6 +4,7 @@
 
 import {beforeAll, describe, expect, test} from 'vitest';
 import {
+  FirstPersonViewport,
   _CustomProjectionViewport as CustomProjectionViewport,
   _GlobeViewport as GlobeViewport,
   WebMercatorViewport
@@ -191,6 +192,29 @@ describe('projected viewport helpers', () => {
     expect(getBackgroundSquare(broken)).toBeNull();
     const square = getBackgroundSquare(createViewport(utm, [10.5, 48], 10))!;
     expect(getBackgroundSquare(broken, square)).toBe(square);
+  });
+
+  test('a distant first-person far plane is limited by the ground horizon', () => {
+    const viewport = new FirstPersonViewport({
+      width: 400, height: 200, longitude: 0, latitude: 0, position: [0, 0, 100], far: 5e6
+    });
+    // From 100 m above Earth, the horizon is about 0.32 degrees away at the equator.
+    expect(getBackgroundSquare(viewport)!.viewReach).toBeCloseTo(0.32, 2);
+  });
+
+  test('wrapped first-person frustum corners keep the background local at the antimeridian', () => {
+    const viewport = new FirstPersonViewport({
+      width: 400, height: 200, longitude: 179.9999, latitude: 0, position: [0, 0, 100],
+      bearing: 90, far: 2000
+    });
+    const unwrapped = getBackgroundSquare(viewport);
+    const unproject = viewport.unproject.bind(viewport);
+    viewport.unproject = (xyz, options) => {
+      const [longitude, latitude, altitude] = unproject(xyz, options);
+      return [longitude > 180 ? longitude - 360 : longitude, latitude, altitude];
+    };
+    expect(viewport.unproject([0, 0, 1])[0]).toBeLessThan(-179);
+    expect(getBackgroundSquare(viewport)!.viewReach).toBeCloseTo(unwrapped!.viewReach, 8);
   });
 
   test('a Web Mercator direction turns by the convergence of the projection', () => {
