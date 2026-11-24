@@ -557,6 +557,18 @@ The props go to the fill, line, circle, extrusion and label sublayers of each ti
 
 The function receives the resolved style layer. Select style layers by `id`, `type`, `source` or `source-layer`, not by the deck.gl ids of the sublayers: those change when the style changes. The deck.gl form of this prop for other composite layers is `_subLayerProps`, keyed by sublayer id.
 
+## First-person views
+
+In a geospatial `FirstPersonView`, map-aligned line text with `text-pitch-alignment` set to
+`viewport` faces the camera and follows the line's screen direction. In a WebGL `MapView`,
+pixel-sized, map-aligned text follows the line glyph by glyph wherever it fits.
+
+The first-person distance adjustment applies to billboard symbols when `labelSizeUnits` is
+`'pixels'` (the default). Billboard text and icons, including `icon-text-fit` shields,
+use the same adjustment for drawing and collision. Symbols behind the camera are excluded
+from collision placement. The ground horizon bounds the background's reach as the far plane
+increases.
+
 ## Projected views
 
 `BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, as `mode: 'auto'` does.

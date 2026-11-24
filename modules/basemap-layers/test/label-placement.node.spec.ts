@@ -7,8 +7,9 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, test, vi} from 'vitest';
-import {_GlobeViewport as GlobeViewport, WebMercatorViewport} from '@deck.gl/core';
+import {FirstPersonViewport, _GlobeViewport as GlobeViewport, WebMercatorViewport} from '@deck.gl/core';
 import {GridIndex, allowsOverlap} from '../src/grid-index.ts';
+import {FirstPersonLabelSizeExtension} from '../src/globe-line-angle-extension.ts';
 import {
   ANCHOR_SHIFT,
   ICON_VISIBLE,
@@ -668,6 +669,77 @@ function placementOrder(layer: any): string[] {
   const rows = layer.getRows();
   return out.map(({slot}) => rows[slot].__source.object.properties.name);
 }
+
+describe('MVTLabelLayer first-person placement', () => {
+  const viewport = new FirstPersonViewport({
+    ...VIEWPORT,
+    longitude: 0,
+    latitude: 0,
+    position: [0, 0, 100],
+    pitch: 30,
+    far: 20000
+  });
+
+  function firstPersonLayer(
+    layout: Record<string, unknown>,
+    props: Record<string, unknown> = {},
+    latitude = 0.001
+  ): MVTLabelLayer {
+    const layer = labelLayer(layout, [{properties: {}, x: 0}], {tiles: [], ...props});
+    layer.state.labelData[0].position = [0, latitude];
+    layer.context = {viewport};
+    layer.project = MVTLabelLayer.prototype.project;
+    return layer;
+  }
+
+  test.each(['meters', 'common'])('leaves %s text out of first-person pixel sizing', labelSizeUnits => {
+    const layer = firstPersonLayer({'text-field': 'Road', 'text-padding': 0}, {labelSizeUnits});
+    const text = layer.renderLayers().at(-1);
+    expect.soft(text.props.extensions).not.toContainEqual(expect.any(FirstPersonLabelSizeExtension));
+
+    const symbols: PlacementSymbol[] = [];
+    layer.getPlacementSymbols(viewport, 0, symbols);
+    const [left, , right] = symbols[0].text!.box!;
+    expect(right - left).toBeCloseTo(layer.getPlacementGeometry()!.textBoxes[2]);
+  });
+
+  test('a billboarded fitted shield draws and collides at the same depth scale as its text', () => {
+    const layer = firstPersonLayer({
+      'text-field': 'Road',
+      'text-padding': 0,
+      'icon-image': 'bar',
+      'icon-text-fit': 'both',
+      'icon-padding': 0
+    });
+    const [shield, text] = layer.renderLayers();
+    expect(shield.id).toContain('icons-fit');
+    expect.soft(shield.props.extensions).toContainEqual(expect.any(FirstPersonLabelSizeExtension));
+    expect(text.props.extensions).toContainEqual(expect.any(FirstPersonLabelSizeExtension));
+
+    const symbols: PlacementSymbol[] = [];
+    layer.getPlacementSymbols(viewport, 0, symbols);
+    const geometry = layer.getPlacementGeometry()!;
+    const [textLeft, , textRight] = symbols[0].text!.box!;
+    const [iconLeft, , iconRight] = symbols[0].icon!.box!;
+    const textScale = (textRight - textLeft) / geometry.textBoxes[2];
+    expect(textScale).toBeGreaterThan(1);
+    expect((iconRight - iconLeft) / (geometry.iconBoxes[2] - geometry.iconBoxes[0])).toBeCloseTo(textScale);
+  });
+
+  test('a map-plane label behind the first-person camera takes no collision space', () => {
+    const layer = firstPersonLayer(
+      {'text-field': 'Road', 'symbol-placement': 'line'},
+      {},
+      -0.005
+    );
+    expect(layer.getLineLabelProps().billboard).toBe(false);
+
+    const symbols: PlacementSymbol[] = [];
+    const rules = layer.getPlacementSymbols(viewport, 0, symbols)!;
+    expect(symbols).toHaveLength(1);
+    expect(placeSymbol(new GridIndex(600, 400, 25), symbols[0], rules)).toBe(0);
+  });
+});
 
 describe('MVTLabelLayer placement symbols', () => {
   test('in MapLibre order: deeper tiles first, then by tile x and y, then feature order', () => {
