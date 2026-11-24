@@ -364,6 +364,24 @@ describe('circle layers', () => {
     ]);
   });
 
+  test.each([
+    ['webgl', 'circleTranslateGlobe', 'glsl'],
+    ['webgpu', 'circleTranslate', 'wgsl']
+  ] as const)('circle translation clips an occluded moved billboard on %s', (type, name, language) => {
+    const extension = new CircleTranslateExtension();
+    const layer: any = {context: {device: {type}}};
+    const {plugins} = extension.getShaders.call(layer);
+    const plugin = plugins.find(candidate => candidate.name === name);
+    expect(plugin?.injections).toContainEqual(
+      expect.objectContaining({
+        target: 'DECKGL_FILTER_GL_POSITION',
+        [language]: expect.stringMatching(
+          /if \(project_globe_is_occluded\(moved\.xyz\)\)\s*\{\s*\*?position = vec4(?:<f32>)?\(0\.0, 0\.0, 2\.0, 1\.0\);/
+        )
+      })
+    );
+  });
+
   test('the blur extension adds a WGSL plugin on WebGPU', () => {
     const extension = new CircleBlurExtension();
     const layer: any = {context: {device: {type: 'webgpu'}}};

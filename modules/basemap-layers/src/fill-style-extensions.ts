@@ -30,6 +30,21 @@ const fillTranslateModule = createShaderInjectionPlugin({
 layout(std140) uniform fillTranslateUniforms {
   vec2 offset;
 } fillTranslate;
+
+vec4 fillTranslate_getPosition(vec4 position) {
+  vec2 pixels = vec2(fillTranslate.offset.x, -fillTranslate.offset.y);
+  if (project.projectionMode == PROJECTION_MODE_GLOBE) {
+    // The globe is centred at the origin with its axis along z.
+    vec3 up = normalize(position.xyz);
+    vec3 east = vec3(-up.y, up.x, 0.0);
+    east = length(east) > 0.0 ? normalize(east) : vec3(1.0, 0.0, 0.0);
+    vec3 north = cross(up, east);
+    position.xyz += (east * pixels.x + north * pixels.y) / project.scale;
+  } else {
+    position.xy += pixels / project.scale;
+  }
+  return position;
+}
 `,
   uniformTypes: {offset: 'vec2<f32>'},
   inject: {
@@ -37,23 +52,7 @@ layout(std140) uniform fillTranslateUniforms {
       order: -1,
       injection: /* glsl */ `
   if (fillTranslate.offset != vec2(0.0)) {
-    vec2 fillTranslate_pixels = vec2(fillTranslate.offset.x, -fillTranslate.offset.y);
-    vec4 fillTranslate_position = geometry.position;
-    if (project.projectionMode == PROJECTION_MODE_GLOBE) {
-      // The globe is centred at the origin with its axis along z.
-      vec3 fillTranslate_up = normalize(geometry.position.xyz);
-      vec3 fillTranslate_east = vec3(-fillTranslate_up.y, fillTranslate_up.x, 0.0);
-      fillTranslate_east = length(fillTranslate_east) > 0.0
-        ? normalize(fillTranslate_east)
-        : vec3(1.0, 0.0, 0.0);
-      vec3 fillTranslate_north = cross(fillTranslate_up, fillTranslate_east);
-      fillTranslate_position.xyz +=
-        (fillTranslate_east * fillTranslate_pixels.x + fillTranslate_north * fillTranslate_pixels.y) /
-        project.scale;
-    } else {
-      fillTranslate_position.xy += fillTranslate_pixels / project.scale;
-    }
-    position = project_common_position_to_clipspace(fillTranslate_position);
+    position = project_common_position_to_clipspace(fillTranslate_getPosition(geometry.position));
   }
 `
     }

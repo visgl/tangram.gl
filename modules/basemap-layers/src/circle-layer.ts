@@ -96,9 +96,8 @@ export class CircleBlurExtension extends LayerExtension {
 const CIRCLE_BLUR_EXTENSION = new CircleBlurExtension();
 
 /**
- * Moves a billboard circle that `FillTranslateExtension` has moved toward the camera on a globe,
- * as `ScatterplotLayer` does before the extension runs (see deck.gl's
- * `project_globe_billboard_clipspace`), so that the curve of the globe does not clip it.
+ * Checks globe visibility and applies deck.gl's billboard depth adjustment at the translated
+ * center. ScatterplotLayer still checks visibility at the original center.
  */
 const circleTranslateGlobeModule = createShaderInjectionPlugin({
   name: 'circleTranslateGlobe',
@@ -106,7 +105,12 @@ const circleTranslateGlobeModule = createShaderInjectionPlugin({
   inject: {
     'vs:DECKGL_FILTER_GL_POSITION': /* glsl */ `
   if (fillTranslate.offset != vec2(0.0) && scatterplot.billboard) {
-    position = project_globe_billboard_clipspace(position, geometry.position.xyz);
+    vec4 moved = fillTranslate_getPosition(geometry.position);
+    if (project_globe_is_occluded(moved.xyz)) {
+      position = vec4(0.0, 0.0, 2.0, 1.0);
+    } else {
+      position = project_globe_billboard_clipspace(position, moved.xyz);
+    }
   }
 `
   }
@@ -141,14 +145,18 @@ var<private> circleTranslate_center: vec4<f32>;
       *position = project_common_position_to_clipspace(fillTranslate_getPosition(geometry.position));
     } else if (!project_globe_is_occluded(circleTranslate_center.xyz)) {
       let center = circleTranslate_center;
-      let centerClip = project_globe_billboard_clipspace(
-        project_common_position_to_clipspace(center), center.xyz
-      );
-      let corner = *position - centerClip;
       let moved = fillTranslate_getPosition(center);
-      *position = project_globe_billboard_clipspace(
-        project_common_position_to_clipspace(moved), moved.xyz
-      ) + corner;
+      if (project_globe_is_occluded(moved.xyz)) {
+        *position = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+      } else {
+        let centerClip = project_globe_billboard_clipspace(
+          project_common_position_to_clipspace(center), center.xyz
+        );
+        let corner = *position - centerClip;
+        *position = project_globe_billboard_clipspace(
+          project_common_position_to_clipspace(moved), moved.xyz
+        ) + corner;
+      }
     }
   }
 `

@@ -121,6 +121,8 @@ Selects whether the sublayers draw as a flat map or on a globe. Defaults to `'au
 
 This matches MapLibre GL JS, where the projection of the map selects how the style draws. Here, the deck.gl view is the projection, so most apps do not set `mode`.
 
+On a globe, `circle-translate` hides a circle when the globe occludes either its original center or its translated center. This applies on WebGL and WebGPU.
+
 ### `featureState`
 
 Type: `BasemapFeatureState | null`

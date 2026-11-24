@@ -93,15 +93,22 @@ type TranslateCase = {
   paint: Record<string, unknown>;
 };
 
-const CASES: TranslateCase[] = [
-  {type: 'line', feature: LINE, paint: {'line-color': '#000000', 'line-width': 6}},
-  {type: 'circle', feature: POINT, paint: {'circle-color': '#000000', 'circle-radius': 8}},
+const CASES: (TranslateCase & {name: string})[] = [
+  {name: 'line', type: 'line', feature: LINE, paint: {'line-color': '#000000', 'line-width': 6}},
   {
+    name: 'circle (viewport)',
+    type: 'circle',
+    feature: POINT,
+    paint: {'circle-color': '#000000', 'circle-radius': 8}
+  },
+  {
+    name: 'circle (map)',
     type: 'circle',
     feature: POINT,
     paint: {'circle-color': '#000000', 'circle-radius': 8, 'circle-pitch-alignment': 'map'}
   },
   {
+    name: 'fill-extrusion',
     type: 'fill-extrusion',
     feature: SQUARE,
     paint: {
@@ -132,7 +139,7 @@ export function defineTranslateTests(options: BackendPaintTestOptions): void {
     }).then(getFootprint);
 
   describe(`${deviceType}: line, circle and fill-extrusion translate`, () => {
-    test.each(CASES)('$type-translate moves by its pixels, x right and y down', async c => {
+    test.each(CASES)('$name translate moves by its pixels, x right and y down', async c => {
       const {centroid: plain} = await render(c, {});
       expect(Math.abs(plain[0] - CENTER)).toBeLessThanOrEqual(1);
       expect(Math.abs(plain[1] - CENTER)).toBeLessThanOrEqual(1);
@@ -141,7 +148,7 @@ export function defineTranslateTests(options: BackendPaintTestOptions): void {
     });
 
     test.each(CASES)(
-      '$type-translate: a map anchor turns with the map, a viewport anchor stays on screen',
+      '$name translate turns with a map anchor and keeps its screen direction with a viewport anchor',
       async c => {
         // With the map turned 90 degrees, east points up and south to the right on screen.
         const viewOptions = {bearing: 90};
@@ -196,6 +203,28 @@ export function defineTranslateTests(options: BackendPaintTestOptions): void {
       expectMoved(translated.centroid, reference.centroid, [0, 0], tolerance);
       expect(Math.abs(translated.width - reference.width)).toBeLessThanOrEqual(1);
       expect(Math.abs(translated.height - reference.height)).toBeLessThanOrEqual(1);
+    });
+
+    test('circle-translate hides a billboard moved behind the globe', async () => {
+      const view = new GlobeView({id: 'translate-globe-limb'});
+      const viewState = {longitude: 0, latitude: 0, zoom: -1, minZoom: -1};
+      // The elevated point is visible across the limb. Moving it east puts it behind the globe.
+      const point = feature({type: 'Point', coordinates: [86, 0, 100_000]});
+      const renderCircle = (offset: [number, number]) =>
+        draw(
+          vectorTile(
+            {type: 'circle', paint: {'circle-radius': 8, 'circle-translate': offset}},
+            [point],
+            deviceType,
+            0,
+            'globe'
+          ),
+          {view, viewState}
+        );
+
+      getFootprint(await renderCircle([0, 0]));
+      const translated = await renderCircle([12, 0]);
+      expect(translated.data.every(channel => channel === 255), 'no pixels drawn').toBe(true);
     });
   });
 }
