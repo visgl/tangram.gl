@@ -62,12 +62,17 @@ function feature(type: string, coordinates: unknown, properties: Record<string, 
   };
 }
 
-/** Renders layers on a white canvas and returns the first frame drawn after they load. */
+/**
+ * Renders layers on a white canvas and returns the first frame drawn after they load. The deck
+ * draws every frame itself (`_animate`), after it has updated its layers, so a frame comes after
+ * the last layer loads, and a pending layer update does not count as loaded.
+ */
 function render(layers: unknown[], view: unknown, viewState: Record<string, unknown>) {
   parent = document.createElement('div');
   document.body.append(parent);
   return new Promise<ImageData>((resolve, reject) => {
     const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 10_000);
+    let done = false;
     deck = new Deck({
       parent,
       width: SIZE,
@@ -77,9 +82,18 @@ function render(layers: unknown[], view: unknown, viewState: Record<string, unkn
       views: view as any,
       initialViewState: viewState as any,
       layers: layers as any,
+      _animate: true,
       onAfterRender: () => {
-        const loaded = (deck as any)?.layerManager?.getLayers() || [];
-        if (!loaded.length || loaded.some((layer: any) => !layer.isLoaded)) {
+        if (done) {
+          return;
+        }
+        const layerManager = (deck as any)?.layerManager;
+        const loaded = layerManager?.getLayers() || [];
+        if (
+          layerManager?.needsUpdate() ||
+          !loaded.length ||
+          loaded.some((layer: any) => !layer.isLoaded)
+        ) {
           return;
         }
         // Read the frame back in the render callback, before the drawing buffer is cleared.
@@ -90,6 +104,7 @@ function render(layers: unknown[], view: unknown, viewState: Record<string, unkn
         context.fillStyle = '#ffffff';
         context.fillRect(0, 0, SIZE, SIZE);
         context.drawImage(deck!.getCanvas()!, 0, 0);
+        done = true;
         window.clearTimeout(timeout);
         resolve(context.getImageData(0, 0, SIZE, SIZE));
       },
