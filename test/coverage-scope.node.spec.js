@@ -112,10 +112,11 @@ describe('coverage scope guard', () => {
     expect(layerFiles.some(filePath => filePath.endsWith('.d.ts'))).toBe(false);
   });
 
-  test('includes the extracted shared text sources in the authored inventory', () => {
+  test('includes shared map utilities in the authored inventory', () => {
     const sourceFiles = collectAuthoredSourceFiles('modules/map-utils/src');
     expect(sourceFiles.map(filePath => basename(filePath)).sort()).toEqual([
-      'arabic-shaping.ts', 'bidi.ts', 'canvas.ts', 'explicit.ts', 'screen-ray.ts', 'types.ts'
+      'arabic-shaping.ts', 'bidi.ts', 'canvas.ts', 'explicit.ts', 'screen-ray.ts', 'types.ts',
+      'web-mercator.ts'
     ]);
   });
 

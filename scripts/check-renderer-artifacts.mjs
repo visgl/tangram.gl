@@ -53,6 +53,15 @@ if (rendererSources.some(source => /bidi-js|map-utils\/src\/text\/(?:arabic-shap
   throw new Error('The classic renderer unexpectedly bundles the explicit bidi engine.');
 }
 
+for (const bundlePath of ['tangram.debug.mjs', 'core.js', 'scene-worker.js', 'projected-basemaps-worker.js']) {
+  const {sources} = JSON.parse(
+    readFileSync(resolve(rendererDirectory, 'dist', `${bundlePath}.map`), 'utf8')
+  );
+  if (!sources.some(source => source.endsWith('map-utils/src/web-mercator.ts'))) {
+    throw new Error(`${bundlePath} does not bundle the shared Web Mercator module.`);
+  }
+}
+
 const expectedExports = {
   '.': './dist/index.js',
   './core': './dist/core.js',

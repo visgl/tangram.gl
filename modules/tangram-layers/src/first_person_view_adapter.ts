@@ -3,13 +3,12 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
+import {CIRCUMFERENCE_METERS, TILE_SIZE} from '@tangram.gl/map-utils/web-mercator';
 import {calculatePlanarVolumeBounds, type HostCamera, type LegacyHostFrame} from '@tangram.gl/tangram-renderer/core';
 import WebMercatorViewAdapter from './web_mercator_view_adapter.js';
 import type {FirstPersonViewport} from './view_adapter_types.js';
 
 const DECK_WORLD_SIZE = 512;
-const HALF_WORLD_METERS = 20037508.342789244;
-const TILE_SIZE = 256;
 const MAX_MERCATOR_LATITUDE = 85.05112878;
 const DEFAULT_GROUND_EXTENT = 20000;
 
@@ -77,7 +76,7 @@ export function getFirstPersonFrameForCamera(
     sw: {x: eye[0] - extent, y: eye[1] - extent},
     ne: {x: eye[0] + extent, y: eye[1] + extent}
   });
-  const xyScale = DECK_WORLD_SIZE / (HALF_WORLD_METERS * 2);
+  const xyScale = DECK_WORLD_SIZE / CIRCUMFERENCE_METERS;
   const toGeographic = (x: number, y: number) => unprojectFlat.call(viewport, [
     x * xyScale + DECK_WORLD_SIZE / 2, y * xyScale + DECK_WORLD_SIZE / 2
   ]);
@@ -99,7 +98,7 @@ export function getFirstPersonFrameForCamera(
   return {
     viewport: {width, height},
     view: {longitude: center[0], latitude: center[1], altitude: eye[2],
-      zoom: Math.max(0, Math.log2(HALF_WORLD_METERS * 2 / (TILE_SIZE * metersPerPixel)))},
+      zoom: Math.max(0, Math.log2(CIRCUMFERENCE_METERS / (TILE_SIZE * metersPerPixel)))},
     projection: {type: 'web-mercator', visibleBounds},
     camera,
     tileBuffer: 1

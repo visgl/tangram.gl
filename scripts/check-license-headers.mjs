@@ -118,6 +118,7 @@ const TANGRAM_RENDERER_FILES = new Set([
   'modules/tangram-renderer/src/styles/text/text_canvas.ts',
   'modules/tangram-renderer/src/styles/text/text_labels.ts',
   'modules/map-utils/src/text/canvas.ts',
+  'modules/map-utils/src/web-mercator.ts',
   'modules/tangram-renderer/src/styles/text/text_settings.ts',
   'modules/tangram-renderer/src/styles/text/text_wrap.ts',
   'modules/tangram-renderer/src/tile/tile.ts',
@@ -166,6 +167,7 @@ const TANGRAM_RENDERER_FILES = new Set([
 // Keep the original Tangram notice and append the vis.gl modification notice.
 const VISGL_MODIFIED_TANGRAM_FILES = new Set([
   'modules/map-utils/src/text/canvas.ts',
+  'modules/map-utils/src/web-mercator.ts',
   'modules/tangram-renderer/src/shader-modules/triplanar.ts',
   'modules/tangram-renderer/src/shader-modules/planar.ts',
   'modules/tangram-renderer/src/shader-modules/sphere-map.ts',

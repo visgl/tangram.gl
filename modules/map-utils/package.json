@@ -15,12 +15,17 @@
     "./text/explicit": {
       "types": "./dist/types/text/explicit.d.ts",
       "default": "./src/text/explicit.ts"
+    },
+    "./web-mercator": {
+      "types": "./dist/types/web-mercator.d.ts",
+      "default": "./src/web-mercator.ts"
     }
   },
   "scripts": {
-    "build:types": "node ../../scripts/build-package-types.mjs modules/map-utils screen-ray.ts text/canvas.ts text/explicit.ts"
+    "build:types": "node ../../scripts/build-package-types.mjs modules/map-utils screen-ray.ts text/canvas.ts text/explicit.ts web-mercator.ts"
   },
   "dependencies": {
+    "@math.gl/geospatial": "5.0.0-beta.8",
     "bidi-js": "^1.1.0"
   }
 }

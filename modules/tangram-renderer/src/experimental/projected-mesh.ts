@@ -7,6 +7,7 @@ import {equalEarth} from '@math.gl/geospatial/projection/projections/eqearth';
 import {albersEqualArea} from '@math.gl/geospatial/projection/projections/aea';
 import {equidistantCylindrical} from '@math.gl/geospatial/projection/projections/eqc';
 import {mercator} from '@math.gl/geospatial/projection/projections/merc';
+import {CIRCUMFERENCE_METERS, MERCATOR_RADIUS} from '@tangram.gl/map-utils/web-mercator';
 import {refineGlobeMesh} from '../gl/globe_mesh';
 import {normalizeProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {getProjectedCoordinateOptions, PROJECTED_COMMON_SCALE} from '../procedures/projected-coordinate-transform';
@@ -19,7 +20,6 @@ import {refineProjectedMesh} from './projected-mesh-refinement';
 import {projectSymbolMesh} from './projected-symbol-mesh';
 import type {ProjectedRefinementWork} from './projected-mesh-refinement';
 
-const SPHERE_RADIUS = 6378137;
 const transforms = new Map<ProjectedBasemapOptions['type'], ProjectionTransform>();
 const preparationCache = new ProjectedMeshPreparationCache();
 let projectedResultCache = new ProjectedMeshPreparationCache(16 * 1024 * 1024, 32);
@@ -157,7 +157,7 @@ function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRe
     const projection = normalizeProjectedBasemapOptions(request.projection);
     if (request.geometry === 'points' || request.geometry === 'text') return yield* projectSymbolMesh(request);
     const {tile, layout} = request;
-    const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * Math.PI * SPHERE_RADIUS);
+    const unitsPerMeter = 4096 * 2 ** tile.coords.z / CIRCUMFERENCE_METERS;
     const position = layout.dynamic_attribs.find(attribute => attribute.name === 'a_position');
     const projected = layout.dynamic_attribs.find(attribute => attribute.name === 'a_projected_position');
     const extrusion = layout.dynamic_attribs.find(attribute => attribute.name === 'a_extrude');
@@ -242,9 +242,9 @@ function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRe
         // Clipping handled whole triangles. Clamp only packed-coordinate rounding at cut intersections.
         const x = Math.max(domain[0], Math.min(domain[2], tile.min.x + localX / unitsPerMeter));
         const y = Math.max(domain[1], Math.min(domain[3], tile.min.y + localY / unitsPerMeter));
-        const longitude = Math.max(-180, Math.min(180, x / SPHERE_RADIUS * 180 / Math.PI));
+        const longitude = Math.max(-180, Math.min(180, x / MERCATOR_RADIUS * 180 / Math.PI));
         const latitude = Math.max(-85.0511287798066, Math.min(85.0511287798066,
-            (2 * Math.atan(Math.exp(y / SPHERE_RADIUS)) - Math.PI / 2) * 180 / Math.PI));
+            (2 * Math.atan(Math.exp(y / MERCATOR_RADIUS)) - Math.PI / 2) * 180 / Math.PI));
         return [longitude, latitude];
     };
     const refined = yield* refineProjectedMesh(clipped, request,
@@ -268,9 +268,9 @@ function* prepareProjectedMesh(request: MeshProjectionRequest, work: ProjectedRe
             const samples = [[-8, 0], [8, 0], [0, -8], [0, 8]].map(displacement =>
                 geographicPosition(vertex, false, [displacement[0], displacement[1]]));
             const latitudeScale = Math.cos(geographicPosition(vertex)[1] * Math.PI / 180);
-            const mercatorY = (latitude: number) => SPHERE_RADIUS * Math.asinh(Math.tan(latitude * Math.PI / 180));
+            const mercatorY = (latitude: number) => MERCATOR_RADIUS * Math.asinh(Math.tan(latitude * Math.PI / 180));
             normalSamples.set(index, {offset: coordinates.length,
-                eastSpan: (samples[1][0] - samples[0][0]) * Math.PI / 180 * SPHERE_RADIUS * latitudeScale,
+                eastSpan: (samples[1][0] - samples[0][0]) * Math.PI / 180 * MERCATOR_RADIUS * latitudeScale,
                 northSpan: (mercatorY(samples[3][1]) - mercatorY(samples[2][1])) * latitudeScale});
             for (const sample of samples) coordinates.push(...sample);
         }

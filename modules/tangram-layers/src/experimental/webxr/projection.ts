@@ -4,6 +4,7 @@
 
 import {Matrix4} from '@math.gl/core';
 import {PlaneShape, SphereShape} from '@math.gl/geometry/culling';
+import {HALF_CIRCUMFERENCE_METERS} from '@tangram.gl/map-utils/web-mercator';
 import {PROJECTION_CONSTANTS, unprojectGlobePosition} from '@tangram.gl/tangram-renderer/core';
 import type {
   XRGeographicPosition,
@@ -16,7 +17,6 @@ import type {
   XRVector3
 } from './types.ts';
 
-const TANGRAM_HALF_WORLD_METERS = 20037508.342789244;
 const GLOBE_RADIUS = PROJECTION_CONSTANTS.globeRadius;
 // Content-space queries need no shape transform: placement is inverted before picking.
 const MAP_SURFACE = new PlaneShape();
@@ -32,9 +32,9 @@ export function longitudeLatitudeToMeters(longitude: number, latitude: number): 
     Math.min(MAX_MERCATOR_LATITUDE, latitude)
   );
   return [
-    (longitude / 180) * TANGRAM_HALF_WORLD_METERS,
+    (longitude / 180) * HALF_CIRCUMFERENCE_METERS,
     (Math.log(Math.tan(((90 + clampedLatitude) * Math.PI) / 360)) / Math.PI) *
-      TANGRAM_HALF_WORLD_METERS
+      HALF_CIRCUMFERENCE_METERS
   ];
 }
 
@@ -45,8 +45,8 @@ export function metersToLongitudeLatitude(
   altitude = 0
 ): [number, number, number] {
   return [
-    (x / TANGRAM_HALF_WORLD_METERS) * 180,
-    (Math.atan(Math.exp((y / TANGRAM_HALF_WORLD_METERS) * Math.PI)) * 360) / Math.PI - 90,
+    (x / HALF_CIRCUMFERENCE_METERS) * 180,
+    (Math.atan(Math.exp((y / HALF_CIRCUMFERENCE_METERS) * Math.PI)) * 360) / Math.PI - 90,
     altitude
   ];
 }
