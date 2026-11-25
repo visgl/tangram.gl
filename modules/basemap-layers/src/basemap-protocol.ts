@@ -4,7 +4,7 @@
 
 import {SharedMVTLayer} from '@deck.gl-community/geo-layers';
 import {Layer, type LayerProps} from '@deck.gl/core';
-import {parse} from '@loaders.gl/core';
+import {load, parse, type LoaderOptions} from '@loaders.gl/core';
 
 /**
  * The kind of resource a request expects, as MapLibre GL JS's `RequestParameters.type`: `'json'`
@@ -246,12 +246,26 @@ export function getBasemapLayerFetch(
       if (handler) {
         return loadProtocolTile(handler, url, type, context);
       }
-      if (
-        scheme &&
-        isDefaultLayerFetch(nextFetch) &&
-        typeof getLayerLoadOptions(context)?.fetch !== 'function'
-      ) {
-        return Promise.reject(getUnregisteredSchemeError(scheme, url));
+      if (isDefaultLayerFetch(nextFetch)) {
+        const loadOptions = getLayerLoadOptions(context);
+        const fetchOption = loadOptions?.fetch ?? loadOptions?.core?.fetch;
+        if (scheme && typeof fetchOption !== 'function') {
+          return Promise.reject(getUnregisteredSchemeError(scheme, url));
+        }
+        if (loadOptions && (fetchOption || loadOptions.fetchOptions || loadOptions.mimeType)) {
+          const options = getTileLoaderOptions(loadOptions, context.signal);
+          const hasCustomFetch = typeof options.core?.fetch === 'function';
+          // SharedMVTLayer always spreads core.fetch as request options, dropping function overrides.
+          if (hasCustomFetch && nextFetch === DEFAULT_MVT_FETCH) {
+            return load(url, context.loaders || context.layer.props.loaders, options);
+          }
+          // deck.gl also spreads core.fetch when the context has a signal. loaders.gl reads it from options.
+          return nextFetch(url, {
+            ...context,
+            loadOptions: options,
+            signal: hasCustomFetch ? undefined : context.signal
+          });
+        }
       }
       return nextFetch(url, context);
     };
@@ -272,9 +286,40 @@ function isDefaultLayerFetch(layerFetch: BasemapLayerFetch): boolean {
   return layerFetch === DEFAULT_LAYER_FETCH || layerFetch === DEFAULT_MVT_FETCH;
 }
 
+type TileLoadOptions = LoaderOptions & {
+  fetch?: NonNullable<LoaderOptions['core']>['fetch'];
+  fetchOptions?: RequestInit;
+  mimeType?: string;
+};
+
 /** The loaders.gl options of a layer `fetch` call, as deck.gl's default `fetch` takes them. */
-function getLayerLoadOptions(context: LayerFetchContext): any {
+function getLayerLoadOptions(context: LayerFetchContext): TileLoadOptions | undefined {
   return context.loadOptions || context.layer.getLoadOptions();
+}
+
+/** Translates the basemap's tile request options to the loaders.gl core namespace. */
+function getTileLoaderOptions(
+  loadOptions: TileLoadOptions,
+  signal: AbortSignal | undefined
+): LoaderOptions {
+  const {fetch: legacyFetch, fetchOptions, mimeType, core, ...loaderOptions} = loadOptions;
+  const fetchOption = legacyFetch ?? core?.fetch;
+  const requestDefaults = {...(typeof fetchOption === 'object' ? fetchOption : undefined), ...fetchOptions};
+  return {
+    ...loaderOptions,
+    signal: signal ?? loaderOptions.signal,
+    core: {
+      ...core,
+      mimeType: core?.mimeType ?? mimeType,
+      fetch: typeof fetchOption === 'function'
+        ? (url: string, init?: RequestInit) => {
+            const headers = new Headers(requestDefaults.headers);
+            new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+            return fetchOption(url, {...requestDefaults, ...init, headers});
+          }
+        : requestDefaults
+    }
+  };
 }
 
 /** Loads a tile with a protocol handler and parses it; an empty resource is a tile without data. */

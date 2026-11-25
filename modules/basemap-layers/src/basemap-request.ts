@@ -166,7 +166,7 @@ export function getBasemapLayerFetch(
  */
 function getRequestLoadOptions(context: LayerFetchContext, requestInit: RequestInit): any {
   const loadOptions = context.loadOptions || context.layer.getLoadOptions();
-  const baseFetch = loadOptions?.fetch;
+  const baseFetch = loadOptions?.fetch ?? loadOptions?.core?.fetch;
   const send: typeof fetch =
     typeof baseFetch === 'function'
       ? baseFetch

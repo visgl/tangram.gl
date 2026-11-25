@@ -196,7 +196,7 @@ describe('BasemapLayer onError', () => {
     async function fetchError(url: string, status: number): Promise<Error> {
       const fetchFn = fakeFetch({}, status);
       const loader = {name: 'test', extensions: ['png'], parse: async () => null} as any;
-      const options = {fetch: (input: string) => fetchFn(input)} as any;
+      const options = {core: {fetch: fetchFn}};
       return await load(url, loader, options).then(
         () => {
           throw new Error('expected the load to fail');

@@ -229,7 +229,7 @@ describe('transformRequest', () => {
     const raster = getRasterLayer({});
     const tileLayer = {
       context: {resourceManager: {contains: () => false}},
-      props: {loaders: []},
+      props: {loaders: [], _dataLoadOptions: 'auto'},
       getLoadOptions: () => null
     };
     await Promise.resolve(
