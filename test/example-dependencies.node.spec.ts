@@ -56,7 +56,7 @@ test('deck.gl and the renderer resolve the same installed luma and math runtimes
   const rendererRequire = createRequire(new URL('../modules/tangram-renderer/package.json', import.meta.url));
   const deckRequire = createRequire(rendererRequire.resolve('@deck.gl/core'));
   expect(deckRequire.resolve('@luma.gl/core')).toBe(rendererRequire.resolve('@luma.gl/core'));
-  expect(deckRequire.resolve('@math.gl/core')).toBe(rendererRequire.resolve('@math.gl/core'));
+  expect(deckRequire.resolve('@math.gl/core/matrix')).toBe(rendererRequire.resolve('@math.gl/core/matrix'));
   const lumaRequire = createRequire(rendererRequire.resolve('@luma.gl/core'));
   const probeVersion = JSON.parse(readFileSync(new URL('../package.json', pathToFileURL(lumaRequire.resolve('probe.gl'))), 'utf8')).version;
   expect(probeVersion).toMatch(/^5\./);
@@ -70,12 +70,12 @@ test('classic playground and deck.gl resolve the same installed loaders core', (
   expect(classicRequire.resolve('@loaders.gl/core')).toBe(deckRequire.resolve('@loaders.gl/core'));
 });
 
-test('renderer loaders use pinned v5 betas and layer math peers match the renderer', () => {
+test('renderer loaders use pinned v5 release candidates and layer math peers match the renderer', () => {
   const loadersVersions = Object.entries(rendererPackage.devDependencies)
     .filter(([name]) => name.startsWith('@loaders.gl/'))
     .map(([, version]) => version);
   expect(loadersVersions.length).toBeGreaterThan(0);
-  for (const version of loadersVersions) expect(version).toMatch(/^5\.0\.0-beta\.\d+$/);
+  for (const version of loadersVersions) expect(version).toMatch(/^5\.0\.0-rc\.\d+$/);
   expect(new Set(loadersVersions).size).toBe(1);
   expect(rendererPackage.dependencies['@math.gl/geospatial']).toBe(mathVersion);
   expect(rendererPackage.devDependencies['@math.gl/geospatial']).toBe(mathVersion);
@@ -86,14 +86,18 @@ test('renderer loaders use pinned v5 betas and layer math peers match the render
   expect(xrPackage.dependencies['@math.gl/core']).toBe(mathVersion);
 });
 
-test('math resolutions align only the older v5 alpha', () => {
-  const repositoryPackage = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  const resolutions = Object.entries(repositoryPackage.resolutions).filter(([name]) => name.startsWith('@math.gl/'));
-  expect(resolutions.length).toBeGreaterThan(0);
-  for (const [descriptor, version] of resolutions) {
-    expect(descriptor).toMatch(/^@math\.gl\/[a-z-]+@npm:5\.0\.0-alpha\.15$/);
-    expect(version).toBe(mathVersion);
+test('community geo-layers shares luma and loaders with deck.gl but keeps its own math.gl', () => {
+  const deckRequire = createRequire(createRequire(new URL('../modules/basemap-layers/package.json', import.meta.url))
+    .resolve('@deck.gl/core'));
+  const basemapRequire = createRequire(new URL('../modules/basemap-layers/package.json', import.meta.url));
+  const communityRequire = createRequire(basemapRequire.resolve('@deck.gl-community/geo-layers'));
+  for (const entry of ['@luma.gl/shaders', '@loaders.gl/tiles/mvt', '@loaders.gl/raster']) {
+    expect(communityRequire.resolve(entry)).toBe(deckRequire.resolve(entry));
   }
+  // The community alpha.2 release imports the math.gl beta root entry points, which math.gl 5.0 removed.
+  const communityMath = JSON.parse(readFileSync(new URL('../package.json',
+    pathToFileURL(communityRequire.resolve('@math.gl/core'))), 'utf8'));
+  expect(communityMath.version).toMatch(/^5\.0\.0-beta\./);
 });
 
 test('installed workspace dependencies cover the layer and optional WebXR source graphs', () => {
