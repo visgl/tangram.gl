@@ -2,10 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {PMTilesSourceLoader} from '@loaders.gl/tiles/pmtiles';
+import {PMTilesTileSource} from '@loaders.gl/tiles/pmtiles';
 import type {MvtProviderMetadata, MvtTileProviderFactory, MvtTileProviderSource} from './mvt-tile-provider';
-
-type PMTilesTileSource = ReturnType<typeof PMTilesSourceLoader.createDataSourceSync>;
 
 /** PMTiles transport factory; every Tangram source owns exactly one archive handle. */
 export const pmtilesTileProvider: MvtTileProviderFactory = {createSource: createPMTilesSource};
@@ -13,7 +11,7 @@ export const pmtilesTileProvider: MvtTileProviderFactory = {createSource: create
 /** Acquire archive metadata and raw tile bytes without a global URL cache or a decoder switch. */
 export function createPMTilesSource(url: string, options: {headers?: Record<string, string>} = {}): MvtTileProviderSource {
     const lifetime = new AbortController();
-    let source: PMTilesTileSource | undefined = PMTilesSourceLoader.createDataSourceSync(url, {
+    let source: PMTilesTileSource | undefined = new PMTilesTileSource(url, {
         core: {fetch: async (requestUrl: string, requestOptions: RequestInit = {}) => {
             const controller = new AbortController();
             const abort = (): void => controller.abort();

@@ -3,16 +3,17 @@
 // Copyright (c) vis.gl contributors
 
 import {parse} from '@loaders.gl/core';
-import {LegacyImageLoader, getImageData, type LegacyImageLoaderOptions} from '@loaders.gl/images';
-import {lngLatToWorld} from '@math.gl/geospatial';
+import {getImageData} from '@loaders.gl/images';
+import {ImageLoaderWithParser, type ImageLoaderOptions} from '@loaders.gl/images/image';
+import {lngLatToWorld} from '@math.gl/geospatial/web-mercator';
 import {TERRARIUM_DECODER, decodeTerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import {validateTerrainImage, type TerrainGridData, type TerrainNoDataPolicy} from './terrain-payload';
 
 /** Decode one data-preserving bitmap into physical samples, without a second image parse or adaptive tessellation. */
 export async function decodeTerrainGrid(bytes: ArrayBuffer, bounds: readonly [number, number, number, number], noData: TerrainNoDataPolicy = 'opaque'): Promise<TerrainGridData> {
     validateTerrainImage(bytes, bounds, noData);
-    const imageOptions: LegacyImageLoaderOptions = {core: {worker: false}, image: {type: 'imagebitmap'}, imagebitmap: {colorSpaceConversion: 'none', premultiplyAlpha: 'none'}};
-    const bitmap = await parse(bytes, LegacyImageLoader, imageOptions) as ImageBitmap;
+    const imageOptions: ImageLoaderOptions = {core: {worker: false}, image: {type: 'imagebitmap'}, imagebitmap: {colorSpaceConversion: 'none', premultiplyAlpha: 'none'}};
+    const bitmap = await parse(bytes, ImageLoaderWithParser, imageOptions);
     try {
         if (bitmap.width !== bitmap.height || bitmap.width < 2 || bitmap.width > 1024 || (bitmap.width & (bitmap.width - 1)) !== 0) throw new Error('Terrain requires a square power-of-two image of at most 1024 pixels');
         const image = getImageData(bitmap);
