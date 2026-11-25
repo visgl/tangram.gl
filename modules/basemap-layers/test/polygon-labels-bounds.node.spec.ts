@@ -8,7 +8,7 @@
 
 import {expect, test, vi} from 'vitest';
 import {MVTLabelLayer} from '../src/mvt-label-layer';
-import {getPoleOfInaccessibility} from '../src/polylabel';
+import {getPoleOfInaccessibility} from '@math.gl/geometry';
 
 function square(x: number, y: number, size: number): number[][] {
   return [
