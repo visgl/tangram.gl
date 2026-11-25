@@ -35,13 +35,13 @@ const config = getVitestConfig({
       ]
     },
     optimizeDeps: {include: [
-      'sinon', '@luma.gl/engine/experimental/webxr', '@deck.gl/mesh-layers',
+      'sinon', '@luma.gl/engine/experimental-webxr', '@deck.gl/mesh-layers',
       // Surface queries must not reload a browser test during lazy dependency discovery.
       '@math.gl/geometry/culling', '@math.gl/tasks', 'quickselect',
       // Archive/parser conformance imports must not reload unrelated tests mid-run.
       '@loaders.gl/tiles/pmtiles', '@loaders.gl/tiles/mvt-geojson-loader',
       '@loaders.gl/tiles',
-      '@loaders.gl/raster/terrain', '@loaders.gl/images',
+      '@loaders.gl/raster/terrain', '@loaders.gl/images', '@loaders.gl/images/image',
       '@deck.gl-community/panels',
       './examples/classic/app/community-playground.js',
       'monaco-editor',
