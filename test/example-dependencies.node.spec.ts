@@ -101,14 +101,19 @@ test('installed workspace dependencies cover the layer and optional WebXR source
   const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
   const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
   const packageName = (name: string) => name.startsWith('@') ? name.split('/').slice(0, 2).join('/') : name.split('/')[0];
-  for (const name of packageImports) expect(deckPackage.dependencies[packageName(name)], name).toBeDefined();
-  for (const name of webXRPackageImports) {
-    const dependency = packageName(name);
-    if (dependency === '@tangram.gl/map-utils') {
-      // Private workspace code is bundled into the layer, not installed at runtime.
-      expect(layerPackage.devDependencies[dependency], name).toBe('workspace:*');
-    } else {
-      expect(xrPackage.dependencies[dependency] || layerPackage.dependencies[dependency], name).toBeDefined();
+  const sourceGraphs = [
+    {imports: packageImports, dependencies: deckPackage.dependencies},
+    {imports: webXRPackageImports, dependencies: {...layerPackage.dependencies, ...xrPackage.dependencies}}
+  ];
+  for (const {imports, dependencies} of sourceGraphs) {
+    for (const name of imports) {
+      const dependency = packageName(name);
+      if (dependency === '@tangram.gl/map-utils') {
+        // The layer bundles this private workspace code.
+        expect(layerPackage.devDependencies[dependency], name).toBe('workspace:*');
+      } else {
+        expect(dependencies[dependency], name).toBeDefined();
+      }
     }
   }
 });

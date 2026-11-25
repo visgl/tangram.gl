@@ -11,7 +11,7 @@ import {_GlobeViewport as GlobeViewport} from '@deck.gl/core';
 // Copied from deck.gl-community geo-layers: the published 9.4.x does not export this yet.
 const PROJECTION_MODE_GLOBE = 2;
 
-/** Detect a globe projection, including across copies of deck.gl. */
+/** Detect a globe projection by its numeric mode, falling back to the deck.gl class. */
 export function isGlobeViewport(viewport: unknown): boolean {
   if (!viewport || typeof viewport !== 'object') {
     return false;

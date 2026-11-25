@@ -11,6 +11,7 @@ import type {FirstPersonViewport, GlobeViewport} from './view_adapter_types.js';
 import type {HostFrameOptions} from '@tangram.gl/tangram-renderer/core';
 import type {ProjectionEngine, ProjectionExecutionOptions} from '@tangram.gl/tangram-renderer/core';
 import type {LayerProps} from '@deck.gl/core';
+import {isGlobeViewport} from '@tangram.gl/map-utils/viewport';
 import type {Scene} from '@tangram.gl/tangram-renderer';
 import type {SceneDefinition, FeatureSelectionOptions, FeatureSelectionResult} from '@tangram.gl/tangram-renderer/core';
 import type {TerrainSurface, TerrainSurfaceHit} from '@tangram.gl/tangram-renderer/core';
@@ -488,7 +489,7 @@ export function createTangramLayerClass({Layer, ClassicWebGLRenderer, Renderer}:
 
       record.canvasWidth = width;
       record.canvasHeight = height;
-      const frame = isGlobeViewport(viewport)
+      const frame = isGlobeLayerViewport(viewport)
           ? {...getGlobeViewFrame(viewport, globeOptions), viewport: {width, height}}
           : isFirstPersonViewport(viewport)
             ? getFirstPersonViewFrame(viewport, {width, height, ...firstPersonOptions})
@@ -603,7 +604,7 @@ function validateViewport(viewport: TangramLayerViewport, viewports: readonly Ta
   if (viewports.length !== 1) {
     return new Error('only one deck.gl viewport is supported');
   }
-  const globe = isGlobeViewport(viewport);
+  const globe = isGlobeLayerViewport(viewport);
   const firstPerson = isFirstPersonViewport(viewport);
   const geographicAnchorError = WebMercatorViewAdapter.validateGeographicAnchor(
     viewport,
@@ -654,12 +655,8 @@ function isFirstPersonViewport(viewport: TangramLayerViewport): boolean {
   );
 }
 
-function isGlobeViewport(viewport: TangramLayerViewport): viewport is TangramLayerViewport & GlobeViewport {
-  return Boolean(
-    viewport &&
-      (viewport.constructor?.displayName === 'GlobeViewport' ||
-        viewport.constructor?.name === 'GlobeViewport')
-  );
+function isGlobeLayerViewport(viewport: TangramLayerViewport): viewport is TangramLayerViewport & GlobeViewport {
+  return isGlobeViewport(viewport);
 }
 
 function normalizeError(value: unknown): Error {

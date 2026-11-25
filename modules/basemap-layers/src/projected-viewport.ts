@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {isGlobeViewport} from './is-globe-viewport';
+import {isGlobeViewport} from '@tangram.gl/map-utils/viewport';
 
 /** deck.gl's `PROJECTION_MODE.CUSTOM_GEOSPATIAL`: the mode of a `_CustomProjectionViewport`. */
 const PROJECTION_MODE_CUSTOM_GEOSPATIAL = 3;

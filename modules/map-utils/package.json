@@ -15,12 +15,24 @@
     "./text/explicit": {
       "types": "./dist/types/text/explicit.d.ts",
       "default": "./src/text/explicit.ts"
+    },
+    "./viewport": {
+      "types": "./dist/types/viewport.d.ts",
+      "default": "./src/viewport.ts"
     }
   },
   "scripts": {
-    "build:types": "node ../../scripts/build-package-types.mjs modules/map-utils screen-ray.ts text/canvas.ts text/explicit.ts"
+    "build:types": "node ../../scripts/build-package-types.mjs modules/map-utils screen-ray.ts text/canvas.ts text/explicit.ts viewport.ts"
   },
   "dependencies": {
     "bidi-js": "^1.1.0"
+  },
+  "peerDependencies": {
+    "@deck.gl/core": "10.0.0-alpha.1"
+  },
+  "peerDependenciesMeta": {
+    "@deck.gl/core": {
+      "optional": true
+    }
   }
 }

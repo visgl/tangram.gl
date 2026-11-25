@@ -762,8 +762,8 @@ describe('TangramLayer', function () {
         assert.lengthOf(layer.errors, 4);
         assert.match(layer.errors[3].error.message, /camera matrices/);
 
-        class GlobeViewport {}
-        const globeViewport = Object.assign(new GlobeViewport(), layer.context.viewport, {
+        const globeViewport = Object.assign({}, layer.context.viewport, {
+            projectionMode: 2,
             longitude: Number.NaN,
             viewMatrix: IDENTITY_MATRIX,
             projectionMatrix: IDENTITY_MATRIX,
