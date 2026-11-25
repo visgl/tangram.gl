@@ -105,6 +105,8 @@ style applies in the same update, without a load, and the next frame draws it. A
 source, the sprite or the glyphs loads the style as above. Give a new style object for each
 change: the same object again does nothing, also when it was changed in place.
 
+On WebGL, the line dash atlas holds up to 4,096 distinct patterns per loaded module, with up to 32 dashes per pattern. When the atlas is full, the layer logs a warning once and new patterns draw as one dash and one gap per period. Each keeps the total dash and gap lengths. Patterns longer than 32 dashes and all WebGPU patterns use the same merged rendering.
+
 ### `mode`
 
 Type: `'auto' | 'map' | 'globe'`
@@ -116,6 +118,8 @@ Selects whether the sublayers draw as a flat map or on a globe. Defaults to `'au
 - `'globe'`: draw globe sublayers. Above zoom 12, `GlobeView` uses a Web Mercator viewport, and the layer draws map sublayers there, as with `'auto'`.
 
 This matches MapLibre GL JS, where the projection of the map selects how the style draws. Here, the deck.gl view is the projection, so most apps do not set `mode`.
+
+On a globe, `circle-translate` hides a circle when the globe occludes either its original center or its translated center. This applies on WebGL and WebGPU.
 
 With `'auto'`, the layer logs one warning if the style declares a projection that differs from the view. Use [`getStyleView`](#getstyleviewstyle) to choose a matching view.
 
@@ -312,7 +316,7 @@ A `BasemapLoadError` is an `Error` with these fields, which match those of the `
 - `url`: the URL that failed, when it is known
 - `status`: the HTTP status of the response, when the server answered
 - `tile`: the `{x, y, z}` index of the tile, for a `tile`
-- `cause`: the error the load failed with
+- `cause`: the error the load failed with. For a `raster-dem` tile, this can be a `DemPixelReadError` when the browser changes canvas reads and `VideoFrame` is missing or also changes the pixels. Import `DemPixelReadError` from `@tangram.gl/basemap-layers` to identify this case.
 
 The layer draws what it can without the failed resource: a source that fails has no layers, a tile that fails is not drawn, and the icons of a sprite that fails are skipped.
 
@@ -557,6 +561,18 @@ The props go to the fill, line, circle, extrusion and label sublayers of each ti
 
 The function receives the resolved style layer. Select style layers by `id`, `type`, `source` or `source-layer`, not by the deck.gl ids of the sublayers: those change when the style changes. The deck.gl form of this prop for other composite layers is `_subLayerProps`, keyed by sublayer id.
 
+## First-person views
+
+In a geospatial `FirstPersonView`, map-aligned line text with `text-pitch-alignment` set to
+`viewport` faces the camera and follows the line's screen direction. In a WebGL `MapView`,
+pixel-sized, map-aligned text follows the line glyph by glyph wherever it fits.
+
+The first-person distance adjustment applies to billboard symbols when `labelSizeUnits` is
+`'pixels'` (the default). Billboard text and icons, including `icon-text-fit` shields,
+use the same adjustment for drawing and collision. Symbols behind the camera are excluded
+from collision placement. The ground horizon bounds the background's reach as the far plane
+increases.
+
 ## Projected views
 
 `BasemapLayer` also draws in a deck.gl `_CustomProjectionView`: a flat view in a projected coordinate reference system, such as a UTM zone or a conic projection. No prop selects this. The layer reads the kind of view from the viewport, as `mode: 'auto'` does.
@@ -680,6 +696,8 @@ Returns the zoom at which a Web Mercator map has the scale of a projected viewpo
 </p>
 
 Generates the deck.gl sublayers for an already-resolved style definition. Use this when you want the sublayers without creating a `BasemapLayer` instance.
+
+The `zoom` option defaults to 0 and controls style evaluation. Supported WebGL fill, line and circle paint follows the viewport zoom within the same 0.25 zoom step as the supplied zoom. Outside that step, the paint uses the supplied zoom.
 
 `BasemapLayer` keeps each source's tiles in a shared tileset across renders. A direct caller that calls `getBasemapLayers` on every render keeps them by passing its own `tilesets` map, keyed by source, and finalizes those tilesets when done.
 

@@ -62,7 +62,7 @@ const fetchTile = async () => [
   )
 ];
 
-/** 0 up to zoom 5, then wider: drawn from the 5.25 step on. */
+/** 0 up to zoom 5, then wider: drawn at any zoom above 5. */
 const STARTS_AT_5 = ['interpolate', ['linear'], ['zoom'], 5, 0, 6, 6];
 const ROUND = {'line-cap': 'round', 'line-join': 'round'};
 
@@ -155,7 +155,7 @@ class PickableBasemapLayer extends BasemapLayer {
 
 async function render(
   basemapStyle: any,
-  zoom = 5.1
+  zoom = 5
 ): Promise<{image: ImageData; sublayers: string[]}> {
   cleanup();
   parent = document.createElement('div');
@@ -191,7 +191,11 @@ async function render(
   const image = await frame;
   const sublayers = ((deck as any).layerManager.getLayers() as any[])
     .filter(layer => layer.constructor.layerName === 'StyledGeoJsonLayer')
-    .map(layer => `${layer.props.visible === false ? 'hidden:' : ''}${layer.id.split('-').pop()}`);
+    // A sublayer whose paint draws nothing at this zoom is skipped (`deferredZoomPaint`).
+    .map(
+      layer =>
+        `${layer.props.visible === false || layer.props.deferredZoomPaint ? 'hidden:' : ''}${layer.id.split('-').pop()}`
+    );
   return {image, sublayers};
 }
 

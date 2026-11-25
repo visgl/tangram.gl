@@ -15,6 +15,7 @@ import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from '.
 import {isGlobeViewport} from './is-globe-viewport';
 import {ZoomLoadGate} from './zoom-load-gate';
 import {getStyleZoom, isProjectedViewport} from './projected-viewport';
+import {isGeographicFirstPersonViewport} from './projected-background-layer';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {getSourceTileBounds, getSourceTileTemplates} from './source-tiles';
 import {DEFAULT_MAX_STRETCH} from './projected-tile-selection';
@@ -643,8 +644,10 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   /** Returns the key of what the sublayers depend on in `viewport`, for a resolved style. */
   getZoomKey(resolvedStyle: ResolvedBasemapStyle, viewport: Viewport | undefined): string {
     const zoomKey = getStyleZoomKey(getStyleZoom(viewport), getFractionalZoomLimits(resolvedStyle));
-    // A projected view draws as a map, with other sublayers: longitude/latitude geometry.
-    const drawMode = isProjectedViewport(viewport) ? 'projected' : this.getDrawMode(viewport);
+    // These views need different background geometry from MapView.
+    const drawMode = isProjectedViewport(viewport)
+      ? 'projected'
+      : isGeographicFirstPersonViewport(viewport) ? 'first-person' : this.getDrawMode(viewport);
     return `${drawMode}:${zoomKey}`;
   }
 
@@ -1376,6 +1379,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
       labelPlacement: this.getLabelPlacement(),
       tilesets: this.state.tilesets,
       projected: isProjectedViewport(viewport),
+      firstPerson: isGeographicFirstPersonViewport(viewport),
       projectedMaxStretch: this.props.projectedMaxStretch,
       styleLayerProps: this.getStyleLayerPropsMap(resolvedStyle)
     });

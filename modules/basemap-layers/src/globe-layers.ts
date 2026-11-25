@@ -5,7 +5,7 @@
 import type {GlyphStore} from './glyph-store';
 import {SharedMVTLayer, SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import {_getURLFromTemplate as getURLFromTemplate} from '@deck.gl/geo-layers';
-import {isGeographicViewport, isProjectedViewport} from './projected-viewport';
+import {getStyleZoom, isGeographicViewport, isProjectedViewport} from './projected-viewport';
 import {getTileFeaturesInLngLat} from './projected-tile-data';
 import {getBasemapTilesetAdapter} from './projected-tileset';
 import {RasterFadeExtension, RasterFadeTileLayer} from './raster-fade';
@@ -67,6 +67,7 @@ import {
 } from './fill-style-extensions';
 import {FillOutlineExtension} from './fill-outline-extension';
 import {LineBlurExtension, getBlurredLineWidth} from './line-blur-extension';
+import {LineDashExtension, getDashPattern, getDashPatternRow} from './line-dash-extension';
 import {
   LineGradientExtension,
   type LineGradientRamp,
@@ -74,6 +75,11 @@ import {
   getLineGradientRamp
 } from './line-gradient-extension';
 import {LinePatternExtension} from './line-pattern-extension';
+import {
+  GapCapOffsetExtension,
+  LineShapeExtension,
+  MAX_LINE_SHAPE_MITER_RATIO
+} from './line-shape-extension';
 import {
   HillshadeTileLayer,
   createSharedDemTileset,
@@ -94,14 +100,22 @@ import {
 import {filterFeatures, parseProperties} from './map-style';
 import {
   STYLE_ZOOM_STEP,
+  type PaintProperty,
   type StyleAccessor,
+  compileZoomPaintProperty,
   getFilterZoom,
   getStyleAccessor,
   getStyleZoomKey,
   getZoomBucket,
+  getZoomPaintZoom,
   withOpacity
 } from './style-accessor';
-import {evaluateStyleLight, getStylePropertyDefault} from './style-expression';
+import {
+  evaluateStyleLight,
+  getCompiledStyleProperty,
+  getStylePropertyDefault,
+  getZoomInterpolationFactor
+} from './style-expression';
 import {
   DEFAULT_FILL_EXTRUSION_LIGHT,
   type FillExtrusionLight,
@@ -110,13 +124,16 @@ import {
 import {
   MAX_ZOOM_PAINT_PARTS,
   ZOOM_PAINT_FILL_COLOR_ROW,
+  ZOOM_PAINT_INTERPOLATION_ROW,
   ZOOM_PAINT_LINE_COLOR_ROW,
   ZOOM_PAINT_WIDTH_ROW,
   ZoomPaint,
   ZoomPaintExtension,
+  type ZoomPaintExtensionProps,
   type ZoomPaintValues,
   createZoomPaintValues,
-  getZoomPaintOffset
+  getZoomPaintOffset,
+  packZoomPaintColor
 } from './zoom-paint-extension';
 import type {BasemapGlobeConfig, BasemapInsertion, BasemapLayerProps} from './basemap-layer';
 import {type RejectRasterTile, getRasterTileLoader} from './raster-tile-loader';
@@ -147,6 +164,7 @@ type BasemapLayerGroup = {
   mode?: BasemapMode;
   globe?: {config?: BasemapGlobeConfig};
   styleDefinition: ResolvedBasemapStyle;
+  /** Builds the style at this zoom, also used for WebGL paint outside its viewport zoom step. */
   zoom?: number;
   loadOptions?: BasemapLoadOptions;
   /** Loads the tiles of raster sources (see deck.gl's `fetch` layer prop). */
@@ -180,6 +198,8 @@ type BasemapLayerGroup = {
    * `background` layer fills the screen around the view (see `ProjectedBackgroundLayer`).
    */
   projected?: boolean;
+  /** Draw an ordinary background locally for a geographic first-person camera. */
+  firstPerson?: boolean;
   /**
    * The stretch limit of the tile selection in a projected view (see
    * `ProjectedTileSelectionOptions.maxStretch`). It applies to the tilesets these layers create.
@@ -405,8 +425,10 @@ const DASH_EXTENSION = new PathStyleExtension({dash: true, dashMode: 'path'});
 /** The dash array of a solid line in a dashed sublayer: no gaps. */
 const SOLID_DASH_ARRAY: StyleAccessor<[number, number]> = {value: [0, 0]};
 /** `line-offset` and `line-gap-width`, alone and with dashes; shared for the same reason. */
-const OFFSET_EXTENSION = new PathStyleExtension({offset: true});
-const DASH_OFFSET_EXTENSION = new PathStyleExtension({dash: true, dashMode: 'path', offset: true});
+const OFFSET_EXTENSION = new GapCapOffsetExtension({offset: true});
+const DASH_OFFSET_EXTENSION = new GapCapOffsetExtension({dash: true, dashMode: 'path', offset: true});
+const LINE_DASH_EXTENSION = new LineDashExtension();
+const LINE_SHAPE_EXTENSION = new LineShapeExtension();
 /** `line-blur`, shared for the same reason: by layer, and per feature. */
 const LINE_BLUR_EXTENSION = new LineBlurExtension();
 const LINE_BLUR_PER_FEATURE_EXTENSION = new LineBlurExtension({perFeature: true});
@@ -651,13 +673,20 @@ function getStyleSubLayerId(parentId: string, styleLayerId: string | string[]): 
 const ZOOM_PAINT_CONTEXT = 'zoomPaintContext';
 
 /**
- * The prop that tells a tile's `renderSubLayers` that its tile layer draws on WebGPU, where the
- * GLSL of `FillTranslateExtension` does not run.
+ * The prop that tells a tile's `renderSubLayers` that its tile layer draws on WebGPU, where
+ * zoom-dependent paint is not interpolated on the GPU.
  */
 const WEBGPU_DEVICE = 'webgpuDevice';
 
 /** Shared by every fill and line sublayer, so deck.gl does not see their extensions change. */
 const ZOOM_PAINT_EXTENSION = new ZoomPaintExtension();
+/** Shared by sublayers that blend two sets of composite paint attributes. */
+const COMPOSITE_ZOOM_PAINT_EXTENSION = new ZoomPaintExtension({composite: true});
+/** Shared by dashed sublayers that pack composite paint into one vertex input. */
+const DASHED_COMPOSITE_ZOOM_PAINT_EXTENSION = new ZoomPaintExtension({
+  composite: true,
+  packedPath: true
+});
 
 /** The paint properties `getGeometryPaint` reads. */
 const GEOMETRY_PAINT_PROPERTIES = [
@@ -680,15 +709,14 @@ const GEOMETRY_PAINT_PROPERTIES = [
 function setZoomPaintColors(
   values: ZoomPaintValues,
   row: number,
-  colors: StyleAccessor<number[]>[]
+  colors: (number[] | undefined)[]
 ): void {
   const isLayerConstant = colors.every(
-    ({value}) =>
-      typeof value !== 'function' && JSON.stringify(value) === JSON.stringify(colors[0].value)
+    color => color && colors[0] && color.every((channel, index) => channel === colors[0]?.[index])
   );
-  colors.forEach(({value}, part) => {
+  colors.forEach((value, part) => {
     // Per-feature colors keep the alpha of -1 that takes them from the attribute.
-    if (typeof value !== 'function') {
+    if (value) {
       const offset = getZoomPaintOffset(row, part);
       for (let channel = 0; channel < 4; channel++) {
         values[offset + channel] =
@@ -700,50 +728,75 @@ function setZoomPaintColors(
 
 /** Rounds a 0-255 value as deck.gl stores it in an 8 bit color attribute. */
 const unorm8 = new Uint8ClampedArray(1);
+/** Rounds a channel to the value stored in an unsigned normalized byte. */
 function toUnorm8(value: number): number {
   unorm8[0] = value;
   return unorm8[0];
 }
 
+/** Compiles the texture paint of one fill or line style layer. */
+function compileGeometryZoomPaint(styleLayer: BasemapStyleLayer, mode: BasemapMode) {
+  const {lineWidth, lineColor, fillColor} = getGeometryPaintProperties(styleLayer, mode);
+  const antialias = getCompiledStyleProperty(styleLayer, 'fill-antialias');
+  return {
+    width: lineWidth ? compileZoomPaintProperty(styleLayer, lineWidth) : null,
+    lineColor: compileZoomPaintProperty(styleLayer, lineColor),
+    fillColor: compileZoomPaintProperty(styleLayer, fillColor),
+    outline: (bucket: number) => drawsFillOutline(styleLayer, mode, antialias?.evaluate(bucket)),
+    antialiasChangesWithZoom: antialias?.isZoomDependent
+  };
+}
+
+/** Writes the layer-wide paint and the composite blend factors of one sublayer into texels. */
+function evaluateZoomPaint(
+  paints: ReturnType<typeof compileGeometryZoomPaint>[],
+  zoom: number,
+  bucket: number
+): ZoomPaintValues {
+  const values = createZoomPaintValues();
+  const lineColors: (number[] | undefined)[] = [];
+  const fillColors: (number[] | undefined)[] = [];
+  paints.forEach(({width, lineColor, fillColor, outline}, part) => {
+    values[getZoomPaintOffset(ZOOM_PAINT_WIDTH_ROW, part)] = width
+      ? width.evaluate(zoom) ?? 1
+      : Number(outline(bucket));
+    lineColors.push(lineColor.evaluate(zoom));
+    fillColors.push(fillColor.evaluate(zoom));
+    const offset = getZoomPaintOffset(ZOOM_PAINT_INTERPOLATION_ROW, part);
+    const next = bucket + STYLE_ZOOM_STEP;
+    values[offset] = getZoomInterpolationFactor(width?.interpolation ?? null, zoom, bucket, next);
+    values[offset + 1] = getZoomInterpolationFactor(lineColor.interpolation, zoom, bucket, next);
+    values[offset + 2] = getZoomInterpolationFactor(fillColor.interpolation, zoom, bucket, next);
+  });
+  setZoomPaintColors(values, ZOOM_PAINT_LINE_COLOR_ROW, lineColors);
+  setZoomPaintColors(values, ZOOM_PAINT_FILL_COLOR_ROW, fillColors);
+  return values;
+}
+
 /**
  * Evaluates the paint of style layers drawn by one sublayer for `ZoomPaintExtension`: a style
  * layer's width, or 1 where it is per feature, and its colors in 0-1, or an alpha of -1 where they
- * are per feature.
+ * are per feature. Layer-wide paint is evaluated at the supplied zoom, which also determines
+ * the blend factors for composite paint between the two enclosing style zoom steps.
  */
 export function getZoomPaintValues(
   styleLayers: BasemapStyleLayer[],
   mode: BasemapMode,
   zoom: number
 ): ZoomPaintValues {
-  const values = createZoomPaintValues();
-  const paints = styleLayers.map(styleLayer => getGeometryPaint(styleLayer, mode, zoom));
-  paints.forEach(({lineWidth}, part) => {
-    if (typeof lineWidth.value !== 'function') {
-      values[getZoomPaintOffset(ZOOM_PAINT_WIDTH_ROW, part)] = lineWidth.value;
-    }
-  });
-  setZoomPaintColors(
-    values,
-    ZOOM_PAINT_LINE_COLOR_ROW,
-    paints.map(paint => paint.lineColor)
+  return evaluateZoomPaint(
+    styleLayers.map(layer => compileGeometryZoomPaint(layer, mode)),
+    zoom,
+    getZoomBucket(zoom)
   );
-  setZoomPaintColors(
-    values,
-    ZOOM_PAINT_FILL_COLOR_ROW,
-    paints.map(paint => paint.fillColor)
-  );
-  return values;
 }
 
 /**
- * The paint of one tile layer's fill and line sublayers for `ZoomPaintExtension`: the zoom its
- * sublayers were generated at, and a `ZoomPaint` per sequence of style layers drawn by one
- * sublayer, shared by all tiles. Kept in the tile layer's state.
+ * The paint of one tile layer's fill and line sublayers for `ZoomPaintExtension`: a `ZoomPaint`
+ * per sequence of style layers drawn by one sublayer, shared by all tiles. Kept in the tile
+ * layer's state.
  */
 export class ZoomPaintContext {
-  /** The stepped zoom (see `getZoomBucket`) at which paint is evaluated. */
-  zoom = 0;
-
   private zoomPaints = new Map<string, {styleLayers: BasemapStyleLayer[]; zoomPaint: ZoomPaint}>();
 
   /** The style the zoom paints were made for (see `setStyle`). */
@@ -770,8 +823,9 @@ export class ZoomPaintContext {
   }
 
   /**
-   * The `ZoomPaint` of style layers drawn by one sublayer. Its values are evaluated once per zoom
-   * step, and again when a paint property is replaced.
+   * The `ZoomPaint` of style layers drawn by one sublayer. Its zoom-dependent values are evaluated
+   * at the viewport zoom, with blend factors relative to the sublayer's attribute zoom. Values
+   * are shared across draws at the same zooms and evaluated again when a paint property is replaced.
    */
   get(styleLayers: BasemapStyleLayer[], mode: BasemapMode): ZoomPaint {
     const key = `${mode} ${JSON.stringify(styleLayers.map(layer => layer.id))}`;
@@ -804,14 +858,26 @@ export class ZoomPaintContext {
       }
       return changed;
     };
-    let last: {zoom: number; values: ZoomPaintValues} | null = null;
-    const zoomPaint = new ZoomPaint(() => {
-      const {zoom} = this;
-      if (inputsChanged() || !last || last.zoom !== zoom) {
-        last = {zoom, values: getZoomPaintValues(styleLayers, mode, zoom)};
+    let paints: ReturnType<typeof compileGeometryZoomPaint>[] = [];
+    let isZoomDependent = false;
+    let last: {zoom: number; bucket: number; values: ZoomPaintValues} | null = null;
+    const zoomPaint = new ZoomPaint((zoom, bucket) => {
+      if (inputsChanged() || !last) {
+        paints = styleLayers.map(layer => compileGeometryZoomPaint(layer, mode));
+        isZoomDependent = paints.some(
+          paint =>
+            paint.width?.isZoomDependent ||
+            paint.lineColor.isZoomDependent ||
+            paint.fillColor.isZoomDependent ||
+            paint.antialiasChangesWithZoom
+        );
+        last = null;
+      }
+      if (!last || (isZoomDependent && (last.zoom !== zoom || last.bucket !== bucket))) {
+        last = {zoom, bucket, values: evaluateZoomPaint(paints, zoom, bucket)};
       }
       return last.values;
-    });
+    }, styleLayers.length);
     this.zoomPaints.set(key, {styleLayers: [...styleLayers], zoomPaint});
     return zoomPaint;
   }
@@ -907,6 +973,7 @@ function createBackgroundLayer({
   zoom,
   mode,
   projected,
+  firstPerson,
   spriteAtlases
 }: {
   idPrefix: string;
@@ -914,6 +981,7 @@ function createBackgroundLayer({
   zoom: number;
   mode: BasemapMode;
   projected?: boolean;
+  firstPerson?: boolean;
   spriteAtlases?: SpriteAtlas[] | null;
 }) {
   const paint = getPaint(layer, zoom);
@@ -936,7 +1004,7 @@ function createBackgroundLayer({
       );
   // deck.gl adds an extension's attributes only to a new layer: the pattern draws in its own
   // layer, made once the sprites have loaded.
-  const id = `${idPrefix}-${layer.id}${pattern ? '-pattern' : ''}`;
+  const id = `${idPrefix}-${layer.id}${pattern ? '-pattern' : firstPerson ? '-ground' : ''}`;
   const parameters = getBackgroundParameters(mode);
 
   if (pattern) {
@@ -969,9 +1037,14 @@ function createBackgroundLayer({
     return new ProjectedBackgroundLayer({id, geographic: !projected, ...patternProps});
   }
 
-  // A projected view has no outline of the world in longitude/latitude.
-  if (projected) {
-    return new ProjectedBackgroundLayer({id, getFillColor: getFillColor as Color, parameters});
+  // A local ground polygon avoids clipping world-scale triangles against the view.
+  if (projected || firstPerson) {
+    return new ProjectedBackgroundLayer({
+      id,
+      geographic: firstPerson,
+      getFillColor: getFillColor as Color,
+      parameters
+    });
   }
   return new SolidPolygonLayer({
     id,
@@ -1853,7 +1926,6 @@ class StyledMVTLayer extends SharedMVTLayer {
     this.state.zoomPaintContext ||= new ZoomPaintContext();
     const {zoomPaintContext} = this.state;
     zoomPaintContext.setStyle((this.props as {paintStyle?: unknown}).paintStyle);
-    zoomPaintContext.zoom = getZoomBucket((this.props as {styleZoom?: number}).styleZoom ?? 0);
     // The tile's label features, recorded as `renderSubLayers` filters them.
     const labelFeatures = new Map<number, any[]>();
     this.state.tileLabelFeatures ||= new Map();
@@ -1982,7 +2054,11 @@ class StyledMVTLayer extends SharedMVTLayer {
  * `drawsLineStrings: false` leaves out line strings, which a fill without an outline would draw
  * zero pixels wide. Every sublayer left out would otherwise be updated and drawn at every frame.
  */
-class StyledGeoJsonLayer extends GeoJsonLayer<any, {drawsLineStrings?: boolean}> {
+class StyledGeoJsonLayer extends GeoJsonLayer<any, ZoomPaintExtensionProps & {
+  drawsLineStrings?: boolean;
+  /** Whether to check the paint at draw and pick time before rendering retained geometry. */
+  deferredZoomPaint?: boolean;
+}> {
   static layerName = 'StyledGeoJsonLayer';
   static defaultProps = {...GeoJsonLayer.defaultProps, drawsLineStrings: true};
 
@@ -2004,6 +2080,21 @@ class StyledGeoJsonLayer extends GeoJsonLayer<any, {drawsLineStrings?: boolean}>
       tileLayerInputs.set(layer, 'tile' in newProps ? inputs : {...inputs, ...newProps});
     }
     return layer;
+  }
+
+  /** Keeps the geometry resident while its layer-constant paint is invisible. */
+  filterSubLayer(context: Parameters<GeoJsonLayer['filterSubLayer']>[0]): boolean {
+    const {deferredZoomPaint, zoomPaint, zoomPaintGeneration, zoomPaintBucket, filled, stroked} = this.props;
+    return (
+      (!deferredZoomPaint ||
+        Boolean(zoomPaint?.isVisible(
+          getZoomPaintZoom(getStyleZoom(context.viewport), zoomPaintGeneration?.zoom),
+          zoomPaintBucket ?? undefined,
+          filled,
+          stroked
+        ))) &&
+      super.filterSubLayer(context)
+    );
   }
 
   protected shouldRenderSubLayer(subLayerId: string, data: any): boolean {
@@ -2098,14 +2189,27 @@ export function isSameProps(
  * rendered, which deck.gl then neither diffs nor updates; a new one would be created, cloned by
  * `TileLayer`, matched and diffed, only to change nothing.
  */
-function getTileGeoJsonLayer(tileProps: any, props: Record<string, any>): StyledGeoJsonLayer {
+function getTileGeoJsonLayer(
+  tileProps: any,
+  props: Record<string, any>,
+  zoomPaintGenerationZoom?: number
+): StyledGeoJsonLayer {
   const previous = (tileProps[PREVIOUS_TILE_LAYERS] as Map<string, any> | undefined)?.get(props.id);
   const inputs = previous && tileLayerInputs.get(previous);
   if (inputs && isSameProps(props, inputs)) {
+    const generation = previous.props.zoomPaintGeneration;
+    if (generation && zoomPaintGenerationZoom !== undefined) {
+      // The drawing layers share this value, so reusing them still updates their fallback zoom.
+      generation.zoom = zoomPaintGenerationZoom;
+    }
     keptTileLayers.add(previous);
     return previous;
   }
-  const layer = new StyledGeoJsonLayer(props);
+  const layer = new StyledGeoJsonLayer(
+    zoomPaintGenerationZoom === undefined
+      ? props
+      : {...props, zoomPaintGeneration: {zoom: zoomPaintGenerationZoom}}
+  );
   tileLayerInputs.set(layer, props);
   return layer;
 }
@@ -2133,7 +2237,8 @@ function createStyledVectorSubLayer({
   labelPlacement,
   light,
   featureState,
-  lineMetrics
+  lineMetrics,
+  styleProps
 }: {
   idPrefix: string;
   sourceId: string;
@@ -2159,6 +2264,8 @@ function createStyledVectorSubLayer({
   featureState?: FeatureStateLookup;
   /** Whether the source is a GeoJSON source with `lineMetrics`, which `line-gradient` needs. */
   lineMetrics?: boolean;
+  /** Extra props that will be applied to the created sublayer. */
+  styleProps?: StyleLayerSubLayerProps;
 }) {
   if (features.length === 0) {
     return null;
@@ -2194,6 +2301,7 @@ function createStyledVectorSubLayer({
       featureState,
       globe: mode === 'globe',
       webgpu: Boolean(props[WEBGPU_DEVICE]),
+      styleProps,
       translate:
         styleLayer.paint?.['circle-translate'] === undefined
           ? null
@@ -2353,8 +2461,6 @@ function createVectorLayerGroup({
     styleSource: source,
     // The tile pyramid's range; style layers are gated by their own range in renderSubLayers.
     ...getTilePyramidProps(source),
-    // The zoom at which `renderSubLayers` evaluates paint, which `ZoomPaintExtension` also uses.
-    styleZoom: zoom,
     // The style layers whose paint `ZoomPaintExtension` draws (see `ZoomPaintContext.setStyle`).
     paintStyle: styleDefinition?.layers,
     tileSize: source.tileSize || 512,
@@ -2544,8 +2650,10 @@ function createVectorLayerGroup({
           // from `ZoomPaintExtension`, is batched as at a step that gives it a width: its sublayer
           // and batch stay the same across the step, and are not made again (see
           // `createGeometrySubLayer`, which hides a sublayer that draws nothing).
-          const isKeptAtZeroWidth = style.isZeroWidth && Boolean(zoomPaintContext);
-          if (style.drawsFill || style.drawsLines || isKeptAtZeroWidth) {
+          if (zoomPaintContext && takesZoomPaint(style)) {
+            keepGeometryPaint(style, mode);
+          }
+          if (style.drawsFill || style.drawsLines || style.deferredPaint) {
             // A batch draws all of its style layers in one tile before the next tile. On a map,
             // tiles are clipped to their bounds, so that draws the same pixels as each style layer
             // across all tiles in turn; on the globe, tiles are not clipped, and where their
@@ -2585,6 +2693,7 @@ function createVectorLayerGroup({
           return;
         }
         flush();
+        const extraProps = styleLayerProps?.get(styleLayer);
         const sublayers = createStyledVectorSubLayer({
           idPrefix,
           sourceId,
@@ -2603,9 +2712,10 @@ function createVectorLayerGroup({
           labelPlacement,
           light: getFillExtrusionLight(styleDefinition, zoom),
           featureState: featureStates[styleLayerIndex],
-          lineMetrics: source.type === 'geojson' && Boolean(source.lineMetrics)
+          lineMetrics: source.type === 'geojson' && Boolean(source.lineMetrics),
+          styleProps: extraProps
         });
-        layers.push(withStyleLayerProps(sublayers, styleLayerProps?.get(styleLayer)));
+        layers.push(withStyleLayerProps(sublayers, extraProps));
       });
       flush();
 
@@ -2656,6 +2766,7 @@ export function getBasemapLayers({
   pickable,
   tilesets,
   projected,
+  firstPerson,
   projectedMaxStretch,
   styleLayerProps,
   insertLayers
@@ -2696,6 +2807,7 @@ export function getBasemapLayers({
         pickable,
         tilesets,
         projected,
+        firstPerson,
         projectedMaxStretch,
         styleLayerProps,
         insertions
@@ -2842,11 +2954,9 @@ function createSymbolSubLayer({
 }
 
 /**
- * Converts a style `line-dasharray` into deck.gl's `[dash, gap]`. MapLibre measures dashes in line
- * widths; deck.gl's `widths` unit is half the line width, so lengths double. deck.gl draws one dash
- * and one gap per period, so a longer pattern keeps its period and total dash length, but merges
- * its dashes. In an odd-length pattern the last dash runs into the first, as in MapLibre. An empty
- * pattern, or one without gaps, draws a solid line.
+ * Encodes a style `line-dasharray` as a period and a negative atlas row marker for WebGL.
+ * Lengths double because deck.gl uses half line widths. An empty pattern or one without
+ * gaps draws solid. Patterns beyond the atlas limits fall back to a single dash and gap.
  */
 export function getDashArray(dasharray: unknown): [number, number] {
   if (!Array.isArray(dasharray)) {
@@ -2854,15 +2964,22 @@ export function getDashArray(dasharray: unknown): [number, number] {
   }
   let dash = 0;
   let gap = 0;
-  dasharray.forEach((value, index) => {
-    const length = Math.max(0, Number(value) || 0);
+  const pattern = Array.from(dasharray, (value, index) => {
+    const number = Number(value);
+    const length = Number.isFinite(number) ? Math.max(0, number) : 0;
     if (index % 2 === 0) {
       dash += length;
     } else {
       gap += length;
     }
+    return length;
   });
-  return [dash * 2, gap * 2];
+  if (gap <= 0 || !Number.isFinite(Math.fround(2 * (dash + gap)))) {
+    return [0, 0];
+  }
+  const row = getDashPatternRow(pattern);
+  const registered = getDashPattern(row);
+  return registered ? [registered.period, -(row + 1)] : [dash * 2, gap * 2];
 }
 
 /** The least distance, in pixels, of a gap's line from the gap's center: see getLineOffset. */
@@ -2902,9 +3019,9 @@ export function getLineOffset(
 }
 
 /**
- * Scales a blurred gap's `getDashArray` by `width / drawnWidth` (see `getBlurredLineWidth`), so
- * that its dashes keep the pixel lengths MapLibre gives them in `line-width`s. `shape` is the
- * `[offset, gap, width, blur]` accessor of `getLineOffset`.
+ * Scales a blurred gap's dash lengths by `width / drawnWidth` so it keeps the pixel lengths
+ * MapLibre gives it in `line-width`s. The negative atlas row marker stays fixed.
+ * `shape` is the `[offset, gap, width, blur]` accessor of `getLineOffset`.
  */
 export function getBlurredDashArray(
   dashArray: StyleAccessor<[number, number]>,
@@ -2916,7 +3033,7 @@ export function getBlurredDashArray(
   ): [number, number] => {
     const drawnWidth = getBlurredLineWidth(width, gapWidth, blur);
     const ratio = drawnWidth > 0 ? width / drawnWidth : 1;
-    return [dash * ratio, gap * ratio];
+    return [dash * ratio, gap < 0 ? gap : gap * ratio];
   };
   const dashValue = dashArray.value;
   const shapeValue = shape.value;
@@ -2940,6 +3057,8 @@ export function getBlurredDashArray(
 /** deck.gl path props for a line's `line-cap`, `line-join` and `line-miter-limit`. */
 export type LineShape = {
   lineCapRounded: boolean;
+  /** Whether WebGL extends the flat cap past each path endpoint. */
+  lineCapSquare: boolean;
   lineJointRounded: boolean;
   lineMiterLimit: number;
 };
@@ -2947,22 +3066,19 @@ export type LineShape = {
 /**
  * Converts `line-cap`, `line-join` and `line-miter-limit` into deck.gl path props.
  *
- * - `round` caps and joins are drawn round. `butt` caps end at the endpoint. deck.gl has no square
- *   cap, so `square` is drawn as `butt`: the line ends half its width short of MapLibre's.
- * - deck.gl cuts a joint flat at `miterLimit + 1` half widths from the vertex. MapLibre draws a
- *   `miter` join in full while its tip is within `line-miter-limit` half widths of the vertex, so
- *   passing `line-miter-limit - 1` draws the same joins in full. A sharper corner, which MapLibre
- *   bevels, is cut flat at that distance instead.
- * - deck.gl has no bevel join. A `bevel` join is cut flat half the line width from the vertex,
- *   which matches a bevel at shallow corners; at sharp corners a true bevel cuts closer.
+ * LineShapeExtension extends square caps and bevels corners that exceed the miter limit.
+ * deck.gl expresses that limit as `miterLimit + 1` half widths. MapLibre uses a limit of
+ * 1.05 half widths for an explicit bevel, retaining the miter at shallow turns.
  */
 export function getLineShape([cap, join, miterLimit]: unknown[]): LineShape {
   const lineJoin = join ?? getStylePropertyDefault('line-join');
   const limit = Number(miterLimit ?? getStylePropertyDefault('line-miter-limit'));
+  const deckMiterLimit = lineJoin === 'miter' && Number.isFinite(limit) ? Math.max(0, limit - 1) : 0;
   return {
     lineCapRounded: (cap ?? getStylePropertyDefault('line-cap')) === 'round',
+    lineCapSquare: cap === 'square',
     lineJointRounded: lineJoin === 'round',
-    lineMiterLimit: lineJoin === 'miter' && Number.isFinite(limit) ? Math.max(0, limit - 1) : 0
+    lineMiterLimit: lineJoin === 'bevel' ? 0.05 : deckMiterLimit
   };
 }
 
@@ -3124,7 +3240,7 @@ function getLineShapeGroups(
   const groups = new Map<string, LineShapeGroup>();
   for (const feature of features) {
     const shape = getShape(feature);
-    const groupKey = `${shape.lineCapRounded}-${shape.lineJointRounded}-${shape.lineMiterLimit}`;
+    const groupKey = getLineShapeKey(shape);
     let group = groups.get(groupKey);
     if (!group) {
       group = {key: groupKey, shape, features: []};
@@ -3193,10 +3309,12 @@ type GeometryStyle = {
   drawsFill: boolean;
   drawsLines: boolean;
   /**
-   * Whether the line draws nothing only because its width is 0 at this zoom step. With its paint
-   * from `ZoomPaintExtension`, it keeps its place in its sublayer (see `renderSubLayers`).
+   * Fill or line geometry kept for paint that can become visible inside the step or for a line
+   * that drew at the previous step. It keeps its place in its sublayer (see `renderSubLayers`).
    */
-  isZeroWidth: boolean;
+  deferredPaint?: {fill: boolean; line: boolean} | null;
+  /** The feature states the style layer's paint reads, if it reads any. */
+  featureState?: FeatureStateLookup;
   fillColor: StyleAccessor<number[]>;
   lineColor: StyleAccessor<number[]>;
   lineWidth: StyleAccessor<number>;
@@ -3242,6 +3360,43 @@ function hasOutlineColor(styleLayer: BasemapStyleLayer): boolean {
   return styleLayer.type === 'fill' && styleLayer.paint?.['fill-outline-color'] !== undefined;
 }
 
+/** The fill color used when the style leaves it unset. */
+const DEFAULT_FILL_COLOR = getStylePropertyDefault('fill-color') as number[];
+
+/** Describes the widths and colors shared by attributes and texture paint. */
+function getGeometryPaintProperties(styleLayer: BasemapStyleLayer, mode: BasemapMode) {
+  const isLine = styleLayer.type === 'line';
+  const ownOutline = hasOutlineColor(styleLayer);
+  const lineWidth: PaintProperty<number> | null = isLine
+    ? {names: ['line-width'], combine: ([width]) => Math.max(0, Number(width ?? 1))}
+    : null;
+  const fillColor: PaintProperty<number[]> = {
+    names: ['fill-color', 'fill-opacity'],
+    combine: ([color, opacity]) =>
+      getGlobeFillColor(withOpacity(color ?? DEFAULT_FILL_COLOR, opacity ?? 1), mode)
+  };
+  const lineColor: PaintProperty<number[]> = {
+    names: isLine
+      ? ['line-color', 'line-opacity']
+      : [ownOutline ? 'fill-outline-color' : 'fill-color', 'fill-opacity'],
+    combine: ([color, opacity]) =>
+      withOpacity(
+        color ?? (isLine ? DEFAULT_COLOR : ownOutline ? undefined : DEFAULT_FILL_COLOR),
+        opacity ?? 1
+      )
+  };
+  return {lineWidth, lineColor, fillColor};
+}
+
+/** Whether the fill draws an antialiasing outline at the evaluated style zoom. */
+function drawsFillOutline(styleLayer: BasemapStyleLayer, mode: BasemapMode, antialias: unknown) {
+  return (
+    styleLayer.type === 'fill' &&
+    (hasOutlineColor(styleLayer) || (styleLayer.paint?.['fill-pattern'] === undefined && mode !== 'globe')) &&
+    antialias !== false
+  );
+}
+
 function getGeometryPaint(
   styleLayer: BasemapStyleLayer,
   mode: BasemapMode,
@@ -3249,79 +3404,76 @@ function getGeometryPaint(
   pattern?: FillPatternGroup,
   featureState?: FeatureStateLookup
 ): GeometryPaint {
-  const isLine = styleLayer.type === 'line';
-  const isFill = styleLayer.type === 'fill';
+  const properties = getGeometryPaintProperties(styleLayer, mode);
+  /** Builds the lower endpoint attribute for a width or color. */
+  const accessor = <T>(property: PaintProperty<T>) =>
+    getStyleAccessor(styleLayer, property.names, zoom, property.combine, featureState);
 
   // A `fill-pattern` disables `fill-color`: the image supplies the colors and `fill-opacity` the
   // opacity, also on a globe. Without its images (sprites loading, or missing) the fill draws
   // nothing rather than its color or the default black.
-  const hasFillPattern = isFill && styleLayer.paint?.['fill-pattern'] !== undefined;
+  const hasFillPattern = styleLayer.type === 'fill' && styleLayer.paint?.['fill-pattern'] !== undefined;
   const fillColor = hasFillPattern
     ? pattern
-      ? getStyleAccessor(
-          styleLayer,
-          ['fill-opacity'],
-          zoom,
-          ([opacity]) => withOpacity([255, 255, 255, 1], opacity ?? 1),
-          featureState
-        )
+      ? accessor({
+          names: ['fill-opacity'],
+          combine: ([opacity]) => withOpacity([255, 255, 255, 1], opacity ?? 1)
+        })
       : {value: TRANSPARENT_COLOR}
-    : getStyleAccessor(
-        styleLayer,
-        ['fill-color', 'fill-opacity'],
-        zoom,
-        ([color, opacity]) =>
-          getGlobeFillColor(
-            withOpacity(color ?? getStylePropertyDefault('fill-color'), opacity ?? 1),
-            mode
-          ),
-        featureState
-      );
+    : accessor(properties.fillColor);
   // MapLibre draws a fill's outline only with `fill-antialias`, in `fill-outline-color` or, without
   // it, in `fill-color`. That outline is more than antialiasing: it closes the cracks between
   // polygons that meet at an edge, and it draws a polygon narrower than a pixel, such as a river at
   // a low zoom, as a line. A patterned fill's own outline draws the pattern, and a globe's fills
-  // are opaque: both are left without it.
-  const hasOwnOutlineColor = hasOutlineColor(styleLayer);
-  const hasOutline =
-    isFill &&
-    (hasOwnOutlineColor || (!hasFillPattern && mode !== 'globe')) &&
-    getPaint(styleLayer, zoom)['fill-antialias'] !== false;
-  const lineColor = isLine
-    ? getStyleAccessor(
-        styleLayer,
-        ['line-color', 'line-opacity'],
-        zoom,
-        ([color, opacity]) => withOpacity(color ?? DEFAULT_COLOR, opacity ?? 1),
-        featureState
-      )
-    : hasOwnOutlineColor
-      ? getStyleAccessor(
-          styleLayer,
-          ['fill-outline-color', 'fill-opacity'],
-          zoom,
-          ([color, opacity]) => withOpacity(color, opacity ?? 1),
-          featureState
-        )
-      : getStyleAccessor(
-          styleLayer,
-          ['fill-color', 'fill-opacity'],
-          zoom,
-          ([color, opacity]) =>
-            withOpacity(color ?? getStylePropertyDefault('fill-color'), opacity ?? 1),
-          featureState
-        );
+  // are opaque: both are left without it unless the style sets an explicit outline color.
+  const antialias = getCompiledStyleProperty(styleLayer, 'fill-antialias')?.evaluate(getZoomBucket(zoom));
+  const hasOutline = drawsFillOutline(styleLayer, mode, antialias);
   // A fill's outline is MapLibre's 1 pixel antialiasing line.
-  const lineWidth: StyleAccessor<number> = isLine
-    ? getStyleAccessor(
+  return {
+    fillColor,
+    lineColor: accessor(properties.lineColor),
+    lineWidth: properties.lineWidth ? accessor(properties.lineWidth) : {value: hasOutline ? 1 : 0},
+    hasOutline
+  };
+}
+
+/** Builds attributes at the next style zoom for paint that depends on both features and zoom. */
+function getNextGeometryPaint(
+  style: GeometryStyle,
+  mode: BasemapMode
+): Partial<Pick<GeometryPaint, 'lineWidth' | 'lineColor' | 'fillColor'>> {
+  const {styleLayer, zoom, featureState} = style;
+  const properties = getGeometryPaintProperties(styleLayer, mode);
+  /** Samples the upper endpoint when the combined paint depends on both feature and zoom. */
+  const next = <T>(property: PaintProperty<T> | null, current: StyleAccessor<T>) => {
+    if (!property) {
+      return undefined;
+    }
+    const compiled = property.names.map(name => getCompiledStyleProperty(styleLayer, name));
+    if (
+      compiled.some(value => value?.isFeatureDependent) &&
+      compiled.some(value => value?.isZoomDependent)
+    ) {
+      const bucket = getZoomBucket(zoom);
+      const {value} = getStyleAccessor(
         styleLayer,
-        ['line-width'],
-        zoom,
-        ([width]) => Math.max(0, Number(width ?? 1)),
-        featureState
-      )
-    : {value: hasOutline ? 1 : 0};
-  return {fillColor, lineColor, lineWidth, hasOutline};
+        property.names,
+        bucket + STYLE_ZOOM_STEP,
+        property.combine,
+        featureState,
+        {exactZoom: true, stepZoom: bucket}
+      );
+      return {value, updateTrigger: current.updateTrigger};
+    }
+    return undefined;
+  };
+  return {
+    lineWidth: next(properties.lineWidth, style.lineWidth),
+    lineColor: style.drawsLines || style.deferredPaint?.line
+      ? next(properties.lineColor, style.lineColor)
+      : undefined,
+    fillColor: style.isFill ? next(properties.fillColor, style.fillColor) : undefined
+  };
 }
 
 function getGeometryStyle({
@@ -3465,23 +3617,10 @@ function getGeometryStyle({
       styleLayer.paint?.['fill-translate'] !== undefined);
   const hasLineTranslate = isLine && styleLayer.paint?.['line-translate'] !== undefined;
 
-  // A constant transparent color or zero width draws nothing, so its sublayers are left out.
+  // A constant transparent color or zero width draws nothing, so its sublayers are left out
+  // unless their geometry is kept for continuous zoom paint or batch stability.
   const drawsFill = isFill && !isTransparent(fillColor);
   const drawsLines = (isLine || hasOutline) && !isTransparent(lineColor) && lineWidth.value !== 0;
-  // A line whose width is 0 at this zoom step, and which draws at the next step or the previous
-  // one, is kept for that step (see `renderSubLayers`). One that draws at neither, as many lines
-  // do below the zoom where their width starts, or that stays transparent, is left out. Its color
-  // at this step does not matter: at width 0 it draws nothing. Lines with an offset or a blur take
-  // their width in attributes, not from `ZoomPaintExtension`.
-  const isZeroWidth =
-    isLine &&
-    lineWidth.value === 0 &&
-    !hasOffset &&
-    !hasBlur &&
-    [zoom - STYLE_ZOOM_STEP, zoom + STYLE_ZOOM_STEP].some(stepZoom => {
-      const stepPaint = getGeometryPaint(styleLayer, mode, stepZoom);
-      return stepPaint.lineWidth.value !== 0 && !isTransparent(stepPaint.lineColor);
-    });
 
   return {
     styleLayer,
@@ -3491,7 +3630,7 @@ function getGeometryStyle({
     isFill,
     drawsFill,
     drawsLines,
-    isZeroWidth,
+    featureState,
     fillColor,
     lineColor,
     lineWidth,
@@ -3545,6 +3684,55 @@ function getLineGradient(
   return getLineGradientRamp(styleLayer);
 }
 
+/** Whether a geometry style can use paint from the texture. */
+function takesZoomPaint(style: GeometryStyle): boolean {
+  const paint = style.styleLayer.paint;
+  return !(
+    style.lineOffset ||
+    style.hasFillStyle ||
+    paint?.['line-blur'] !== undefined ||
+    paint?.['line-gradient'] !== undefined ||
+    paint?.['line-pattern'] !== undefined
+  );
+}
+
+/**
+ * Keeps otherwise invisible geometry if its paint can appear before the next step. A line whose
+ * width is 0 at this zoom step, and which draws at the next step or the previous one, is kept for
+ * that step (see `renderSubLayers`). One that draws at neither, as many lines do below the zoom
+ * where their width starts, is left out. Lines with an offset or a blur take their width in
+ * attributes and do not need this test.
+ */
+function keepGeometryPaint(style: GeometryStyle, mode: BasemapMode): void {
+  if (style.deferredPaint !== undefined) {
+    return;
+  }
+  style.deferredPaint = null;
+  const testFill = style.isFill && !style.drawsFill;
+  const testLine = !style.drawsLines && (style.isLine || style.lineWidth.value === 1);
+  if (!testFill && !testLine) {
+    return;
+  }
+  /** Evaluates an adjacent step with the same style and feature state as this one. */
+  const paintAt = (step: number) =>
+    getGeometryPaint(style.styleLayer, mode, step, undefined, style.featureState);
+  const bucket = getZoomBucket(style.zoom);
+  const next = paintAt(bucket + STYLE_ZOOM_STEP);
+  const fill = testFill && !isTransparent(next.fillColor);
+  let line =
+    testLine &&
+    (style.lineWidth.value !== 0 || next.lineWidth.value !== 0) &&
+    (!isTransparent(style.lineColor) || !isTransparent(next.lineColor));
+  if (!line && style.isLine && style.lineWidth.value === 0) {
+    // The previous width keeps the batch stable. Only the current and next paint affect visibility.
+    const previous = paintAt(bucket - STYLE_ZOOM_STEP);
+    line = previous.lineWidth.value !== 0 && !isTransparent(previous.lineColor);
+  }
+  if (fill || line) {
+    style.deferredPaint = {fill, line};
+  }
+}
+
 /**
  * The key under which consecutive style layers can draw as one sublayer, or null when this one
  * draws alone. Style layers share a sublayer when everything deck.gl applies to a whole layer is
@@ -3557,7 +3745,7 @@ function getLineGradient(
  */
 function getBatchKey(style: GeometryStyle): string | null {
   if (style.isFill) {
-    return style.drawsLines || style.hasFillStyle ? null : 'fill';
+    return style.drawsLines || style.deferredPaint?.line || style.hasFillStyle ? null : 'fill';
   }
   if (
     style.lineOffset ||
@@ -3569,8 +3757,18 @@ function getBatchKey(style: GeometryStyle): string | null {
   ) {
     return null;
   }
-  const {lineCapRounded, lineJointRounded, lineMiterLimit} = style.lineShape;
-  return `line-${lineCapRounded}-${lineJointRounded}-${lineMiterLimit}`;
+  return `line-${getLineShapeKey(style.lineShape)}`;
+}
+
+function getLineShapeKey({
+  lineCapRounded,
+  lineCapSquare,
+  lineJointRounded,
+  lineMiterLimit
+}: LineShape): string {
+  // Keep the existing sublayer ID suffixes for butt and round caps.
+  const cap = lineCapSquare ? 'square' : lineCapRounded;
+  return `${cap}-${lineJointRounded}-${lineMiterLimit}`;
 }
 
 /** Whether features include polygons and lines, per tile content and style layer. */
@@ -3702,33 +3900,34 @@ function createGeometrySubLayer({
   idSuffix?: string;
 }) {
   // Paint that is the same for all features of a style layer is taken from a texture (see
-  // `ZoomPaintExtension`), except next to an offset: it is computed from the width on the CPU, and
-  // with dashes leaves no vertex attribute for the extension. Blurred lines and patterned or
-  // translated fills, which draw alone with their own extensions, keep their paint in attributes.
+  // `ZoomPaintExtension`). Composite paint blends two attributes using factors from that texture.
+  // Lines with an offset compute it from the width on the CPU. They keep their paint in attributes,
+  // as do blurred, gradient and patterned lines and patterned or translated fills.
   const zoomPaintContext = props[ZOOM_PAINT_CONTEXT] as ZoomPaintContext | null | undefined;
-  const takesZoomPaint = (list: GeometryStyle[]) =>
-    Boolean(zoomPaintContext) &&
-    !list[0].lineOffset &&
-    !list[0].lineBlur &&
-    !list[0].hasFillStyle &&
-    !list[0].lineGradient &&
-    !list[0].pattern &&
-    list.length <= MAX_ZOOM_PAINT_PARTS;
-  // Lines kept at width 0 (see `renderSubLayers`) draw nothing because the texture gives them
-  // that width. Without the texture their width would be in attributes, so they are left out, as
-  // other style layers that draw nothing are.
-  const styles = takesZoomPaint(allStyles)
-    ? allStyles
-    : allStyles.filter(style => style.drawsFill || style.drawsLines);
+  const useZoomPaint = Boolean(
+    zoomPaintContext && allStyles.length <= MAX_ZOOM_PAINT_PARTS && takesZoomPaint(allStyles[0])
+  );
+  if (useZoomPaint) {
+    allStyles.forEach(style => keepGeometryPaint(style, mode));
+  }
+  // Without the texture, style layers that draw nothing at the bucket zoom are left out.
+  const styles = allStyles.filter(
+    style => style.drawsFill || style.drawsLines || (useZoomPaint && style.deferredPaint)
+  );
   if (styles.length === 0) {
     return null;
   }
   const [first] = styles;
   // A batch draws lines when any of its style layers does, or keeps lines at width 0. A sublayer
-  // of lines all kept at width 0 draws nothing; it is hidden, and adds no draw.
-  const drawsFill = styles.some(style => style.drawsFill);
-  const drawsLines = styles.some(style => style.drawsLines || style.isZeroWidth);
-  const isHidden = !styles.some(style => style.drawsFill || style.drawsLines);
+  // kept only for deferred paint is hidden while its paint draws nothing at the viewport zoom.
+  const drawsFill = styles.some(
+    style => style.drawsFill || (useZoomPaint && style.deferredPaint?.fill)
+  );
+  const drawsLines = styles.some(
+    style => style.drawsLines || (useZoomPaint && style.deferredPaint?.line)
+  );
+  const deferredZoomPaint =
+    useZoomPaint && !styles.some(style => style.drawsFill || style.drawsLines);
   const {
     isFill,
     lineShape,
@@ -3766,7 +3965,7 @@ function createGeometrySubLayer({
   const merge = <T>(get: (style: GeometryStyle) => StyleAccessor<T>) =>
     mergeStyleAccessors(styles.map(get), partIndices);
   const zoomPaint =
-    zoomPaintContext && takesZoomPaint(styles)
+    zoomPaintContext && useZoomPaint
       ? zoomPaintContext.get(
           styles.map(style => style.styleLayer),
           mode
@@ -3779,17 +3978,68 @@ function createGeometrySubLayer({
   // The width attribute scales the texture's width of its style layer, which is 1 where it is per
   // feature.
   const lineWidth = merge(style => perFeature(style.lineWidth, 1));
+  const nextPaint = zoomPaint
+    ? styles.map(style => getNextGeometryPaint(style, mode))
+    : [];
+  const hasComposite = nextPaint.some(paint => paint.lineWidth || paint.lineColor || paint.fillColor);
+  /** Merges upper endpoint attributes with the current value for parts that do not blend. */
+  const mergeNext = <T>(
+    next: (paint: (typeof nextPaint)[number]) => StyleAccessor<T> | undefined,
+    current: (style: GeometryStyle) => StyleAccessor<T>,
+    constant: T
+  ) =>
+    mergeStyleAccessors(
+      styles.map((style, index) => next(nextPaint[index]) ?? perFeature(current(style), constant)),
+      partIndices
+    );
+  const nextLineWidth = hasComposite
+    ? mergeNext(paint => paint.lineWidth, style => style.lineWidth, 1)
+    : undefined;
+  const nextLineColor = hasComposite
+    ? mergeNext(paint => paint.lineColor, style => style.lineColor, TRANSPARENT_COLOR)
+    : undefined;
+  const nextFillColor = hasComposite && isFill
+    ? mergeNext(paint => paint.fillColor, style => style.fillColor, TRANSPARENT_COLOR)
+    : undefined;
   // A dash array without gaps draws a solid line.
   const dashArray = styles.some(style => style.dashArray)
     ? merge(style => style.dashArray ?? SOLID_DASH_ARRAY)
     : null;
 
+  const packPath = Boolean(dashArray && hasComposite);
+  const zoomPaintExtension = packPath
+    ? DASHED_COMPOSITE_ZOOM_PAINT_EXTENSION
+    : hasComposite
+      ? COMPOSITE_ZOOM_PAINT_EXTENSION
+      : ZOOM_PAINT_EXTENSION;
+  /** Packs each dashed feature's style part, upper width and upper color into one attribute. */
+  const getNextDashedPaint = packPath && nextLineWidth && nextLineColor
+    ? (feature: any, info: {index: number}) => {
+        const width = nextLineWidth.value;
+        const color = nextLineColor.value;
+        return [
+          partIndices[info.index] ?? 0,
+          typeof width === 'function' ? width(feature, info) : width,
+          ...packZoomPaintColor(typeof color === 'function' ? color(feature, info) : color)
+        ];
+      }
+    : undefined;
+
   const offsetValue = lineOffset?.value;
+  const drawsGap = gapWidth && (typeof gapWidth.value === 'function' || gapWidth.value > 0);
+  const takesSquareGapCap = drawsGap && lineShape?.lineCapSquare;
+  const getOffsetValues = (feature: any) =>
+    typeof offsetValue === 'function' ? offsetValue(feature) : offsetValue!;
   const getOffset = (side: number) => (feature: any) => {
-    const [offset, gap, width, blur] =
-      typeof offsetValue === 'function' ? offsetValue(feature) : offsetValue!;
+    const [offset, gap, width, blur] = getOffsetValues(feature);
     return getLineOffset(offset, gap, width, side, blur);
   };
+  const getSquareGapCap = (feature: any) => {
+    const [, gap, width] = getOffsetValues(feature);
+    return gap > 0 && width > 0 ? gap / 2 + width : 0;
+  };
+  const offsetTrigger =
+    typeof offsetValue === 'function' ? lineOffset?.updateTrigger : offsetValue;
   const getBlurGap = (side: number) =>
     gapOffset && typeof gapOffset.value !== 'function'
       ? {blurGapSide: side, blurGapOffset: gapOffset.value}
@@ -3809,14 +4059,22 @@ function createGeometrySubLayer({
   const drawsOutline = drawsLines && isFill;
   // `line-translate` takes the extension of `fill-translate`, which moves any vertex.
   const translatesLine = !isFill && hasLineTranslate;
+  // Offset joins keep PathLayer's cut. The default miter limit is reachable, so sharp turns
+  // still need the shape shader to change that cut to a flip bevel.
+  const needsLineShape =
+    fadesLines && lineShape &&
+    (lineShape.lineCapSquare ||
+      (!lineOffset && !lineShape.lineJointRounded && lineShape.lineMiterLimit + 1 < MAX_LINE_SHAPE_MITER_RATIO));
   const geometryExtensions =
     dashArray || lineOffset || fadesLines || drawsOutline || zoomPaint || translatesLine
       ? [
           ...(baseProps.extensions || []),
-          ...(dashArray ? [lineOffset ? DASH_OFFSET_EXTENSION : DASH_EXTENSION] : []),
+          ...(dashArray
+            ? [lineOffset ? DASH_OFFSET_EXTENSION : DASH_EXTENSION, LINE_DASH_EXTENSION]
+            : []),
           ...(!dashArray && lineOffset ? [OFFSET_EXTENSION] : []),
           // Before the fade, which widens the stroke once its width is final.
-          ...(zoomPaint ? [ZOOM_PAINT_EXTENSION] : []),
+          ...(zoomPaint ? [zoomPaintExtension] : []),
           ...(fadesLines
             ? [
                 typeof lineBlur?.value === 'function'
@@ -3825,6 +4083,7 @@ function createGeometrySubLayer({
               ]
             : []),
           ...(drawsOutline ? [FILL_OUTLINE_EXTENSION] : []),
+          ...(needsLineShape ? [LINE_SHAPE_EXTENSION] : []),
           ...(lineGradient ? [LINE_GRADIENT_EXTENSION] : []),
           ...(linePattern ? [LINE_PATTERN_EXTENSION] : []),
           ...(translatesLine ? [FILL_TRANSLATE_EXTENSION] : [])
@@ -3844,8 +4103,6 @@ function createGeometrySubLayer({
 
   const layerProps = {
     ...baseProps,
-    // Not drawn, picked or highlighted while all of its lines are kept at width 0.
-    ...(isHidden ? {visible: false, pickable: false} : {}),
     id: `${getStyleSubLayerId(props.id, styleLayerIds)}${idSuffix}`,
     [STYLE_LAYER_IDS]: styles.map(style => style.styleLayer.id),
     [STYLE_LAYER_PARTS]: styles.length === 1 ? null : partIndices,
@@ -3861,6 +4118,17 @@ function createGeometrySubLayer({
     ...(zoomPaint
       ? {
           zoomPaint,
+          // Invisible retained paint is skipped in drawing, picking and highlighting.
+          ...(deferredZoomPaint ? {deferredZoomPaint} : {}),
+          ...(hasComposite
+            ? {
+                zoomPaintBucket: getZoomBucket(zoom),
+                getNextLineWidth: nextLineWidth?.value,
+                getNextLineColor: nextLineColor?.value,
+                ...(nextFillColor ? {getNextFillColor: nextFillColor.value} : {}),
+                ...(getNextDashedPaint ? {getNextDashedPaint} : {})
+              }
+            : {}),
           getStylePart:
             styles.length === 1
               ? 0
@@ -3887,6 +4155,7 @@ function createGeometrySubLayer({
       : {}),
     ...(translatesLine ? getTranslateProps(first.styleLayer, zoom, 'line') : {}),
     ...(offsetValue ? {getOffset: getOffset(1)} : {}),
+    ...(takesSquareGapCap ? {getSquareGapCap} : {}),
     ...(lineDashArray
       ? {
           getDashArray: lineDashArray.value as any,
@@ -3899,8 +4168,29 @@ function createGeometrySubLayer({
       getFillPatternScale: pattern ? Math.floor(zoom) : undefined,
       getLineColor: lineColor.updateTrigger,
       getLineWidth: lineWidth.updateTrigger,
+      ...(hasComposite
+        ? {
+            getNextLineWidth: nextLineWidth?.updateTrigger,
+            getNextLineColor: nextLineColor?.updateTrigger,
+            getNextFillColor: nextFillColor?.updateTrigger,
+            ...(packPath
+              ? {
+                  getNextDashedPaint: [
+                    nextLineWidth?.updateTrigger,
+                    nextLineColor?.updateTrigger,
+                    ...styles.flatMap(({styleLayer: {paint}}) => [
+                      paint?.['line-width'],
+                      paint?.['line-color'],
+                      paint?.['line-opacity']
+                    ])
+                  ]
+                }
+              : {})
+          }
+        : {}),
       getDashArray: lineDashArray?.updateTrigger,
-      getOffset: typeof offsetValue === 'function' ? lineOffset?.updateTrigger : offsetValue,
+      getOffset: offsetTrigger,
+      getSquareGapCap: takesSquareGapCap ? offsetTrigger : undefined,
       getBlur: lineBlur?.updateTrigger,
       getLinePattern: linePattern ? Math.floor(zoom) : undefined,
       getLinePatternWidth: linePatternWidth?.updateTrigger,
@@ -3915,8 +4205,8 @@ function createGeometrySubLayer({
     pointRadiusMinPixels: 0,
     parameters: getTileParameters(mode, depthTested)
   };
-  const layer = getTileGeoJsonLayer(props, layerProps);
-  if (!gapWidth || (typeof gapWidth.value !== 'function' && !(gapWidth.value > 0))) {
+  const layer = getTileGeoJsonLayer(props, layerProps, zoomPaint ? zoom : undefined);
+  if (!drawsGap) {
     return layer;
   }
 
@@ -4417,6 +4707,7 @@ function getStyleLayers({
   pickable,
   tilesets,
   projected,
+  firstPerson,
   projectedMaxStretch,
   styleLayerProps,
   insertions = []
@@ -4424,6 +4715,7 @@ function getStyleLayers({
   featureState?: BasemapFeatureState | null;
   pickable?: LayerProps['pickable'];
   projected?: boolean;
+  firstPerson?: boolean;
   projectedMaxStretch?: number;
   styleLayerProps?: StyleLayerPropsMap | null;
   /** deck.gl layers to draw between the runs, sorted by index (see `getStyleInsertions`). */
@@ -4474,7 +4766,7 @@ function getStyleLayers({
   const createRunLayer = (run: StyleLayerRun) => {
     const [layer] = run.styleLayers;
     if (run.type === 'background') {
-      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, spriteAtlases});
+      return createBackgroundLayer({idPrefix, layer, zoom, mode, projected, firstPerson, spriteAtlases});
     }
     if (run.type === 'raster' && run.source?.type === 'image') {
       return createImageLayer({

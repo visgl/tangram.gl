@@ -175,12 +175,15 @@ The module evaluates styles with [`@maplibre/maplibre-gl-style-spec`][maplibre-s
 - Evaluates filter expressions for each GeoJSON `Feature` input
 - Evaluates paint expressions given the zoom level
 
-Zoom-dependent paint and layout values are evaluated at the zoom rounded down to a 0.25 step
-(`STYLE_ZOOM_STEP`), and every visible tile uses the same evaluation zoom, so tiles agree at their
-seams. Filters use the integer zoom, as the style spec specifies, and layer visibility uses the
-exact zoom. MapLibre instead evaluates zoom expressions at the integer zooms on either side of
-the current zoom and interpolates on the GPU; moving interpolation to the GPU remains the
-long-term plan.
+Tile sublayers are made again at each 0.25 zoom step (`STYLE_ZOOM_STEP`), and every visible
+tile uses the same step, so tiles agree at their seams. Between steps, on WebGL, the widths,
+colors and opacities of `fill`, `line` and `circle` layers follow the zoom continuously, as in
+MapLibre: paint that depends only on the zoom is evaluated at the exact zoom of each frame and
+sent to the GPU in a small texture or in uniforms, and paint that also depends on the feature is
+evaluated at the two steps around the zoom into vertex attributes and interpolated on the GPU.
+Zooming within a step writes no attributes and makes no sublayers. Other paint, layout values and
+WebGPU use the zoom rounded down to the step. Filters use the integer zoom, as the style spec
+specifies, and layer visibility uses the exact zoom.
 
 ### Label fonts
 
@@ -264,22 +267,18 @@ Approximations:
 - `fill-extrusion-opacity` scales each surface's opacity. MapLibre composites the layer as a
   whole, so with an opacity below 1 MapLibre hides the walls behind a building, which deck.gl can
   show.
-- deck.gl draws one dash and one gap per period. A pattern longer than two values keeps its period
-  and its total dash length, but its dashes merge into one. In an odd-length pattern the last
-  dash runs into the first, as in MapLibre.
-- deck.gl has no square cap or bevel join. A `square` cap is drawn as `butt`, so the line ends
-  half its width short, and a zero-length dash, which MapLibre draws as a square, draws nothing.
-  A `bevel` join is cut flat half the line width from the vertex, which reaches slightly further
-  than a bevel at sharp corners. A `miter` join sharper than `line-miter-limit` is cut flat at the
-  limit, where MapLibre bevels it. `line-round-limit` is not applied, which makes no visible
-  difference.
+- On WebGL, dash patterns have up to 32 dashes and share an atlas of 4,096 distinct patterns
+  per loaded module. Longer patterns, new patterns beyond the atlas limit and WebGPU patterns
+  draw one dash and one gap per period with the same total dash and gap lengths.
+- On WebGL, a square cap extends half the line width past an endpoint, or half the gap plus
+  the line width for `line-gap-width`. Bevel joins and miters beyond `line-miter-limit` use
+  MapLibre's bevel on paths without offsets. On WebGPU, square caps draw as butt caps and
+  bevel joins are cut flat at 1.05 half widths. The renderer uses deck.gl's round joins at every
+  angle for `line-join: round`.
 - A flat layer that comes after a `fill-extrusion` layer in the style is hidden behind the
   buildings; MapLibre draws it over them.
 - MapLibre cross-fades a zoom-dependent `line-dasharray` between integer zooms; here it switches
   at each integer zoom.
 - The outline is 1 CSS pixel wide; MapLibre's is one device pixel.
-- `fill-translate`, `line-translate` and `fill-extrusion-translate` (and their `-anchor`
-  properties) are not applied. They offset geometry in screen pixels, which deck.gl's polygon
-  and path layers have no prop for.
 
 [maplibre-style-spec-js]: https://github.com/maplibre/maplibre-style-spec

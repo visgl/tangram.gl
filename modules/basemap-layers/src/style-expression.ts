@@ -9,6 +9,7 @@ import {
   Color,
   ColorArray,
   Interpolate,
+  type InterpolationType,
   NumberArray,
   Padding,
   VariableAnchorOffsetCollection,
@@ -33,6 +34,8 @@ export type CompiledStyleProperty = {
   isFeatureDependent: boolean;
   /** True when the value depends on the feature's state (`["feature-state", ...]`). */
   isStateDependent: boolean;
+  /** Interpolation of the outer zoom curve, or null for discrete or zoom-independent values. */
+  zoomInterpolation: InterpolationType | null;
   /**
    * Evaluates the property. Colors are returned as `[r, g, b, a]`, with `a` in 0-1.
    * `availableImages` lists the loaded sprite image names, which `["image", ...]` checks.
@@ -206,11 +209,19 @@ export function compileStylePropertyValue(
     return null;
   }
   const kind: string = compiled.kind;
+  let zoomInterpolation: InterpolationType | null = compiled.interpolationType ?? null;
+  if (kind === 'composite' && value && typeof value === 'object' && 'stops' in value) {
+    // A legacy composite function evaluates its zoom axis exponentially, even when the compiler
+    // reports linear interpolation. The default base of 1 gives linear interpolation.
+    const base = 'base' in value && typeof value.base === 'number' ? value.base : 1;
+    zoomInterpolation = base === 1 ? {name: 'linear'} : {name: 'exponential', base};
+  }
 
   return {
     isZoomDependent: kind === 'camera' || kind === 'composite',
     isFeatureDependent: kind === 'source' || kind === 'composite',
     isStateDependent: Boolean(compiled.isStateDependent),
+    zoomInterpolation,
     evaluate: (zoom, feature, availableImages, featureState) =>
       toPlainValue(
         compiled.evaluate(
@@ -224,6 +235,22 @@ export function compileStylePropertyValue(
     evaluateWithGlobals: (globals, feature) =>
       toPlainValue(compiled.evaluate(globals as any, toEvaluationFeature(feature) as any))
   };
+}
+
+/** The clamped blend between two attribute zooms. A discrete zoom curve holds its lower value. */
+export function getZoomInterpolationFactor(
+  interpolation: InterpolationType | null,
+  zoom: number,
+  lower: number,
+  upper: number
+): number {
+  if (!interpolation || zoom <= lower) {
+    return 0;
+  }
+  if (zoom >= upper) {
+    return 1;
+  }
+  return Math.max(0, Math.min(1, Interpolate.interpolationFactor(interpolation, zoom, lower, upper)));
 }
 
 /**

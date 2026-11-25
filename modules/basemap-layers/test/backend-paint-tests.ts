@@ -6,6 +6,7 @@ import {Deck, MapView, OrthographicView, type Layer, type View} from '@deck.gl/c
 import type {Adapter} from '@luma.gl/core';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {SolidPolygonLayer} from '@deck.gl/layers';
+import {BasemapLayer} from '../src/basemap-layer';
 import {getBasemapLayers} from '../src/index';
 import {
   DEFAULT_FILL_EXTRUSION_LIGHT,
@@ -65,11 +66,12 @@ export function vectorTile(
   styleLayer: Record<string, unknown>,
   features: unknown[],
   deviceType: 'webgl' | 'webgpu',
-  zoom = 5
+  zoom = 5,
+  mode: 'map' | 'globe' = 'map'
 ): any[] {
   const layers = getBasemapLayers({
     idPrefix: 'test',
-    mode: 'map',
+    mode,
     zoom,
     styleDefinition: {
       version: 8,
@@ -378,6 +380,64 @@ export function defineBackendPaintTests(options: BackendPaintTestOptions): void 
   const render = createBackendRenderer(options);
 
   const center = (image: ImageData) => pixel(image, SIZE / 2, SIZE / 2);
+
+  describe(`${deviceType}: line width within a style zoom step`, () => {
+    test('draws the backend-specific width at the endpoints and within the step', async () => {
+      const style = {
+        version: 8 as const,
+        sources: {tiles: {type: 'vector' as const, tiles: ['https://tiles.example.com/{z}/{x}/{y}.mvt']}},
+        layers: [
+          {id: 'background', type: 'background' as const, paint: {'background-color': '#ffffff'}},
+          {
+            id: 'line',
+            type: 'line' as const,
+            source: 'tiles',
+            'source-layer': 'lines',
+            paint: {'line-color': '#000000', 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 4, 16, 44]}
+          }
+        ]
+      } satisfies NonNullable<ConstructorParameters<typeof BasemapLayer>[0]>['style'];
+      /** Supplies a horizontal line in tile coordinates without fetching a resource. */
+      const fetchTile = async () => [{
+        type: 'Feature',
+        properties: {layerName: 'lines'},
+        geometry: {type: 'LineString', coordinates: [[0.05, 0.5], [0.95, 0.5]]}
+      }];
+      /** Measures the stroke's coverage through its center, including antialiased edges. */
+      const widthAt = async (zoom: number) => {
+        const image = await render(
+          [new BasemapLayer({id: 'basemap', mode: 'map', style, fetch: fetchTile})],
+          {
+            view: new MapView({id: 'map'}),
+            viewState: {
+              longitude: 180 / 2 ** 15,
+              latitude: -Math.atan(Math.sinh(Math.PI / 2 ** 15)) * 180 / Math.PI,
+              zoom
+            }
+          }
+        );
+        let width = 0;
+        for (let y = 0; y < SIZE; y++) {
+          width += 1 - pixel(image, SIZE / 2, y)[0] / 255;
+        }
+        return width;
+      };
+
+      const start = await widthAt(15);
+      const inside = await widthAt(15.1);
+      const end = await widthAt(15.25);
+      expect(Math.abs(start - 4)).toBeLessThan(1);
+      expect(Math.abs(end - 14)).toBeLessThan(1);
+      if (deviceType === 'webgl') {
+        expect(inside).toBeGreaterThan(start);
+        expect(inside).toBeLessThan(end);
+        expect(Math.abs(inside - 8)).toBeLessThan(1);
+      } else {
+        // WebGPU keeps the stepped paint path.
+        expect(inside).toBe(start);
+      }
+    });
+  });
 
   describe(`${deviceType}: raster color adjustments`, () => {
     const tile = (paint: Record<string, unknown>) =>

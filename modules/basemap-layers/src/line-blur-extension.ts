@@ -204,10 +204,12 @@ in float lineBlur_padPixels;
   }
   lineBlur_edgePixels -= lineBlur_padPixels;
   // Picking colors keep the coverage PathLayer gave them.
+  float lineBlur_fade = lineBlur_coverage;
   if (lineBlur_coverage > 0.0 && !bool(picking.isActive)) {
-    fragColor.a *= clamp(
+    lineBlur_fade = clamp(
       (lineBlur_edgePixels + 0.5) / (lineBlur_blur + 1.0), 0.0, 1.0
-    ) / lineBlur_coverage;
+    );
+    fragColor.a *= lineBlur_fade / lineBlur_coverage;
   }
 #endif
 `
@@ -216,7 +218,7 @@ in float lineBlur_padPixels;
     });
     return {
       plugins: [lineBlur],
-      defines: extension.opts.perFeature ? {LINE_BLUR_PER_FEATURE: true} : {}
+      defines: {LINE_BLUR_ENABLED: true, LINE_BLUR_PER_FEATURE: extension.opts.perFeature}
     };
   }
 }

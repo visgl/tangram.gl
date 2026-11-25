@@ -50,7 +50,7 @@ const LINEAR_WIDTH = {
 };
 
 describe('fractional zoom steps', () => {
-  test('zoom-dependent values are evaluated at the zoom rounded down to a 0.25 step', () => {
+  test('paint outside the texture path is evaluated at the zoom rounded down to a 0.25 step', () => {
     const style = makeStyle(LINEAR_WIDTH);
     const features = [feature('LineString', {})];
     const widthAt = (zoom: number) =>
@@ -91,6 +91,17 @@ describe('fractional zoom steps', () => {
     const style = makeStyle({type: 'line', filter: ['>=', ['zoom'], 15.5]});
     // At z15.7 the filter sees zoom 15, so the style layer renders nothing.
     expect(renderTile(vectorLayerAt(style, 15.7), [feature('LineString', {})])).toBeUndefined();
+  });
+
+  test('layout keeps its stepped evaluation', () => {
+    const style = makeStyle({
+      ...LINEAR_WIDTH,
+      layout: {'line-cap': ['step', ['zoom'], 'butt', 15.6, 'round']}
+    });
+    const roundCapAt = (zoom: number) =>
+      renderTile(vectorLayerAt(style, zoom), [feature('LineString', {})]).props.lineCapRounded;
+    expect(roundCapAt(15.65)).toBe(false);
+    expect(roundCapAt(15.75)).toBe(true);
   });
 
   test('the regeneration key changes at each 0.25 step', () => {

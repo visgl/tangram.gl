@@ -26,6 +26,7 @@ export type {StyleProjection, StyleView, StyleViewState} from './style-view';
 
 export {BasemapLoadError} from './basemap-error';
 export type {BasemapLoadErrorDetails, BasemapLoadErrorKind} from './basemap-error';
+export {DemPixelReadError} from './dem-pixels';
 export type {BasemapSourceFeature, QuerySourceFeaturesOptions} from './source-features';
 export {pickTerrainSurface} from './terrain-query';
 export type {TerrainSurface, TerrainSurfaceHit} from './terrain-query';

@@ -6,7 +6,6 @@
 import {describe, expect, test} from 'vitest';
 import {getBasemapLayers} from '../src/index.ts';
 import {ZoomPaintContext} from '../src/globe-layers';
-import {getZoomBucket} from '../src/style-accessor';
 import {ZOOM_PAINT_WIDTH_ROW, getZoomPaintOffset} from '../src/zoom-paint-extension';
 
 // A line whose width is 0 at one zoom step and not at the next keeps its sublayer at that step,
@@ -63,7 +62,6 @@ function renderTile(
     zoom,
     styleDefinition: makeStyle(styleLayers)
   }).find(layer => layer.id === 'test-tiles');
-  context.zoom = getZoomBucket(zoom);
   return vectorLayer.props
     .renderSubLayers({
       id: 'tile',
@@ -79,7 +77,7 @@ function renderTile(
 /** The style layer ids each sublayer is named after, with `hidden:` before hidden ones. */
 function idsOf(layers: any[]): string[] {
   return layers.map(
-    layer => `${layer.props.visible === false ? 'hidden:' : ''}${layer.id.replace(/^tile-/, '')}`
+    layer => `${layer.props.deferredZoomPaint ? 'hidden:' : ''}${layer.id.replace(/^tile-/, '')}`
   );
 }
 
@@ -103,8 +101,7 @@ const STARTS_AT_13 = ['interpolate', ['linear'], ['zoom'], 13.5, 0, 14, 2];
 
 /** The zoom paint width of part `part` of a sublayer at `zoom`. */
 function widthOf(layer: any, part: number, zoom: number): number {
-  context.zoom = getZoomBucket(zoom);
-  return layer.props.zoomPaint.getValues()[getZoomPaintOffset(ZOOM_PAINT_WIDTH_ROW, part)];
+  return layer.props.zoomPaint.getValues(zoom)[getZoomPaintOffset(ZOOM_PAINT_WIDTH_ROW, part)];
 }
 
 describe('a line at width 0 for one zoom step', () => {
@@ -113,7 +110,9 @@ describe('a line at width 0 for one zoom step', () => {
     const [before] = renderTile(style, 5);
     const [after] = renderTile(style, 5.25);
     expect(idsOf([before])).toEqual(['hidden:"road"']);
-    expect(before.props.pickable).toBe(false);
+    expect(before.filterSubLayer({viewport: {zoom: 5}})).toBe(false);
+    expect(before.filterSubLayer({viewport: {zoom: 5.1}})).toBe(true);
+    expect(widthOf(before, 0, 5.1)).toBeCloseTo(0.2, 6);
     expect(idsOf([after])).toEqual(['"road"']);
     expect(after.props.data).toBe(before.props.data);
     expect(widthOf(before, 0, 5)).toBe(0);
@@ -126,7 +125,10 @@ describe('a line at width 0 for one zoom step', () => {
     const [kept] = renderTile(style, 5.25);
     expect(idsOf([drawn])).toEqual(['"road"']);
     expect(idsOf([kept])).toEqual(['hidden:"road"']);
+    expect(kept.id).toBe(drawn.id);
     expect(kept.props.data).toBe(drawn.props.data);
+    expect(kept.filterSubLayer({viewport: {zoom: 5.25}})).toBe(false);
+    expect(kept.filterSubLayer({viewport: {zoom: 5.4}})).toBe(false);
     // Two steps on, the width is 0 on both sides: the line is left out.
     expect(renderTile(style, 5.5)).toEqual([]);
   });
@@ -145,17 +147,21 @@ describe('a line at width 0 for one zoom step', () => {
     expect(renderTile([line('road', {'line-width': STARTS_AT_13})], 12)).toEqual([]);
   });
 
-  test('stays in its batch, which keeps its name and data across the step', () => {
-    const style = [line('casing', {'line-width': 3}), line('road', {'line-width': STARTS_AT_5})];
+  test.each([
+    [STARTS_AT_5, 5],
+    [STOPS_AT_5, 5.25]
+  ])('stays in its batch, which keeps its name and data across the step (%j)', (width, zeroZoom) => {
+    const style = [line('casing', {'line-width': 3}), line('road', {'line-width': width})];
     const [before] = renderTile(style, 5);
     const [after] = renderTile(style, 5.25);
     expect(idsOf([before])).toEqual(['["casing","road"]']);
     expect(idsOf([after])).toEqual(['["casing","road"]']);
     expect(after.props.data).toBe(before.props.data);
     // The batch draws its lines; the kept line has width 0 from the texture.
-    expect(before.props.stroked).toBe(true);
-    expect(widthOf(before, 0, 5)).toBe(3);
-    expect(widthOf(before, 1, 5)).toBe(0);
+    const zero = zeroZoom === 5 ? before : after;
+    expect(zero.props.stroked).toBe(true);
+    expect(widthOf(zero, 0, zeroZoom)).toBe(3);
+    expect(widthOf(zero, 1, zeroZoom)).toBe(0);
   });
 
   test('starting a batch, still draws the batch', () => {
@@ -186,7 +192,7 @@ describe('a line at width 0 for one zoom step', () => {
     expect(idsOf(renderTile(style, 5, {mode: 'globe'}))).toEqual(['"casing"', 'hidden:"road"']);
     const highlighted = renderTile(style, 5, {tileProps: {highlightedFeatureId: 1}});
     expect(idsOf(highlighted)).toEqual(['"casing"', 'hidden:"road"']);
-    expect(highlighted[1].props.pickable).toBe(false);
+    expect(highlighted[1].filterSubLayer({viewport: {zoom: 5}})).toBe(false);
   });
 });
 
@@ -229,13 +235,13 @@ describe('a line that draws nothing is left out, as before', () => {
     expect(idsOf(renderTile(style, 5))).toEqual(['["a","c"]']);
   });
 
-  test('when it is transparent', () => {
+  test('when it stays transparent, while keeping a line whose opacity rises', () => {
     const fadesIn = ['interpolate', ['linear'], ['zoom'], 5, 0, 7, 1];
     const style = [
       line('casing', {'line-width': 3}),
       line('road', {'line-width': 2, 'line-opacity': fadesIn})
     ];
-    expect(idsOf(renderTile(style, 5))).toEqual(['"casing"']);
+    expect(idsOf(renderTile(style, 5))).toEqual(['["casing","road"]']);
     // At width 0 too: it would draw nothing at the next step either.
     const invisible = [
       line('a', {'line-width': 3}),
