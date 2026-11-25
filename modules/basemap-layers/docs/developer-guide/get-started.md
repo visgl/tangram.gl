@@ -10,11 +10,11 @@ Copyright (c) vis.gl contributors
 
 ```sh
 yarn add @tangram.gl/basemap-layers \
-  @deck.gl/core@10.0.0-alpha.1 @deck.gl/layers@10.0.0-alpha.1 \
-  @deck.gl/geo-layers@10.0.0-alpha.1 @deck.gl/extensions@10.0.0-alpha.1 \
-  @deck.gl-community/geo-layers@10.0.0-alpha.1 \
-  @luma.gl/core@10.0.0-alpha.14 @luma.gl/engine@10.0.0-alpha.14 \
-  @loaders.gl/core@5.0.0-beta.8
+  @deck.gl/core@10.0.0-alpha.2 @deck.gl/layers@10.0.0-alpha.2 \
+  @deck.gl/geo-layers@10.0.0-alpha.2 @deck.gl/extensions@10.0.0-alpha.2 \
+  @deck.gl-community/geo-layers@10.0.0-alpha.2 \
+  @luma.gl/core@10.0.0-beta.3 @luma.gl/engine@10.0.0-beta.3 \
+  @loaders.gl/core@5.0.0-rc.2
 ```
 
 ## Using in deck.gl

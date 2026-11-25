@@ -58,12 +58,12 @@ The renderer and deck layer accept `projectionEngine?: ProjectionEngine`. Supply
 a reusable math.gl factory, not a compiled transform:
 
 ```ts
-import {createProjectionEngine} from '@math.gl/projection/core';
-import {equalEarth} from '@math.gl/projection/projections/eqearth';
-import {albersEqualArea} from '@math.gl/projection/projections/aea';
-import {mercator} from '@math.gl/projection/projections/merc';
-import {equidistantCylindrical} from '@math.gl/projection/projections/eqc';
-import type {ProjectionEngine} from '@math.gl/projection/types';
+import {createProjectionEngine} from '@math.gl/geospatial/projection-core';
+import {equalEarth} from '@math.gl/geospatial/projection-projections-eqearth';
+import {albersEqualArea} from '@math.gl/geospatial/projection-projections-aea';
+import {mercator} from '@math.gl/geospatial/projection-projections-merc';
+import {equidistantCylindrical} from '@math.gl/geospatial/projection-projections-eqc';
+import type {ProjectionEngine} from '@math.gl/geospatial/projection-types';
 
 const projectionEngine: ProjectionEngine = createProjectionEngine({
   projections: [equalEarth, albersEqualArea, mercator, equidistantCylindrical]
@@ -75,7 +75,7 @@ const layer = new ProjectedBasemapLayer({scene, projectionEngine, projectedTileZ
 // const renderer = Renderer.create(scene, {device, canvas, projectionEngine});
 ```
 
-`@math.gl/projection` is an optional peer. Install a compatible alpha.15 factory
+`@math.gl/geospatial` is an optional peer. Install a compatible 5.0 factory
 when using this option. Tangram exposes a structural factory contract without
 importing the optional package's types or a default factory in its normal entries. Register only the
 algorithms you need. Lazy factories are supported through

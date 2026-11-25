@@ -205,7 +205,7 @@ without explicitly reconciling those semantics.
 
 ## Comparative validation
 
-Tests use published `@loaders.gl/tiles@5.0.0-beta.8`, not copied source or a local
+Tests use published `@loaders.gl/tiles@5.0.0-rc.2`, not copied source or a local
 checkout. Both engines receive the same compact fixtures. Frozen expected
 footprints additionally guard against two adapters agreeing on the same mistake.
 Real browser source tests compare postprocessed MVT, GeoJSON and raster payloads.
