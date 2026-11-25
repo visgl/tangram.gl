@@ -347,6 +347,7 @@ async function loadProtocolTile(
   return parse(
     bytes as ArrayBuffer | string,
     context.loaders || context.layer.props.loaders,
-    loadOptions
+    // loaders.gl selects a loader for bytes without a URL only from `core.mimeType`.
+    loadOptions && getTileLoaderOptions(loadOptions, context.signal)
   );
 }
