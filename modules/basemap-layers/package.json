@@ -48,38 +48,38 @@
     "prepack": "yarn build"
   },
   "devDependencies": {
-    "@deck.gl-community/geo-layers": "10.0.0-alpha.1",
-    "@deck.gl/test-utils": "10.0.0-alpha.1",
+    "@deck.gl-community/geo-layers": "10.0.0-alpha.2",
+    "@deck.gl/test-utils": "10.0.0-alpha.2",
     "@fontsource/montserrat": "5.3.0",
     "@fontsource/noto-sans": "5.3.0",
     "@fontsource/open-sans": "5.3.0",
-    "@loaders.gl/core": "5.0.0-beta.8",
+    "@loaders.gl/core": "5.0.0-rc.2",
     "@tangram.gl/map-utils": "workspace:*",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "maplibre-gl": "6.13.0",
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@loaders.gl/tiles": "5.0.0-beta.8",
+    "@loaders.gl/tiles": "5.0.0-rc.2",
     "@mapbox/tiny-sdf": "^2.0.5",
     "@maplibre/geojson-vt": "^6.1.2",
     "@maplibre/maplibre-gl-style-spec": "^24.8.1",
-    "@math.gl/core": "5.0.0-beta.8",
-    "@math.gl/geometry": "5.0.0-beta.8",
-    "@math.gl/tasks": "5.0.0-beta.8",
+    "@math.gl/core": "5.0.3",
+    "@math.gl/geometry": "5.0.3",
+    "@math.gl/tasks": "5.0.3",
     "@turf/polygon-to-line": "^6.0.3",
     "bidi-js": "^1.1.0",
     "pmtiles": "^4.5.0",
     "zod": "^4.0.0"
   },
   "peerDependencies": {
-    "@deck.gl-community/geo-layers": "10.0.0-alpha.1",
-    "@deck.gl/core": "10.0.0-alpha.1",
-    "@deck.gl/extensions": "10.0.0-alpha.1",
-    "@deck.gl/geo-layers": "10.0.0-alpha.1",
-    "@deck.gl/layers": "10.0.0-alpha.1",
-    "@loaders.gl/core": "5.0.0-beta.8",
-    "@luma.gl/core": "10.0.0-alpha.14",
-    "@luma.gl/engine": "10.0.0-alpha.14"
+    "@deck.gl-community/geo-layers": "10.0.0-alpha.2",
+    "@deck.gl/core": "10.0.0-alpha.2",
+    "@deck.gl/extensions": "10.0.0-alpha.2",
+    "@deck.gl/geo-layers": "10.0.0-alpha.2",
+    "@deck.gl/layers": "10.0.0-alpha.2",
+    "@loaders.gl/core": "5.0.0-rc.2",
+    "@luma.gl/core": "10.0.0-beta.3",
+    "@luma.gl/engine": "10.0.0-beta.3"
   }
 }

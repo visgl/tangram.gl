@@ -17,11 +17,11 @@
     "@tangram.gl/tangram-renderer": "workspace:^"
   },
   "devDependencies": {
-    "@deck.gl-community/panels": "10.0.0-alpha.1",
-    "@deck.gl-community/playground": "10.0.0-alpha.1",
-    "@deck.gl/core": "10.0.0-alpha.1",
-    "@deck.gl/json": "10.0.0-alpha.1",
-    "@loaders.gl/core": "5.0.0-beta.8",
+    "@deck.gl-community/panels": "10.0.0-alpha.2",
+    "@deck.gl-community/playground": "10.0.0-alpha.2",
+    "@deck.gl/core": "10.0.0-alpha.2",
+    "@deck.gl/json": "10.0.0-alpha.2",
+    "@loaders.gl/core": "5.0.0-rc.2",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "esbuild": "^0.28.1",
     "monaco-editor": "0.53.0",

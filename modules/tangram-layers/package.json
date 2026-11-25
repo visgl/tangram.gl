@@ -61,16 +61,16 @@
     "vitest": "^4.0.18"
   },
   "dependencies": {
-    "@math.gl/geometry": "5.0.0-beta.8",
+    "@math.gl/geometry": "5.0.3",
     "@tangram.gl/tangram-renderer": "workspace:^"
   },
   "peerDependencies": {
-    "@deck.gl/core": "10.0.0-alpha.1",
-    "@deck.gl/mesh-layers": "10.0.0-alpha.1",
-    "@luma.gl/core": "10.0.0-alpha.14",
-    "@luma.gl/engine": "10.0.0-alpha.14",
-    "@math.gl/core": "5.0.0-beta.8",
-    "@math.gl/geospatial": "5.0.0-beta.8",
+    "@deck.gl/core": "10.0.0-alpha.2",
+    "@deck.gl/mesh-layers": "10.0.0-alpha.2",
+    "@luma.gl/core": "10.0.0-beta.3",
+    "@luma.gl/engine": "10.0.0-beta.3",
+    "@math.gl/core": "5.0.3",
+    "@math.gl/geospatial": "5.0.3",
     "mjolnir.js": "^3.1.0"
   },
   "peerDependenciesMeta": {
