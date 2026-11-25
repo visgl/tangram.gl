@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import type HostFrame from '../scene/host_frame';
 import type {LabelMesh, LabelTile, MeshLabel} from './main-pass-types';
 import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS, projectGeographicPosition} from '../scene/projection_math';

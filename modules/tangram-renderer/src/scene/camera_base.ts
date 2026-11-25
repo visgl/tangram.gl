@@ -3,7 +3,7 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-import {Matrix3, Matrix4} from '@math.gl/core';
+import {Matrix3, Matrix4} from '@math.gl/core/matrix';
 import type {HostProjection} from '../types';
 
 export type Matrix = Float32Array | Float64Array;

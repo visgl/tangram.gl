@@ -5,7 +5,7 @@
 import {FirstPersonViewport} from '@deck.gl/core';
 import {describe, expect, test} from 'vitest';
 import {getFirstPersonViewFrame} from '../src/tangram-layer';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {calculatePlanarGroundBounds} from '@tangram.gl/tangram-renderer/core';
 
 function createViewport({latitude = 40.705319, longitude = -74.009764, pitch = 60} = {}) {

@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, expectTypeOf, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {WebMercatorViewport} from '@deck.gl/core';
 import {BasemapLayer} from '../modules/basemap-layers/src/basemap-layer';
 import {pickTerrainSurface} from '../modules/basemap-layers/src/terrain-query';

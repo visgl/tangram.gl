@@ -11,7 +11,7 @@ import {StyleManager} from '../src/styles/style_manager';
 import Camera from '../src/scene/camera';
 import Light from '../src/lights/light';
 import Tile from '../src/tile/tile';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 
 describe('UniformBuffer', function () {
     it('creates a std140-compatible layout and declaration', function () {

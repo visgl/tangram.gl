@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import HostFrame from '../src/scene/host_frame';
 import {layoutProjectedAnnotations} from '../src/labels/projected-pass';
 import type {LabelMesh, LabelTile} from '../src/labels/main-pass-types';

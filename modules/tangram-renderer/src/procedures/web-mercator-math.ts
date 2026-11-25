@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {lngLatToWorld, worldToLngLat} from '@math.gl/geospatial';
+import {lngLatToWorld, worldToLngLat} from '@math.gl/geospatial/web-mercator';
 import {projectLngLatToMetersLegacy} from './web-mercator-legacy';
 
 const WORLD_SIZE = 512;

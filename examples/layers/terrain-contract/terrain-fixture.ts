@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {worldToLngLat} from '@math.gl/web-mercator';
+import {worldToLngLat} from '@math.gl/geospatial/web-mercator';
 import type {TerrainSurface} from '@tangram.gl/basemap-layers';
 
 /** Same north-first physical grid convention as loaders.gl and Tangram; no network or provider. */

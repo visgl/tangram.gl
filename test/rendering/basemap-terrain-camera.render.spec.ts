@@ -5,7 +5,7 @@
 import {expect, test} from 'vitest';
 import {Deck, OrbitView} from '@deck.gl/core';
 import {PolygonLayer} from '@deck.gl/layers';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {pickTerrainSurface} from '../../modules/basemap-layers/src/terrain-query';
 import {createFixtureTerrain} from '../../examples/layers/terrain-contract/terrain-fixture';
 import {RenderingHarness, DEVICE_TYPE} from './harness';

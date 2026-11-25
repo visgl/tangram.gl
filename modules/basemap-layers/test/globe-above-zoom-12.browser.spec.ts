@@ -9,7 +9,7 @@
 import {Deck, _GlobeView as GlobeView} from '@deck.gl/core';
 import {GeoJsonLayer} from '@deck.gl/layers';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
-import {lngLatToWorld} from '@math.gl/web-mercator';
+import {lngLatToWorld} from '@math.gl/geospatial/web-mercator';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 

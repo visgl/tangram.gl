@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, expect, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import type {DeckProps} from '@deck.gl/core';
 import {mountTerrainContractExample} from '../examples/layers/terrain-contract/app';
 

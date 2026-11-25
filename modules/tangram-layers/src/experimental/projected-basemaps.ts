@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Layer} from '@deck.gl/core';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {HostFrame, Renderer, normalizeProjectedBasemapOptions, countProjectedTileCoordinates, getProjectedRoadUnit, validateProjectedLights} from '@tangram.gl/tangram-renderer/core';
 import type {HostFrameOptions, HostTileResourceOptions, ProjectedBasemapOptions} from '@tangram.gl/tangram-renderer/core';
 import createTangramLayerClass from '../tangram-layer.js';

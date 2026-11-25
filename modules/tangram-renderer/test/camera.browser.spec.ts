@@ -4,7 +4,7 @@
 // Copyright (c) 2026 vis.gl contributors
 
 import {describe, expect, it, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 
 import ExternalCamera from '../src/scene/external_camera';
 import Camera, {

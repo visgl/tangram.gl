@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, describe, expect, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import Light from '../src/lights/light';
 import Scene from '../src/scene/scene';
 import SceneLoader from '../src/scene/scene_loader';

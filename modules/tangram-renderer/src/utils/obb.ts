@@ -3,7 +3,7 @@
 // Copyright (c) 2013-2016 Brett Camper and Mapzen
 // Copyright (c) 2026 vis.gl contributors
 
-import {Vector2} from '@math.gl/core';
+import {Vector2} from '@math.gl/core/matrix';
 import type {MutableNumericVector, NumericVector} from './vector';
 
 type Quad = [number, number, number, number, number, number, number, number];

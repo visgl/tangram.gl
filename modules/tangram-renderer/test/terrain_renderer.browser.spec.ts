@@ -7,7 +7,7 @@ import {expect, test, vi} from 'vitest';
 import Renderer from '../src/scene/renderer';
 import Scene from '../src/scene/scene';
 import type {TerrainHeightGrid} from '../src/map-logic/terrain-data';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import HostFrame from '../src/scene/host_frame';
 import {DrapedTerrainSurfaceSnapshot} from '../src/selection/draped-terrain-surface';
 import {TerrainResourceBudget} from '../src/map-logic/terrain-resource-budget';

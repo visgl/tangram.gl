@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {DoubleClickDrag, EventManager, Pan, Pinch, Tap} from 'mjolnir.js';
 import {createXRPlacementMatrix, getXRGlobeVisibleBounds} from './projection.js';
 import type {MapController, InteractionState, ViewStateChangeParameters} from '@deck.gl/core';

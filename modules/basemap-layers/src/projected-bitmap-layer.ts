@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {BitmapLayer} from '@deck.gl/layers';
-import {subdivideTriangleMesh} from '@math.gl/geometry';
+import {subdivideTriangleMesh} from '@math.gl/geometry/polygon';
 import {
   isProjectedViewport,
   lngLatToMercatorWorld,

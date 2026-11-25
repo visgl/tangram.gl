@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {describe, expect, test} from 'vitest';
 import {calculatePlanarGroundBounds, calculatePlanarVolumeBounds} from '../src/scene/ground_footprint';
 import type {HostCamera} from '../src/types';

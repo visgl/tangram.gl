@@ -4,7 +4,7 @@
 
 import {Deck, OrbitView} from '@deck.gl/core';
 import {PolygonLayer} from '@deck.gl/layers';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {pickTerrainSurface} from '@tangram.gl/basemap-layers';
 import {createFixtureTerrain} from './terrain-fixture';
 

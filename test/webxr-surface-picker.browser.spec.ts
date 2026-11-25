@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {afterEach, expect, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {WebXRPresentation, WebXRMapView, WebXRInputAdapter, createXRPlacementMatrix,
   type XRSurfacePickingOptions} from '@tangram.gl/tangram-layers/experimental/webxr';
 import {createSurfacePicker} from '../examples/webxr/surface-picking.js';

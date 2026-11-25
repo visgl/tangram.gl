@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {worldToLngLat} from '@math.gl/geospatial';
+import {worldToLngLat} from '@math.gl/geospatial/web-mercator';
 import {TerrainHeightField} from './terrain-height-field';
 import type {TerrainHeightGrid} from './terrain-data';
 import {getTerrainEdgeNodes} from './terrain-ground-topology';

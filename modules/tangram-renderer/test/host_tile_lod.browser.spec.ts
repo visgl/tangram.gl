@@ -9,7 +9,7 @@ import HostFrame from '../src/scene/host_frame';
 import TileManager from '../src/tile/tile_manager';
 import {TileID} from '../src/tile/tile_id';
 import {NetworkTileSource} from '../src/sources/data_source';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import Geo from '../src/utils/geo';
 
 afterEach(() => vi.restoreAllMocks());

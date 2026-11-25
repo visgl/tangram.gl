@@ -3,8 +3,8 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, test} from 'vitest';
-import {Ellipsoid} from '@math.gl/geospatial';
-import {lngLatToWorld, worldToLngLat} from '@math.gl/geospatial';
+import {Ellipsoid} from '@math.gl/geospatial/ellipsoid';
+import {lngLatToWorld, worldToLngLat} from '@math.gl/geospatial/web-mercator';
 import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS, getProjectionSurface} from '../src/scene/projection_math';
 import type {GeographicProjectionPosition} from '../src/scene/projection_math';
 import Geo from '../src/utils/geo';

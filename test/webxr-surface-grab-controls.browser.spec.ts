@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {WebXRInputAdapter, WebXRViewManager, WebXRMapView, WebXRGlobeView, createXRPlacementMatrix,
   type XRMapPlacement, type XRPlacement} from '@tangram.gl/tangram-layers/experimental/webxr';
 import {createSurfaceGrabControls, bindReferenceSpaceReset} from '../examples/webxr/surface-grabbing.js';

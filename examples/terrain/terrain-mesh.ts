@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {Mesh} from '@loaders.gl/core/schema';
-import {worldToLngLat} from '@math.gl/geospatial';
+import {worldToLngLat} from '@math.gl/geospatial/web-mercator';
 import {sampleTerrainNeighborhood, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
 import type {TerrainTileData} from './terrain-payload';
 import {createTerrainQuerySurface, type LoadedTerrain} from './load-terrain';
