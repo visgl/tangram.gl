@@ -8,7 +8,9 @@
 
 import {_GlobeViewport as GlobeViewport} from '@deck.gl/core';
 
-// Copied from deck.gl-community geo-layers: the published 9.4.x does not export this yet.
+// Same check as `isGlobeViewport` in `@deck.gl-community/geo-layers`. It is copied so that
+// tangram-layers does not depend on that package. Remove both copies when `@deck.gl/core`
+// exports `PROJECTION_MODE` or a globe check: deck.gl v10 does not export the table.
 const PROJECTION_MODE_GLOBE = 2;
 
 /** Detect a globe projection by its numeric mode, falling back to the deck.gl class. */
