@@ -382,6 +382,14 @@ Type: `boolean`
 
 Draws the atmosphere around the globe in globe mode. Defaults to `false`. The atmosphere layers are placeholders that draw nothing yet.
 
+### `poleColor`
+
+Type: deck.gl `Color | null`
+
+Sets the fill color of the north-pole cap in globe mode. Pass RGB or RGBA with channels from 0 to 255. An omitted alpha defaults to 255.
+
+With the default `null`, the layer guesses the cap color from the `fill-color` and `fill-opacity` of the first `fill` layer whose `source-layer` contains `water`. If there is no such layer, it uses `[20, 40, 68, 255]`. MapLibre GL JS determines what appears at the poles by stretching its edge tiles to them.
+
 ### `globe` (deprecated)
 
 Type: `{config?: BasemapGlobeConfig} | null`
@@ -700,6 +708,8 @@ Returns the zoom at which a Web Mercator map has the scale of a projected viewpo
 Generates the deck.gl sublayers for an already-resolved style definition. Use this when you want the sublayers without creating a `BasemapLayer` instance.
 
 The `zoom` option defaults to 0 and controls style evaluation. Supported WebGL fill, line and circle paint follows the viewport zoom within the same 0.25 zoom step as the supplied zoom. Outside that step, the paint uses the supplied zoom.
+
+The `poleColor` option sets the north-pole cap color in globe mode and takes the same values as the [`poleColor` prop](#polecolor).
 
 `BasemapLayer` keeps each source's tiles in a shared tileset across renders. A direct caller that calls `getBasemapLayers` on every render keeps them by passing its own `tilesets` map, keyed by source, and finalizes those tilesets when done.
 

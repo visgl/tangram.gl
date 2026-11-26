@@ -4,10 +4,12 @@
 
 /* eslint-disable import/no-extraneous-dependencies */
 import {afterEach, describe, expect, test, vi} from 'vitest';
-import {LayerManager, WebMercatorViewport} from '@deck.gl/core';
+import {_GlobeViewport as GlobeViewport, LayerManager, type Viewport, WebMercatorViewport} from '@deck.gl/core';
+import {SolidPolygonLayer} from '@deck.gl/layers';
 import {NullDevice} from '@luma.gl/core/test-utils';
 import {BasemapLayer} from '../src/basemap-layer';
 import {BasemapLoadError} from '../src/basemap-error';
+import type {BasemapStyle} from '../src/style-resolver';
 
 const TILEJSON_URL = 'https://tiles.example.com/streets.json';
 const TILES = ['https://tiles.example.com/{z}/{x}/{y}.mvt'];
@@ -50,8 +52,8 @@ afterEach(() => {
   manager = null;
 });
 
-function mount(layer: BasemapLayer, zoom = 0) {
-  manager = new LayerManager(new NullDevice({}), {viewport: viewportAt(zoom)});
+function mount(layer: BasemapLayer, viewport: Viewport = viewportAt(0)) {
+  manager = new LayerManager(new NullDevice({}), {viewport});
   manager.setProps({
     onError: (error: Error) => {
       throw error;
@@ -80,6 +82,65 @@ function moveTo(layerManager: LayerManager, viewport: WebMercatorViewport) {
 function isLoaded(): boolean {
   return manager!.getLayers({layerIds: ['basemap']})[0].isLoaded;
 }
+
+describe('BasemapLayer north-pole cap', () => {
+  const waterStyle: BasemapStyle = {
+    version: 8,
+    sources: {tiles: {type: 'vector', tiles: TILES}},
+    layers: [
+      {
+        id: 'water',
+        type: 'fill',
+        source: 'tiles',
+        'source-layer': 'water',
+        paint: {'fill-color': '#123456'}
+      }
+    ]
+  };
+  const emptyStyle: BasemapStyle = {version: 8, sources: {}, layers: []};
+  const globe = new GlobeViewport({width: 128, height: 128, longitude: 0, latitude: 0, zoom: 1});
+  const fetch = async () => [];
+
+  function getCap(layerManager: LayerManager) {
+    return layerManager.getLayers().find(layer => layer.id === 'basemap-background-north-pole');
+  }
+
+  function getCapColor(layerManager: LayerManager) {
+    const cap = getCap(layerManager);
+    return cap instanceof SolidPolygonLayer ? cap.props.getFillColor : undefined;
+  }
+
+  test('applies RGB and RGBA overrides and restores the fallback when cleared', async () => {
+    const props = {id: 'basemap', mode: 'globe' as const, style: waterStyle, fetch};
+    const layerManager = mount(new BasemapLayer({...props, poleColor: [10, 20, 30]}), globe);
+    await settle();
+    expect(getCapColor(layerManager)).toEqual([10, 20, 30, 255]);
+
+    layerManager.setLayers([new BasemapLayer({...props, poleColor: [10, 20, 30, 1]})]);
+    expect(getCapColor(layerManager)).toEqual([10, 20, 30, 1]);
+
+    layerManager.setLayers([new BasemapLayer({...props, poleColor: null})]);
+    expect(getCapColor(layerManager)).toEqual([18, 52, 86, 255]);
+  });
+
+  test.each([
+    {name: 'the water fill color', style: waterStyle, color: [18, 52, 86, 255]},
+    {name: 'dark blue without a water fill', style: emptyStyle, color: [20, 40, 68, 255]}
+  ])('defaults to $name', async ({style, color}) => {
+    const layerManager = mount(new BasemapLayer({id: 'basemap', mode: 'globe', style, fetch}), globe);
+    await settle();
+    expect(getCapColor(layerManager)).toEqual(color);
+  });
+
+  test('does not draw the cap in map mode', async () => {
+    const layerManager = mount(
+      new BasemapLayer({id: 'basemap', mode: 'map', style: waterStyle, poleColor: [10, 20, 30], fetch})
+    );
+    await settle();
+    expect(layerManager.getLayers().map(layer => layer.id)).toContain('basemap-tiles');
+    expect(getCap(layerManager)).toBeUndefined();
+  });
+});
 
 describe('BasemapLayer isLoaded and lifecycle callbacks', () => {
   test('is not loaded while the style loads, nor while its tiles load', async () => {

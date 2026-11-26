@@ -56,7 +56,8 @@ describe('BasemapLayer labels and atmosphere props', () => {
     expect(BasemapLayer.defaultProps.labels).toBe(true);
     expect(BasemapLayer.defaultProps.atmosphere).toBe(false);
     expect(basemap().getStyleConfig()).toEqual({
-      config: {labels: true, atmosphere: false, basemap: true}
+      config: {labels: true, atmosphere: false, basemap: true},
+      poleColor: null
     });
   });
 
@@ -92,7 +93,8 @@ describe('the deprecated globe.config prop', () => {
       .toBe(true);
     // A field it leaves out keeps the flat prop.
     expect(basemap({labels: false, globe: {config: {atmosphere: true}}}).getStyleConfig()).toEqual({
-      config: {labels: false, atmosphere: true, basemap: true}
+      config: {labels: false, atmosphere: true, basemap: true},
+      poleColor: null
     });
   });
 

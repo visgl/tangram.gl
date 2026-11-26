@@ -157,12 +157,15 @@ type BasemapLayerConfig = {
   atmosphere: boolean;
   basemap: boolean;
   labels: boolean;
+  poleColor?: Color | null;
 };
 
 type BasemapLayerGroup = {
   idPrefix?: string;
   mode?: BasemapMode;
   globe?: {config?: BasemapGlobeConfig};
+  /** Overrides the north-pole cap color in globe mode (see `BasemapLayerProps.poleColor`). */
+  poleColor?: Color | null;
   styleDefinition: ResolvedBasemapStyle;
   /** Builds the style at this zoom, also used for WebGL paint outside its viewport zoom step. */
   zoom?: number;
@@ -950,8 +953,11 @@ function getGlobeFillColor(color: [number, number, number, number], mode: Basema
   return [color[0], color[1], color[2], 255] as [number, number, number, number];
 }
 
-function getConfig(globe?: {config?: BasemapGlobeConfig}): BasemapLayerConfig {
-  return {...DEFAULT_CONFIG, ...(globe?.config || {})};
+function getConfig(
+  globe?: {config?: BasemapGlobeConfig},
+  poleColor: Color | null = null
+): BasemapLayerConfig {
+  return {...DEFAULT_CONFIG, ...globe?.config, poleColor};
 }
 
 /**
@@ -2724,7 +2730,11 @@ function createVectorLayerGroup({
   } as any);
 }
 
-function inferWaterColor(
+/**
+ * Guesses the north-pole cap color from the first fill whose source layer contains "water",
+ * or uses a dark blue if there is no such fill. MapLibre GL JS extends edge tiles to the poles.
+ */
+function guessPoleColor(
   styleLayers: BasemapStyleLayer[],
   zoom: number
 ): [number, number, number, number] {
@@ -2751,6 +2761,7 @@ export function getBasemapLayers({
   idPrefix = 'basemap',
   mode = 'map',
   globe,
+  poleColor,
   styleDefinition,
   zoom = 0,
   loadOptions,
@@ -2771,7 +2782,7 @@ export function getBasemapLayers({
   styleLayerProps,
   insertLayers
 }: BasemapLayerGroup) {
-  const config = getConfig(globe);
+  const config = getConfig(globe, poleColor);
   const styleLayers = (styleDefinition.layers || []).filter(layer =>
     SUPPORTED_TYPES.has(layer.type)
   );
@@ -4961,6 +4972,7 @@ function getGlobePostLayers({
   const layers = [];
 
   if (mode === 'globe' && config.basemap) {
+    const {poleColor} = config;
     layers.push(
       new SolidPolygonLayer({
         id: `${idPrefix}-background-north-pole`,
@@ -4968,7 +4980,9 @@ function getGlobePostLayers({
         getPolygon: d => d,
         stroked: false,
         filled: true,
-        getFillColor: inferWaterColor(styleLayers, zoom),
+        getFillColor: poleColor
+          ? [poleColor[0], poleColor[1], poleColor[2], poleColor[3] ?? 255]
+          : guessPoleColor(styleLayers, zoom),
         parameters: getBackgroundParameters(mode)
       })
     );
