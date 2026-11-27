@@ -2,19 +2,20 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {MERCATOR_RADIUS, TILE_SIZE, metersPerPixel} from '@tangram.gl/map-utils/web-mercator';
 import type {HostProjection} from '../types';
 import {unprojectMetersToLngLatLegacy} from '../procedures/web-mercator-legacy';
 
 /** Neutral units shared by CPU geometry, lighting, shader generation and host adapters. */
 export const PROJECTION_CONSTANTS = Object.freeze({
     /** EPSG:3857 spherical radius in meters; not the geographic altitude radius. */
-    mercatorRadius: 6378137,
+    mercatorRadius: MERCATOR_RADIUS,
     /** Geographic altitude scale matching deck.gl's public GlobeViewport. */
     earthRadius: 6370972,
     /** Globe common-space radius; north is +Z and longitude zero is -Y. */
     globeRadius: 256,
     /** Tangram's reference tile size, distinct from deck's 512-unit world. */
-    tileSize: 256,
+    tileSize: TILE_SIZE,
     /** Mercator's finite square-world latitude cutoff in degrees. */
     maxMercatorLatitude: 85.0511287798066
 });
@@ -79,7 +80,7 @@ export function unprojectGlobePosition(position: readonly [number, number, numbe
 
 /** Style pixels in the zoom-zero Mercator convention, not perspective screen-pixel error. */
 export function getMercatorMetersPerPixel(zoom: number): number {
-    return 2 * Math.PI * PROJECTION_CONSTANTS.mercatorRadius / PROJECTION_CONSTANTS.tileSize / Math.pow(2, zoom);
+    return metersPerPixel(zoom);
 }
 
 /** Surface differential per EPSG:3857 meter for projected LOD; elevation is intentionally zero. */

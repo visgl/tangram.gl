@@ -6,10 +6,10 @@ import {fileURLToPath} from 'node:url';
 
 /** @type {import('@vis.gl/dev-tools').OcularConfig} */
 const config = {
-  // The imported package has no dist until it is integrated into the build.
-  // Keep its workspace alias valid for existing ocular-bundle builds.
+  // Resolve source workspaces that do not provide JavaScript dist entries for these imports.
   nodeAliases: {
-    '@tangram.gl/basemap-layers': fileURLToPath(new URL('./modules/basemap-layers/src', import.meta.url))
+    '@tangram.gl/basemap-layers': fileURLToPath(new URL('./modules/basemap-layers/src', import.meta.url)),
+    '@tangram.gl/map-utils': fileURLToPath(new URL('./modules/map-utils/src', import.meta.url))
   },
   // Ocular owns repository-wide build, lint, and test orchestration.
   lint: {

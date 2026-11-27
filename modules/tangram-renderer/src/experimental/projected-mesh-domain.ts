@@ -2,29 +2,28 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {CIRCUMFERENCE_METERS, HALF_CIRCUMFERENCE_METERS, MERCATOR_RADIUS} from '@tangram.gl/map-utils/web-mercator';
 import {interpolatePackedVertex} from '../gl/globe_mesh';
 import type {MeshProjectionRequest, ProjectedMesh} from '../procedures/mesh-projector';
 
 /** Geographic latitude limit of the source Web Mercator tile world. */
 export const PROJECTED_TILE_LATITUDE = 85.0511287798066;
-/** Half the width of one EPSG:3857 world, in meters. */
-const WORLD_HALF_WIDTH = Math.PI * 6378137;
 
 /** World bounds for continuous projections, with the preview's explicit Albers region. */
 export function getProjectedSourceDomain(type: MeshProjectionRequest['projection']['type']): readonly [number, number, number, number] {
     if (type === 'albers') {
-        const latitudeToMeters = (latitude: number) => 6378137 * Math.asinh(Math.tan(latitude * Math.PI / 180));
-        return [-170 / 180 * WORLD_HALF_WIDTH, latitudeToMeters(5),
-            -40 / 180 * WORLD_HALF_WIDTH, latitudeToMeters(75)];
+        const latitudeToMeters = (latitude: number) => MERCATOR_RADIUS * Math.asinh(Math.tan(latitude * Math.PI / 180));
+        return [-170 / 180 * HALF_CIRCUMFERENCE_METERS, latitudeToMeters(5),
+            -40 / 180 * HALF_CIRCUMFERENCE_METERS, latitudeToMeters(75)];
     }
-    return [-WORLD_HALF_WIDTH, -WORLD_HALF_WIDTH, WORLD_HALF_WIDTH, WORLD_HALF_WIDTH];
+    return [-HALF_CIRCUMFERENCE_METERS, -HALF_CIRCUMFERENCE_METERS, HALF_CIRCUMFERENCE_METERS, HALF_CIRCUMFERENCE_METERS];
 }
 
 /** Clip triangles before nonlinear projection, retaining winding, UVs and flat feature attributes. */
 export function clipProjectedMesh(mesh: ProjectedMesh, request: MeshProjectionRequest,
     readPosition: (vertex: DataView) => readonly [number, number], remainingVertices: number): ProjectedMesh {
     const {layout, tile} = request;
-    const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * WORLD_HALF_WIDTH);
+    const unitsPerMeter = 4096 * 2 ** tile.coords.z / CIRCUMFERENCE_METERS;
     const domain = getProjectedSourceDomain(request.projection.type);
     const bounds = [(domain[0] - tile.min.x) * unitsPerMeter, (domain[1] - tile.min.y) * unitsPerMeter,
         (domain[2] - tile.min.x) * unitsPerMeter, (domain[3] - tile.min.y) * unitsPerMeter];

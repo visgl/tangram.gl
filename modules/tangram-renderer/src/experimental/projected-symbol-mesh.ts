@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
+import {CIRCUMFERENCE_METERS, MERCATOR_RADIUS} from '@tangram.gl/map-utils/web-mercator';
 import {getProjectedSourceDomain} from './projected-mesh-domain';
 import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 import {PROJECTED_COMMON_SCALE} from '../procedures/projected-coordinate-transform';
@@ -29,7 +30,7 @@ export function* projectSymbolMesh(request: MeshProjectionRequest): Generator<Fl
     if (indices.length % 3 || indices.some(index => index >= count)) throw new Error('Projected symbols require valid triangle indices');
     const vertices = request.vertices.slice();
     const view = new DataView(vertices.buffer, vertices.byteOffset, vertices.byteLength);
-    const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * Math.PI * 6378137);
+    const unitsPerMeter = 4096 * 2 ** tile.coords.z / CIRCUMFERENCE_METERS;
     const domain = getProjectedSourceDomain(request.projection.type);
     const coordinates: number[] = [];
     const anchors = new Map<string, number>();
@@ -52,8 +53,8 @@ export function* projectSymbolMesh(request: MeshProjectionRequest): Generator<Fl
         if (anchor === undefined) {
             anchor = coordinates.length / 2;
             anchors.set(key, anchor);
-            coordinates.push(x / 6378137 * 180 / Math.PI,
-                (2 * Math.atan(Math.exp(y / 6378137)) - Math.PI / 2) * 180 / Math.PI);
+            coordinates.push(x / MERCATOR_RADIUS * 180 / Math.PI,
+                (2 * Math.atan(Math.exp(y / MERCATOR_RADIUS)) - Math.PI / 2) * 180 / Math.PI);
         }
         anchorIndices.push(anchor);
     }

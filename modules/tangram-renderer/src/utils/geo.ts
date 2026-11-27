@@ -6,10 +6,17 @@
 // Miscellaneous geo functions
 
 import {
-    projectLngLatToMetersWithMath,
-    unprojectMetersToLngLatWithMath
-} from '../procedures/web-mercator-math';
-import {PROJECTION_CONSTANTS, getMercatorMetersPerPixel} from '../scene/projection_math';
+    CIRCUMFERENCE_METERS,
+    HALF_CIRCUMFERENCE_METERS,
+    TILE_SIZE,
+    latLngToMeters,
+    metersForTile,
+    metersPerPixel,
+    metersPerTile,
+    metersToLatLng,
+    tileForMeters,
+    wrapTile
+} from '@tangram.gl/map-utils/web-mercator';
 import {PACKED_HEIGHT_SCALE} from '../gl/vertex-constants';
 
 export type Coordinate = number[];
@@ -60,20 +67,20 @@ export default Geo;
 Geo.default_source_max_zoom = 18;
 Geo.default_view_max_zoom = 20;
 Geo.max_style_zoom = 25; // max zoom at which styles will be evaluated
-Geo.tile_size = PROJECTION_CONSTANTS.tileSize;
-Geo.half_circumference_meters = Math.PI * PROJECTION_CONSTANTS.mercatorRadius;
-Geo.circumference_meters = Geo.half_circumference_meters * 2;
+Geo.tile_size = TILE_SIZE;
+Geo.half_circumference_meters = HALF_CIRCUMFERENCE_METERS;
+Geo.circumference_meters = CIRCUMFERENCE_METERS;
 Geo.min_zoom_meters_per_pixel = Geo.circumference_meters / Geo.tile_size; // min zoom draws world as 2 tiles wide
 
 const meters_per_pixel: number[] = [];
 Geo.metersPerPixel = function (z: number): number {
-    meters_per_pixel[z] = meters_per_pixel[z] || getMercatorMetersPerPixel(z);
+    meters_per_pixel[z] = meters_per_pixel[z] || metersPerPixel(z);
     return meters_per_pixel[z];
 };
 
 const meters_per_tile: number[] = [];
 Geo.metersPerTile = function (z: number): number {
-    meters_per_tile[z] = meters_per_tile[z] || Geo.circumference_meters / Math.pow(2, z);
+    meters_per_tile[z] = meters_per_tile[z] || metersPerTile(z, Geo.circumference_meters);
     return meters_per_tile[z];
 };
 
@@ -90,41 +97,25 @@ Geo.unitsPerMeter = function (z: number): number {
 
 // Convert tile location to mercator meters - multiply by pixels per tile, then by meters per pixel, adjust for map origin
 Geo.metersForTile = function (tile: Tile): Meters {
-    return {
-        x: tile.x * Geo.circumference_meters / Math.pow(2, tile.z) - Geo.half_circumference_meters,
-        y: -(tile.y * Geo.circumference_meters / Math.pow(2, tile.z) - Geo.half_circumference_meters)
-    };
+    return metersForTile(tile, Geo.circumference_meters, Geo.half_circumference_meters);
 };
 
 /**
    Given a point in mercator meters and a zoom level, return the tile X/Y/Z that the point lies in
 */
-Geo.tileForMeters = function ([x, y]: Coordinate, zoom: number): Tile {
-    return {
-        x: Math.floor((x + Geo.half_circumference_meters) / (Geo.circumference_meters / Math.pow(2, zoom))),
-        y: Math.floor((-y + Geo.half_circumference_meters) / (Geo.circumference_meters / Math.pow(2, zoom))),
-        z: zoom
-    };
+Geo.tileForMeters = function (coordinates: Coordinate, zoom: number): Tile {
+    return tileForMeters(coordinates, zoom, Geo.circumference_meters, Geo.half_circumference_meters);
 };
 
 // Wrap a tile to positive #s for zoom
 // Optionally specify the axes to wrap
-Geo.wrapTile = function({ x, y, z }: Tile, mask = { x: true, y: false }): Tile {
-    var m = (1 << z) - 1;
-    if (mask.x) {
-        x = x & m;
-    }
-    if (mask.y) {
-        y = y & m;
-    }
-    return { x, y, z };
-};
+Geo.wrapTile = wrapTile;
 
 /**
    Convert mercator meters to lat-lng, in-place
 */
 Geo.metersToLatLng = function (c: Coordinate): Coordinate {
-    const converted = unprojectMetersToLngLatWithMath([c[0], c[1]]);
+    const converted = metersToLatLng([c[0], c[1]]);
     c[0] = converted[0];
     c[1] = converted[1];
     return c;
@@ -134,7 +125,7 @@ Geo.metersToLatLng = function (c: Coordinate): Coordinate {
   Convert lat-lng to mercator meters, in-place
 */
 Geo.latLngToMeters = function (c: Coordinate): Coordinate {
-    const converted = projectLngLatToMetersWithMath([c[0], c[1]]);
+    const converted = latLngToMeters([c[0], c[1]]);
     c[0] = converted[0];
     c[1] = converted[1];
     return c;

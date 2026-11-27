@@ -74,6 +74,7 @@
 import type {Layer, LayersList, UpdateParameters} from '@deck.gl/core';
 import {SharedTile2DLayer, SharedTileset2D} from '@deck.gl-community/geo-layers';
 import type {SharedTile2DLayerProps, SharedTileset2DProps} from '@deck.gl-community/geo-layers';
+import {MERCATOR_RADIUS} from '@tangram.gl/map-utils/web-mercator';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
 import {basemapTilesetAdapter} from './projected-tileset';
 import {getSourceTileTemplates} from './source-tiles';
@@ -238,7 +239,7 @@ export function prepareHillshadeTexture(
 }
 
 /** The radius, in meters, of the Earth that MapLibre's slope scale assumes. */
-const EARTH_RADIUS = 6378137;
+const EARTH_RADIUS = MERCATOR_RADIUS;
 
 /**
  * The radius, in meters, of the body a viewport draws: in a projected view the semi-major axis of

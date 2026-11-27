@@ -5,6 +5,7 @@
 import {CompositeLayer, type LayerProps, type UpdateParameters, type Viewport} from '@deck.gl/core';
 import {SimpleMeshLayer} from '@deck.gl/mesh-layers';
 import {Matrix4} from '@math.gl/core';
+import {CIRCUMFERENCE_METERS} from '@tangram.gl/map-utils/web-mercator';
 import {unprojectScreenRay} from '@math.gl/geometry/culling';
 import {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, PROJECTION_CONSTANTS, type TerrainSurfaceHit, type TerrainCollectionHit} from '@tangram.gl/tangram-renderer/core';
 import {prepareGlobeTerrainMesh, getPreparedGlobeTerrainTemplate, scaleGlobeTerrainMesh, getGlobeTerrainExaggeration, type GlobeTerrainMeshTemplate, type GlobeTerrainPreparationSnapshot, type TerrainHeightGrid} from '@tangram.gl/tangram-renderer/map-logic';
@@ -131,19 +132,17 @@ export class GlobeTerrainLayer extends CompositeLayer<GlobeTerrainLayerProps> {
             const existingSurfaces = new Set(this.state.surfaces ?? []);
             const newBytes = tiles.reduce((sum, tile) => sum + (existingSurfaces.has(tile.surface) ? 0 : this.getDisplayBytes(tile.template)), 0);
             if (newBytes > 0 && this.getStatistics().displayBytes + newBytes > maxDisplayBytes) {this.setState({memoryError: 'Globe terrain display-byte limit exceeded; previous terrain retained', updateMs: performance.now() - started}); return;}
-            const circumference = 2 * Math.PI * 6378137;
-            const prepared = tiles.map(tile => ({...tile, neighbors: this.props.data.filter(candidate => candidate !== tile.grid && [-circumference, 0, circumference].some(shift => candidate.bounds[0] + shift <= tile.grid.bounds[2] && candidate.bounds[2] + shift >= tile.grid.bounds[0] && candidate.bounds[1] <= tile.grid.bounds[3] && candidate.bounds[3] >= tile.grid.bounds[1]))}));
+            const prepared = tiles.map(tile => ({...tile, neighbors: this.props.data.filter(candidate => candidate !== tile.grid && [-CIRCUMFERENCE_METERS, 0, CIRCUMFERENCE_METERS].some(shift => candidate.bounds[0] + shift <= tile.grid.bounds[2] && candidate.bounds[2] + shift >= tile.grid.bounds[0] && candidate.bounds[1] <= tile.grid.bounds[3] && candidate.bounds[3] >= tile.grid.bounds[1]))}));
             this.publishTiles(prepared, display.exaggeration, started);
             return;
         }
         const exaggeration = requestedExaggeration;
         if (!changeFlags.propsOrDataChanged && this.state.exaggeration === exaggeration) return;
-        const circumference = 2 * Math.PI * 6378137;
         const previous = new Map(this.state.prepared?.map(tile => [tile.grid, tile]));
         const queryLimit = Math.floor(maxQueryIndexBytes / Math.max(1, this.props.data.length));
         const candidates = this.props.data.map(grid => {
             // Sampling and stitching only depend on touching footprints, including wrapped corners.
-            const neighbors = this.props.data.filter(candidate => candidate !== grid && [-circumference, 0, circumference].some(shift =>
+            const neighbors = this.props.data.filter(candidate => candidate !== grid && [-CIRCUMFERENCE_METERS, 0, CIRCUMFERENCE_METERS].some(shift =>
                 candidate.bounds[0] + shift <= grid.bounds[2] && candidate.bounds[2] + shift >= grid.bounds[0] && candidate.bounds[1] <= grid.bounds[3] && candidate.bounds[3] >= grid.bounds[1]));
             const retained = previous.get(grid);
             const sameNeighborhood = retained && this.state.resolution === this.props.meshResolution && retained.neighbors.length === neighbors.length && retained.neighbors.every((neighbor, index) => neighbor === neighbors[index]);

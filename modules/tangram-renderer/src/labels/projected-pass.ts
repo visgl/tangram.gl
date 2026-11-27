@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Matrix4} from '@math.gl/core';
+import {CIRCUMFERENCE_METERS} from '@tangram.gl/map-utils/web-mercator';
 import type HostFrame from '../scene/host_frame';
 import type {LabelMesh, LabelTile, MeshLabel} from './main-pass-types';
 import {getGeographicProjectionProcedure, PROJECTION_CONSTANTS, projectGeographicPosition} from '../scene/projection_math';
@@ -73,7 +74,7 @@ export function layoutProjectedAnnotations(tiles: readonly LabelTile[], frame: H
                     let candidate = candidates.get(id);
                     if (!candidate) {
                         const position = label.container.label.position;
-                        const unitsPerMeter = 4096 * 2 ** tile.coords.z / (2 * Math.PI * 6378137);
+                        const unitsPerMeter = 4096 * 2 ** tile.coords.z / CIRCUMFERENCE_METERS;
                         const first = label.ranges[0]?.[0];
                         const data = new DataView(mesh.vertex_data.buffer, mesh.vertex_data.byteOffset, mesh.vertex_data.byteLength);
                         const height = label.container.label.layout.projected_height ?? (first === undefined ||

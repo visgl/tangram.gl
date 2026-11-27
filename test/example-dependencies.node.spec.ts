@@ -101,16 +101,19 @@ test('installed workspace dependencies cover the layer and optional WebXR source
   const xrPackage = JSON.parse(readFileSync(new URL('../examples/webxr/package.json', import.meta.url), 'utf8'));
   const layerPackage = JSON.parse(readFileSync(new URL('../modules/tangram-layers/package.json', import.meta.url), 'utf8'));
   const packageName = (name: string) => name.startsWith('@') ? name.split('/').slice(0, 2).join('/') : name.split('/')[0];
-  for (const name of packageImports) expect(deckPackage.dependencies[packageName(name)], name).toBeDefined();
-  for (const name of webXRPackageImports) {
-    const dependency = packageName(name);
-    if (dependency === '@tangram.gl/map-utils') {
-      // Private workspace code is bundled into the layer, not installed at runtime.
-      expect(layerPackage.devDependencies[dependency], name).toBe('workspace:*');
-    } else {
-      expect(xrPackage.dependencies[dependency] || layerPackage.dependencies[dependency], name).toBeDefined();
+  function checkImports(imports: Set<string>, dependencies: Record<string, string>) {
+    for (const name of imports) {
+      const dependency = packageName(name);
+      if (dependency === '@tangram.gl/map-utils') {
+        // Both layer entries bundle the private workspace at build time.
+        expect(layerPackage.devDependencies[dependency], name).toBe('workspace:*');
+      } else {
+        expect(dependencies[dependency], name).toBeDefined();
+      }
     }
   }
+  checkImports(packageImports, deckPackage.dependencies);
+  checkImports(webXRPackageImports, {...layerPackage.dependencies, ...xrPackage.dependencies});
 });
 
 test.each(['deck', 'webxr', 'projected', 'terrain'])('%s standalone entry uses a built application, not an import map', name => {
