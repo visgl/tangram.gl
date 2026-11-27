@@ -1302,7 +1302,8 @@ function createImageLayer({
     id: `${idPrefix}-${layer.id}`,
     image: source.url as string,
     corners,
-    fetch: getBasemapTileFetch(fetch || DEFAULT_LAYER_FETCH, 'image', transformRequest),
+    // MapLibre requests the image of an image source with the resource type 'Image'.
+    fetch: getBasemapTileFetch(fetch || DEFAULT_LAYER_FETCH, 'image', transformRequest, 'Image'),
     ...(imageLoadOptions ? {loadOptions: imageLoadOptions} : {}),
     // As for raster tiles: deck.gl draws with `opacity ** (1 / 2.2)`.
     opacity: getRasterPaintValue(paint, 'raster-opacity') ** 2.2,

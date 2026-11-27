@@ -266,6 +266,7 @@ describe('transformRequest', () => {
 
     expectTransformed(requests[0], url);
     expect(requests[0].init?.signal).toBe(signal);
+    expect(transformRequest).toHaveBeenCalledWith(url, 'Image');
   });
 
   test('changes the tile requests of the tilesets that getBasemapLayers creates', async () => {
