@@ -8,6 +8,8 @@ Copyright (c) vis.gl contributors
 
 ## 1.0.0-alpha.0 — vis.gl integration line
 
+- `BasemapLayer` accepts a `poleColor` prop to override the globe's north-pole cap color.
+
 - Website examples lazy-load installed workspace modules through Docusaurus.
   Standalone Deck, WebXR, projected and terrain pages bundle their npm dependencies
   normally, without import maps, esm.sh or a separate math.gl asset build.

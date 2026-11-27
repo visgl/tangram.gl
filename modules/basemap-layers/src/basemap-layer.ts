@@ -24,6 +24,7 @@ import type {BasemapFeatureState} from './feature-state';
 import {
   CompositeLayer,
   log,
+  type Color,
   type DefaultProps,
   type GetPickingInfoParams,
   type Layer,
@@ -210,6 +211,11 @@ export type BasemapLayerProps = {
    * are placeholders that draw nothing yet.
    */
   atmosphere?: boolean;
+  /**
+   * Colors the globe's north-pole cap with RGB or RGBA channels from 0 to 255. An omitted alpha
+   * defaults to 255. The default `null` uses a guess from the style.
+   */
+  poleColor?: Color | null;
   /**
    * @deprecated Use the `labels` and `atmosphere` props, and deck.gl's `visible` prop in place of
    * `basemap: false`. A field set here overrides the flat prop of the same name.
@@ -452,10 +458,13 @@ type BasemapLayerState = {
   styleConfig: {
     labels: unknown;
     atmosphere: unknown;
+    poleColor: Color | null;
     globe: unknown;
-    value: {config: Required<BasemapGlobeConfig>};
+    value: BasemapStyleConfig;
   } | null;
 };
+
+type BasemapStyleConfig = {config: Required<BasemapGlobeConfig>; poleColor: Color | null};
 
 /**
  * A deck.gl {@link CompositeLayer} that loads a style document and renders the
@@ -475,6 +484,7 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     featureState: null,
     labels: true,
     atmosphere: false,
+    poleColor: {type: 'color', value: null, optional: true},
     globe: null,
     style: null,
     loadOptions: null,
@@ -586,17 +596,17 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
   }
 
   /**
-   * The drawing toggles of the props, in the `{config}` form of the basemap helpers: `labels` and
-   * `atmosphere`, with the fields of the deprecated `globe.config` over them. The object keeps
-   * its identity while these props do not change.
+   * The drawing options for the basemap helpers. The deprecated `globe.config` overrides the
+   * drawing toggles. The object keeps its identity while its inputs do not change.
    */
-  getStyleConfig(): {config: Required<BasemapGlobeConfig>} {
-    const {labels, atmosphere, globe} = this.props;
+  getStyleConfig(): BasemapStyleConfig {
+    const {labels, atmosphere, poleColor, globe} = this.props;
     const cached = this.state?.styleConfig;
     if (
       cached &&
       cached.labels === labels &&
       cached.atmosphere === atmosphere &&
+      cached.poleColor === poleColor &&
       cached.globe === globe
     ) {
       return cached.value;
@@ -614,9 +624,9 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
         }
       }
     }
-    const value = {config};
+    const value = {config, poleColor};
     if (this.state) {
-      this.state.styleConfig = {labels, atmosphere, globe, value};
+      this.state.styleConfig = {labels, atmosphere, poleColor, globe, value};
     }
     return value;
   }
@@ -1326,13 +1336,15 @@ export class BasemapLayer<ExtraPropsT extends {} = {}> extends CompositeLayer<
     this.state.zoomKey = this.getZoomKey(resolvedStyle, viewport);
 
     const insertLayers = this.getValidInsertions(resolvedStyle);
+    const styleConfig = this.getStyleConfig();
     const layers = getBasemapLayers({
       insertLayers,
       idPrefix: this.props.id,
       featureState: this.props.featureState,
       pickable: this.props.pickable,
       mode: this.getDrawMode(viewport),
-      globe: this.getStyleConfig(),
+      globe: styleConfig,
+      poleColor: styleConfig.poleColor,
       styleDefinition: resolvedStyle,
       zoom,
       loadOptions: this.props.loadOptions,
