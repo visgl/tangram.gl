@@ -6,6 +6,7 @@ import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
+import {isFrameReady} from './stable-frame';
 
 const SIZE = 128;
 
@@ -107,7 +108,6 @@ test('sourceData moves a GeoJSON shape without loading the other sources again',
         clearTimeout(timeout);
         resolve();
       };
-      window.requestAnimationFrame(() => deck?.redraw('frame'));
     });
   try {
     const initial = waitFor(({redLeft, redRight, blue}) => redLeft > 50 && !redRight && blue > 10);
@@ -123,18 +123,15 @@ test('sourceData moves a GeoJSON shape without loading the other sources again',
       onError: error => {
         throw error;
       },
+      // The deck draws every frame, after it has updated its layers (see `./stable-frame`).
+      _animate: true,
       onAfterRender: () => {
-        if (
-          !check ||
-          !(deck as any)?.layerManager.getLayers().every((layer: any) => layer.isLoaded)
-        ) {
+        if (!check || !isFrameReady(deck!)) {
           return;
         }
         const counts = countPixels(deck!);
         latest = `${JSON.stringify(counts)} requests=${requests}`;
         if (!check(counts)) {
-          // `redraw` draws at once, so wait for the browser's next frame first.
-          window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
           return;
         }
         const done = complete!;

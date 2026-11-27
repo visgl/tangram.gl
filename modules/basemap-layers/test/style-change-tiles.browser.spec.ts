@@ -6,6 +6,7 @@ import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
+import {createStableFrameWait} from './stable-frame';
 
 // A new style object keeps the TileJSON, the sprite and the tiles of the sources it shares with
 // the previous style, as MapLibre GL JS's `setStyle(style, {diff: true})` keeps them.
@@ -15,14 +16,20 @@ const HEIGHT = 128;
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
-let onFrame: ((image: ImageData) => void) | null = null;
+// The basemap draws sublayers once its style resolves.
+const stableFrames = createStableFrameWait({
+  getDeck: () => deck,
+  width: WIDTH,
+  height: HEIGHT,
+  minLayers: 3
+});
 
 afterEach(() => {
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
-  onFrame = null;
+  stableFrames.cancel();
 });
 
 /** The requests of one test: TileJSON and sprite requests, and tile requests. */
@@ -178,46 +185,28 @@ function createDeck(layer: BasemapLayer): void {
     views: new MapView({id: 'map'}),
     viewState: VIEW as any,
     layers: [layer],
-    onAfterRender: () => {
-      const all = (deck as any)?.layerManager?.getLayers() || [];
-      // The basemap draws sublayers once its style resolves.
-      if (!onFrame || all.length < 3 || all.some((sublayer: any) => !sublayer.isLoaded)) {
-        return;
-      }
-      const copy = document.createElement('canvas');
-      copy.width = WIDTH;
-      copy.height = HEIGHT;
-      const context = copy.getContext('2d')!;
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, WIDTH, HEIGHT));
-    },
+    ...stableFrames.deckProps,
     onError: error => {
       throw error;
     }
   });
 }
 
+/**
+ * The first frame drawn once every sublayer has loaded. A frame drawn while a layer update is
+ * pending counts, so that this is the first frame after a change.
+ */
 function nextFrame(): Promise<ImageData> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
-    onFrame = image => {
-      onFrame = null;
-      window.clearTimeout(timeout);
-      resolve(image);
-    };
-  });
+  return stableFrames.waitForStableFrame({frames: 1, allowLayerUpdate: true, timeout: 30_000});
 }
 
 /** The frame drawn once it has stopped changing: the style and the tiles load over frames. */
-async function settledFrame(): Promise<ImageData> {
-  let previous: ImageData | null = null;
-  for (let same = 0; same < 5;) {
-    window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
-    const image = await nextFrame();
-    same = previous && image.data.every((value, i) => value === previous!.data[i]) ? same + 1 : 0;
-    previous = image;
-  }
-  return previous!;
+function settledFrame(): Promise<ImageData> {
+  return stableFrames.waitForStableFrame({
+    frames: 5,
+    isSame: (a, b) => a.data.every((value, i) => value === b.data[i]),
+    timeout: 30_000
+  });
 }
 
 /** The number of pixels of each pure colour. */

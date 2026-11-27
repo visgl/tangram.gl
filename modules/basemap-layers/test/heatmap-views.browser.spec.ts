@@ -21,6 +21,7 @@ import {BasemapLayer} from '../src/index';
 import {setGeoJsonWorkerEnabled} from '../src/geojson-source';
 import {renderMapLibre} from './reference-render/renderers';
 import {VIEWPORT} from './reference-render/scenes';
+import {createStableFrameWait} from './stable-frame';
 import {
   CONUS_ALBERS_PROJ,
   getProjectedPixel,
@@ -32,10 +33,27 @@ const BACKGROUND = [0x1d, 0x27, 0x33];
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
+// The basemap has resolved its style, and every tile layer has selected its tiles.
+const stableFrames = createStableFrameWait({
+  getDeck: () => deck,
+  width: SIZE,
+  background: '#ffffff',
+  isReady: current => {
+    const layers = (current as any).layerManager.getLayers();
+    const basemap = layers.find((candidate: any) => candidate.id === 'basemap');
+    const tileLayers = layers.filter((candidate: any) => candidate.state?.tileset);
+    return (
+      Boolean(basemap?.state?.resolvedStyle) &&
+      tileLayers.length > 0 &&
+      tileLayers.every((candidate: any) => candidate.state.tileset.selectedTiles)
+    );
+  }
+});
 
 afterEach(() => {
   deck?.finalize();
   deck = null;
+  stableFrames.cancel();
   parent?.remove();
   parent = null;
 });
@@ -45,9 +63,10 @@ function render(layer: Layer, view: any, viewState: Record<string, unknown>) {
   parent = document.createElement('div');
   parent.style.cssText = `position: absolute; left: 0; top: 0; width: ${SIZE}px; height: ${SIZE}px;`;
   document.body.append(parent);
-  let settled = 0;
   return new Promise<Uint8ClampedArray>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 60_000);
+    stableFrames
+      .waitForStableFrame({frames: 5, timeout: 60_000})
+      .then(image => resolve(image.data), reject);
     deck = new Deck({
       parent: parent!,
       width: SIZE,
@@ -57,35 +76,9 @@ function render(layer: Layer, view: any, viewState: Record<string, unknown>) {
       views: view,
       initialViewState: viewState as any,
       layers: [layer],
-      onAfterRender: () => {
-        const layers = (deck as any)?.layerManager?.getLayers() || [];
-        const basemap = layers.find((candidate: any) => candidate.id === 'basemap');
-        const tileLayers = layers.filter((candidate: any) => candidate.state?.tileset);
-        if (
-          !basemap?.state?.resolvedStyle ||
-          tileLayers.length === 0 ||
-          tileLayers.some((candidate: any) => !candidate.state.tileset.selectedTiles) ||
-          layers.some((candidate: any) => !candidate.isLoaded)
-        ) {
-          settled = 0;
-          return;
-        }
-        if (settled++ < 4) {
-          deck!.redraw('settle');
-          return;
-        }
-        const copy = document.createElement('canvas');
-        copy.width = SIZE;
-        copy.height = SIZE;
-        const context = copy.getContext('2d')!;
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, SIZE, SIZE);
-        context.drawImage(deck!.getCanvas()!, 0, 0);
-        window.clearTimeout(timeout);
-        resolve(context.getImageData(0, 0, SIZE, SIZE).data);
-      },
+      ...stableFrames.deckProps,
       onError: error => {
-        window.clearTimeout(timeout);
+        stableFrames.cancel();
         reject(error);
       }
     });

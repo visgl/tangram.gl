@@ -10,6 +10,7 @@ import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
+import {createStableFrameWait} from './stable-frame';
 
 // Two BasemapLayers stacked in one deck, as a base style and a labels style, place their labels
 // together as the layers of one style: where their labels overlap, the later layer's is drawn.
@@ -19,14 +20,20 @@ const HEIGHT = 96;
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
-let onFrame: ((image: ImageData) => void) | null = null;
+// Both basemaps draw sublayers once their styles resolve.
+const stableFrames = createStableFrameWait({
+  getDeck: () => deck,
+  width: WIDTH,
+  height: HEIGHT,
+  minLayers: 4
+});
 
 afterEach(() => {
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
-  onFrame = null;
+  stableFrames.cancel();
 });
 
 /** Each tile holds one point labelled `name` at its center. */
@@ -98,19 +105,7 @@ function createDeck(layers: unknown[], deckProps: Record<string, unknown> = {}):
     views: new MapView({id: 'map'}),
     viewState: VIEW as any,
     layers: layers as any[],
-    onAfterRender: () => {
-      const all = (deck as any)?.layerManager?.getLayers() || [];
-      // Both basemaps draw sublayers once their styles resolve.
-      if (!onFrame || all.length < 4 || all.some((layer: any) => !layer.isLoaded)) {
-        return;
-      }
-      const copy = document.createElement('canvas');
-      copy.width = WIDTH;
-      copy.height = HEIGHT;
-      const context = copy.getContext('2d')!;
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, WIDTH, HEIGHT));
-    },
+    ...stableFrames.deckProps,
     onError: error => {
       throw error;
     },
@@ -118,27 +113,13 @@ function createDeck(layers: unknown[], deckProps: Record<string, unknown> = {}):
   });
 }
 
-function nextFrame(): Promise<ImageData> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
-    onFrame = image => {
-      onFrame = null;
-      window.clearTimeout(timeout);
-      resolve(image);
-    };
-  });
-}
-
 /** The frame drawn once it has stopped changing: styles resolve, and fonts load, over frames. */
-async function settledFrame(): Promise<ImageData> {
-  let previous: ImageData | null = null;
-  for (let same = 0; same < 10; ) {
-    window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
-    const image = await nextFrame();
-    same = previous && image.data.every((value, i) => value === previous!.data[i]) ? same + 1 : 0;
-    previous = image;
-  }
-  return previous!;
+function settledFrame(): Promise<ImageData> {
+  return stableFrames.waitForStableFrame({
+    frames: 10,
+    isSame: (a, b) => a.data.every((value, i) => value === b.data[i]),
+    timeout: 30_000
+  });
 }
 
 /** The number of red and of blue text pixels in columns `x0..x1`. */

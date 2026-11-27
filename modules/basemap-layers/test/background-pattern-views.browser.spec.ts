@@ -21,6 +21,7 @@ import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
 import {getStyleZoom} from '../src/projected-viewport';
 import {loadReferenceStyle} from './reference-render/fixtures';
+import {createStableFrameWait} from './stable-frame';
 
 const SIZE = 384;
 /** `us-highway_3` of the style's sprite: 21 x 17 pixels at pixel ratio 1. */
@@ -28,11 +29,22 @@ const IMAGE = {name: 'us-highway_3', width: 21, height: 17};
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
+/** The basemap of the latest render. */
+const getBasemap = (current: Deck<any>): any =>
+  (current as any).layerManager.getLayers({layerIds: ['basemap']})[0];
+// The sprite loads, then the pattern texture: a few more frames draw it.
+const stableFrames = createStableFrameWait({
+  getDeck: () => deck,
+  width: SIZE,
+  background: '#ffffff',
+  isReady: current => Boolean(getBasemap(current)?.state.spriteAtlases?.length)
+});
 
 /** Releases the deck of the latest render. A test can render more than once. */
 function release(): void {
   deck?.finalize();
   deck = null;
+  stableFrames.cancel();
   parent?.remove();
   parent = null;
 }
@@ -56,47 +68,29 @@ async function render(
   };
   parent = document.createElement('div');
   document.body.append(parent);
-  const result = await new Promise<{gray: Float64Array; styleZoom: number}>((resolve, reject) => {
-    let settled = 0;
-    deck = new Deck({
-      parent: parent!,
-      width: SIZE,
-      height: SIZE,
-      useDevicePixels: false,
-      deviceProps: {adapters: [webgl2Adapter]},
-      views: view,
-      viewState: viewState as any,
-      layers: [new BasemapLayer({id: 'basemap', mode, style: style as any})],
-      onAfterRender: () => {
-        const basemap = (deck as any).layerManager.getLayers({layerIds: ['basemap']})[0];
-        // The sprite loads, then the pattern texture: a few more frames draw it.
-        if (!basemap?.state.spriteAtlases?.length || settled++ < 5) {
-          window.requestAnimationFrame(() => deck?.redraw('settle'));
-          return;
-        }
-        if (nextViewState) {
-          deck!.setProps({viewState: nextViewState as any});
-          nextViewState = undefined;
-          settled = 0;
-          return;
-        }
-        const copy = document.createElement('canvas');
-        copy.width = SIZE;
-        copy.height = SIZE;
-        const context = copy.getContext('2d')!;
-        context.fillStyle = '#ffffff';
-        context.fillRect(0, 0, SIZE, SIZE);
-        context.drawImage(deck!.getCanvas()!, 0, 0);
-        const {data} = context.getImageData(0, 0, SIZE, SIZE);
-        const gray = new Float64Array(SIZE * SIZE);
-        for (let index = 0; index < gray.length; index++) {
-          gray[index] = (data[index * 4] + data[index * 4 + 1] + data[index * 4 + 2]) / 3;
-        }
-        resolve({gray, styleZoom: getStyleZoom(basemap.context.viewport)});
-      },
-      onError: reject
-    });
+  deck = new Deck({
+    parent: parent!,
+    width: SIZE,
+    height: SIZE,
+    useDevicePixels: false,
+    deviceProps: {adapters: [webgl2Adapter]},
+    views: view,
+    viewState: viewState as any,
+    layers: [new BasemapLayer({id: 'basemap', mode, style: style as any})],
+    ...stableFrames.deckProps,
+    onError: stableFrames.fail
   });
+  let image = await stableFrames.waitForStableFrame({frames: 6});
+  if (nextViewState) {
+    deck.setProps({viewState: nextViewState as any});
+    image = await stableFrames.waitForStableFrame({frames: 6});
+  }
+  const gray = new Float64Array(SIZE * SIZE);
+  const {data} = image;
+  for (let index = 0; index < gray.length; index++) {
+    gray[index] = (data[index * 4] + data[index * 4 + 1] + data[index * 4 + 2]) / 3;
+  }
+  const result = {gray, styleZoom: getStyleZoom(getBasemap(deck).context.viewport)};
   release();
   return result;
 }

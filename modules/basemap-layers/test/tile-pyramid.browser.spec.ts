@@ -13,16 +13,19 @@ import {parse} from '@loaders.gl/core';
 import {MVTLoader} from '@loaders.gl/tiles/mvt';
 import {BasemapLayer, getBasemapLayers} from '../src/index';
 import {encodeBoxTile} from './fixtures/mvt-test-tile';
+import {createStableFrameWait} from './stable-frame';
 
 const SIZE = 128;
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
 const originalFetch = globalThis.fetch;
+const stableFrames = createStableFrameWait({getDeck: () => deck, width: SIZE, minLayers: 2});
 
 afterEach(() => {
   deck?.finalize();
   deck = null;
+  stableFrames.cancel();
   parent?.remove();
   parent = null;
   globalThis.fetch = originalFetch;
@@ -98,42 +101,36 @@ function getVectorLayers(): any[] {
 async function renderGlobe(viewState: {longitude: number; latitude: number; zoom: number}, layers: any[], waitForVectorFill = false): Promise<ImageData> {
   parent = document.createElement('div');
   document.body.append(parent);
-  return new Promise<ImageData>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
-    let frames = 0;
-    deck = new Deck({
-      parent,
-      width: SIZE,
-      height: SIZE,
-      useDevicePixels: false,
-      deviceProps: {adapters: [webgl2Adapter]},
-      views: new GlobeView({resolution: 36, id: 'globe'}),
-      initialViewState: viewState,
-      layers,
-      onAfterRender: () => {
-        const all = (deck as any)?.layerManager?.getLayers() || [];
-        const fillReady = !waitForVectorFill || all.some((layer: any) =>
-          !layer.isComposite && layer.id.endsWith('-polygons-fill') && layer.id.includes('world') &&
-          layer.props.visible && layer.getModels().length > 0
-        );
-        if (++frames < 20 || all.length < 2 || !fillReady || all.some((layer: any) => !layer.isLoaded)) {
-          requestAnimationFrame(() => deck?.redraw('waiting'));
-          return;
-        }
-        const copy = document.createElement('canvas');
-        copy.width = SIZE;
-        copy.height = SIZE;
-        const context = copy.getContext('2d')!;
-        context.drawImage(deck!.getCanvas()!, 0, 0);
-        window.clearTimeout(timeout);
-        resolve(context.getImageData(0, 0, SIZE, SIZE));
-      },
-      onError: error => {
-        window.clearTimeout(timeout);
-        reject(error);
-      }
-    });
+  const frame = stableFrames.waitForStableFrame({
+    frames: 1,
+    afterFrames: 20,
+    timeout: 30_000,
+    isReady: current =>
+      !waitForVectorFill ||
+      (current as any).layerManager
+        .getLayers()
+        .some(
+          (layer: any) =>
+            !layer.isComposite &&
+            layer.id.endsWith('-polygons-fill') &&
+            layer.id.includes('world') &&
+            layer.props.visible &&
+            layer.getModels().length > 0
+        )
   });
+  deck = new Deck({
+    parent,
+    width: SIZE,
+    height: SIZE,
+    useDevicePixels: false,
+    deviceProps: {adapters: [webgl2Adapter]},
+    views: new GlobeView({resolution: 36, id: 'globe'}),
+    initialViewState: viewState,
+    layers,
+    ...stableFrames.deckProps,
+    onError: stableFrames.fail
+  });
+  return frame;
 }
 
 describe('tile sources on a globe below zoom 0', () => {

@@ -10,6 +10,7 @@ import {
   createRasterTileFingerprintFilter,
   getRasterTileFingerprint
 } from '../src/index';
+import {createStableFrameWait} from './stable-frame';
 
 const SIZE = 128;
 const TILE_SIZE = 512;
@@ -20,10 +21,23 @@ const PLACEHOLDER_ZOOM = 2;
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
+// The imagery tile layer draws a bitmap for each of the 4 tiles.
+const stableFrames = createStableFrameWait({
+  getDeck: () => deck,
+  width: SIZE,
+  isReady: current => {
+    const all = (current as any).layerManager.getLayers();
+    return (
+      all.some((layer: any) => layer.id === 'basemap-imagery') &&
+      all.filter((layer: any) => layer.id.startsWith('basemap-imagery-')).length >= 4
+    );
+  }
+});
 
 afterEach(() => {
   deck?.finalize();
   deck = null;
+  stableFrames.cancel();
   parent?.remove();
   parent = null;
 });
@@ -93,45 +107,20 @@ const STYLE = {
 function render(props: object): Promise<ImageData> {
   parent = document.createElement('div');
   document.body.append(parent);
-  return new Promise<ImageData>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
-    let frames = 0;
-    deck = new Deck({
-      parent,
-      width: SIZE,
-      height: SIZE,
-      useDevicePixels: false,
-      deviceProps: {adapters: [webgl2Adapter]},
-      views: new MapView({id: 'map', repeat: false}),
-      initialViewState: {longitude: 0, latitude: 0, zoom: 2},
-      layers: [new BasemapLayer({id: 'basemap', style: STYLE, ...props} as any)],
-      onAfterRender: () => {
-        const all = (deck as any)?.layerManager?.getLayers() || [];
-        const tileLayer = all.find((layer: any) => layer.id === 'basemap-imagery');
-        const bitmaps = all.filter((layer: any) => layer.id.startsWith('basemap-imagery-'));
-        if (
-          ++frames < 20 ||
-          !tileLayer ||
-          bitmaps.length < 4 ||
-          all.some((layer: any) => !layer.isLoaded)
-        ) {
-          requestAnimationFrame(() => deck?.redraw('waiting'));
-          return;
-        }
-        const copy = document.createElement('canvas');
-        copy.width = SIZE;
-        copy.height = SIZE;
-        const context = copy.getContext('2d')!;
-        context.drawImage(deck!.getCanvas()!, 0, 0);
-        window.clearTimeout(timeout);
-        resolve(context.getImageData(0, 0, SIZE, SIZE));
-      },
-      onError: error => {
-        window.clearTimeout(timeout);
-        reject(error);
-      }
-    });
+  const frame = stableFrames.waitForStableFrame({frames: 1, afterFrames: 20, timeout: 30_000});
+  deck = new Deck({
+    parent,
+    width: SIZE,
+    height: SIZE,
+    useDevicePixels: false,
+    deviceProps: {adapters: [webgl2Adapter]},
+    views: new MapView({id: 'map', repeat: false}),
+    initialViewState: {longitude: 0, latitude: 0, zoom: 2},
+    layers: [new BasemapLayer({id: 'basemap', style: STYLE, ...props} as any)],
+    ...stableFrames.deckProps,
+    onError: stableFrames.fail
   });
+  return frame;
 }
 
 function pixel(image: ImageData, x: number, y: number): number[] {

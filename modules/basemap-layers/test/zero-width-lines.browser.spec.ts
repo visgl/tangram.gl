@@ -10,6 +10,7 @@ import {Deck, MapView} from '@deck.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
+import {createStableFrameWait} from './stable-frame';
 
 // Lines kept at width 0 for a zoom step, alone or in a batch, draw nothing and are not picked.
 
@@ -17,14 +18,14 @@ const SIZE = 256;
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
-let onFrame: ((image: ImageData) => void) | null = null;
+const stableFrames = createStableFrameWait({getDeck: () => deck, width: SIZE, minLayers: 2});
 
 function cleanup() {
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
-  onFrame = null;
+  stableFrames.cancel();
 }
 
 afterEach(cleanup);
@@ -126,22 +127,10 @@ function style(kept: boolean, {alone = false} = {}) {
 
 /** Resolves with the frame drawn once every sublayer has loaded and the frame stops changing. */
 function nextFrame(): Promise<ImageData> {
-  return new Promise((resolve, reject) => {
-    let previous: ImageData | null = null;
-    let same = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
-    onFrame = image => {
-      same = previous && countDifferent(previous, image) === 0 ? same + 1 : 0;
-      previous = image;
-      if (same < 5) {
-        window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
-        return;
-      }
-      onFrame = null;
-      window.clearTimeout(timeout);
-      resolve(image);
-    };
-    window.requestAnimationFrame(() => deck?.redraw('frame'));
+  return stableFrames.waitForStableFrame({
+    frames: 5,
+    isSame: (a, b) => countDifferent(a, b) === 0,
+    timeout: 30_000
   });
 }
 
@@ -172,18 +161,7 @@ async function render(
     layers: [
       new PickableBasemapLayer({id: 'basemap', mode: 'map', fetch: fetchTile, style: basemapStyle})
     ],
-    onAfterRender: () => {
-      const layers = (deck as any)?.layerManager?.getLayers() || [];
-      if (!onFrame || layers.length < 2 || layers.some((l: any) => !l.isLoaded)) {
-        return;
-      }
-      const copy = document.createElement('canvas');
-      copy.width = SIZE;
-      copy.height = SIZE;
-      const context = copy.getContext('2d')!;
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, SIZE, SIZE));
-    },
+    ...stableFrames.deckProps,
     onError: error => {
       throw error;
     }

@@ -15,6 +15,7 @@ import {getImageWarp, warpImagePoint, type ImageSourceCorners} from '../src/imag
 import {lngLatToMercatorWorld, mercatorWorldToLngLat} from '../src/projected-viewport';
 import {getProjectedPixel, projectUtm32N} from '../../../test/projection-reference';
 import {FIXTURE_ROOT} from './reference-render/fixtures';
+import {createStableFrameWait} from './stable-frame';
 
 // An image source draws on a globe and in a projected view as on a map: each quadrant of the
 // image lands where the warp puts it. `reference-render/image-source.browser.spec.ts` compares
@@ -73,10 +74,20 @@ const ZOOM = 6;
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
+// The basemap has resolved its style.
+const stableFrames = createStableFrameWait({
+  getDeck: () => deck,
+  width: SIZE,
+  isReady: current =>
+    Boolean(
+      (current as any).layerManager.getLayers({layerIds: ['basemap']})[0]?.state?.resolvedStyle
+    )
+});
 
 afterEach(() => {
   deck?.finalize();
   deck = null;
+  stableFrames.cancel();
   parent?.remove();
   parent = null;
 });
@@ -97,8 +108,10 @@ function render(kind: Kind, corners: ImageSourceCorners) {
       ? {center: [longitude, latitude, 0], zoom: ZOOM}
       : {longitude, latitude, zoom: ZOOM, pitch: 0, bearing: 0};
   return new Promise<{pixels: Uint8ClampedArray; viewport: any}>((resolve, reject) => {
-    let settled = 0;
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 60_000);
+    stableFrames.waitForStableFrame({frames: 3, timeout: 60_000}).then(
+      image => resolve({pixels: image.data, viewport: deck!.getViewports()[0]}),
+      reject
+    );
     deck = new Deck({
       parent: parent!,
       width: SIZE,
@@ -114,27 +127,7 @@ function render(kind: Kind, corners: ImageSourceCorners) {
           style: getStyle(corners) as any
         })
       ],
-      onAfterRender: () => {
-        const layers = (deck as any)?.layerManager?.getLayers() || [];
-        const basemap = layers.find((layer: any) => layer.id === 'basemap');
-        if (!basemap?.state?.resolvedStyle || layers.some((layer: any) => !layer.isLoaded)) {
-          return;
-        }
-        if (settled++ < 2) {
-          window.requestAnimationFrame(() => deck?.redraw('settle'));
-          return;
-        }
-        window.clearTimeout(timeout);
-        const copy = document.createElement('canvas');
-        copy.width = SIZE;
-        copy.height = SIZE;
-        const context = copy.getContext('2d')!;
-        context.drawImage(deck!.getCanvas()!, 0, 0);
-        resolve({
-          pixels: context.getImageData(0, 0, SIZE, SIZE).data,
-          viewport: deck!.getViewports()[0]
-        });
-      },
+      ...stableFrames.deckProps,
       onError: error => reject(error)
     });
   });

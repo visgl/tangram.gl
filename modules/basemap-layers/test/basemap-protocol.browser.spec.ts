@@ -8,6 +8,7 @@ import {afterEach, describe, expect, test, vi} from 'vitest';
 import {BasemapLayer, registerBasemapProtocol, unregisterBasemapProtocol} from '../src/index';
 import type {BasemapProtocolHandler, BasemapRequestParameters} from '../src/index';
 import {encodeBoxTile} from './fixtures/mvt-test-tile';
+import {createStableFrameWait} from './stable-frame';
 
 // A basemap whose style, TileJSON, tiles, sprite and GeoJSON data all load from memory through a
 // registered protocol handler.
@@ -18,14 +19,15 @@ const VIEW = {longitude: 0, latitude: 0, zoom: 0, pitch: 0, bearing: 0};
 
 let deck: Deck<any> | null = null;
 let parent: HTMLDivElement | null = null;
-let onFrame: ((image: ImageData) => void) | null = null;
+// The basemap draws sublayers once its style resolves.
+const stableFrames = createStableFrameWait({getDeck: () => deck, width: SIZE, minLayers: 4});
 
 afterEach(() => {
   deck?.finalize();
   deck = null;
   parent?.remove();
   parent = null;
-  onFrame = null;
+  stableFrames.cancel();
   unregisterBasemapProtocol('mem');
 });
 
@@ -107,45 +109,20 @@ function createDeck(layers: unknown[]): void {
     views: new MapView({id: 'map'}),
     viewState: VIEW as any,
     layers: layers as any[],
-    onAfterRender: () => {
-      const all = (deck as any)?.layerManager?.getLayers() || [];
-      if (!onFrame || all.length < 4 || all.some((layer: any) => !layer.isLoaded)) {
-        return;
-      }
-      const copy = document.createElement('canvas');
-      copy.width = SIZE;
-      copy.height = SIZE;
-      const context = copy.getContext('2d')!;
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, SIZE, SIZE));
-    },
+    ...stableFrames.deckProps,
     onError: error => {
       throw error;
     }
   });
 }
 
-function nextFrame(): Promise<ImageData> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error('Timed out rendering')), 30_000);
-    onFrame = image => {
-      onFrame = null;
-      window.clearTimeout(timeout);
-      resolve(image);
-    };
-  });
-}
-
 /** The frame drawn once it has stopped changing: the style, tiles and sprite load over frames. */
-async function settledFrame(): Promise<ImageData> {
-  let previous: ImageData | null = null;
-  for (let same = 0; same < 10; ) {
-    window.setTimeout(() => window.requestAnimationFrame(() => deck?.redraw('settle')), 20);
-    const image = await nextFrame();
-    same = previous && image.data.every((value, i) => value === previous!.data[i]) ? same + 1 : 0;
-    previous = image;
-  }
-  return previous!;
+function settledFrame(): Promise<ImageData> {
+  return stableFrames.waitForStableFrame({
+    frames: 10,
+    isSame: (a, b) => a.data.every((value, i) => value === b.data[i]),
+    timeout: 30_000
+  });
 }
 
 /** The RGB of the pixel at a longitude/latitude of the view. */

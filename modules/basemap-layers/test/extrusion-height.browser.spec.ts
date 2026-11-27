@@ -12,6 +12,7 @@ import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {lngLatToWorld} from '@math.gl/web-mercator';
 import {afterEach, describe, expect, test} from 'vitest';
 import {BasemapLayer} from '../src/basemap-layer';
+import {createStableFrameWait} from './stable-frame';
 
 const SIZE = 256;
 const LONGITUDE = 0.01;
@@ -31,6 +32,7 @@ let parent: HTMLDivElement | null = null;
 function cleanup() {
   deck?.finalize();
   deck = null;
+  stableFrames.cancel();
   parent?.remove();
   parent = null;
 }
@@ -131,29 +133,23 @@ function measure(image: ImageData): Extent {
   return {top, bottom, count};
 }
 
-let onFrame: ((image: ImageData) => void) | null = null;
+// A basemap draws no sublayers until its style resolves.
+const stableFrames = createStableFrameWait({
+  getDeck: () => deck,
+  width: SIZE,
+  background: '#ffffff',
+  minLayers: 2
+});
 
 /**
- * Resolves with a frame drawn a few frames after every sublayer has loaded.
+ * Resolves with a frame drawn a few frames after every sublayer has loaded: tile content can
+ * arrive a frame after the tileset reports it loaded.
  *
  * The test timeout bounds the wait. Concurrent browser test files share one GPU process, so a
  * shorter limit here times out on a busy CI runner while the tiles still load.
  */
 function nextFrame(): Promise<Extent> {
-  return new Promise(resolve => {
-    let frames = 0;
-    onFrame = image => {
-      // Tile content can arrive a frame after the tileset reports it loaded.
-      if (++frames < 5) {
-        // `redraw` draws at once, so wait for the browser's next frame first.
-        window.requestAnimationFrame(() => deck?.redraw('settle'));
-        return;
-      }
-      onFrame = null;
-      resolve(measure(image));
-    };
-    window.requestAnimationFrame(() => deck?.redraw('frame'));
-  });
+  return stableFrames.waitForStableFrame({frames: 5}).then(measure);
 }
 
 function createDeck(layers: unknown[], view: unknown, viewState: ViewState): Promise<Extent> {
@@ -169,22 +165,7 @@ function createDeck(layers: unknown[], view: unknown, viewState: ViewState): Pro
     views: view as any,
     viewState: viewState as any,
     layers: layers as any,
-    onAfterRender: () => {
-      const loaded = (deck as any)?.layerManager?.getLayers() || [];
-      // A basemap draws no sublayers until its style resolves.
-      if (!onFrame || loaded.length < 2 || loaded.some((layer: any) => !layer.isLoaded)) {
-        return;
-      }
-      // Read the frame back in the render callback, before the drawing buffer is cleared.
-      const copy = document.createElement('canvas');
-      copy.width = SIZE;
-      copy.height = SIZE;
-      const context = copy.getContext('2d')!;
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, SIZE, SIZE);
-      context.drawImage(deck!.getCanvas()!, 0, 0);
-      onFrame(context.getImageData(0, 0, SIZE, SIZE));
-    },
+    ...stableFrames.deckProps,
     onError: error => {
       throw error;
     }
