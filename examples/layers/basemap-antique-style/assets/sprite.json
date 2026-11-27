@@ -1,0 +1,44 @@
+{
+  "paper": {
+    "x": 0,
+    "y": 0,
+    "width": 128,
+    "height": 128,
+    "pixelRatio": 1
+  },
+  "hatch": {
+    "x": 128,
+    "y": 0,
+    "width": 16,
+    "height": 16,
+    "pixelRatio": 1
+  },
+  "furrows": {
+    "x": 144,
+    "y": 0,
+    "width": 16,
+    "height": 16,
+    "pixelRatio": 1
+  },
+  "orchard": {
+    "x": 160,
+    "y": 0,
+    "width": 16,
+    "height": 16,
+    "pixelRatio": 1
+  },
+  "wood": {
+    "x": 176,
+    "y": 0,
+    "width": 32,
+    "height": 32,
+    "pixelRatio": 1
+  },
+  "meadow": {
+    "x": 208,
+    "y": 0,
+    "width": 24,
+    "height": 24,
+    "pixelRatio": 1
+  }
+}
