@@ -170,6 +170,10 @@ has a `basemapFeature` field of type `BasemapPickedFeature`, named as in a featu
 `queryRenderedFeatures()` reads them, use deck.gl's `pickObjects()`. Rasters, hillshades and the
 background are not pickable.
 
+The [interleaved layers and picking example](/examples/basemap-layers/interleaved-picking) picks the
+features of a basemap and of a data layer that draws between two of the style's layers, and
+highlights the picked basemap feature with `featureState`.
+
 ### `loadOptions`
 
 Type: `BasemapLayerLoadOptions | null`
