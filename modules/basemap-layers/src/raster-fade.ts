@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {LayerExtension} from '@deck.gl/core';
-import type {Layer, LayerContext, LayerProps} from '@deck.gl/core';
+import type {Layer, LayerProps} from '@deck.gl/core';
 import type {_Tile2DHeader as Tile2DHeader} from '@deck.gl/geo-layers';
 import type {Texture} from '@luma.gl/core';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
@@ -255,8 +255,8 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
     return this.state.releasedParentImage;
   }
 
-  finalizeState(context: LayerContext): void {
-    super.finalizeState(context);
+  finalizeState(): void {
+    super.finalizeState();
     this.state.releasedParentImage?.destroy();
   }
 

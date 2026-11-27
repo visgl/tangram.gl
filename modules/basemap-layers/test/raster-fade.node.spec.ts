@@ -312,7 +312,7 @@ describe('RasterFadeTileLayer', () => {
     );
     expect(second).toBe(first);
     (layer.state as any).tileset.finalize = () => {};
-    layer.finalizeState(layer.context);
+    layer.finalizeState();
     expect(first.destroyed).toBe(true);
   });
 
