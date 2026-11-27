@@ -81,7 +81,8 @@ const config = {
           }]};
           const resolve = {
             alias: {
-              '@tangram.gl/basemap-layers$': path.resolve(__dirname, '../modules/basemap-layers/src/index.ts')
+              '@tangram.gl/basemap-layers$': path.resolve(__dirname, '../modules/basemap-layers/src/index.ts'),
+              '@tangram.gl/basemap-layers/map-style$': path.resolve(__dirname, '../modules/basemap-layers/src/map-style.ts')
             },
             // Source worker URLs use the emitted .js suffix before compilation.
             extensionAlias: {'.js': ['.js', '.ts']}

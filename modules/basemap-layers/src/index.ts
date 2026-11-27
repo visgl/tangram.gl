@@ -21,6 +21,8 @@ export type {
   ResolvedBasemapStyle,
   ResolvedBasemapStyleLayer
 } from './style-resolver';
+export {getStyleView} from './style-view';
+export type {StyleProjection, StyleView, StyleViewState} from './style-view';
 
 export {BasemapLoadError} from './basemap-error';
 export type {BasemapLoadErrorDetails, BasemapLoadErrorKind} from './basemap-error';
