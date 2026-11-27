@@ -21,7 +21,7 @@ import {
 } from '@deck.gl/core';
 import {PathStyleExtension} from '@deck.gl/extensions';
 import {GeoJsonLayer, PolygonLayer, SolidPolygonLayer} from '@deck.gl/layers';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {ProjectedBackgroundLayer} from './projected-background-layer';
 import {ProjectedBitmapLayer} from './projected-bitmap-layer';
 import {

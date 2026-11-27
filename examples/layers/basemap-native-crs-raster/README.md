@@ -38,7 +38,7 @@ not have the code `EPSG:3031`.
 
 ## How the raster loads
 
-`GeoTIFFSourceLoader` of `@loaders.gl/raster` reads the files with HTTP range requests.
+`createGeoTIFFSource` from `@loaders.gl/raster/geotiff` reads the files with HTTP range requests.
 The example loads one overview of each file. When the view stops, it loads the block of
 finer pixels for the area on the screen. Each block is on pixel edges of one level of the
 file, so the read does not resample the pixels.

@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import type {Viewport} from '@deck.gl/core';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {unprojectScreenRay} from '@math.gl/geometry/culling';
 import {containsScreenPixel} from '@tangram.gl/map-utils/screen-ray';
 

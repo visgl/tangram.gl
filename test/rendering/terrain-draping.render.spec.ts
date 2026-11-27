@@ -7,7 +7,7 @@ import {commands} from 'vitest/browser';
 import type {TerrainDrapingOptions} from '@tangram.gl/tangram-renderer/core';
 import {RenderingHarness, coloredPixels, readCanvasPixels, type ViewKind} from './harness';
 import {createRasterScene, createScene} from './scene';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {Deck, MapView} from '@deck.gl/core';
 import {TangramLayer} from '@tangram.gl/tangram-layers';
 import {sampleTerrainElevation} from '@tangram.gl/tangram-renderer/core';

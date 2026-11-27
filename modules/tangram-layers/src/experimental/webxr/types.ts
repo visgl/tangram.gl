@@ -5,7 +5,7 @@
 import type {HostFrameOptions, HostRenderView} from '@tangram.gl/tangram-renderer';
 import type {TerrainSurface, TerrainSurfaceHit} from '@tangram.gl/tangram-renderer/core';
 import type {Controller, FirstPersonViewState, MapViewState, View, Viewport} from '@deck.gl/core';
-import type {Matrix4} from '@math.gl/core';
+import type {Matrix4} from '@math.gl/core/matrix';
 
 /** Shared geographic navigation state, independent of the rendered eye. */
 export type XRViewState = Omit<MapViewState, 'zoom'> & FirstPersonViewState & {zoom?: number};

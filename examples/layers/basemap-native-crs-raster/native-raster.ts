@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {GeoTIFFSourceLoader} from '@loaders.gl/raster/geotiff-source-loader';
+import {createGeoTIFFSource, type GeoTIFFRasterSource} from '@loaders.gl/raster/geotiff';
 
 import type {Bounds} from './grid';
 import {toRGBA, type RasterLevel, type RasterTint, type RasterWindow} from './raster-window';
@@ -29,14 +29,14 @@ export type RasterImage = {
 export class NativeRaster {
   /** The URL of the GeoTIFF. */
   readonly url: string;
-  private readonly source: ReturnType<typeof GeoTIFFSourceLoader.createDataSourceSync>;
+  private readonly source: GeoTIFFRasterSource;
   private readonly tint: RasterTint | undefined;
   private crs: string | undefined;
 
   constructor(url: string, tint?: RasterTint) {
     this.url = url;
     this.tint = tint;
-    this.source = GeoTIFFSourceLoader.createDataSourceSync(url, {
+    this.source = createGeoTIFFSource(url, {
       // Keep the compressed blocks of the file that the view goes back to.
       geotiff: {rangeCacheProps: {maxEntries: 512, maxBytes: 96 * 1024 * 1024}}
     });

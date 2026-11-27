@@ -4,7 +4,7 @@
 
 import {requireTileManager} from './helpers/scene-owners';
 import {afterEach, describe, expect, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import HostFrame from '../src/scene/host_frame';
 import Renderer from '../src/scene/renderer';
 import ClassicScene from '../src/scene/classic_scene';

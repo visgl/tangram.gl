@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import Geo, {type Bounds} from '../utils/geo';
 import type {HostCamera, HostProjection, Viewport} from '../types';
 import type HostFrame from './host_frame';

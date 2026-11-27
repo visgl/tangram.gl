@@ -20,7 +20,7 @@ import {
   type Widget,
   type WidgetProps
 } from '@deck.gl/core';
-import {addMetersToLngLat} from '@math.gl/web-mercator';
+import {addMetersToLngLat} from '@math.gl/geospatial/web-mercator';
 import {BasemapLayer} from '@tangram.gl/basemap-layers';
 import {Map as MapLibreMap, getWorkerUrl, setWorkerUrl} from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';

@@ -38,7 +38,7 @@ export default mergeConfig(getVitestConfig({
     server: {fs: {allow: [fileURLToPath(new URL('.', import.meta.url)), paths.harness]}},
     // Exercise published bundles (including the inlined scene worker), as the rendering tests do.
     optimizeDeps: {
-      include: ['@deck.gl/core', '@luma.gl/core', '@luma.gl/engine', '@luma.gl/core/webgl', '@math.gl/core',
+      include: ['@deck.gl/core', '@luma.gl/core', '@luma.gl/engine', '@luma.gl/core/webgl', '@math.gl/core/matrix',
         '@math.gl/geometry/culling', '@loaders.gl/tiles/mvt', 'maplibre-gl', '@maplibre/maplibre-gl-style-spec'],
       exclude: ['@tangram.gl/tangram-renderer', '@tangram.gl/tangram-layers']
     },

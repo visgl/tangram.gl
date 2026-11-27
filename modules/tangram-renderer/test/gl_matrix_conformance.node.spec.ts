@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {describe, expect, it} from 'vitest';
-import {Matrix3, Matrix4} from '@math.gl/core';
+import {Matrix3, Matrix4} from '@math.gl/core/matrix';
 
 // Expected arrays were captured from gl-mat3@1.0.0 and gl-mat4@1.1.4 before removing them.
 describe('math.gl matrix operations', () => {

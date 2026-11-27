@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 
 /** Distance to the geographic anchor along the preview camera's optical axis, in room meters. */
 export function getPreviewDistance(presentation, size, viewState = presentation.getViewState()) {

@@ -23,8 +23,8 @@ beforeAll(async () => {
   );
 });
 
-/** A view of UTM zone 32N, which spans longitudes 6 to 12, zoomed out past the zone. */
-const createZoneViewport = () =>
+/** A view using UTM zone 32N, whose rendering extent spans 21°W to 39°E. */
+const createUtmViewport = () =>
   new CustomProjectionViewport({crs: utm, center: [9, 50, 0], zoom: 4, width: 1000, height: 700});
 
 const point = (name: string, coordinates: number[]) => ({
@@ -53,14 +53,14 @@ describe('labels in a projected view', () => {
   // math.gl draws a position outside the area of use of a projection on the edge of that area.
   const features = [
     point('Stuttgart', [9.18, 48.78]),
-    point('Kyiv', [30.52, 50.45]),
-    point('Dublin', [-6.26, 53.35]),
+    point('Tbilisi', [44.79, 41.72]),
+    point('Reykjavík', [-21.94, 64.15]),
     point('Hamburg', [9.99, 53.55]),
-    point('Lagos', [3.38, 6.52])
+    point('Recife', [-34.88, -8.05])
   ];
 
   test('a label outside the area of use of the projection has no row', () => {
-    const rows = createLayer(createZoneViewport()).getLabelData(features as never, true);
+    const rows = createLayer(createUtmViewport()).getLabelData(features as never, true);
     expect(getNames(rows)).toEqual(['Stuttgart', 'Hamburg']);
   });
 
@@ -75,7 +75,7 @@ describe('labels in a projected view', () => {
   });
 
   test('the rows of a tile depend on the projection of the view', () => {
-    const projected = createLayer(createZoneViewport()).getAnchorKey(true);
+    const projected = createLayer(createUtmViewport()).getAnchorKey(true);
     const map = createLayer(new WebMercatorViewport({width: 8, height: 8})).getAnchorKey(true);
     expect(projected).not.toBe(map);
     expect(projected).toContain('EPSG:32632');
@@ -85,14 +85,14 @@ describe('labels in a projected view', () => {
 
 describe('isPositionDrawn', () => {
   test('is true where the projection draws the position at its own place', () => {
-    const viewport = createZoneViewport();
+    const viewport = createUtmViewport();
     expect(isPositionDrawn(viewport, [9.18, 48.78])).toBe(true);
-    expect(isPositionDrawn(viewport, [6.001, 1])).toBe(true);
-    expect(isPositionDrawn(viewport, [11.999, 83])).toBe(true);
-    // Outside the zone: moved to its edge.
-    expect(isPositionDrawn(viewport, [30.52, 50.45])).toBe(false);
-    expect(isPositionDrawn(viewport, [12.01, 50])).toBe(false);
-    expect(isPositionDrawn(viewport, [9, -10])).toBe(false);
+    expect(isPositionDrawn(viewport, [-20.999, -85])).toBe(true);
+    expect(isPositionDrawn(viewport, [38.999, 85])).toBe(true);
+    // Positions beyond either longitude limit are moved to the edge.
+    expect(isPositionDrawn(viewport, [44.79, 41.72])).toBe(false);
+    expect(isPositionDrawn(viewport, [-21.001, -85])).toBe(false);
+    expect(isPositionDrawn(viewport, [39.001, 85])).toBe(false);
   });
 
   test('is false where the projection has no position or fails', () => {

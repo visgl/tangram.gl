@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {WebMercatorViewport, FirstPersonView, _GlobeViewport as GlobeViewport} from '@deck.gl/core';
 import HostFrame from '../src/scene/host_frame';
 import Renderer from '../src/scene/renderer';

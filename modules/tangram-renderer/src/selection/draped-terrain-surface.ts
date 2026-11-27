@@ -8,7 +8,7 @@ import {TriangleQueryIndex} from '../map-logic/triangle-query-index';
 import log from '../utils/log';
 import {summarizeDrapedTerrainBounds, type DrapedTerrainBoundsSummary} from '../map-logic/draped-terrain-bounds';
 import {intersectRayTriangle} from '@math.gl/geometry/culling';
-import {Vector3} from '@math.gl/core';
+import {Vector3} from '@math.gl/core/matrix';
 import type {TerrainRay, TerrainSurfaceHit} from './terrain_surface';
 import {projectTerrainGlobeVertex} from '../procedures/terrain-globe';
 

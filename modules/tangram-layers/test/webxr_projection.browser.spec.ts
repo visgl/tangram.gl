@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {describe, expect, it, test} from 'vitest';
 import type {XRFrameState} from '../src/experimental/webxr/index.js';
 import HostFrame from '../../tangram-renderer/src/scene/host_frame';

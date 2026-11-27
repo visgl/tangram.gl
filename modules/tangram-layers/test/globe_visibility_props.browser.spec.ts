@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {FirstPersonViewport} from '@deck.gl/core';
 import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4, Quaternion} from '@math.gl/core';
+import {Matrix4, Quaternion} from '@math.gl/core/matrix';
 import {describe, expect, test} from 'vitest';
 import {WebXRInputAdapter, WebXRSurfaceGrabber, createXRPlacementMatrix, pickXRSurface,
   type XRInteractionIntent, type XRMapPlacement, type XRGlobePlacement, type XRSpatialRay,

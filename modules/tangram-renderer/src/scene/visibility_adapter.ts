@@ -5,7 +5,7 @@
 import Geo, {type Bounds, type Meters, type Tile} from '../utils/geo';
 import {TileID, type TileCoordinate} from '../tile/tile_id';
 import type {HostCamera} from '../types';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {PROJECTION_CONSTANTS, projectGeographicVector} from './projection_math';
 
 /** State consumed by a renderer-owned visibility and LOD adapter. */

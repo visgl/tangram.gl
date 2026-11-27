@@ -136,8 +136,8 @@ export class BasemapMaskExtension extends MaskExtension {
     return {...shaders, plugins: [...shaders.plugins, basemapMaskPlugin]};
   }
 
-  draw(this: Layer<Required<BasemapMaskExtensionProps>>, params: any) {
-    MaskExtension.prototype.draw.call(this, params);
+  draw(this: Layer<Required<BasemapMaskExtensionProps>>, params: any, extension: MaskExtension) {
+    MaskExtension.prototype.draw.call(this, params, extension);
     const {maskId, maskInverted, maskOutside} = this.props;
     const {mask, project} = params.shaderModuleProps;
     const channel: MaskChannel | undefined = mask?.maskChannels?.[maskId];

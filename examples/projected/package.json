@@ -8,12 +8,12 @@
   },
   "description": "Experimental worker-projected Tangram basemaps with deck.gl OrthographicView",
   "dependencies": {
-    "@deck.gl/core": "10.0.0-alpha.1",
-    "@luma.gl/core": "10.0.0-alpha.14",
-    "@luma.gl/engine": "10.0.0-alpha.14",
-    "@luma.gl/shaders": "10.0.0-alpha.14",
-    "@math.gl/core": "5.0.0-beta.8",
-    "@math.gl/geospatial": "5.0.0-beta.8",
+    "@deck.gl/core": "10.0.0-alpha.2",
+    "@luma.gl/core": "10.0.0-beta.3",
+    "@luma.gl/engine": "10.0.0-beta.3",
+    "@luma.gl/shaders": "10.0.0-beta.3",
+    "@math.gl/core": "5.0.4",
+    "@math.gl/geospatial": "5.0.4",
     "@tangram.gl/tangram-layers": "workspace:^",
     "@tangram.gl/tangram-renderer": "workspace:^",
     "mjolnir.js": "^3.1.0"

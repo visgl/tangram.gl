@@ -7,7 +7,7 @@ import ShaderProgram from '../gl/shader_program';
 import GLSL from '../gl/glsl';
 import Geo from '../utils/geo';
 import StyleParser from '../styles/style_parser';
-import {Vector3} from '@math.gl/core';
+import {Vector3} from '@math.gl/core/matrix';
 import {convertLumaLight, mapTangramLight} from './light-definitions';
 import type {TangramLight, TangramLightColor, TangramLightMapping, ResolvedTangramLight, NormalizedTangramLight} from './light-definitions';
 import {projectGeographicLight, projectGeographicDirection} from './geographic-lights';

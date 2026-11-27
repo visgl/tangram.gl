@@ -18,7 +18,7 @@ import Task from '../utils/task';
 import Texture from '../gl/texture';
 import {getTileSourceRequest, updateTileSourceRequest} from '../sources/tile_source_state';
 
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import type {TileCoordinate, TileCoordinates, TileSource, TileReference} from './tile_id';
 import type {BrokerMethod, BrokerWorker} from '../utils/worker-types';
 import type {Meters} from '../utils/geo';

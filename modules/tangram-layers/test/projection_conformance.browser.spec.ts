@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {FirstPersonViewport, WebMercatorViewport} from '@deck.gl/core';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {projectGeographicPosition} from '@tangram.gl/tangram-renderer/core';
 import {describe, expect, test} from 'vitest';
 import WebMercatorViewAdapter from '../src/web_mercator_view_adapter';

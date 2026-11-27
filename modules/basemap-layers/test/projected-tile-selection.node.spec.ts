@@ -407,19 +407,19 @@ describe('getProjectedTileIndices', () => {
     expect(indices.every(index => index.z === 1)).toBe(true);
   });
 
-  test('a view of the whole UTM zone selects the tiles of the zone, not of the world', () => {
-    const viewport = createViewport(utm, [9, 42], 1);
+  test('a view of the whole UTM rendering extent selects only the tiles that intersect it', () => {
+    const viewport = createViewport(utm, [9, 0], 0);
     const indices = getProjectedTileIndices(viewport, {z: 5});
-    // Zone 32N spans longitudes 6 to 12 and latitudes 0 to 84: 2 columns and 9 rows at zoom 5.
-    expect(new Set(indices.map(index => index.x))).toEqual(new Set([16, 17]));
-    expect(Math.min(...indices.map(index => index.y))).toBeLessThanOrEqual(3);
-    expect(Math.max(...indices.map(index => index.y))).toBe(15);
+    // Longitudes 21°W to 39°E intersect six columns at zoom 5, across every Mercator row.
+    const expected = [14, 15, 16, 17, 18, 19].flatMap(x =>
+      Array.from({length: 32}, (_, y) => getKey({x, y, z: 5}))
+    );
+    expect(indices.map(getKey).sort()).toEqual(expected.sort());
   });
 
   test('a view that shows no part of the area of use of the projection selects no tiles', () => {
-    // A view of the ground east of UTM zone 32N: math.gl draws every position of the world on
-    // the zone, so no pixel of this screen is drawn back at its own place.
-    const viewport = createViewport(utm, [11.9, 48], 12);
+    // Shift the screen east of 39°E, where math.gl clamps positions to the rendering edge.
+    const viewport = createViewport(utm, [38.9, 48], 12);
     const shifted: ProjectedViewportLike = {
       ...viewportLike(viewport),
       project: lngLat => {
@@ -428,7 +428,7 @@ describe('getProjectedTileIndices', () => {
       },
       unproject: pixel => viewport.unproject([pixel[0] + 5000, pixel[1]])
     };
-    expect(viewport.unproject([5000, 300])[0]).toBeGreaterThan(12.5);
+    expect(shifted.unproject([0, 300])[0]).toBeGreaterThan(39.5);
     expect(getProjectedTileIndices(shifted, {z: 11})).toEqual([]);
     // A view without positions at all.
     const blank = {...viewportLike(viewport), project: () => [Number.NaN, Number.NaN], unproject: () => [Number.NaN, Number.NaN]};
@@ -479,16 +479,19 @@ describe('getProjectedTileIndices', () => {
     expect([...getTilesUnderScreen(band, 4)].filter(key => !keys.includes(key))).toEqual([]);
   });
 
-  test('a UTM zone drawn smaller than the gaps between the screen points is selected', () => {
-    // Zoomed out to zoom -4, UTM zone 32N is drawn 1 pixel wide and 7 pixels high. The padding
-    // moves the view center, and with it the zone, off the rows of the screen points; the
-    // center of the view, east of the zone, is moved to the edge of the zone.
-    const viewport = createViewport(utm, [20, 42], -4, {padding: {top: 200}});
+  test('a UTM rendering extent drawn between the screen sample rows is selected', () => {
+    // Zoom out and use padding to fit the whole rendering extent between two sample rows.
+    // The view center east of 39°E is clamped to the rendering edge.
+    const viewport = createViewport(utm, [45, 0], -5, {padding: {top: 200}});
+    // The poles bound the projected extent vertically, between rows 10 and 11 of the grid.
+    expect(viewport.project([9, 90])[1]).toBeGreaterThan((10 * HEIGHT) / 16);
+    expect(viewport.project([9, -90])[1]).toBeLessThan((11 * HEIGHT) / 16);
     const drawn = getTilesUnderScreen(viewport, 0, 1);
     expect([...drawn]).toEqual(['0/0/0']);
     expect(getProjectedTileIndices(viewport, {z: 0}).map(getKey)).toEqual(['0/0/0']);
-    // Zone 32N spans longitudes 6 to 12 and latitudes 0 to 84: 1 column and 2 rows at zoom 2.
-    expect(getProjectedTileIndices(viewport, {z: 2}).map(getKey).sort()).toEqual(['2/2/0', '2/2/1']);
+    // The extent straddles longitude 0 and reaches both Mercator latitude limits.
+    const expected = [1, 2].flatMap(x => Array.from({length: 4}, (_, y) => getKey({x, y, z: 2})));
+    expect(getProjectedTileIndices(viewport, {z: 2}).map(getKey).sort()).toEqual(expected);
   });
 
   test('tiles come nearest the view center first', () => {

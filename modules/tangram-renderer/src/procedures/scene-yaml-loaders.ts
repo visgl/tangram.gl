@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {YAMLLoaderWithParser} from '@loaders.gl/documents/yaml-loader';
+import {YAMLLoaderWithParser} from '@loaders.gl/documents/yaml';
 
 /** Parse a Tangram scene with the candidate loaders.gl YAML implementation. */
 export function parseSceneYamlWithLoaders(source: string): unknown {

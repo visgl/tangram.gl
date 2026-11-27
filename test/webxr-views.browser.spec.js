@@ -4,7 +4,7 @@
 
 import {describe, expect, it, test} from 'vitest';
 import {Timeline} from '@luma.gl/engine';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {
   WebXRFirstPersonView,
   WebXRFirstPersonController,

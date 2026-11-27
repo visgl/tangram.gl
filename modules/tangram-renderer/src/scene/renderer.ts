@@ -16,7 +16,7 @@ import type {ProjectedBasemapOptions} from '../procedures/mesh-projector';
 import {normalizeProjectionExecutionOptions} from '../procedures/projection-batch-executor';
 import type {ProjectionExecutionStatistics} from '../procedures/projection-batch-executor';
 import type {FeatureSelectionResult, FeatureSelectionOptions} from '../types';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import {pickTerrainAt} from '../selection/terrain_surface';
 import type {TerrainSurface, TerrainSurfaceHit} from '../selection/terrain_surface';
 import {normalizeTerrainDraping, type TerrainDrapingOptions, type TerrainDrapingSnapshot} from '../procedures/terrain-draping';

@@ -5,7 +5,7 @@
 import {afterEach, beforeEach, expect, test} from 'vitest';
 import {commands} from 'vitest/browser';
 import {_GlobeViewport as GlobeViewport} from '@deck.gl/core';
-import {Vector3} from '@math.gl/core';
+import {Vector3} from '@math.gl/core/matrix';
 import {GLOBE_NORMAL_WGSL, GLOBE_PROJECTION_GLSL} from '../../modules/tangram-renderer/src/scene/projection_shaders';
 import {RenderingHarness, readCanvasPixels, DEVICE_TYPE} from './harness';
 import {submitEyeRenderPass} from '../../examples/webxr/submit-eye.js';

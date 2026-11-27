@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {expect, test, vi} from 'vitest';
-import {Matrix4} from '@math.gl/core';
+import {Matrix4} from '@math.gl/core/matrix';
 import HostFrame from '../src/scene/host_frame';
 import {TerrainMeshSurface, TerrainSurfaceCollection, sampleTerrainElevation, resolveTerrainClearance, pickTerrainAt} from '../src/selection/terrain_surface';
 import {TriangleQueryIndex} from '../src/map-logic/triangle-query-index';
