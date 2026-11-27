@@ -6657,6 +6657,11 @@ __metadata:
   resolution: "@tangram.gl/map-utils@workspace:modules/map-utils"
   dependencies:
     bidi-js: "npm:^1.1.0"
+  peerDependencies:
+    "@deck.gl/core": 10.0.0-alpha.1
+  peerDependenciesMeta:
+    "@deck.gl/core":
+      optional: true
   languageName: unknown
   linkType: soft
 

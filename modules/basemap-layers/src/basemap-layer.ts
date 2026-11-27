@@ -11,8 +11,8 @@ import {
 } from '@deck.gl-community/geo-layers';
 import type {RequestScheduler} from '@loaders.gl/core/loader-utils';
 import {TileLayer, type Tile2DHeader} from '@deck.gl/geo-layers';
+import {isGlobeViewport} from '@tangram.gl/map-utils/viewport';
 import {pickTerrainSurface, type TerrainSurface, type TerrainSurfaceHit} from './terrain-query';
-import {isGlobeViewport} from './is-globe-viewport';
 import {ZoomLoadGate} from './zoom-load-gate';
 import {getStyleZoom, isProjectedViewport} from './projected-viewport';
 import {isGeographicFirstPersonViewport} from './projected-background-layer';

@@ -2,21 +2,17 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) vis.gl contributors
 
-import {Matrix4} from '@math.gl/core';
-import {FirstPersonViewport} from '@deck.gl/core';
+import {FirstPersonViewport, _GlobeViewport as GlobeViewport} from '@deck.gl/core';
 import {expect, test, vi} from 'vitest';
 import createTangramLayerClass from '../src/tangram-layer';
 import {createContextFixture, createRecordFixture, createRendererFixture} from './fixtures/lifecycle';
 
 test('updates globe visibility props without recreating the scene and reports invalid heights', () => {
   class BaseLayer {}
-  class GlobeViewport {}
-  const viewport = Object.assign(new GlobeViewport(), {
-    width: 800, height: 600, longitude: 0, latitude: 0, zoom: 2,
-    isGeospatial: true, cameraPosition: [0, -1000, 0],
-    viewMatrix: new Matrix4(), projectionMatrix: new Matrix4(),
-    getBounds: () => [-120, -60, 120, 60]
-  });
+  const MinifiedViewport = class a extends GlobeViewport {
+    static override displayName = 'a';
+  };
+  const viewport = new MinifiedViewport({width: 800, height: 600, longitude: 0, latitude: 0, zoom: 2});
   const createRenderer = vi.fn();
   const Layer = createTangramLayerClass({Layer: BaseLayer,
     ClassicWebGLRenderer: {create: createRenderer}, Renderer: undefined});

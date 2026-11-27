@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {CompositeLayer} from '@deck.gl/core';
-import {isGlobeViewport} from './is-globe-viewport';
+import {isGlobeViewport} from '@tangram.gl/map-utils/viewport';
 import {
   getProjectedPlaneAngle,
   isGeographicViewport,
