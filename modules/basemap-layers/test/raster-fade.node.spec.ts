@@ -175,32 +175,6 @@ describe('RasterFadeExtension', () => {
     expect(updates).toBe(1);
   });
 
-  test('asks the tile layer once, when the props it draws with still have the ancestor', () => {
-    // deck.gl can draw a layer with props from before its last update. Each draw then still has
-    // the ancestor. A request on each draw updates the tile layer on every frame, without end.
-    const clock = createClock(1300);
-    let updates = 0;
-    const layer = {
-      context: {device: {type: 'webgl'}},
-      props: {
-        image: 'tile-texture',
-        rasterFadeDuration: 300,
-        rasterFadeClock: clock,
-        rasterFade: {start: 1000, parent},
-        rasterFadeParentImage: 'parent-texture'
-      },
-      state: {} as Record<string, unknown>,
-      parent: {setNeedsUpdate: () => updates++},
-      setShaderModuleProps: () => {},
-      setNeedsRedraw: () => {}
-    };
-    for (let frame = 0; frame < 3; frame++) {
-      RasterFadeExtension.prototype.draw.call(layer as any);
-    }
-    expect(updates).toBe(1);
-    expect(layer.state.rasterFadeDrawnFadedIn).toBe(true);
-  });
-
   test('fades a tile without an ancestor in from transparent', () => {
     const clock = createClock(1150);
     const {uniforms, redraws} = draw({
@@ -250,7 +224,18 @@ describe('RasterFadeTileLayer', () => {
       rasterFadeDuration: duration,
       rasterFadeClock: clock
     });
-    (layer as any).context = {device: {type: 'webgl'}};
+    (layer as any).context = {
+      device: {
+        type: 'webgl',
+        createTexture: (props: {id: string}) => ({
+          id: props.id,
+          destroyed: false,
+          destroy() {
+            this.destroyed = true;
+          }
+        })
+      }
+    };
     (layer as any).internalState = {};
     (layer as any).state = {tileset: {selectedTiles: tiles}};
     return layer;
@@ -303,12 +288,42 @@ describe('RasterFadeTileLayer', () => {
     );
     clock.set(800);
     const done = layer.getSubLayerPropsByTile(tile as any) as any;
-    expect(done).toEqual({rasterFade: {start: 500, parent: null}, rasterFadeParentImage: null});
-    // The fade's own record keeps no image either.
+    // Not `null`: deck.gl's `image` prop type fails on `null` after an image. The tile's layer
+    // takes the tile layer's 1 by 1 texture, and releases the texture of the ancestor's image.
+    expect(done).toEqual({
+      rasterFade: {start: 500, parent: null},
+      rasterFadeParentImage: {id: 'fade-released-parent-image', destroyed: false, destroy: expect.any(Function)}
+    });
+    // The fade's own record keeps no ancestor image either.
     expect((layer.state as any).tileFades.get(tile)).toBe(done);
     expect(layer.getSubLayerPropsByTile(tile as any)).toBe(done);
     addFadeSublayer(layer, tile).draw();
     expect(layer.isLoaded).toBe(true);
+  });
+
+  test('all tiles share one released image, which the tile layer deletes', () => {
+    const clock = createClock(500);
+    const tiles = [child(0), child(1)];
+    const layer = createLayer(300, clock, tiles);
+    tiles.forEach(tile => layer.getSubLayerPropsByTile(tile as any));
+    clock.set(800);
+    const [first, second] = tiles.map(
+      tile => (layer.getSubLayerPropsByTile(tile as any) as any).rasterFadeParentImage
+    );
+    expect(second).toBe(first);
+    (layer.state as any).tileset.finalize = () => {};
+    layer.finalizeState(layer.context);
+    expect(first.destroyed).toBe(true);
+  });
+
+  test('a tile without an ancestor keeps a null image to the end of its fade', () => {
+    const clock = createClock(500);
+    const tile = {...child(), parent: null};
+    const layer = createLayer(300, clock, [tile]);
+    const props = layer.getSubLayerPropsByTile(tile as any);
+    clock.set(800);
+    expect(layer.getSubLayerPropsByTile(tile as any)).toBe(props);
+    expect((props as any).rasterFadeParentImage).toBeNull();
   });
 
   test('is loaded once its selected tiles have been drawn faded in', () => {

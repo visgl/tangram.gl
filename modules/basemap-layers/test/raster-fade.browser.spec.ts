@@ -157,6 +157,31 @@ describe('raster-fade-duration in the browser', () => {
     expectColor(center(await render([fadingTile(DURATION, true)])), TILE);
   });
 
+  test('after the fade, the tile lets go of its parent image without an error', async () => {
+    // What `RasterFadeTileLayer` gives a tile's layer when its fade ends. The image is not `null`:
+    // deck.gl's `image` prop type fails on `null` after an image, and the layer keeps drawing
+    // with its old props.
+    const tile = fadingTile(DURATION, true);
+    await render([tile]);
+    const errors: unknown[] = [];
+    const released = (deck as any).device.createTexture({width: 1, height: 1});
+    await new Promise<void>(resolve => {
+      deck!.setProps({
+        onError: error => {
+          errors.push(error);
+        },
+        onAfterRender: () => resolve(),
+        layers: [
+          tile.clone({rasterFade: {start: 1000, parent: null}, rasterFadeParentImage: released})
+        ]
+      });
+    });
+    expect(errors).toEqual([]);
+    const [drawn] = (deck as any).layerManager.getLayers();
+    expect(drawn.internalState.propsInTransition.rasterFade.parent).toBeNull();
+    released.destroy();
+  });
+
   test('a tile without a parent fades in from transparent', async () => {
     const white = [255, 255, 255];
     expectColor(center(await render([fadingTile(0, false)])), white);

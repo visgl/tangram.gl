@@ -3,7 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {LayerExtension} from '@deck.gl/core';
-import type {Layer, LayerProps} from '@deck.gl/core';
+import type {Layer, LayerContext, LayerProps} from '@deck.gl/core';
 import type {_Tile2DHeader as Tile2DHeader} from '@deck.gl/geo-layers';
 import type {Texture} from '@luma.gl/core';
 import {createShaderInjectionPlugin} from './shader-injection-plugin';
@@ -195,13 +195,9 @@ export class RasterFadeExtension extends LayerExtension {
     this.state.rasterFadeDrawnFadedIn = drawnFadedIn;
     if (!drawnFadedIn) {
       this.setNeedsRedraw();
-    } else if (parent && rasterFadeDuration > 0 && !this.state.rasterFadeReleaseRequested) {
+    } else if (parent && rasterFadeDuration > 0) {
       // The cross-fade has ended: the tile layer renders the tile again without the ancestor's
       // image (see `RasterFadeTileLayer.getSubLayerPropsByTile`), which releases its texture.
-      // Ask once. deck.gl can draw the layer with its props from before that update, so the
-      // ancestor can still be there on later draws. A request on each of those draws updates
-      // the tile layer on every frame. The tile looks the same either way: the mix is 0.
-      this.state.rasterFadeReleaseRequested = true;
       this.parent?.setNeedsUpdate();
     }
   }
@@ -217,6 +213,9 @@ export type RasterFadeTileLayerProps = {
 
 /** The sublayer props of one tile's fade. */
 type TileFadeProps = {rasterFade: RasterFade; rasterFadeParentImage: unknown};
+
+/** The size of the texture that replaces an ancestor's image when a fade ends. */
+const RELEASED_PARENT_IMAGE_SIZE = 1;
 
 /**
  * A `ProjectedTileLayer` of raster tiles that fade in over `rasterFadeDuration` (see
@@ -238,7 +237,28 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
 
   declare state: ProjectedTileLayer<DataT, ExtraPropsT & RasterFadeTileLayerProps>['state'] & {
     tileFades?: WeakMap<Tile2DHeader, TileFadeProps>;
+    releasedParentImage?: Texture;
   };
+
+  /**
+   * The image that a tile's layer takes in place of its ancestor's image when the fade ends. The
+   * layer then releases the texture it made from the ancestor's image. It cannot take `null`:
+   * deck.gl's `image` prop type makes a texture of each new value, and fails on `null`. deck.gl
+   * does not delete a texture that a layer receives, so the tile layer owns this one.
+   */
+  private getReleasedParentImage(): Texture {
+    this.state.releasedParentImage ||= this.context.device.createTexture({
+      id: `${this.id}-released-parent-image`,
+      width: RELEASED_PARENT_IMAGE_SIZE,
+      height: RELEASED_PARENT_IMAGE_SIZE
+    });
+    return this.state.releasedParentImage;
+  }
+
+  finalizeState(context: LayerContext): void {
+    super.finalizeState(context);
+    this.state.releasedParentImage?.destroy();
+  }
 
   /** Whether tiles fade: a positive duration, on a device that runs the fade's shader. */
   private fades(): boolean {
@@ -264,11 +284,14 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
       };
       this.state.tileFades.set(tile, fade);
     } else if (
-      fade.rasterFadeParentImage &&
+      fade.rasterFade.parent &&
       this.props.rasterFadeClock!() - fade.rasterFade.start >= this.props.rasterFadeDuration!
     ) {
       // Keep the fade record so `isLoaded` still checks what the sublayers last drew.
-      fade = {rasterFade: {start: fade.rasterFade.start, parent: null}, rasterFadeParentImage: null};
+      fade = {
+        rasterFade: {start: fade.rasterFade.start, parent: null},
+        rasterFadeParentImage: this.getReleasedParentImage()
+      };
       this.state.tileFades.set(tile, fade);
     }
     return fade as Partial<LayerProps>;
