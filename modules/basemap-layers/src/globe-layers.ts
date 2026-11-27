@@ -1274,6 +1274,7 @@ function createImageLayer({
   mode,
   loadOptions,
   fetch,
+  transformRequest,
   depthTested,
   onError
 }: {
@@ -1285,6 +1286,7 @@ function createImageLayer({
   mode: BasemapMode;
   loadOptions?: BasemapLoadOptions;
   fetch?: LayerProps['fetch'];
+  transformRequest?: BasemapTransformRequest | null;
   /** Drawn after an extrusion, see `getTileParameters`. */
   depthTested?: boolean;
 }) {
@@ -1295,12 +1297,14 @@ function createImageLayer({
     getRasterPaintValue(paint, 'raster-resampling') === 'nearest' ||
     getRasterPaintValue(paint, 'resampling') === 'nearest';
   const corners = getImageSourceCorners(source) as ImageSourceCorners;
+  const imageLoadOptions = withTransformRequest(loadOptions, transformRequest);
   return new ImageSourceLayer({
     id: `${idPrefix}-${layer.id}`,
     image: source.url as string,
     corners,
-    ...(fetch ? {fetch} : {}),
-    ...(loadOptions ? {loadOptions} : {}),
+    // MapLibre requests the image of an image source with the resource type 'Image'.
+    fetch: getBasemapTileFetch(fetch || DEFAULT_LAYER_FETCH, 'image', transformRequest, 'Image'),
+    ...(imageLoadOptions ? {loadOptions: imageLoadOptions} : {}),
     // As for raster tiles: deck.gl draws with `opacity ** (1 / 2.2)`.
     opacity: getRasterPaintValue(paint, 'raster-opacity') ** 2.2,
     ...(isColorAdjusted ? {extensions: [RASTER_COLOR_EXTENSION], rasterColorAdjustments} : {}),
@@ -4781,6 +4785,7 @@ function getStyleLayers({
         mode,
         loadOptions,
         fetch,
+        transformRequest,
         onError,
         depthTested: depthTested.has(layer)
       });

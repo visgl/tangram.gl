@@ -118,26 +118,35 @@ type LayerFetch = NonNullable<LayerProps['fetch']>;
 /** The context deck.gl passes to a layer's `fetch` prop. */
 type LayerFetchContext = Parameters<LayerFetch>[1];
 
-const layerFetches = new WeakMap<BasemapTransformRequest, WeakMap<LayerFetch, LayerFetch>>();
+const layerFetches = new Map<
+  BasemapResourceType,
+  WeakMap<BasemapTransformRequest, WeakMap<LayerFetch, LayerFetch>>
+>();
 
 /**
  * A deck.gl layer `fetch` prop for tiles that applies `transformRequest` to each tile URL, then
  * loads the tile with `nextFetch`. The fields of the transformed request are added to each
  * request that the loaders make, through the `fetch` of the loader options. Returns `nextFetch`
  * without `transformRequest`, and the same function for the same arguments, so that the props of
- * a tile layer stay equal.
+ * a tile layer stay equal. `resourceType` is the type that `transformRequest` receives.
  */
 export function getBasemapLayerFetch(
   nextFetch: LayerFetch,
-  transformRequest: BasemapTransformRequest | null | undefined
+  transformRequest: BasemapTransformRequest | null | undefined,
+  resourceType: BasemapResourceType = 'Tile'
 ): LayerFetch {
   if (!transformRequest) {
     return nextFetch;
   }
-  let byFetch = layerFetches.get(transformRequest);
+  let byTransform = layerFetches.get(resourceType);
+  if (!byTransform) {
+    byTransform = new WeakMap();
+    layerFetches.set(resourceType, byTransform);
+  }
+  let byFetch = byTransform.get(transformRequest);
   if (!byFetch) {
     byFetch = new WeakMap();
-    layerFetches.set(transformRequest, byFetch);
+    byTransform.set(transformRequest, byFetch);
   }
   let layerFetch = byFetch.get(nextFetch);
   if (!layerFetch) {
@@ -145,7 +154,7 @@ export function getBasemapLayerFetch(
       if (url.startsWith('pmtiles://')) {
         return nextFetch(url, context);
       }
-      const request = transformBasemapRequest(transformRequest, url, 'Tile');
+      const request = transformBasemapRequest(transformRequest, url, resourceType);
       if (!request.init || Object.keys(request.init).length === 0) {
         return nextFetch(request.url, context);
       }
@@ -202,11 +211,15 @@ export function getBasemapResourceFetch(
   });
 }
 
-/** Applies the request transformation before protocol dispatch for a tile. */
+/**
+ * Applies the request transformation before protocol dispatch for a tile, or for another resource
+ * that a layer loads through its `fetch` prop, such as the image of an `image` source.
+ */
 export function getBasemapTileFetch(
   nextFetch: LayerFetch,
   type: BasemapRequestType,
-  transformRequest: BasemapTransformRequest | null | undefined
+  transformRequest: BasemapTransformRequest | null | undefined,
+  resourceType: BasemapResourceType = 'Tile'
 ): LayerFetch {
-  return getBasemapLayerFetch(getProtocolLayerFetch(nextFetch, type), transformRequest);
+  return getBasemapLayerFetch(getProtocolLayerFetch(nextFetch, type), transformRequest, resourceType);
 }
