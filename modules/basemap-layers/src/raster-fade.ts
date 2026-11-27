@@ -257,7 +257,10 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
 
   finalizeState(): void {
     super.finalizeState();
-    this.state.releasedParentImage?.destroy();
+    this.state?.releasedParentImage?.destroy();
+    if (this.state) {
+      this.state.releasedParentImage = undefined;
+    }
   }
 
   /** Whether tiles fade: a positive duration, on a device that runs the fade's shader. */

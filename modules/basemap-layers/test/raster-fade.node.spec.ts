@@ -314,6 +314,13 @@ describe('RasterFadeTileLayer', () => {
     (layer.state as any).tileset.finalize = () => {};
     layer.finalizeState();
     expect(first.destroyed).toBe(true);
+    expect(layer.state.releasedParentImage).toBeUndefined();
+  });
+
+  test('finalizeState works before the tile layer is initialized', () => {
+    const layer = new RasterFadeTileLayer({id: 'uninitialized'});
+    expect(layer.state).toBeUndefined();
+    expect(() => layer.finalizeState()).not.toThrow();
   });
 
   test('a tile without an ancestor keeps a null image to the end of its fade', () => {

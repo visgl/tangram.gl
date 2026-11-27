@@ -3,6 +3,7 @@
 // Copyright (c) vis.gl contributors
 
 import {Deck, OrthographicView} from '@deck.gl/core';
+import {Texture} from '@luma.gl/core';
 import {webgl2Adapter} from '@luma.gl/core/webgl';
 import {afterEach, describe, expect, test} from 'vitest';
 import {getBasemapLayers} from '../src/index';
@@ -163,23 +164,31 @@ describe('raster-fade-duration in the browser', () => {
     // with its old props.
     const tile = fadingTile(DURATION, true);
     await render([tile]);
+    const [before] = (deck as any).layerManager.getLayers();
+    const ancestorTexture = before.props.rasterFadeParentImage;
+    expect(ancestorTexture).toBeInstanceOf(Texture);
+    expect(ancestorTexture.destroyed).toBe(false);
     const errors: unknown[] = [];
     const released = (deck as any).device.createTexture({width: 1, height: 1});
-    await new Promise<void>(resolve => {
-      deck!.setProps({
-        onError: error => {
-          errors.push(error);
-        },
-        onAfterRender: () => resolve(),
-        layers: [
-          tile.clone({rasterFade: {start: 1000, parent: null}, rasterFadeParentImage: released})
-        ]
+    try {
+      await new Promise<void>(resolve => {
+        deck!.setProps({
+          onError: error => {
+            errors.push(error);
+          },
+          onAfterRender: () => resolve(),
+          layers: [
+            tile.clone({rasterFade: {start: 1000, parent: null}, rasterFadeParentImage: released})
+          ]
+        });
       });
-    });
-    expect(errors).toEqual([]);
-    const [drawn] = (deck as any).layerManager.getLayers();
-    expect(drawn.internalState.propsInTransition.rasterFade.parent).toBeNull();
-    released.destroy();
+      expect(errors).toEqual([]);
+      const [drawn] = (deck as any).layerManager.getLayers();
+      expect(drawn.internalState.propsInTransition.rasterFade.parent).toBeNull();
+      expect(ancestorTexture.destroyed).toBe(true);
+    } finally {
+      released.destroy();
+    }
   });
 
   test('a tile without a parent fades in from transparent', async () => {
