@@ -214,6 +214,9 @@ export type RasterFadeTileLayerProps = {
 /** The sublayer props of one tile's fade. */
 type TileFadeProps = {rasterFade: RasterFade; rasterFadeParentImage: unknown};
 
+/** The size of the texture that replaces an ancestor's image when a fade ends. */
+const RELEASED_PARENT_IMAGE_SIZE = 1;
+
 /**
  * A `ProjectedTileLayer` of raster tiles that fade in over `rasterFadeDuration` (see
  * `RasterFadeExtension`, which `renderSubLayers` adds to the tiles' layers). A tile's fade starts
@@ -234,7 +237,31 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
 
   declare state: ProjectedTileLayer<DataT, ExtraPropsT & RasterFadeTileLayerProps>['state'] & {
     tileFades?: WeakMap<Tile2DHeader, TileFadeProps>;
+    releasedParentImage?: Texture;
   };
+
+  /**
+   * The image that a tile's layer takes in place of its ancestor's image when the fade ends. The
+   * layer then releases the texture it made from the ancestor's image. It cannot take `null`:
+   * deck.gl's `image` prop type makes a texture of each new value, and fails on `null`. deck.gl
+   * does not delete a texture that a layer receives, so the tile layer owns this one.
+   */
+  private getReleasedParentImage(): Texture {
+    this.state.releasedParentImage ||= this.context.device.createTexture({
+      id: `${this.id}-released-parent-image`,
+      width: RELEASED_PARENT_IMAGE_SIZE,
+      height: RELEASED_PARENT_IMAGE_SIZE
+    });
+    return this.state.releasedParentImage;
+  }
+
+  finalizeState(): void {
+    super.finalizeState();
+    this.state?.releasedParentImage?.destroy();
+    if (this.state) {
+      this.state.releasedParentImage = undefined;
+    }
+  }
 
   /** Whether tiles fade: a positive duration, on a device that runs the fade's shader. */
   private fades(): boolean {
@@ -260,11 +287,14 @@ export class RasterFadeTileLayer<DataT = any, ExtraPropsT extends {} = {}> exten
       };
       this.state.tileFades.set(tile, fade);
     } else if (
-      fade.rasterFadeParentImage &&
+      fade.rasterFade.parent &&
       this.props.rasterFadeClock!() - fade.rasterFade.start >= this.props.rasterFadeDuration!
     ) {
       // Keep the fade record so `isLoaded` still checks what the sublayers last drew.
-      fade = {rasterFade: {start: fade.rasterFade.start, parent: null}, rasterFadeParentImage: null};
+      fade = {
+        rasterFade: {start: fade.rasterFade.start, parent: null},
+        rasterFadeParentImage: this.getReleasedParentImage()
+      };
       this.state.tileFades.set(tile, fade);
     }
     return fade as Partial<LayerProps>;

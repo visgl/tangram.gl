@@ -224,7 +224,18 @@ describe('RasterFadeTileLayer', () => {
       rasterFadeDuration: duration,
       rasterFadeClock: clock
     });
-    (layer as any).context = {device: {type: 'webgl'}};
+    (layer as any).context = {
+      device: {
+        type: 'webgl',
+        createTexture: (props: {id: string}) => ({
+          id: props.id,
+          destroyed: false,
+          destroy() {
+            this.destroyed = true;
+          }
+        })
+      }
+    };
     (layer as any).internalState = {};
     (layer as any).state = {tileset: {selectedTiles: tiles}};
     return layer;
@@ -277,12 +288,49 @@ describe('RasterFadeTileLayer', () => {
     );
     clock.set(800);
     const done = layer.getSubLayerPropsByTile(tile as any) as any;
-    expect(done).toEqual({rasterFade: {start: 500, parent: null}, rasterFadeParentImage: null});
-    // The fade's own record keeps no image either.
+    // Not `null`: deck.gl's `image` prop type fails on `null` after an image. The tile's layer
+    // takes the tile layer's 1 by 1 texture, and releases the texture of the ancestor's image.
+    expect(done).toEqual({
+      rasterFade: {start: 500, parent: null},
+      rasterFadeParentImage: {id: 'fade-released-parent-image', destroyed: false, destroy: expect.any(Function)}
+    });
+    // The fade's own record keeps no ancestor image either.
     expect((layer.state as any).tileFades.get(tile)).toBe(done);
     expect(layer.getSubLayerPropsByTile(tile as any)).toBe(done);
     addFadeSublayer(layer, tile).draw();
     expect(layer.isLoaded).toBe(true);
+  });
+
+  test('all tiles share one released image, which the tile layer deletes', () => {
+    const clock = createClock(500);
+    const tiles = [child(0), child(1)];
+    const layer = createLayer(300, clock, tiles);
+    tiles.forEach(tile => layer.getSubLayerPropsByTile(tile as any));
+    clock.set(800);
+    const [first, second] = tiles.map(
+      tile => (layer.getSubLayerPropsByTile(tile as any) as any).rasterFadeParentImage
+    );
+    expect(second).toBe(first);
+    (layer.state as any).tileset.finalize = () => {};
+    layer.finalizeState();
+    expect(first.destroyed).toBe(true);
+    expect(layer.state.releasedParentImage).toBeUndefined();
+  });
+
+  test('finalizeState works before the tile layer is initialized', () => {
+    const layer = new RasterFadeTileLayer({id: 'uninitialized'});
+    expect(layer.state).toBeUndefined();
+    expect(() => layer.finalizeState()).not.toThrow();
+  });
+
+  test('a tile without an ancestor keeps a null image to the end of its fade', () => {
+    const clock = createClock(500);
+    const tile = {...child(), parent: null};
+    const layer = createLayer(300, clock, [tile]);
+    const props = layer.getSubLayerPropsByTile(tile as any);
+    clock.set(800);
+    expect(layer.getSubLayerPropsByTile(tile as any)).toBe(props);
+    expect((props as any).rasterFadeParentImage).toBeNull();
   });
 
   test('is loaded once its selected tiles have been drawn faded in', () => {
