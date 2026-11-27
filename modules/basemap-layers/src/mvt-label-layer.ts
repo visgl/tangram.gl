@@ -217,16 +217,21 @@ export type MVTLabelLayerProps = {
    * by one tile. Tile-local coordinates always use the tile's `[0, 1)` square.
    */
   tileBoundingBox?: {west: number; south: number; east: number; north: number} | null;
-  /** The tile's zoom level, at which labels along lines are spaced. Default: the integer `zoom`. */
+  /** The tile's index zoom. Defaults to the integer map zoom adjusted for the tile size. */
   tileZoom?: number | null;
+  /**
+   * The source's deepest tile zoom (`maxzoom`), in tile-index zoom like `tileZoom`.
+   * Coarser tiles never overzoom.
+   */
+  tileMaxZoom?: number | null;
   /** The tile's size in pixels at its own zoom. Default: 512. */
   tileSize?: number | null;
   /**
    * The label features of several tiles, labelled together in one layer instead of `data`: each
-   * tile's anchors are placed as for a layer of its own (`tileBoundingBox`, `tileZoom` and
-   * `tileSize` per tile), then drawn in longitude/latitude. Pass the same array while the tiles do
-   * not change; a tile keeps its anchors while its features, and the inputs they depend on, do not
-   * change. See {@link LabelTile}.
+   * tile's anchors are placed as for a layer of its own, using its `tileBoundingBox`, `tileZoom`,
+   * `tileMaxZoom` and `tileSize`, then drawn in longitude/latitude. Pass the same array while
+   * the tiles stay the same. A tile keeps its anchors while its features and placement inputs
+   * stay the same. See {@link LabelTile}.
    */
   tiles?: LabelTile[] | null;
 };
@@ -244,6 +249,11 @@ export type LabelTile = {
     north: number;
   } | null;
   tileZoom?: number | null;
+  /**
+   * The source's deepest tile zoom (`maxzoom`), in tile-index zoom like `tileZoom`.
+   * Coarser tiles never overzoom.
+   */
+  tileMaxZoom?: number | null;
   tileSize?: number | null;
   /** Returned as `info.tile` when a label of the tile is picked. */
   tile?: unknown;
@@ -1099,7 +1109,7 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
   private placingTile: LabelTile | null = null;
 
   /** The tile props that anchors are placed with: the tile being placed, or this layer's. */
-  getTileProps(): Pick<MVTLabelLayerProps, 'tileBoundingBox' | 'tileZoom' | 'tileSize'> {
+  getTileProps(): Pick<MVTLabelLayerProps, 'tileBoundingBox' | 'tileZoom' | 'tileMaxZoom' | 'tileSize'> {
     return this.placingTile ?? this.props;
   }
 
@@ -2336,10 +2346,10 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
   }
 
   /**
-   * The zoom at which labels along lines are placed, and the tile's size in pixels there. As in
-   * MapLibre, placement uses the tile's own zoom, so labels stay put while the map zooms within a
-   * tile; an overzoomed tile is placed at the integer map zoom. A tile's own zoom is the map zoom
-   * at which it is drawn `tileSize` pixels wide: one less than its tile zoom for 256 px tiles.
+   * Returns the placement zoom for line labels and the tile's pixel size at that zoom.
+   * The tile's own zoom accounts for its size. For a 256 px tile it is one less than its index zoom.
+   * At the source's deepest tile level, or if the limit is unknown, placement can scale up to
+   * the integer map zoom. Coarser tiles always use their own zoom.
    */
   getLinePlacementScale(): {zoom: number; tileZoom: number; tileSize: number} {
     const mapZoom = Math.floor(this.props.zoom || 0);
@@ -2347,7 +2357,10 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
     const size = tileProps.tileSize || 512;
     const tileZoom = tileProps.tileZoom ?? mapZoom + Math.log2(512 / size);
     const ownZoom = tileZoom - Math.log2(512 / size);
-    const zoom = Math.max(ownZoom, mapZoom);
+    const {tileMaxZoom} = tileProps;
+    const canOverzoom =
+      tileMaxZoom == null || !Number.isFinite(tileMaxZoom) || tileZoom >= tileMaxZoom;
+    const zoom = canOverzoom ? Math.max(ownZoom, mapZoom) : ownZoom;
     return {zoom, tileZoom, tileSize: size * 2 ** (zoom - ownZoom)};
   }
 
@@ -2600,16 +2613,16 @@ export class MVTLabelLayer extends CompositeLayer<MVTLabelLayerProps> {
 
   /**
    * The inputs besides the tile data that the anchors depend on: `symbol-placement`, the
-   * coordinate mode, the tile's extent and, for globe tiles, the search precision's zoom. Labels
-   * along lines also depend on the placement scale and on the style values that size and space
-   * them.
+   * coordinate mode, the tile's extent and, for geographic polygon anchors, the search precision's
+   * zoom. Labels along lines also depend on the placement scale and on the style values that size
+   * and space them.
    */
   getAnchorKey(geographic: boolean): string {
     const placement = this.getSymbolPlacement();
     return JSON.stringify([
       placement,
       geographic,
-      geographic ? Math.floor(this.props.zoom || 0) : null,
+      geographic && placement === 'point' ? Math.floor(this.props.zoom || 0) : null,
       // The rows a projected view keeps depend on its projection (see `getLabelData`).
       isProjectedViewport(this.context?.viewport) ? this.context.viewport.crs?.signature : null,
       this.getTileBounds(geographic),

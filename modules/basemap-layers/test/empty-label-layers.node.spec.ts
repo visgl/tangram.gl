@@ -70,6 +70,21 @@ const freshState = () => ({
 const all = () => true;
 const onlyWithoutPlaces = (tile: any) => tile === withoutPlaces;
 
+test('passes the source maxzoom to shared label tiles and individual label sublayers', () => {
+  const styleDefinition = style();
+  styleDefinition.sources.tiles.maxzoom = 15;
+  const layer = tileLayer(19, freshState(), styleDefinition);
+  const [sharedLabels] = labelLayers(layer, tile => tile === withPlace);
+  const [tileLabels] = layer.props.renderSubLayers({
+    ...layer.props,
+    id: withPlace.id,
+    data: withPlace.content,
+    tile: withPlace
+  });
+  expect(sharedLabels.props.tiles).toMatchObject([{tileZoom: 2, tileMaxZoom: 15}]);
+  expect(tileLabels.props).toMatchObject({tileZoom: 2, tileMaxZoom: 15});
+});
+
 describe('a label layer whose drawn tiles lose its features', () => {
   test('is not made while no drawn tile has its features', () => {
     const layer = tileLayer(2, freshState());

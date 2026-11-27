@@ -1734,13 +1734,15 @@ class StyledMVTLayer extends SharedMVTLayer {
     const previous = this.state.labelTiles.get(cacheKey) || new Map();
     const next = new Map<number, {key: unknown[]; tiles: LabelTile[]}>();
     const tileSize = (this.props as {tileSize?: number}).tileSize ?? 512;
+    const {maxZoom} = this.props;
+    const tileMaxZoom = maxZoom != null && Number.isFinite(maxZoom) ? maxZoom : null;
     for (const tile of tiles) {
       const byStyleLayer =
         tile.content && isShown(tile) ? this.state.tileLabelFeatures?.get(tile.id) : null;
       for (const [styleLayerIndex, features] of byStyleLayer || []) {
         let entry = next.get(styleLayerIndex);
         if (!entry) {
-          entry = {key: [], tiles: []};
+          entry = {key: [tileMaxZoom], tiles: []};
           next.set(styleLayerIndex, entry);
         }
         entry.key.push(tile, features);
@@ -1749,6 +1751,7 @@ class StyledMVTLayer extends SharedMVTLayer {
           features,
           tileBoundingBox: (tile.bbox as LabelTile['tileBoundingBox']) ?? null,
           tileZoom: tile.index?.z ?? null,
+          tileMaxZoom,
           tileSize,
           tile
         });
@@ -2943,8 +2946,9 @@ function createSymbolSubLayer({
     labelPlacement,
     // Polygon labels outside the tile's own extent are left to the neighbouring tile.
     tileBoundingBox: props.tile?.bbox ?? null,
-    // Labels along lines are spaced in pixels at the tile's own zoom.
+    // The source limit and tile zoom are both in tile-index zoom.
     tileZoom: props.tile?.index?.z ?? null,
+    tileMaxZoom: Number.isFinite(props.maxZoom) ? props.maxZoom : null,
     tileSize: props.tileSize ?? null,
     zoom: getZoomBucket(zoom),
     // The style spec's default `text-color` is black.

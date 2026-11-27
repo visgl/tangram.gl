@@ -194,12 +194,23 @@ describe('MVTLabelLayer line placement', () => {
     expect(at(14.75)).toEqual(at(15.25));
   });
 
-  test('spaces an overzoomed tile at the map zoom and drops anchors outside the tile', () => {
-    // At zoom 16 the zoom-14 tile is 2048 px wide: anchors every 250 px from 125.
-    const rows = lineLayer({zoom: 16}).getLabelData([ACROSS_TILE], false) as any[];
-    expect(rows).toHaveLength(8);
-    expect(rows.every(row => row.position[0] >= 0 && row.position[0] < 1)).toBe(true);
+  test('keeps a tile below the source maxzoom at its own zoom', () => {
+    const rows = lineLayer({zoom: 16, tileMaxZoom: 15}).getLabelData([ACROSS_TILE], false);
+    expect(rows).toHaveLength(2);
+    expect(rows.map(row => row.position)).toEqual(
+      lineLayer().getLabelData([ACROSS_TILE], false).map(row => row.position)
+    );
   });
+
+  test.each([14, undefined, null, Infinity])(
+    'spaces an overzoomed tile with source maxzoom %s at the map zoom',
+    tileMaxZoom => {
+      // At zoom 16 the zoom-14 tile is 2048 px wide: anchors every 250 px from 125.
+      const rows = lineLayer({zoom: 16, tileMaxZoom}).getLabelData([ACROSS_TILE], false);
+      expect(rows).toHaveLength(8);
+      expect(rows.every(row => row.position[0] >= 0 && row.position[0] < 1)).toBe(true);
+    }
+  );
 
   test('evaluates symbol-spacing', () => {
     // Every 100 px from 50 px along the clipped line, up to 450 px.
@@ -248,29 +259,34 @@ describe('MVTLabelLayer line placement', () => {
     expect(north.angle).toBeCloseTo(90, 6);
   });
 
-  test('spaces an overzoomed globe tile at the map zoom', () => {
-    // A zoom-8 tile at map zoom 10: 2 degrees of longitude is 2912.7 px, labels every 250 px.
-    const rows = lineLayer({tileZoom: 8, zoom: 10}).getLabelData(
-      [
-        {
-          geometry: {
-            type: 'LineString',
-            coordinates: [
-              [-1, 0],
-              [1, 0]
-            ]
-          },
-          properties: {name: 'Main'}
-        }
-      ],
-      true
-    ) as any[];
-    const pixels = (2 / 360) * 512 * 2 ** 10;
-    expect(rows).toHaveLength(12);
-    rows.slice(1).forEach((row, i) => {
-      expect(row.position[0] - rows[i].position[0]).toBeCloseTo((2 * 250) / pixels, 6);
-    });
-  });
+  test.each([
+    {tileMaxZoom: 8, placementZoom: 10, count: 12},
+    {tileMaxZoom: 9, placementZoom: 8, count: 3}
+  ])(
+    'spaces a globe tile with source maxzoom $tileMaxZoom at zoom $placementZoom',
+    ({tileMaxZoom, placementZoom, count}) => {
+      const rows = lineLayer({tileZoom: 8, zoom: 10, tileMaxZoom}).getLabelData(
+        [
+          {
+            geometry: {
+              type: 'LineString',
+              coordinates: [
+                [-1, 0],
+                [1, 0]
+              ]
+            },
+            properties: {name: 'Main'}
+          }
+        ],
+        true
+      );
+      const pixels = (2 / 360) * 512 * 2 ** placementZoom;
+      expect(rows).toHaveLength(count);
+      rows.slice(1).forEach((row, i) => {
+        expect(row.position[0] - rows[i].position[0]).toBeCloseTo((2 * 250) / pixels, 6);
+      });
+    }
+  );
 
   test('keeps point placement on lines at the middle vertex', () => {
     const rows = lineLayer({}, {'symbol-placement': 'point'}).getLabelData(
@@ -295,6 +311,14 @@ describe('MVTLabelLayer line placement', () => {
       lineLayer({fontFamily: () => 'Another'}).getAnchorKey(false)
     );
   });
+
+  test.each([false, true])('keys line anchors by placement zoom (geographic=%s)', geographic => {
+    const anchorKey = (zoom: number, tileMaxZoom: number) =>
+      lineLayer({zoom, tileMaxZoom}).getAnchorKey(geographic);
+    expect(anchorKey(16, 15)).toBe(anchorKey(18, 15));
+    expect(anchorKey(16, 14)).not.toBe(anchorKey(18, 14));
+  });
+
   test('places labels hidden at the map zoom but sized at the tile zoom', () => {
     // A zoom-15 tile shown at zoom 14.75, where the text is 0 pixels tall; it shows from zoom 15
     // on, with the same anchors.
