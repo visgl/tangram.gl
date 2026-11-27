@@ -16,7 +16,7 @@
     "@luma.gl/core": "10.0.0-beta.3",
     "@luma.gl/engine": "10.0.0-beta.3",
     "@luma.gl/shaders": "10.0.0-beta.3",
-    "@math.gl/geospatial": "5.0.3",
+    "@math.gl/geospatial": "5.0.4",
     "@tangram.gl/basemap-layers": "workspace:*",
     "maplibre-gl": "6.4.1"
   },

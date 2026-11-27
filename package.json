@@ -68,7 +68,7 @@
     "@loaders.gl/core": "5.0.0-rc.2",
     "@loaders.gl/tiles": "5.0.0-rc.2",
     "@maplibre/maplibre-gl-style-spec": "26.4.4",
-    "@math.gl/tasks": "5.0.3",
+    "@math.gl/tasks": "5.0.4",
     "@vis.gl/dev-tools": "2.0.0-alpha.8",
     "@vitest/coverage-v8": "^4.0.18",
     "chai": "^4.5.0",
