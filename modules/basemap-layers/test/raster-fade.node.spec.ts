@@ -175,6 +175,32 @@ describe('RasterFadeExtension', () => {
     expect(updates).toBe(1);
   });
 
+  test('asks the tile layer once, when the props it draws with still have the ancestor', () => {
+    // deck.gl can draw a layer with props from before its last update. Each draw then still has
+    // the ancestor. A request on each draw updates the tile layer on every frame, without end.
+    const clock = createClock(1300);
+    let updates = 0;
+    const layer = {
+      context: {device: {type: 'webgl'}},
+      props: {
+        image: 'tile-texture',
+        rasterFadeDuration: 300,
+        rasterFadeClock: clock,
+        rasterFade: {start: 1000, parent},
+        rasterFadeParentImage: 'parent-texture'
+      },
+      state: {} as Record<string, unknown>,
+      parent: {setNeedsUpdate: () => updates++},
+      setShaderModuleProps: () => {},
+      setNeedsRedraw: () => {}
+    };
+    for (let frame = 0; frame < 3; frame++) {
+      RasterFadeExtension.prototype.draw.call(layer as any);
+    }
+    expect(updates).toBe(1);
+    expect(layer.state.rasterFadeDrawnFadedIn).toBe(true);
+  });
+
   test('fades a tile without an ancestor in from transparent', () => {
     const clock = createClock(1150);
     const {uniforms, redraws} = draw({

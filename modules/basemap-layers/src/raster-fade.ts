@@ -195,9 +195,13 @@ export class RasterFadeExtension extends LayerExtension {
     this.state.rasterFadeDrawnFadedIn = drawnFadedIn;
     if (!drawnFadedIn) {
       this.setNeedsRedraw();
-    } else if (parent && rasterFadeDuration > 0) {
+    } else if (parent && rasterFadeDuration > 0 && !this.state.rasterFadeReleaseRequested) {
       // The cross-fade has ended: the tile layer renders the tile again without the ancestor's
       // image (see `RasterFadeTileLayer.getSubLayerPropsByTile`), which releases its texture.
+      // Ask once. deck.gl can draw the layer with its props from before that update, so the
+      // ancestor can still be there on later draws. A request on each of those draws updates
+      // the tile layer on every frame. The tile looks the same either way: the mix is 0.
+      this.state.rasterFadeReleaseRequested = true;
       this.parent?.setNeedsUpdate();
     }
   }
