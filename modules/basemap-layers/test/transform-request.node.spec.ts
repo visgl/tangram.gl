@@ -244,6 +244,30 @@ describe('transformRequest', () => {
     expectTransformed(findRequest(requests, rasterUrl), rasterUrl);
   });
 
+  test('changes the image source request and keeps its abort signal', async () => {
+    const url = 'https://images.example.com/overlay.png';
+    const requests: Request[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({url: String(input), init});
+      return new Response(null, {status: 204});
+    });
+    const styleDefinition = await resolveBasemapStyle({
+      version: 8,
+      sources: {overlay: {type: 'image', url, coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]]}},
+      layers: [{id: 'overlay', type: 'raster', source: 'overlay'}]
+    });
+    const [image] = getBasemapLayers({styleDefinition, loadOptions: {fetch}, transformRequest});
+    image.internalState = {};
+    const bitmap = image.renderLayers();
+    bitmap.context = {resourceManager: {contains: () => false}};
+    const signal = new AbortController().signal;
+
+    await bitmap.props.fetch(image.props.image, {propName: 'image', layer: bitmap, signal});
+
+    expectTransformed(requests[0], url);
+    expect(requests[0].init?.signal).toBe(signal);
+  });
+
   test('changes the tile requests of the tilesets that getBasemapLayers creates', async () => {
     const requests: Request[] = [];
     const loadOptions = {fetch: createFetch(requests)};

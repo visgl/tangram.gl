@@ -14,6 +14,7 @@ import {
 } from '../src/basemap-protocol';
 import {getBasemapTileFetch} from '../src/basemap-request';
 import {GlyphStore} from '../src/glyph-store';
+import {getBasemapLayers} from '../src/globe-layers';
 import {loadDemTile} from '../src/hillshade-layer';
 import {RasterTileLoader} from '../src/raster-tile-loader';
 import {loadSpriteAtlases} from '../src/sprite';
@@ -204,6 +205,26 @@ describe('BasemapLayer resources with a registered scheme', () => {
       'json mem://basemap/sprite.json',
       'arrayBuffer mem://basemap/fonts/Noto%20Sans/0-255.pbf'
     ]);
+  });
+
+  test('an image source loads from the handler', async () => {
+    const url = 'mem://basemap/overlay.png';
+    const {requests} = registerMemoryProtocol({[url]: new ArrayBuffer(0)});
+    const fetch = vi.fn(async () => new Response(null, {status: 204}));
+    const styleDefinition = await resolveBasemapStyle({
+      version: 8,
+      sources: {overlay: {type: 'image', url, coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]]}},
+      layers: [{id: 'overlay', type: 'raster', source: 'overlay'}]
+    });
+    const [image] = getBasemapLayers({styleDefinition, loadOptions: {fetch}});
+    image.internalState = {};
+    const bitmap = image.renderLayers();
+    bitmap.context = {resourceManager: {contains: () => false}};
+
+    await bitmap.props.fetch(image.props.image, {propName: 'image', layer: bitmap});
+
+    expect(requests).toEqual([{url, type: 'image'}]);
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   test('raster and raster-dem tiles load from the handler, and aborting the tile aborts it', async () => {
